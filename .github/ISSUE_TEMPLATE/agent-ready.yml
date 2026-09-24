@@ -1,0 +1,54 @@
+name: Agent-ready implementation slice
+description: A bounded vertical slice that can be implemented without missing product decisions.
+title: ""
+labels:
+  - ready-for-agent
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: User-visible outcome
+      description: What becomes possible when this issue is complete?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Use observable, testable statements.
+      placeholder: |
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: Non-goals
+      description: What nearby work is deliberately excluded?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Domain and decision context
+      description: Link relevant requirements, CONTEXT sections, and ADRs.
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification
+      description: Required automated checks, manual behaviour checks, and evidence.
+      placeholder: |
+        - Automated:
+        - Manual:
+        - Evidence:
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies and blockers
+      description: Link issues or write "None".
+    validations:
+      required: true

@@ -1,0 +1,95 @@
+# Operating-system metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE and user-specific state
+.vs/
+.idea/
+.vscode/
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+*.pidb
+*.booproj
+*.DotSettings.user
+_ReSharper*/
+*.ncrunch*
+
+# .NET build and package output
+[Bb]in/
+[Oo]bj/
+[Aa]rtifacts/
+[Tt]est[Rr]esults/
+[Bb]enchmark[Dd]ot[Nn]et.[Aa]rtifacts/
+[Pp]ackages/
+*.nupkg
+*.snupkg
+*.nuget.props
+*.nuget.targets
+project.lock.json
+project.fragment.lock.json
+*.pdb
+artifacts/
+publish/
+AppPackages/
+*.app/
+*.dmg
+*.pkg
+*.deb
+*.rpm
+*.AppImage
+*.msix
+*.msixbundle
+
+# Test, coverage, profiling, and crash output
+coverage/
+coverage.*
+*.coverage
+*.coveragexml
+*.trx
+*.testlog
+*.dmp
+*.stackdump
+
+# Front-end and generated output
+node_modules/
+dist/
+build/
+
+# Local application data and backups
+local-data/
+backups/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.dotorbit-backup
+*.dotorbit-backup.*
+
+# Local secrets, signing material, and environment files
+.env
+.env.*
+!.env.example
+secrets.json
+appsettings.*.local.json
+*.pubxml
+*.pubxml.user
+*.publishsettings
+*.pfx
+*.p12
+*.snk
+*.pem
+*.key
+*.jks
+*.keystore
+*.mobileprovision
+
+# Agent scratch state
+.scratch/
+.agent-runs/

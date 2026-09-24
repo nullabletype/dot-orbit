@@ -1,0 +1,488 @@
+<!doctype html>
+<!-- Three variants of the personal task workspace, switchable via ?variant=, on this prototype route. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Three clickable desktop UI directions for a personal project and task manager.">
+  <title>dot-orbit — personal projects</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%230b0d12'/%3E%3Ccircle cx='16' cy='16' r='8' fill='none' stroke='%23ff4fa3' stroke-width='3'/%3E%3Ccircle cx='22' cy='10' r='3' fill='%237ce7b2'/%3E%3C/svg%3E">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #090b10;
+      --panel: #10131a;
+      --panel-2: #151922;
+      --panel-3: #1a1f29;
+      --line: #272d39;
+      --line-soft: #1d222c;
+      --text: #f2f4f7;
+      --muted: #9099a9;
+      --quiet: #626b7a;
+      --mint: #ff4fa3;
+      --success: #7ce7b2;
+      --amber: #ffb86b;
+      --blue: #8bb8ff;
+      --violet: #b49cff;
+      --rose: #ff93a7;
+      --radius: 14px;
+      --shadow: 0 18px 60px rgba(0,0,0,.35);
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 1020px; background: var(--bg); color: var(--text); overflow: hidden; }
+    button, input, select, textarea { font: inherit; }
+    button { color: inherit; }
+    button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
+    .app { height: 100vh; display: grid; grid-template-columns: 228px minmax(560px, 1fr) 320px; grid-template-rows: 64px 1fr; }
+    .topbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 18px; padding: 0 22px; border-bottom: 1px solid var(--line); background: rgba(9,11,16,.94); backdrop-filter: blur(18px); z-index: 20; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 750; letter-spacing: -.02em; min-width: 188px; }
+    .brand-mark { width: 27px; height: 27px; border: 2px solid var(--mint); border-radius: 50%; position: relative; box-shadow: inset 0 0 0 5px var(--bg); }
+    .brand-mark::after { content: ""; position: absolute; width: 7px; height: 7px; border-radius: 50%; right: -3px; top: -3px; background: var(--success); box-shadow: 0 0 0 3px var(--bg); }
+    .topbar > .direction-switcher { display: none; }
+    .direction-switcher { display: flex; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+    .direction-switcher button { border: 0; background: transparent; color: var(--muted); padding: 7px 11px; border-radius: 7px; cursor: pointer; font-size: 13px; }
+    .direction-switcher button.active { background: var(--panel-3); color: var(--text); box-shadow: 0 1px 0 rgba(255,255,255,.05); }
+    .direction-note { font-size: 13px; color: var(--muted); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .top-actions { display: flex; align-items: center; gap: 8px; }
+    .search-button, .add-button, .icon-button { border: 1px solid var(--line); background: var(--panel); border-radius: 9px; min-height: 36px; cursor: pointer; }
+    .search-button { color: var(--muted); padding: 0 12px; }
+    .add-button { border-color: transparent; background: var(--mint); color: #280014; font-weight: 750; padding: 0 14px; }
+    .sidebar { grid-column: 1; grid-row: 2; padding: 18px 12px; border-right: 1px solid var(--line); background: #0c0f15; overflow: auto; }
+    .nav-label { padding: 4px 12px 10px; color: var(--quiet); font-size: 11px; text-transform: uppercase; letter-spacing: .13em; font-weight: 700; }
+    .nav { display: grid; gap: 4px; }
+    .nav button { border: 0; background: transparent; color: var(--muted); border-radius: 9px; display: grid; grid-template-columns: 23px 1fr auto; align-items: center; text-align: left; padding: 10px 11px; cursor: pointer; font-size: 14px; }
+    .nav button:hover { background: var(--panel); color: var(--text); }
+    .nav button.active { background: #25131f; color: var(--mint); }
+    .nav .nav-icon { font-size: 15px; text-align: center; }
+    .count { font-size: 12px; color: var(--quiet); font-variant-numeric: tabular-nums; }
+    .sidebar-foot { margin-top: 28px; padding: 14px 12px; border-top: 1px solid var(--line-soft); color: var(--muted); font-size: 13px; line-height: 1.5; }
+    .sidebar-foot strong { color: var(--text); display: block; font-size: 14px; margin-bottom: 2px; }
+    .main { grid-column: 2; grid-row: 2; overflow: auto; padding: 30px 32px 60px; }
+    .inspector { grid-column: 3; grid-row: 2; border-left: 1px solid var(--line); background: var(--panel); overflow: auto; padding: 24px 22px; }
+    .inspector.empty { display: grid; place-items: center; color: var(--quiet); text-align: center; }
+    .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 28px; }
+    .eyebrow { color: var(--mint); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; font-weight: 750; margin-bottom: 7px; }
+    h1 { font-size: 31px; line-height: 1.1; letter-spacing: -.04em; margin: 0; }
+    .subtitle { color: var(--muted); margin: 8px 0 0; font-size: 14px; }
+    .view-actions { display: flex; gap: 8px; }
+    .ghost { border: 1px solid var(--line); background: transparent; color: var(--muted); padding: 8px 11px; border-radius: 8px; cursor: pointer; }
+    .category-section { margin-bottom: 30px; }
+    .category-title { display: flex; align-items: center; gap: 9px; margin: 0 0 12px; font-size: 13px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .09em; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cat, var(--mint)); }
+    .project-card { border: 1px solid var(--line); background: var(--panel); border-radius: var(--radius); margin-bottom: 10px; overflow: hidden; transition: border .18s, transform .18s; }
+    .project-card:hover { border-color: #3a4251; }
+    .project-summary { display: grid; grid-template-columns: 18px 28px minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 15px 16px; cursor: pointer; }
+    .chevron { color: var(--quiet); transition: transform .18s; font-size: 18px; }
+    .project-card.open .chevron { transform: rotate(90deg); }
+    .project-title { font-weight: 690; letter-spacing: -.01em; }
+    .project-meta { display: flex; gap: 12px; color: var(--muted); font-size: 13px; margin-top: 5px; align-items: center; }
+    .progress { width: 70px; height: 5px; background: #252b36; border-radius: 9px; overflow: hidden; }
+    .progress span { display: block; height: 100%; background: var(--success); border-radius: inherit; }
+    .due { color: var(--muted); font-size: 13px; white-space: nowrap; }
+    .project-tasks { display: none; border-top: 1px solid var(--line-soft); padding: 7px 10px 10px 52px; }
+    .project-card.open .project-tasks { display: block; }
+    .task-row { display: grid; grid-template-columns: 18px 28px minmax(0,1fr) auto auto auto; align-items: center; gap: 10px; min-height: 48px; border-bottom: 1px solid var(--line-soft); padding: 3px 6px; cursor: pointer; }
+    .task-row:last-child { border-bottom: 0; }
+    .task-row:hover { background: rgba(255,255,255,.025); }
+    .task-row.done .task-name { text-decoration: line-through; color: var(--quiet); }
+    .check { width: 19px; height: 19px; border: 1.5px solid #4a5363; border-radius: 6px; background: transparent; cursor: pointer; display: grid; place-items: center; color: #0c1512; padding: 0; }
+    .done .check, .check.checked { border-color: var(--success); background: var(--success); }
+    .check.checked::after, .done .check::after { content: "✓"; font-size: 13px; font-weight: 900; }
+    .task-name { font-size: 14px; }
+    .task-sub { color: var(--quiet); font-size: 12px; margin-top: 3px; }
+    .badge { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line); color: var(--muted); padding: 4px 7px; border-radius: 20px; font-size: 11px; white-space: nowrap; }
+    .badge.override { border-color: color-mix(in srgb, var(--amber) 40%, transparent); color: var(--amber); }
+    .status-pill { display:inline-flex; align-items:center; gap:5px; color:var(--muted); font-size:12px; white-space:nowrap; }
+    .status-pill::before { content:""; width:7px; height:7px; border-radius:50%; background:var(--quiet); }
+    .status-pill.in-progress::before { background:var(--amber); }
+    .status-pill.complete { color:var(--success); }
+    .status-pill.complete::before { background:var(--success); }
+    .drag-handle { border: 0; background: transparent; color: #596272; padding: 4px 0; cursor: grab; font-size: 14px; line-height: 1; user-select: none; touch-action: none; }
+    .drag-handle:active { cursor: grabbing; color: var(--mint); }
+    [draggable="true"].dragging { opacity: .35; }
+    [draggable="true"].drop-before { box-shadow: inset 0 2px 0 var(--mint); }
+    [draggable="true"].drop-after { box-shadow: inset 0 -2px 0 var(--mint); }
+    .today-star { border: 0; background: transparent; color: var(--quiet); cursor: pointer; font-size: 18px; }
+    .today-star.active { color: var(--amber); }
+    .list { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 4px 10px; }
+    .list .task-row { grid-template-columns: 18px 28px minmax(0,1fr) auto auto auto; }
+    .task-row.compact { grid-template-columns: 18px 28px minmax(0,1fr) auto auto; }
+    .group-head { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; font-weight: 700; margin: 24px 0 10px; }
+    .group-head::after { content: ""; height: 1px; background: var(--line); flex: 1; }
+    .empty-state { border: 1px dashed var(--line); border-radius: var(--radius); padding: 44px; text-align: center; color: var(--muted); }
+    .archive-search { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); background: var(--panel); border-radius: 12px; padding: 0 14px; margin-bottom: 18px; }
+    .archive-search input { flex: 1; background: transparent; border: 0; color: var(--text); height: 48px; outline: none; }
+    .archive-item { border-bottom: 1px solid var(--line-soft); padding: 15px 4px; display: grid; grid-template-columns: 1fr auto; gap: 10px; }
+    .archive-item:last-child { border-bottom: 0; }
+    .archive-item p { margin: 5px 0 0; color: var(--muted); font-size: 13px; }
+    .inspector h2 { font-size: 20px; line-height: 1.25; letter-spacing: -.025em; margin: 6px 0 8px; }
+    .inspector-top { display: flex; justify-content: space-between; align-items: center; }
+    .icon-button { width: 34px; color: var(--muted); }
+    .inspector-section { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line); }
+    .inspector-label { color: var(--quiet); font-size: 11px; text-transform: uppercase; letter-spacing: .12em; font-weight: 750; margin-bottom: 9px; }
+    .description { color: #c8ced8; line-height: 1.65; font-size: 14px; }
+    .description h1, .description h2, .description h3 { font-size: 16px; margin: 12px 0 5px; letter-spacing: 0; }
+    .description p { margin: 6px 0; }
+    .description code { color: var(--mint); background: #0b0e13; padding: 2px 5px; border-radius: 4px; }
+    .editable-title { display: block; width: 100%; color: var(--text); background: transparent; border: 1px solid transparent; border-radius: 7px; font-weight: 750; font-size: 20px; line-height: 1.25; margin: 6px 0 8px; padding: 5px 7px; }
+    .editable-title:hover, .field-input:hover, .field-select:hover, .inline-markdown:hover { border-color: #414958; }
+    .field-input, .field-select { width: 100%; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 9px; }
+    .inline-markdown { width: 100%; min-height: 122px; color: #d7dbe2; background: #0b0e13; border: 1px solid var(--line); border-radius: 9px; padding: 11px; resize: vertical; line-height: 1.55; font-size: 13px; }
+    .preview-head { display: flex; align-items: center; justify-content: space-between; margin: 14px 0 6px; }
+    .copy-rich { border: 1px solid color-mix(in srgb, var(--mint) 45%, var(--line)); background: color-mix(in srgb, var(--mint) 10%, var(--panel)); color: #ff8bc3; border-radius: 7px; padding: 6px 9px; cursor: pointer; font-size: 12px; }
+    .rendered-preview { border-left: 2px solid var(--mint); padding: 2px 0 2px 12px; }
+    .hint { color: var(--quiet); font-size: 11px; margin-top: 6px; }
+    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .meta-value { color: var(--text); font-size: 14px; }
+    .participants { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .avatar { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 50%; background: var(--panel-3); border: 1px solid #3b4351; font-size: 11px; font-weight: 800; }
+    .person-name { font-size: 13px; color: var(--muted); }
+    .inspector-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 24px; }
+    .inspector-actions button { border: 1px solid var(--line); background: var(--panel-2); border-radius: 9px; padding: 10px; cursor: pointer; }
+    .inspector-actions .primary { color: #280014; background: var(--mint); border-color: transparent; font-weight: 750; }
+    dialog { width: min(660px, calc(100vw - 60px)); border: 1px solid #343c49; background: var(--panel); color: var(--text); border-radius: 16px; box-shadow: var(--shadow); padding: 0; }
+    dialog::backdrop { background: rgba(3,5,8,.72); backdrop-filter: blur(4px); }
+    .modal-head { padding: 20px 22px; display: flex; justify-content: space-between; border-bottom: 1px solid var(--line); }
+    .modal-head h2 { margin: 0; font-size: 18px; }
+    .modal-tabs { display: flex; gap: 5px; }
+    .modal-tabs button { border: 0; background: transparent; color: var(--muted); padding: 6px 9px; cursor: pointer; border-radius: 7px; }
+    .modal-tabs button.active { color: var(--text); background: var(--panel-3); }
+    .modal-body { padding: 22px; }
+    .modal-body textarea { width: 100%; min-height: 260px; border: 1px solid var(--line); border-radius: 10px; background: #0b0e13; color: var(--text); padding: 15px; resize: vertical; line-height: 1.6; }
+    .modal-foot { padding: 15px 22px; border-top: 1px solid var(--line); display: flex; justify-content: flex-end; gap: 8px; }
+    .modal-foot button { border: 1px solid var(--line); background: var(--panel-2); padding: 9px 14px; border-radius: 8px; cursor: pointer; }
+    .modal-foot .save { background: var(--mint); color: #092117; border-color: transparent; font-weight: 750; }
+    .toast { position: fixed; left: 50%; bottom: 82px; transform: translate(-50%, 20px); background: #ffe7f3; color: #3b0a23; border-radius: 9px; padding: 11px 15px; font-size: 13px; font-weight: 650; opacity: 0; pointer-events: none; transition: .2s; z-index: 100; box-shadow: var(--shadow); }
+    .toast.show { opacity: 1; transform: translate(-50%,0); }
+    .prototype-switcher { position: fixed; z-index: 90; left: 50%; bottom: 20px; transform: translateX(-50%); display: flex; align-items: center; gap: 5px; background: #f7f7fa; color: #1b1d24; border-radius: 999px; padding: 5px; box-shadow: 0 12px 38px rgba(0,0,0,.45); }
+    .prototype-switcher button { border: 0; background: transparent; color: inherit; min-width: 34px; height: 34px; border-radius: 50%; cursor: pointer; }
+    .prototype-switcher button:hover { background: #e7e8ed; }
+    .prototype-switcher strong { min-width: 180px; text-align: center; font: 650 12px/1.2 Inter, sans-serif; }
+
+    /* Direction 2: cards become the main navigation and the inspector floats. */
+    body[data-direction="canvas"] { --bg: #0e0c14; --panel: #16131e; --panel-2: #1d1927; --panel-3: #252030; --line: #332d40; --line-soft: #282332; --mint: #ff4fa3; --success: #a9ef75; --amber: #ffcf70; --radius: 20px; }
+    body[data-direction="canvas"] .app { grid-template-columns: 92px minmax(720px,1fr); }
+    body[data-direction="canvas"] .brand { min-width: 50px; }
+    body[data-direction="canvas"] .brand span:last-child { display: none; }
+    body[data-direction="canvas"] .sidebar { padding: 18px 10px; }
+    body[data-direction="canvas"] .nav-label, body[data-direction="canvas"] .sidebar-foot { display: none; }
+    body[data-direction="canvas"] .nav button { grid-template-columns: 1fr; justify-items: center; gap: 5px; padding: 10px 4px; font-size: 11px; }
+    body[data-direction="canvas"] .nav .nav-icon { font-size: 19px; }
+    body[data-direction="canvas"] .nav .count { display: none; }
+    body[data-direction="canvas"] .main { grid-column: 2; padding-right: 40px; }
+    body[data-direction="canvas"] .inspector { position: fixed; right: 22px; top: 80px; bottom: 22px; width: 340px; z-index: 15; border: 1px solid var(--line); border-radius: 22px; box-shadow: var(--shadow); transform: translateX(calc(100% + 42px)); transition: transform .24s ease; }
+    body[data-direction="canvas"] .inspector.has-selection { transform: none; }
+    body[data-direction="canvas"] .category-section { display: grid; grid-template-columns: repeat(2, minmax(280px,1fr)); gap: 12px; }
+    body[data-direction="canvas"] .category-title { grid-column: 1 / -1; margin-top: 8px; }
+    body[data-direction="canvas"] .project-card { margin: 0; min-height: 126px; }
+    body[data-direction="canvas"] .project-summary { padding: 20px; align-items: start; }
+    body[data-direction="canvas"] .project-tasks { padding-left: 18px; }
+
+    /* Direction 3: dense, keyboard-friendly ledger. */
+    body[data-direction="ledger"] { --bg: #070d12; --panel: #0b141c; --panel-2: #101c26; --panel-3: #172631; --line: #213440; --line-soft: #182934; --mint: #ff4fa3; --success: #78e6b3; --amber: #ffc857; --radius: 4px; font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+    body[data-direction="ledger"] .app { grid-template-columns: minmax(780px,1fr) 340px; grid-template-rows: 106px 1fr; }
+    body[data-direction="ledger"] .topbar { grid-column: 1 / -1; display: grid; grid-template-columns: 170px 1fr auto; grid-template-rows: 52px 44px; padding: 0 18px; }
+    body[data-direction="ledger"] .brand { min-width: 0; }
+    body[data-direction="ledger"] .direction-note { font-size: 12px; }
+    body[data-direction="ledger"] .direction-switcher { justify-self: center; }
+    body[data-direction="ledger"] .top-actions { justify-self: end; }
+    body[data-direction="ledger"] .sidebar { grid-column: 1 / -1; grid-row: 2; height: 44px; position: fixed; top: 61px; left: 0; right: 0; z-index: 30; padding: 0 18px; border-right: 0; border-bottom: 1px solid var(--line); overflow: visible; }
+    body[data-direction="ledger"] .nav-label, body[data-direction="ledger"] .sidebar-foot { display: none; }
+    body[data-direction="ledger"] .nav { display: flex; height: 43px; }
+    body[data-direction="ledger"] .nav button { display: flex; gap: 7px; border-radius: 0; padding: 0 16px; border-bottom: 2px solid transparent; }
+    body[data-direction="ledger"] .nav button.active { background: transparent; border-bottom-color: var(--mint); }
+    body[data-direction="ledger"] .main { grid-column: 1; grid-row: 2; padding: 24px; }
+    body[data-direction="ledger"] .inspector { grid-column: 2; grid-row: 2; }
+    body[data-direction="ledger"] .project-card, body[data-direction="ledger"] .list { border-left: 3px solid var(--cat, var(--line)); }
+    body[data-direction="ledger"] .project-card { margin-bottom: 4px; }
+    body[data-direction="ledger"] .project-summary { padding: 11px 12px; }
+    body[data-direction="ledger"] .task-row { min-height: 42px; }
+    body[data-direction="ledger"] h1 { font-size: 25px; }
+    body[data-direction="ledger"] .page-head { margin-bottom: 18px; }
+
+    @media (max-width: 1120px) {
+      .app { grid-template-columns: 205px minmax(560px,1fr); }
+      .inspector { position: fixed; right: 18px; top: 78px; bottom: 18px; width: 330px; z-index: 40; box-shadow: var(--shadow); border: 1px solid var(--line); border-radius: 14px; transform: translateX(calc(100% + 40px)); transition: transform .2s; }
+      .inspector.has-selection { transform: none; }
+      .direction-note { display: none; }
+    }
+  </style>
+</head>
+<body data-direction="workbench">
+  <div class="app">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span>dot-orbit</span></div>
+      <div class="direction-switcher" aria-label="Design direction">
+        <button class="active" data-direction="workbench" title="Balanced three-column workspace">Workbench</button>
+        <button data-direction="canvas" title="Visual project card canvas">Canvas</button>
+        <button data-direction="ledger" title="Dense keyboard-friendly layout">Ledger</button>
+      </div>
+      <div class="direction-note" id="directionNote">Calm three-pane workspace · context stays visible</div>
+      <div class="top-actions">
+        <button class="search-button" id="jumpSearch" aria-label="Go to archive search">⌕ Search</button>
+        <button class="add-button" id="newTask">＋ New task</button>
+      </div>
+    </header>
+    <aside class="sidebar">
+      <div class="nav-label">Workspace</div>
+      <nav class="nav" id="nav"></nav>
+      <div class="sidebar-foot"><strong id="focusCount">3 tasks today</strong><span>One overdue · 2h 15m planned</span></div>
+    </aside>
+    <main class="main" id="main"></main>
+    <aside class="inspector empty" id="inspector"><div>Select a project or task<br>to see its details</div></aside>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="prototype-switcher" aria-label="Prototype variant switcher">
+    <button id="previousVariant" aria-label="Previous design direction">←</button>
+    <strong id="variantLabel">A — Workbench</strong>
+    <button id="nextVariant" aria-label="Next design direction">→</button>
+  </div>
+
+  <script>
+    const categories = {
+      Work: { color: '#8ce6c0' }, Personal: { color: '#8bb8ff' }, Home: { color: '#ffb86b' }, Learning: { color: '#b49cff' }
+    };
+    const projects = [
+      { id:'p1', title:'Q4 planning', category:'Work', due:'Oct 04', description:'## Outcome\nShape the next quarter around **three clear bets**.\n\nKeep the plan short enough to revisit weekly.', open:true, tasks:['t1','t2','t3'] },
+      { id:'p2', title:'Studio refresh', category:'Home', due:'Oct 12', description:'## Aim\nMake the room calmer and improve the video-call background.\n\n- Better task lighting\n- Clear the cable run', open:false, tasks:['t4','t5'] },
+      { id:'p3', title:'TypeScript course', category:'Learning', due:'Oct 18', description:'Finish the advanced modules and build a small `Result` type example.', open:false, tasks:['t6','t7','t8'] },
+      { id:'p4', title:'Autumn break', category:'Personal', due:'Oct 25', description:'A few days away with no packed itinerary.', open:false, tasks:['t9','t10'] }
+    ];
+    const tasks = [
+      { id:'t1', project:'p1', title:'Draft planning brief', due:'Today', today:true, done:false, category:null, description:'Pull together the open questions and write the first pass.\n\n### Definition of done\nA concise brief ready for comments.', participants:['Avery','Casey'] },
+      { id:'t2', project:'p1', title:'Review capacity assumptions', due:'Tomorrow', today:true, done:false, category:'Personal', description:'Sanity-check planned work against leave and support coverage.', participants:['Avery','Rowan'] },
+      { id:'t3', project:'p1', title:'Agree three quarterly bets', due:'Oct 04', today:false, done:true, completed:'Sep 23', category:null, description:'Decision captured in the planning note.', participants:['Avery','Casey','Rowan'] },
+      { id:'t4', project:'p2', title:'Measure desk wall', due:'Today', today:true, done:false, category:null, description:'Measure width, sockets and the distance to the window.', participants:['Avery'] },
+      { id:'t5', project:'p2', title:'Order warm task light', due:'Oct 10', today:false, done:false, category:null, description:'Look for a dimmable lamp around 3000K.', participants:['Avery','Quinn'] },
+      { id:'t6', project:'p3', title:'Finish generics module', due:'Sep 26', today:false, done:false, category:null, description:'Complete lessons 8–12 and write down anything surprising.', participants:['Avery'] },
+      { id:'t7', project:'p3', title:'Build Result type exercise', due:'Oct 03', today:false, done:false, category:'Work', description:'Implement `Ok` and `Err`, then add narrowing examples.', participants:['Avery','Riley'] },
+      { id:'t8', project:'p3', title:'Complete foundations', due:'Sep 22', today:false, done:true, completed:'Sep 22', category:null, description:'Finished the first four course modules.', participants:['Avery'] },
+      { id:'t9', project:'p4', title:'Shortlist places to stay', due:'Oct 08', today:false, done:false, category:null, description:'Pick three quiet places near walking routes.', participants:['Avery','Quinn'] },
+      { id:'t10', project:'p4', title:'Check train options', due:'Oct 09', today:false, done:true, completed:'Sep 21', category:null, description:'Off-peak options saved to the trip note.', participants:['Avery','Quinn'] }
+    ];
+    const archive = [
+      { title:'Renew home insurance', type:'Task', category:'Home', date:'Sep 12', description:'Policy renewed and documents filed.' },
+      { title:'Summer reading list', type:'Project', category:'Personal', date:'Aug 29', description:'Eight books, six finished, two intentionally dropped.' },
+      { title:'Accessibility audit', type:'Project', category:'Work', date:'Aug 18', description:'Keyboard and screen-reader findings handed over.' },
+      { title:'Bike service', type:'Task', category:'Personal', date:'Jul 30', description:'Brakes, chain and tyres checked.' }
+    ];
+    const viewMeta = {
+      today: ['Today','Your chosen tasks, in the same manual order as the backlog.'],
+      backlog: ['Task backlog','All open tasks in your shared manual order.'],
+      projects: ['Projects','Projects and their subtasks keep a separate manual order.'],
+      categories: ['Categories','All projects grouped by category.'],
+      completed: ['Completed','Recent work, grouped by day and then by week.'],
+      archive: ['Archive','Find older projects and tasks.']
+    };
+    const directions = {
+      workbench:'Calm three-pane workspace · context stays visible',
+      canvas:'Card-led planning canvas · details stay out of the way',
+      ledger:'Dense command view · built for scanning and keyboard flow'
+    };
+    let state = { view:'today', selected:null, selectedType:null, editing:null };
+    let taskOrder = ['t1','t2','t4','t6','t5','t7','t9','t3','t8','t10'];
+    let projectOrder = ['p1','p4','p2','p3'];
+    let categoryOrder = ['Work','Personal','Home','Learning'];
+    const $ = s => document.querySelector(s);
+    const main = $('#main');
+    const inspector = $('#inspector');
+
+    function projectFor(task){ return projects.find(p => p.id === task.project); }
+    function taskCategory(task){ return task.category || projectFor(task).category; }
+    const taskById=id=>tasks.find(t=>t.id===id);
+    const projectById=id=>projects.find(p=>p.id===id);
+    function orderedTasks(filter=()=>true){ return taskOrder.map(taskById).filter(t=>t&&filter(t)); }
+    function orderedProjects(filter=()=>true){ return projectOrder.map(projectById).filter(p=>p&&filter(p)); }
+    function completeCount(project){ return project.tasks.filter(id => tasks.find(t => t.id === id).done).length; }
+    function projectDone(project){ return completeCount(project) === project.tasks.length; }
+    function projectCompletion(project){
+      if (!projectDone(project)) return null;
+      return project.tasks.map(id => tasks.find(t => t.id === id).completed).sort().at(-1);
+    }
+    function escapeHtml(s=''){ return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+    function markdown(src=''){
+      return escapeHtml(src)
+        .replace(/^### (.*)$/gm,'<h3>$1</h3>').replace(/^## (.*)$/gm,'<h2>$1</h2>').replace(/^# (.*)$/gm,'<h1>$1</h1>')
+        .replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>').replace(/`([^`]+)`/g,'<code>$1</code>')
+        .replace(/^- (.*)$/gm,'<p>• $1</p>').replace(/\n\n/g,'</p><p>').replace(/^(?!<h|<p)(.+)$/gm,'<p>$1</p>');
+    }
+    function renderNav(){
+      const counts = {
+        projects: projects.length,
+        categories: Object.keys(categories).length,
+        backlog: tasks.filter(t=>!t.done).length,
+        today: tasks.filter(t=>t.today && !t.done).length,
+        completed: tasks.filter(t=>t.done).length,
+        archive: archive.length
+      };
+      const icons = { today:'☼', backlog:'☷', projects:'◇', categories:'◫', completed:'✓', archive:'⌁' };
+      $('#nav').innerHTML = Object.keys(viewMeta).map(v=>`<button data-view="${v}" class="${state.view===v?'active':''}"><span class="nav-icon">${icons[v]}</span><span>${viewMeta[v][0]}</span><span class="count">${counts[v]}</span></button>`).join('');
+      $('#nav').querySelectorAll('button').forEach(b=>b.onclick=()=>{ state.view=b.dataset.view; state.selected=null; render(); });
+      $('#focusCount').textContent = `${counts.today} task${counts.today===1?'':'s'} today`;
+    }
+    function pageHead(extra=''){
+      const [title,sub] = viewMeta[state.view];
+      return `<div class="page-head"><div><div class="eyebrow">Personal workspace</div><h1>${title}</h1><p class="subtitle">${sub}</p></div><div class="view-actions">${extra}<button class="ghost">•••</button></div></div>`;
+    }
+    function projectStatus(project){ const complete=completeCount(project); return complete===0?['not-started','Not started']:complete===project.tasks.length?['complete','Complete']:['in-progress','In progress']; }
+    function taskRow(task, compact=false, scope='shared'){
+      const project=projectFor(task), inherited=!task.category, draggable=scope!=='none';
+      return `<div class="task-row ${compact?'compact ':''}${task.done?'done':''}" data-task="${task.id}" data-reorder-scope="${scope}" data-project-scope="${project.id}" draggable="${draggable}">
+        ${draggable?'<span class="drag-handle" title="Drag to reorder" aria-hidden="true">⠿</span>':'<span></span>'}
+        <button class="check" data-check="${task.id}" aria-label="${task.done?'Reopen':'Complete'} ${escapeHtml(task.title)}"></button>
+        <div><div class="task-name">${escapeHtml(task.title)}</div><div class="task-sub">${escapeHtml(project.title)}${task.completed?' · completed '+task.completed:''}</div></div>
+        ${compact?'':`<span class="badge ${inherited?'':'override'}" title="${inherited?'Inherited from project':'Task override'}"><span class="dot" style="--cat:${categories[taskCategory(task)].color}"></span>${taskCategory(task)}${inherited?'':' ↗'}</span>`}
+        <span class="due">${escapeHtml(task.due)}</span>
+        ${state.view!=='completed'?`<button class="today-star ${task.today?'active':''}" data-today="${task.id}" aria-label="${task.today?'Remove from':'Add to'} Today">${task.today?'★':'☆'}</button>`:''}
+      </div>`;
+    }
+    function projectCard(project, draggableProject=true){
+      const complete=completeCount(project), percent=Math.round(complete/project.tasks.length*100), done=projectDone(project), [statusClass,statusLabel]=projectStatus(project);
+      return `<article class="project-card ${project.open?'open':''}" style="--cat:${categories[project.category].color}" data-project-card="${project.id}">
+        <div class="project-summary" data-project="${project.id}" data-reorder-id="${project.id}" data-reorder-scope="${draggableProject?'project':'none'}" draggable="${draggableProject}">${draggableProject?'<span class="drag-handle" title="Drag to reorder projects" aria-hidden="true">⠿</span>':'<span></span>'}<span class="chevron">›</span><div><div class="project-title">${done?'✓ ':''}${escapeHtml(project.title)}</div><div class="project-meta"><span class="status-pill ${statusClass}">${statusLabel}</span><span>${complete}/${project.tasks.length} tasks</span><span class="progress"><span style="width:${percent}%"></span></span>${done?`<span>Closed ${projectCompletion(project)}</span>`:''}</div></div><span class="due">${done?'Complete':'Due '+project.due}</span></div>
+        <div class="project-tasks">${project.tasks.map(taskById).map(t=>taskRow(t,true,'project-task')).join('')}</div>
+      </article>`;
+    }
+    function renderProjects(){
+      main.innerHTML=pageHead('<span class="badge">Drag to reorder</span><button class="ghost" id="collapseAll">Collapse all</button>')+`<section class="project-list">${orderedProjects().map(p=>projectCard(p,true)).join('')}</section>`;
+      $('#collapseAll').onclick=()=>{projects.forEach(p=>p.open=false); renderMain();};
+    }
+    function renderCategories(){
+      const sections=categoryOrder.map(cat=>{ const group=orderedProjects(p=>p.category===cat); return `<section class="category-section" data-reorder-scope="category" data-reorder-id="${cat}" draggable="true"><h2 class="category-title"><span class="drag-handle" title="Drag to reorder categories" aria-hidden="true">⠿</span><span class="dot" style="--cat:${categories[cat].color}"></span>${cat} <span class="count">${group.length}</span></h2>${group.map(p=>projectCard(p,false)).join('')||'<div class="empty-state" style="padding:18px">No projects</div>'}</section>`; }).join('');
+      main.innerHTML=pageHead('<span class="badge">⠿ Drag categories to reorder</span><button class="ghost" id="collapseAll">Collapse all</button>')+sections; $('#collapseAll').onclick=()=>{projects.forEach(p=>p.open=false); renderMain();};
+    }
+    function renderListView(filter){
+      const list=orderedTasks(filter);
+      main.innerHTML=pageHead('<span class="badge">⠿ Drag to reorder · shared order</span>')+ (list.length?`<div class="list">${list.map(t=>taskRow(t,false,'shared')).join('')}</div>`:'<div class="empty-state">Nothing here. A rare and excellent sight.</div>');
+    }
+    function renderCompleted(){
+      const groups=[['Today','Sep 24'],['Yesterday','Sep 23'],['Monday','Sep 22'],['Last week','Sep 15–21']];
+      const mapping={Today:tasks.filter(t=>t.completed==='Sep 24'),Yesterday:tasks.filter(t=>t.completed==='Sep 23'),Monday:tasks.filter(t=>t.completed==='Sep 22'),'Last week':tasks.filter(t=>t.completed==='Sep 21')};
+      main.innerHTML=pageHead()+groups.map(([name,date])=>`<section><h2 class="group-head">${name} <span class="count">${date}</span></h2>${mapping[name].length?`<div class="list">${mapping[name].map(t=>taskRow(t,false,'none')).join('')}</div>`:'<div class="empty-state" style="padding:20px">No tasks completed</div>'}</section>`).join('');
+    }
+    function renderArchive(query=''){
+      const matches=archive.filter(a=>(a.title+' '+a.description+' '+a.category).toLowerCase().includes(query.toLowerCase()));
+      main.innerHTML=pageHead()+`<label class="archive-search">⌕<input id="archiveInput" value="${escapeHtml(query)}" placeholder="Search archived projects and tasks" aria-label="Search archive"><span class="count">${matches.length} results</span></label><div class="list">${matches.map(a=>`<div class="archive-item"><div><strong>${escapeHtml(a.title)}</strong><p>${escapeHtml(a.description)}</p></div><div><span class="badge"><span class="dot" style="--cat:${categories[a.category].color}"></span>${a.type} · ${a.date}</span></div></div>`).join('')||'<div class="empty-state">No archive matches.</div>'}</div>`;
+      const input=$('#archiveInput'); input.focus(); input.setSelectionRange(input.value.length,input.value.length); input.oninput=e=>renderArchive(e.target.value);
+    }
+    function renderMain(){
+      if(state.view==='projects') renderProjects();
+      if(state.view==='categories') renderCategories();
+      if(state.view==='backlog') renderListView(t=>!t.done);
+      if(state.view==='today') renderListView(t=>t.today&&!t.done);
+      if(state.view==='completed') renderCompleted();
+      if(state.view==='archive') renderArchive();
+      bindRows();
+    }
+    function bindRows(){
+      main.querySelectorAll('[data-project]').forEach(el=>el.onclick=e=>{ if(e.target.closest('[data-check],[data-today],.drag-handle'))return; const p=projects.find(x=>x.id===el.dataset.project); p.open=!p.open; select('project',p.id); renderMain(); });
+      main.querySelectorAll('[data-task]').forEach(el=>el.onclick=e=>{ if(e.target.closest('[data-check],[data-today],.drag-handle'))return; select('task',el.dataset.task); });
+      main.querySelectorAll('[data-check]').forEach(el=>el.onclick=e=>{ e.stopPropagation(); toggleDone(el.dataset.check); });
+      main.querySelectorAll('[data-today]').forEach(el=>el.onclick=e=>{ e.stopPropagation(); toggleToday(el.dataset.today); });
+      bindDragAndDrop();
+    }
+    let dragState=null;
+    function bindDragAndDrop(){
+      main.querySelectorAll('[draggable="true"]').forEach(el=>{
+        el.ondragstart=e=>{ dragState={scope:el.dataset.reorderScope,id:el.dataset.task||el.dataset.reorderId,projectId:el.dataset.projectScope}; el.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; };
+        el.ondragover=e=>{ if(!dragState||dragState.scope!==el.dataset.reorderScope||dragState.id===(el.dataset.task||el.dataset.reorderId))return; if(dragState.scope==='project-task'&&dragState.projectId!==el.dataset.projectScope)return; e.preventDefault(); clearDropMarks(); const before=e.clientY<el.getBoundingClientRect().top+el.getBoundingClientRect().height/2; el.classList.add(before?'drop-before':'drop-after'); };
+        el.ondrop=e=>{ e.preventDefault(); if(!dragState)return; const targetId=el.dataset.task||el.dataset.reorderId, before=el.classList.contains('drop-before'); reorderItems(dragState.scope,dragState.id,targetId,before,dragState.projectId); };
+        el.ondragend=()=>{ dragState=null; clearDropMarks(); };
+      });
+      main.querySelectorAll('.drag-handle').forEach(handle=>{
+        handle.onpointerdown=e=>{
+          e.preventDefault(); const sourceEl=handle.closest('[data-reorder-scope]'); if(!sourceEl||sourceEl.dataset.reorderScope==='none')return;
+          const pointerDrag={scope:sourceEl.dataset.reorderScope,id:sourceEl.dataset.task||sourceEl.dataset.reorderId,projectId:sourceEl.dataset.projectScope}; sourceEl.classList.add('dragging'); handle.setPointerCapture(e.pointerId);
+          handle.onpointermove=move=>{ clearDropMarks(); sourceEl.classList.add('dragging'); const target=document.elementFromPoint(move.clientX,move.clientY)?.closest(`[data-reorder-scope="${pointerDrag.scope}"]`); if(!target||target===sourceEl||(pointerDrag.scope==='project-task'&&pointerDrag.projectId!==target.dataset.projectScope))return; const before=move.clientY<target.getBoundingClientRect().top+target.getBoundingClientRect().height/2; target.classList.add(before?'drop-before':'drop-after'); };
+          handle.onpointerup=up=>{ const target=document.elementFromPoint(up.clientX,up.clientY)?.closest(`[data-reorder-scope="${pointerDrag.scope}"]`); const targetId=target&&(target.dataset.task||target.dataset.reorderId); const before=target?.classList.contains('drop-before'); handle.releasePointerCapture(up.pointerId); handle.onpointermove=null; handle.onpointerup=null; if(target&&target!==sourceEl&&!(pointerDrag.scope==='project-task'&&pointerDrag.projectId!==target.dataset.projectScope)) reorderItems(pointerDrag.scope,pointerDrag.id,targetId,before,pointerDrag.projectId); else clearDropMarks(); };
+        };
+      });
+    }
+    function clearDropMarks(){ main.querySelectorAll('.dragging,.drop-before,.drop-after').forEach(el=>el.classList.remove('dragging','drop-before','drop-after')); }
+    function moved(ids,source,target,before){ const next=ids.filter(id=>id!==source), index=next.indexOf(target); next.splice(before?index:index+1,0,source); return next; }
+    function reorderItems(scope,source,target,before,projectId){
+      if(scope==='shared'){
+        const visible=[...main.querySelectorAll('[data-reorder-scope="shared"]')].map(el=>el.dataset.task), reordered=moved(visible,source,target,before); let index=0; taskOrder=taskOrder.map(id=>visible.includes(id)?reordered[index++]:id); toast('Today and Backlog order updated');
+      } else if(scope==='project') { projectOrder=moved(projectOrder,source,target,before); toast('Project order updated'); }
+      else if(scope==='category') { categoryOrder=moved(categoryOrder,source,target,before); toast('Category order updated'); }
+      else if(scope==='project-task') { const p=projectById(projectId); p.tasks=moved(p.tasks,source,target,before); toast(`${p.title} task order updated`); }
+      dragState=null; renderMain();
+    }
+    function toggleDone(id){
+      const t=tasks.find(x=>x.id===id), p=projectFor(t), wasDone=projectDone(p); t.done=!t.done; t.completed=t.done?'Sep 24':null;
+      const nowDone=projectDone(p); toast(!wasDone&&nowDone?`${p.title} closed · ${projectCompletion(p)}`:(t.done?'Task completed':'Task reopened')); render(); if(state.selected===id) select('task',id);
+    }
+    function toggleToday(id){ const t=tasks.find(x=>x.id===id); t.today=!t.today; toast(t.today?'Added to Today':'Removed from Today'); render(); if(state.selected===id) select('task',id); }
+    function select(type,id){ state.selected=id; state.selectedType=type; renderInspector(); }
+    function renderInspector(){
+      if(!state.selected){ inspector.className='inspector empty'; inspector.innerHTML='<div>Select a project or task<br>to see its details</div>'; return; }
+      inspector.className='inspector has-selection';
+      if(state.selectedType==='task'){
+        const t=tasks.find(x=>x.id===state.selected), p=projectFor(t), inherited=!t.category;
+        inspector.innerHTML=`<div class="inspector-top"><span class="badge">Task · click any field to edit</span><button class="icon-button" id="closeInspector" aria-label="Close details">×</button></div>
+          <input class="editable-title" id="titleField" value="${escapeHtml(t.title)}" aria-label="Task title">
+          <div class="task-sub">in ${escapeHtml(p.title)}</div>
+          <div class="inspector-section"><div class="inspector-label">Description · Markdown</div><textarea class="inline-markdown" id="descriptionField" aria-label="Task Markdown description">${escapeHtml(t.description)}</textarea><div class="preview-head"><span class="inspector-label" style="margin:0">Rendered preview</span><button class="copy-rich" id="copyRendered">Copy rendered</button></div><div class="description rendered-preview" id="renderedDescription">${markdown(t.description)}</div></div>
+          <div class="inspector-section meta-grid"><div><div class="inspector-label">Due</div><input class="field-input" id="dueField" value="${escapeHtml(t.due)}" aria-label="Task due date"></div><div><div class="inspector-label">Shared order</div><div class="meta-value">#${orderedTasks(x=>!x.done).findIndex(x=>x.id===t.id)+1} in backlog</div><div class="hint">Drag in Today or Backlog</div></div></div>
+          <div class="inspector-section"><div class="inspector-label">Category</div><select class="field-select" id="categorySelect" aria-label="Task category"><option value="">Inherit ${p.category}</option>${Object.keys(categories).map(c=>`<option value="${c}" ${t.category===c?'selected':''}>${c}</option>`).join('')}</select><div class="hint">${inherited?'Following the project category.':'Overridden for this task.'}</div></div>
+          <div class="inspector-section"><div class="inspector-label">Participants · comma separated, no assignee</div><input class="field-input" id="participantsField" value="${escapeHtml(t.participants.join(', '))}" aria-label="Task participants"></div>
+          <div class="inspector-actions"><button class="primary" id="inspectorToday">${t.today?'Remove from Today':'Add to Today'}</button><button id="closeInspector2">Close</button></div>`;
+        bindEditableFields(t,'task');
+        $('#categorySelect').onchange=e=>{t.category=e.target.value||null; toast(t.category?'Category overridden':'Using project category'); render(); select('task',t.id);};
+        $('#participantsField').onblur=e=>{t.participants=e.target.value.split(',').map(x=>x.trim()).filter(Boolean); toast('Participants updated');};
+        $('#inspectorToday').onclick=()=>toggleToday(t.id); $('#closeInspector').onclick=clearSelection; $('#closeInspector2').onclick=clearSelection;
+      } else {
+        const p=projects.find(x=>x.id===state.selected), done=projectDone(p), [statusClass,statusLabel]=projectStatus(p);
+        inspector.innerHTML=`<div class="inspector-top"><span class="badge">Project · click any field to edit</span><button class="icon-button" id="closeInspector" aria-label="Close details">×</button></div>
+          <input class="editable-title" id="titleField" value="${escapeHtml(p.title)}" aria-label="Project title">
+          <div class="task-sub">${p.category} · ${completeCount(p)}/${p.tasks.length} complete</div>
+          <div class="inspector-section"><div class="inspector-label">Description · Markdown</div><textarea class="inline-markdown" id="descriptionField" aria-label="Project Markdown description">${escapeHtml(p.description)}</textarea><div class="preview-head"><span class="inspector-label" style="margin:0">Rendered preview</span><button class="copy-rich" id="copyRendered">Copy rendered</button></div><div class="description rendered-preview" id="renderedDescription">${markdown(p.description)}</div></div>
+          <div class="inspector-section meta-grid"><div><div class="inspector-label">Target date</div><input class="field-input" id="dueField" value="${escapeHtml(p.due)}" aria-label="Project target date"></div><div><div class="inspector-label">Status</div><div class="status-pill ${statusClass}">${statusLabel}</div><div class="hint">Derived from subtasks</div></div></div>
+          <div class="inspector-section meta-grid"><div><div class="inspector-label">Category</div><select class="field-select" id="projectCategorySelect" aria-label="Project category">${Object.keys(categories).map(c=>`<option value="${c}" ${p.category===c?'selected':''}>${c}</option>`).join('')}</select></div><div><div class="inspector-label">Completion date</div><div class="meta-value">${done?projectCompletion(p):'—'}</div></div></div>
+          <div class="inspector-section"><div class="inspector-label">Completion rule</div><div class="description">Closes when every task is complete. Its completion date becomes the date of the last completed task.</div></div>
+          <div class="inspector-actions" style="grid-template-columns:1fr"><button id="closeInspector2">Close</button></div>`;
+        bindEditableFields(p,'project');
+        $('#projectCategorySelect').onchange=e=>{p.category=e.target.value; toast('Project category updated'); render(); select('project',p.id);};
+        $('#closeInspector').onclick=clearSelection; $('#closeInspector2').onclick=clearSelection;
+      }
+    }
+    function bindEditableFields(item,type){
+      $('#titleField').onblur=e=>{ item.title=e.target.value.trim()||item.title; renderMain(); toast(`${type==='project'?'Project':'Task'} title updated`); };
+      $('#dueField').onblur=e=>{ item.due=e.target.value.trim()||item.due; renderMain(); toast('Date updated'); };
+      $('#descriptionField').oninput=e=>{ item.description=e.target.value; $('#renderedDescription').innerHTML=markdown(item.description); };
+      $('#descriptionField').onblur=()=>toast('Description updated');
+      $('#copyRendered').onclick=()=>copyRendered($('#renderedDescription'));
+    }
+    async function copyRendered(element){
+      const html=element.innerHTML, text=element.innerText;
+      try {
+        if(navigator.clipboard?.write && window.ClipboardItem){ await navigator.clipboard.write([new ClipboardItem({'text/html':new Blob([html],{type:'text/html'}),'text/plain':new Blob([text],{type:'text/plain'})})]); }
+        else { throw new Error('fallback'); }
+      } catch {
+        const temp=document.createElement('div'); temp.contentEditable='true'; temp.style.position='fixed'; temp.style.left='-9999px'; temp.innerHTML=html; document.body.append(temp); const range=document.createRange(); range.selectNodeContents(temp); const selection=getSelection(); selection.removeAllRanges(); selection.addRange(range); document.execCommand('copy'); selection.removeAllRanges(); temp.remove();
+      }
+      toast('Rendered description copied');
+    }
+    function clearSelection(){ state.selected=null; renderInspector(); }
+    function toast(message){ const el=$('#toast'); el.textContent=message; el.classList.add('show'); clearTimeout(toast.timer); toast.timer=setTimeout(()=>el.classList.remove('show'),1800); }
+    function render(){ renderNav(); renderMain(); renderInspector(); }
+
+    const variants=[{key:'workbench',label:'A — Workbench'},{key:'canvas',label:'B — Canvas'},{key:'ledger',label:'C — Ledger'}];
+    function setVariant(key,updateUrl=true){
+      const variant=variants.find(v=>v.key===key)||variants[0]; document.body.dataset.direction=variant.key; $('#variantLabel').textContent=variant.label; $('#directionNote').textContent=directions[variant.key];
+      document.querySelectorAll('.direction-switcher button').forEach(x=>x.classList.toggle('active',x.dataset.direction===variant.key));
+      if(updateUrl){ const url=new URL(location.href); url.searchParams.set('variant',variant.key); history.replaceState({},'',url); }
+    }
+    function cycleVariant(delta){ const current=variants.findIndex(v=>v.key===document.body.dataset.direction); setVariant(variants[(current+delta+variants.length)%variants.length].key); }
+    document.querySelectorAll('.direction-switcher [data-direction]').forEach(b=>b.onclick=()=>setVariant(b.dataset.direction));
+    $('#previousVariant').onclick=()=>cycleVariant(-1); $('#nextVariant').onclick=()=>cycleVariant(1);
+    $('#jumpSearch').onclick=()=>{state.view='archive';state.selected=null;render();};
+    $('#newTask').onclick=()=>toast('New task flow would open here');
+    document.addEventListener('keydown',e=>{ const editing=e.target.matches('input,textarea,select,[contenteditable]'); if(e.key==='Escape'&&!editing) clearSelection(); if(e.key==='/'&&!editing){ e.preventDefault(); state.view='archive'; render(); } if(!editing&&e.key==='ArrowLeft')cycleVariant(-1); if(!editing&&e.key==='ArrowRight')cycleVariant(1); });
+    setVariant(new URLSearchParams(location.search).get('variant')||'workbench',false);
+    render();
+  </script>
+</body>
+</html>
