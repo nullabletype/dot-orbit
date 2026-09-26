@@ -17,11 +17,8 @@ jobs:
       matrix:
         include:
           - os: ubuntu-24.04
-            native-smoke-command: xvfb-run --auto-servernum dotnet src/DotOrbit.Desktop/bin/Release/net10.0/dot-orbit.dll
           - os: windows-2025
-            native-smoke-command: dotnet src/DotOrbit.Desktop/bin/Release/net10.0/dot-orbit.dll
           - os: macos-26
-            native-smoke-command: dotnet src/DotOrbit.Desktop/bin/Release/net10.0/dot-orbit.dll
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -29,30 +26,11 @@ jobs:
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: 10.0.401
-      - name: Restore locked dependencies
-        run: dotnet restore DotOrbit.slnx --locked-mode
-      - name: Verify formatting
-        run: dotnet format DotOrbit.slnx --no-restore --verify-no-changes
-      - name: Build
-        run: dotnet build DotOrbit.slnx --configuration Release --no-restore
-      - name: Test
-        run: dotnet test --solution DotOrbit.slnx --configuration Release --no-build
-      - name: Run native desktop smoke
-        timeout-minutes: 2
-        run: ${{ matrix.native-smoke-command }} --native-smoke
-      - name: Prove startup failures break the native smoke gate
-        id: native-smoke-startup-failure
-        continue-on-error: true
-        timeout-minutes: 2
-        run: ${{ matrix.native-smoke-command }} --native-smoke-failure=startup
-      - name: Verify the startup failure was detected
-        if: always() && steps.native-smoke-startup-failure.outcome != 'failure'
-        run: exit 1
-      - name: Prove navigation assertion failures break the native smoke gate
-        id: native-smoke-navigation-failure
-        continue-on-error: true
-        timeout-minutes: 2
-        run: ${{ matrix.native-smoke-command }} --native-smoke-failure=navigation
-      - name: Verify the navigation failure was detected
-        if: always() && steps.native-smoke-navigation-failure.outcome != 'failure'
-        run: exit 1
+      - name: Run repository verification gate
+        run: >-
+          dotnet run
+          --project tools/DotOrbit.Verification/DotOrbit.Verification.csproj
+          -p:RestoreLockedMode=true
+          --
+          --evidence
+          --expected-sha "${{ github.sha }}"

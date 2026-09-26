@@ -8,7 +8,8 @@ Closes #
 
 ## Verification
 
-- Commands run:
+- Canonical gate: `dotnet run --project tools/DotOrbit.Verification/DotOrbit.Verification.csproj -p:RestoreLockedMode=true -- --evidence --expected-sha <full-commit-sha>`
+- Result:
 - Manual checks:
 - Tested commit:
 
