@@ -57,13 +57,16 @@ public sealed class MainWindowTests
             control => AutomationProperties.GetAutomationId(control) == "navigation-today");
         Assert.True(today.IsChecked);
         var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        var currentViewRegion = window.FindControl<Grid>("CurrentViewRegion");
+        Assert.NotNull(currentViewRegion);
+        Assert.Equal(AutomationLiveSetting.Polite, AutomationProperties.GetLiveSetting(currentViewRegion));
         Assert.Equal(shell.ViewTitle, window.FindControl<TextBlock>("CurrentViewTitleText")?.Text);
         Assert.Equal(shell.EmptyStateHeading, window.FindControl<TextBlock>("EmptyStateHeadingText")?.Text);
         Assert.Equal(shell.EmptyStateBody, window.FindControl<TextBlock>("EmptyStateBodyText")?.Text);
     }
 
     [AvaloniaFact]
-    public void KeyboardActivationNavigatesAndMovesFocus()
+    public void KeyboardActivationNavigatesAndRetainsFocusOnTheAction()
     {
         var shell = new ShellViewModel();
         var window = new MainWindow { DataContext = shell };

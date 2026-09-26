@@ -14,6 +14,7 @@ This file records the support check for the first runnable desktop shell. Packag
 - Avalonia desktop, Fluent theme, Inter font, and headless xUnit integration are pinned to 12.1.3. Avalonia 12.1 lists Windows 11 24H2, macOS 26, Ubuntu, and Debian 13 among its supported desktop targets. Source: [Avalonia supported platforms](https://docs.avaloniaui.net/docs/supported-platforms) and the [Avalonia.Desktop package](https://www.nuget.org/packages/Avalonia.Desktop/12.1.3).
 - `xunit.v3` is pinned to 3.2.2 because Avalonia.Headless.XUnit 12.1.3 is compiled against the xUnit 3.2 discovery API. xUnit 4.0.1 was evaluated and rejected after it caused `MissingMethodException` during Avalonia test discovery. This pin should be revisited when Avalonia publishes compatible headless integration.
 - Central package management and per-project `packages.lock.json` files pin the complete graph. NuGet audit is enabled for all dependencies and vulnerability severities fail the build.
+- The complete locked graph was checked with `dotnet package list --vulnerable --include-transitive` and `--deprecated --include-transitive`; NuGet reported no known vulnerable or deprecated direct or transitive packages on 2026-09-26. Transitive packages inherit their support boundary from the current Avalonia and xUnit release lines and must be rechecked with those direct dependencies.
 
 ## Continuous integration
 

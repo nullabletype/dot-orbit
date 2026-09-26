@@ -10,6 +10,21 @@
     MinWidth="900"
     MinHeight="600"
     Background="#111214">
+  <Window.Resources>
+    <DataTemplate x:Key="NavigationItemTemplate" x:DataType="vm:NavigationItemViewModel">
+      <RadioButton
+          AutomationProperties.AutomationId="{Binding AutomationId}"
+          AutomationProperties.HelpText="{Binding AccessibleHelpText}"
+          AutomationProperties.Name="{Binding AccessibleName}"
+          Classes="nav-item"
+          Command="{Binding SelectCommand}"
+          Content="{Binding Title}"
+          Focusable="True"
+          GroupName="PrimaryNavigation"
+          IsChecked="{Binding IsSelected, Mode=OneWay}" />
+    </DataTemplate>
+  </Window.Resources>
+
   <Grid ColumnDefinitions="232,*">
     <Border
         Grid.Column="0"
@@ -28,43 +43,26 @@
 
         <ItemsControl
             Grid.Row="2"
-            ItemsSource="{Binding PrimaryNavigation}">
-          <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="vm:NavigationItemViewModel">
-              <RadioButton
-                  AutomationProperties.AutomationId="{Binding AutomationId}"
-                  AutomationProperties.HelpText="{Binding AccessibleHelpText}"
-                  AutomationProperties.Name="{Binding AccessibleName}"
-                  Classes="nav-item"
-                  Command="{Binding SelectCommand}"
-                  Content="{Binding Title}"
-                  Focusable="True"
-                  GroupName="PrimaryNavigation"
-                  IsChecked="{Binding IsSelected, Mode=OneWay}" />
-            </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
+            ItemTemplate="{StaticResource NavigationItemTemplate}"
+            ItemsSource="{Binding PrimaryNavigation}" />
 
         <Border
             Grid.Row="3"
             Padding="0,14,0,0"
             BorderBrush="#303137"
             BorderThickness="0,1,0,0">
-          <RadioButton
-              AutomationProperties.AutomationId="{Binding BinNavigation.AutomationId}"
-              AutomationProperties.HelpText="{Binding BinNavigation.AccessibleHelpText}"
-              AutomationProperties.Name="{Binding BinNavigation.AccessibleName}"
-              Classes="nav-item"
-              Command="{Binding BinNavigation.SelectCommand}"
-              Content="{Binding BinNavigation.Title}"
-              Focusable="True"
-              GroupName="PrimaryNavigation"
-              IsChecked="{Binding BinNavigation.IsSelected, Mode=OneWay}" />
+          <ContentControl
+              Content="{Binding BinNavigation}"
+              ContentTemplate="{StaticResource NavigationItemTemplate}" />
         </Border>
       </Grid>
     </Border>
 
-    <Grid Grid.Column="1" RowDefinitions="Auto,*">
+    <Grid
+        x:Name="CurrentViewRegion"
+        Grid.Column="1"
+        AutomationProperties.LiveSetting="Polite"
+        RowDefinitions="Auto,*">
       <Border
           Grid.Row="0"
           Padding="36,28,36,24"
