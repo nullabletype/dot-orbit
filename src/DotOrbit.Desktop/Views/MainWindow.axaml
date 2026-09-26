@@ -1,0 +1,120 @@
+<Window
+    x:Class="DotOrbit.Desktop.Views.MainWindow"
+    x:DataType="vm:ShellViewModel"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:DotOrbit.Desktop.ViewModels"
+    Title="dot-orbit"
+    Width="1180"
+    Height="760"
+    MinWidth="900"
+    MinHeight="600"
+    Background="#111214">
+  <Grid ColumnDefinitions="232,*">
+    <Border
+        Grid.Column="0"
+        Padding="20,24,16,18"
+        Background="#18191D"
+        BorderBrush="#2A2B31"
+        BorderThickness="0,0,1,0">
+      <Grid RowDefinitions="Auto,32,*,Auto">
+        <StackPanel Grid.Row="0" Spacing="4">
+          <TextBlock Classes="eyebrow" Text="DOT-ORBIT" />
+          <TextBlock
+              FontSize="21"
+              FontWeight="SemiBold"
+              Text="Workbench" />
+        </StackPanel>
+
+        <ItemsControl
+            Grid.Row="2"
+            ItemsSource="{Binding PrimaryNavigation}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:NavigationItemViewModel">
+              <RadioButton
+                  AutomationProperties.AutomationId="{Binding AutomationId}"
+                  AutomationProperties.HelpText="{Binding AccessibleHelpText}"
+                  AutomationProperties.Name="{Binding AccessibleName}"
+                  Classes="nav-item"
+                  Command="{Binding SelectCommand}"
+                  Content="{Binding Title}"
+                  Focusable="True"
+                  GroupName="PrimaryNavigation"
+                  IsChecked="{Binding IsSelected, Mode=OneWay}" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <Border
+            Grid.Row="3"
+            Padding="0,14,0,0"
+            BorderBrush="#303137"
+            BorderThickness="0,1,0,0">
+          <RadioButton
+              AutomationProperties.AutomationId="{Binding BinNavigation.AutomationId}"
+              AutomationProperties.HelpText="{Binding BinNavigation.AccessibleHelpText}"
+              AutomationProperties.Name="{Binding BinNavigation.AccessibleName}"
+              Classes="nav-item"
+              Command="{Binding BinNavigation.SelectCommand}"
+              Content="{Binding BinNavigation.Title}"
+              Focusable="True"
+              GroupName="PrimaryNavigation"
+              IsChecked="{Binding BinNavigation.IsSelected, Mode=OneWay}" />
+        </Border>
+      </Grid>
+    </Border>
+
+    <Grid Grid.Column="1" RowDefinitions="Auto,*">
+      <Border
+          Grid.Row="0"
+          Padding="36,28,36,24"
+          BorderBrush="#2A2B31"
+          BorderThickness="0,0,0,1">
+        <StackPanel Spacing="6">
+          <TextBlock Classes="eyebrow" Text="CURRENT VIEW" />
+          <TextBlock
+              x:Name="CurrentViewTitleText"
+              AutomationProperties.Name="Current view"
+              FontSize="32"
+              FontWeight="SemiBold"
+              Text="{Binding ViewTitle}" />
+        </StackPanel>
+      </Border>
+
+      <Grid Grid.Row="1">
+        <Border
+            Width="520"
+            Padding="40"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            Background="#18191D"
+            BorderBrush="#303137"
+            BorderThickness="1"
+            CornerRadius="8">
+          <StackPanel Spacing="14">
+            <Border
+                Width="42"
+                Height="4"
+                HorizontalAlignment="Left"
+                Background="#F54E9B"
+                CornerRadius="2" />
+            <TextBlock
+                x:Name="EmptyStateHeadingText"
+                FontSize="24"
+                FontWeight="SemiBold"
+                Text="{Binding EmptyStateHeading}"
+                TextWrapping="Wrap" />
+            <TextBlock
+                x:Name="EmptyStateBodyText"
+                MaxWidth="420"
+                FontSize="15"
+                Foreground="#B7B8BF"
+                LineHeight="23"
+                Text="{Binding EmptyStateBody}"
+                TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+      </Grid>
+    </Grid>
+  </Grid>
+</Window>

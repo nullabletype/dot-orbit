@@ -20,6 +20,7 @@ _ReSharper*/
 *.ncrunch*
 
 # .NET build and package output
+.dotnet/
 [Bb]in/
 [Oo]bj/
 [Aa]rtifacts/

@@ -18,4 +18,15 @@ An issue is complete only when:
 - any GitHub artifact upload contains only packaged Release-configuration application binaries for an explicitly supported runtime, plus optional PDB files.
 - no Docker/OCI image, container filesystem, SDK, standalone runtime payload, dependency cache, source tree, intermediate output, test result, log, screenshot, or general evidence bundle is uploaded to GitHub artifact storage.
 
-The repository-wide build, test, formatting, and packaging commands must be added here when the first runnable Avalonia/.NET slice is created.
+## Repository gate
+
+Run the following from the repository root:
+
+```sh
+dotnet restore DotOrbit.slnx --locked-mode
+dotnet format DotOrbit.slnx --no-restore --verify-no-changes
+dotnet build DotOrbit.slnx --configuration Release --no-restore
+dotnet test --solution DotOrbit.slnx --configuration Release --no-build
+```
+
+The first shell deliberately does not define a packaging command. Packaging, signing, installers, and release publication remain outside issue #1 and must be added with their own supported-runtime evidence before the first release.
