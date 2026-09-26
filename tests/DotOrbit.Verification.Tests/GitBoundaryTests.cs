@@ -74,6 +74,41 @@ public sealed class GitBoundaryTests
     }
 
     [Fact]
+    public async Task VerificationWorkspaceDisablesConfiguredWorkingTreeLineEndingConversion()
+    {
+        var repositoryPath = CreateRepository();
+        string? snapshotPath = null;
+        try
+        {
+            const string committedContent = "line one\nline two\n";
+            File.WriteAllText(Path.Combine(repositoryPath, "tracked.txt"), committedContent);
+            RunGit(repositoryPath, "add", "tracked.txt");
+            RunGit(repositoryPath, "commit", "--quiet", "-m", "Add line endings fixture");
+            RunGit(repositoryPath, "config", "core.autocrlf", "true");
+            var runner = new ProcessRunner(new NullOutput());
+            var inspector = new GitRepositoryInspector(repositoryPath, runner);
+            var commit = (await inspector.ReadAsync(CancellationToken.None))!.Commit;
+            var provider = new GitVerificationWorkspaceProvider(repositoryPath, runner, TimeSpan.Zero);
+
+            snapshotPath = await provider.CreateAsync(commit, CancellationToken.None);
+
+            Assert.NotNull(snapshotPath);
+            Assert.Equal(committedContent, File.ReadAllText(Path.Combine(snapshotPath, "tracked.txt")));
+            Assert.True(await provider.RemoveAsync(snapshotPath, CancellationToken.None));
+            snapshotPath = null;
+        }
+        finally
+        {
+            if (snapshotPath is not null)
+            {
+                DeleteDirectory(snapshotPath);
+            }
+
+            DeleteDirectory(repositoryPath);
+        }
+    }
+
+    [Fact]
     public void GitBlobObjectIdMatchesKnownGitVectors()
     {
         var path = Path.Combine(Path.GetTempPath(), $"dot-orbit-blob-{Guid.NewGuid():N}");

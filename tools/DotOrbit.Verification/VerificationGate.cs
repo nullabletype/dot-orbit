@@ -420,7 +420,12 @@ internal sealed class GitVerificationWorkspaceProvider(
             result = await runner.RunAsync(
                 new ProcessRequest(
                     "git",
-                    ["-C", repositoryRoot, "archive", "--format=zip", "--output", archivePath, commit],
+                    [
+                        "-c", "core.autocrlf=false",
+                        "-c", "core.eol=lf",
+                        "-C", repositoryRoot,
+                        "archive", "--format=zip", "--output", archivePath, commit,
+                    ],
                     EchoOutput: false,
                     WorkingDirectory: repositoryRoot,
                     EnvironmentVariables: GitIdentityEnvironment),
