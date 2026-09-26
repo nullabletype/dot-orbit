@@ -3,18 +3,77 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     RequestedThemeVariant="Dark">
+  <Application.Resources>
+    <FontFamily x:Key="AppFont">avares://Avalonia.Fonts.Inter/Assets#Inter</FontFamily>
+    <SolidColorBrush x:Key="BackgroundBrush">#090B10</SolidColorBrush>
+    <SolidColorBrush x:Key="SidebarBrush">#0C0F15</SolidColorBrush>
+    <SolidColorBrush x:Key="PanelBrush">#10131A</SolidColorBrush>
+    <SolidColorBrush x:Key="LineBrush">#272D39</SolidColorBrush>
+    <SolidColorBrush x:Key="LineSoftBrush">#1D222C</SolidColorBrush>
+    <SolidColorBrush x:Key="TextBrush">#F2F4F7</SolidColorBrush>
+    <SolidColorBrush x:Key="MutedTextBrush">#9099A9</SolidColorBrush>
+    <SolidColorBrush x:Key="QuietTextBrush">#707988</SolidColorBrush>
+    <SolidColorBrush x:Key="AccentBrush">#FF4FA3</SolidColorBrush>
+    <SolidColorBrush x:Key="AccentSurfaceBrush">#25131F</SolidColorBrush>
+    <SolidColorBrush x:Key="SuccessBrush">#7CE7B2</SolidColorBrush>
+  </Application.Resources>
+
   <Application.Styles>
     <FluentTheme />
+
+    <Style Selector="Window">
+      <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    </Style>
+
     <Style Selector="RadioButton.nav-item">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
       <Setter Property="Margin" Value="0,2" />
-      <Setter Property="Padding" Value="12,10" />
+      <Setter Property="Padding" Value="10,9" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border
+              x:Name="NavItemBorder"
+              Padding="{TemplateBinding Padding}"
+              Background="{TemplateBinding Background}"
+              BorderBrush="{TemplateBinding BorderBrush}"
+              BorderThickness="{TemplateBinding BorderThickness}"
+              CornerRadius="9">
+            <ContentPresenter
+                HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                VerticalContentAlignment="Center"
+                Content="{TemplateBinding Content}"
+                ContentTemplate="{TemplateBinding ContentTemplate}" />
+          </Border>
+        </ControlTemplate>
+      </Setter>
     </Style>
+    <Style Selector="RadioButton.nav-item:pointerover">
+      <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    </Style>
+    <Style Selector="RadioButton.nav-item:checked">
+      <Setter Property="Background" Value="{StaticResource AccentSurfaceBrush}" />
+      <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+    </Style>
+    <Style Selector="RadioButton.nav-item:focus-visible">
+      <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+      <Setter Property="BorderThickness" Value="2" />
+    </Style>
+
     <Style Selector="TextBlock.eyebrow">
       <Setter Property="FontSize" Value="12" />
-      <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="Foreground" Value="#F54E9B" />
-      <Setter Property="LetterSpacing" Value="1.2" />
+      <Setter Property="FontWeight" Value="Bold" />
+      <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+      <Setter Property="LetterSpacing" Value="1.4" />
+    </Style>
+    <Style Selector="TextBlock.nav-count">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{StaticResource QuietTextBrush}" />
     </Style>
   </Application.Styles>
 </Application>

@@ -10,13 +10,19 @@ public sealed class NavigationItemViewModel : INotifyPropertyChanged
 
     internal NavigationItemViewModel(
         string title,
+        string iconData,
+        string? countText,
         string automationId,
+        string viewSubtitle,
         string emptyStateHeading,
         string emptyStateBody,
         Action<NavigationItemViewModel> select)
     {
         Title = title;
+        IconData = iconData;
+        CountText = countText;
         AutomationId = automationId;
+        ViewSubtitle = viewSubtitle;
         EmptyStateHeading = emptyStateHeading;
         EmptyStateBody = emptyStateBody;
         SelectCommand = new RelayCommand(() => select(this));
@@ -26,11 +32,19 @@ public sealed class NavigationItemViewModel : INotifyPropertyChanged
 
     public string Title { get; }
 
+    public string IconData { get; }
+
+    public string? CountText { get; }
+
+    public bool HasCount => CountText is not null;
+
     public string AccessibleName => $"Open {Title}";
 
     public string AccessibleHelpText => $"Show the {Title} view";
 
     public string AutomationId { get; }
+
+    public string ViewSubtitle { get; }
 
     public string EmptyStateHeading { get; }
 

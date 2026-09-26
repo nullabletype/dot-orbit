@@ -16,6 +16,8 @@ public sealed class ShellViewModelTests
             shell.PrimaryNavigation.Select(item => item.Title));
         Assert.Equal("Bin", shell.BinNavigation.Title);
         Assert.DoesNotContain(shell.BinNavigation, shell.PrimaryNavigation);
+        Assert.All(shell.PrimaryNavigation, item => Assert.Equal("0", item.CountText));
+        Assert.Null(shell.BinNavigation.CountText);
     }
 
     [Fact]

@@ -61,8 +61,26 @@ public sealed class MainWindowTests
         Assert.NotNull(currentViewRegion);
         Assert.Equal(AutomationLiveSetting.Polite, AutomationProperties.GetLiveSetting(currentViewRegion));
         Assert.Equal(shell.ViewTitle, window.FindControl<TextBlock>("CurrentViewTitleText")?.Text);
+        Assert.Equal(shell.ViewSubtitle, window.FindControl<TextBlock>("CurrentViewSubtitleText")?.Text);
         Assert.Equal(shell.EmptyStateHeading, window.FindControl<TextBlock>("EmptyStateHeadingText")?.Text);
         Assert.Equal(shell.EmptyStateBody, window.FindControl<TextBlock>("EmptyStateBodyText")?.Text);
+    }
+
+    [AvaloniaFact]
+    public void ShellExposesTheWorkbenchVisualFoundation()
+    {
+        var window = new MainWindow();
+        window.Show();
+
+        Assert.Equal("dot-orbit", window.FindControl<TextBlock>("BrandNameText")?.Text);
+        Assert.Equal("WORKSPACE", window.FindControl<TextBlock>("WorkspaceLabelText")?.Text);
+        Assert.Equal("PERSONAL WORKSPACE", window.FindControl<TextBlock>("CurrentViewEyebrowText")?.Text);
+        Assert.Equal(
+            "Select a project or task\nto see its details",
+            window.FindControl<TextBlock>("InspectorEmptyText")?.Text);
+        Assert.NotNull(window.FindControl<Border>("TopBar"));
+        Assert.NotNull(window.FindControl<Border>("InspectorRegion"));
+        Assert.Equal(8, window.GetVisualDescendants().OfType<PathIcon>().Count());
     }
 
     [AvaloniaFact]
@@ -82,6 +100,7 @@ public sealed class MainWindowTests
         Assert.True(archive.IsChecked);
         Assert.Equal("Archive", shell.ViewTitle);
         Assert.Equal("Archive", window.FindControl<TextBlock>("CurrentViewTitleText")?.Text);
+        Assert.Equal(shell.ViewSubtitle, window.FindControl<TextBlock>("CurrentViewSubtitleText")?.Text);
         Assert.Equal(shell.EmptyStateHeading, window.FindControl<TextBlock>("EmptyStateHeadingText")?.Text);
     }
 }

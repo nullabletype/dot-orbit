@@ -7,9 +7,9 @@
     Title="dot-orbit"
     Width="1180"
     Height="760"
-    MinWidth="900"
+    MinWidth="1020"
     MinHeight="600"
-    Background="#111214">
+    Background="{StaticResource BackgroundBrush}">
   <Window.Resources>
     <DataTemplate x:Key="NavigationItemTemplate" x:DataType="vm:NavigationItemViewModel">
       <RadioButton
@@ -18,38 +18,104 @@
           AutomationProperties.Name="{Binding AccessibleName}"
           Classes="nav-item"
           Command="{Binding SelectCommand}"
-          Content="{Binding Title}"
           Focusable="True"
           GroupName="PrimaryNavigation"
-          IsChecked="{Binding IsSelected, Mode=OneWay}" />
+          IsChecked="{Binding IsSelected, Mode=OneWay}">
+        <Grid ColumnDefinitions="22,*,Auto">
+          <PathIcon
+              Width="15"
+              Height="15"
+              HorizontalAlignment="Center"
+              Data="{Binding IconData}" />
+          <TextBlock
+              Grid.Column="1"
+              Margin="8,0,0,0"
+              FontSize="14"
+              Text="{Binding Title}" />
+          <TextBlock
+              Grid.Column="2"
+              Classes="nav-count"
+              IsVisible="{Binding HasCount}"
+              Text="{Binding CountText}" />
+        </Grid>
+      </RadioButton>
     </DataTemplate>
   </Window.Resources>
 
-  <Grid ColumnDefinitions="232,*">
+  <Grid ColumnDefinitions="228,*,320" RowDefinitions="64,*">
     <Border
-        Grid.Column="0"
-        Padding="20,24,16,18"
-        Background="#18191D"
-        BorderBrush="#2A2B31"
-        BorderThickness="0,0,1,0">
-      <Grid RowDefinitions="Auto,32,*,Auto">
-        <StackPanel Grid.Row="0" Spacing="4">
-          <TextBlock Classes="eyebrow" Text="DOT-ORBIT" />
+        x:Name="TopBar"
+        Grid.Row="0"
+        Grid.ColumnSpan="3"
+        Background="{StaticResource BackgroundBrush}"
+        BorderBrush="{StaticResource LineBrush}"
+        BorderThickness="0,0,0,1">
+      <Grid ColumnDefinitions="228,*,Auto">
+        <StackPanel
+            Grid.Column="0"
+            Margin="22,0,0,0"
+            VerticalAlignment="Center"
+            Orientation="Horizontal"
+            Spacing="10">
+          <Grid Width="27" Height="27">
+            <Ellipse
+                Fill="{StaticResource BackgroundBrush}"
+                Stroke="{StaticResource AccentBrush}"
+                StrokeThickness="2" />
+            <Ellipse
+                Width="8"
+                Height="8"
+                Margin="0,-2,-2,0"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Top"
+                Fill="{StaticResource SuccessBrush}"
+                Stroke="{StaticResource BackgroundBrush}"
+                StrokeThickness="2" />
+          </Grid>
           <TextBlock
-              FontSize="21"
-              FontWeight="SemiBold"
-              Text="Workbench" />
+              x:Name="BrandNameText"
+              VerticalAlignment="Center"
+              FontSize="15"
+              FontWeight="Bold"
+              Text="dot-orbit" />
         </StackPanel>
 
+        <TextBlock
+            Grid.Column="1"
+            Margin="0,0,18,0"
+            VerticalAlignment="Center"
+            FontSize="13"
+            Foreground="{StaticResource MutedTextBrush}"
+            Text="Calm three-pane workspace · context stays visible" />
+      </Grid>
+    </Border>
+
+    <Border
+        Grid.Row="1"
+        Grid.Column="0"
+        Padding="12,18"
+        Background="{StaticResource SidebarBrush}"
+        BorderBrush="{StaticResource LineBrush}"
+        BorderThickness="0,0,1,0">
+      <Grid RowDefinitions="Auto,*,Auto">
+        <TextBlock
+            x:Name="WorkspaceLabelText"
+            Margin="12,4,12,8"
+            FontSize="11"
+            FontWeight="Bold"
+            Foreground="{StaticResource QuietTextBrush}"
+            LetterSpacing="1.4"
+            Text="WORKSPACE" />
+
         <ItemsControl
-            Grid.Row="2"
+            Grid.Row="1"
             ItemTemplate="{StaticResource NavigationItemTemplate}"
             ItemsSource="{Binding PrimaryNavigation}" />
 
         <Border
-            Grid.Row="3"
-            Padding="0,14,0,0"
-            BorderBrush="#303137"
+            Grid.Row="2"
+            Padding="0,12,0,0"
+            BorderBrush="{StaticResource LineSoftBrush}"
             BorderThickness="0,1,0,0">
           <ContentControl
               Content="{Binding BinNavigation}"
@@ -60,59 +126,79 @@
 
     <Grid
         x:Name="CurrentViewRegion"
+        Grid.Row="1"
         Grid.Column="1"
+        Margin="32,30,32,60"
         AutomationProperties.LiveSetting="Polite"
-        RowDefinitions="Auto,*">
+        RowDefinitions="Auto,28,*">
+      <StackPanel Grid.Row="0" Spacing="7">
+        <TextBlock
+            x:Name="CurrentViewEyebrowText"
+            Classes="eyebrow"
+            Text="PERSONAL WORKSPACE" />
+        <TextBlock
+            x:Name="CurrentViewTitleText"
+            AutomationProperties.Name="Current view"
+            FontSize="31"
+            FontWeight="Bold"
+            LetterSpacing="-1.2"
+            Text="{Binding ViewTitle}" />
+        <TextBlock
+            x:Name="CurrentViewSubtitleText"
+            FontSize="14"
+            Foreground="{StaticResource MutedTextBrush}"
+            Text="{Binding ViewSubtitle}"
+            TextWrapping="Wrap" />
+      </StackPanel>
+
       <Border
-          Grid.Row="0"
-          Padding="36,28,36,24"
-          BorderBrush="#2A2B31"
-          BorderThickness="0,0,0,1">
-        <StackPanel Spacing="6">
-          <TextBlock Classes="eyebrow" Text="CURRENT VIEW" />
+          Grid.Row="2"
+          Padding="42"
+          VerticalAlignment="Top"
+          Background="Transparent"
+          BorderBrush="{StaticResource LineBrush}"
+          BorderThickness="1"
+          CornerRadius="14">
+        <StackPanel HorizontalAlignment="Center" Spacing="8">
           <TextBlock
-              x:Name="CurrentViewTitleText"
-              AutomationProperties.Name="Current view"
-              FontSize="32"
+              x:Name="EmptyStateHeadingText"
+              HorizontalAlignment="Center"
+              FontSize="18"
               FontWeight="SemiBold"
-              Text="{Binding ViewTitle}" />
+              Text="{Binding EmptyStateHeading}"
+              TextAlignment="Center"
+              TextWrapping="Wrap" />
+          <TextBlock
+              x:Name="EmptyStateBodyText"
+              MaxWidth="440"
+              HorizontalAlignment="Center"
+              FontSize="14"
+              Foreground="{StaticResource MutedTextBrush}"
+              LineHeight="21"
+              Text="{Binding EmptyStateBody}"
+              TextAlignment="Center"
+              TextWrapping="Wrap" />
         </StackPanel>
       </Border>
-
-      <Grid Grid.Row="1">
-        <Border
-            Width="520"
-            Padding="40"
-            HorizontalAlignment="Center"
-            VerticalAlignment="Center"
-            Background="#18191D"
-            BorderBrush="#303137"
-            BorderThickness="1"
-            CornerRadius="8">
-          <StackPanel Spacing="14">
-            <Border
-                Width="42"
-                Height="4"
-                HorizontalAlignment="Left"
-                Background="#F54E9B"
-                CornerRadius="2" />
-            <TextBlock
-                x:Name="EmptyStateHeadingText"
-                FontSize="24"
-                FontWeight="SemiBold"
-                Text="{Binding EmptyStateHeading}"
-                TextWrapping="Wrap" />
-            <TextBlock
-                x:Name="EmptyStateBodyText"
-                MaxWidth="420"
-                FontSize="15"
-                Foreground="#B7B8BF"
-                LineHeight="23"
-                Text="{Binding EmptyStateBody}"
-                TextWrapping="Wrap" />
-          </StackPanel>
-        </Border>
-      </Grid>
     </Grid>
+
+    <Border
+        x:Name="InspectorRegion"
+        Grid.Row="1"
+        Grid.Column="2"
+        Padding="22"
+        Background="{StaticResource PanelBrush}"
+        BorderBrush="{StaticResource LineBrush}"
+        BorderThickness="1,0,0,0">
+      <TextBlock
+          x:Name="InspectorEmptyText"
+          HorizontalAlignment="Center"
+          VerticalAlignment="Center"
+          FontSize="14"
+          Foreground="{StaticResource QuietTextBrush}"
+          LineHeight="19"
+          Text="Select a project or task&#x0a;to see its details"
+          TextAlignment="Center" />
+    </Border>
   </Grid>
 </Window>
