@@ -30,3 +30,10 @@ dotnet test --solution DotOrbit.slnx --configuration Release --no-build
 ```
 
 The first shell deliberately does not define a packaging command. Packaging, signing, installers, and release publication remain outside issue #1 and must be added with their own supported-runtime evidence before the first release.
+
+## Desktop verification levels
+
+- Every pull request runs the headless interaction tests and the native desktop smoke journey on the explicit macOS, Windows, and Linux runner matrix. The native journey starts the real application, checks the initial Today view, activates another primary destination by keyboard, checks the changed view and retained focus, and closes cleanly.
+- Changes that affect layout, visual presentation, focus order, accessible names, roles, states, or announcements also require targeted manual visual and accessibility checks. The automated smoke journey is intentionally stable and does not replace those focused checks.
+- Release milestones require the full supported-runtime verification and assistive-technology checks. The per-pull-request smoke gate is a baseline, not release evidence.
+- Native smoke diagnostics contain only fixed operational phase, result, exit-code, view, and focus metadata. Routine validation uploads no evidence artifacts.
