@@ -397,7 +397,7 @@ internal sealed class GitVerificationWorkspaceProvider(
         {
             ["GIT_NO_REPLACE_OBJECTS"] = "1",
         };
-    private const int CleanupAttempts = 10;
+    private const int CleanupAttempts = 60;
     private readonly HashSet<string> ownedPaths = new(
         OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
     private readonly TimeSpan cleanupRetryDelay = cleanupRetryDelay ?? DefaultCleanupRetryDelay;

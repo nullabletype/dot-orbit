@@ -302,7 +302,7 @@ public sealed class GitBoundaryTests
     public async Task VerificationWorkspaceCleansDirectoryAndArchiveIndependentlyWhenExtractionFails()
     {
         var runner = new ArchiveProcessRunner(writeInvalidArchive: true);
-        var directoryDeletion = new ControlledDeletion(Enumerable.Repeat(false, 10).ToArray());
+        var directoryDeletion = new ControlledDeletion(Enumerable.Repeat(false, 60).ToArray());
         var fileDeletion = new ControlledFileDeletion(true);
         var provider = new GitVerificationWorkspaceProvider(
             Path.GetTempPath(),
@@ -315,7 +315,7 @@ public sealed class GitBoundaryTests
         {
             await Assert.ThrowsAsync<InvalidOperationException>(
                 () => provider.CreateAsync(new string('a', 40), CancellationToken.None));
-            Assert.Equal(10, directoryDeletion.Calls);
+            Assert.Equal(60, directoryDeletion.Calls);
             Assert.Equal(1, fileDeletion.Calls);
             Assert.False(File.Exists(runner.LastArchivePath));
         }
@@ -333,7 +333,7 @@ public sealed class GitBoundaryTests
     {
         var runner = new ArchiveProcessRunner();
         var directoryDeletion = new ControlledDeletion(true);
-        var fileDeletion = new ControlledFileDeletion(Enumerable.Repeat(false, 10).ToArray());
+        var fileDeletion = new ControlledFileDeletion(Enumerable.Repeat(false, 60).ToArray());
         var provider = new GitVerificationWorkspaceProvider(
             Path.GetTempPath(),
             runner,
@@ -345,7 +345,7 @@ public sealed class GitBoundaryTests
         {
             await Assert.ThrowsAsync<InvalidOperationException>(
                 () => provider.CreateAsync(new string('a', 40), CancellationToken.None));
-            Assert.Equal(10, fileDeletion.Calls);
+            Assert.Equal(60, fileDeletion.Calls);
             Assert.Equal(1, directoryDeletion.Calls);
         }
         finally
@@ -374,7 +374,7 @@ public sealed class GitBoundaryTests
     [Fact]
     public async Task VerificationWorkspaceFailsAfterBoundedCleanupAttempts()
     {
-        var deletion = new ControlledDeletion(Enumerable.Repeat(false, 10).ToArray());
+        var deletion = new ControlledDeletion(Enumerable.Repeat(false, 60).ToArray());
         var provider = new GitVerificationWorkspaceProvider(
             Path.GetTempPath(), new ArchiveProcessRunner(), TimeSpan.Zero, deletion.TryDelete);
         var snapshotPath = await provider.CreateAsync(new string('a', 40), CancellationToken.None);
@@ -383,7 +383,7 @@ public sealed class GitBoundaryTests
         try
         {
             Assert.False(await provider.RemoveAsync(snapshotPath, CancellationToken.None));
-            Assert.Equal(10, deletion.Calls);
+            Assert.Equal(60, deletion.Calls);
         }
         finally
         {
