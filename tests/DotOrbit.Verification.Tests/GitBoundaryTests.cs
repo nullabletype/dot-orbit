@@ -33,7 +33,7 @@ public sealed class GitBoundaryTests
         }
         finally
         {
-            Directory.Delete(repositoryPath, recursive: true);
+            DeleteDirectory(repositoryPath);
         }
     }
 
@@ -66,8 +66,24 @@ public sealed class GitBoundaryTests
                 RunGit(repositoryPath, "worktree", "remove", "--force", snapshotPath);
             }
 
-            Directory.Delete(repositoryPath, recursive: true);
+            DeleteDirectory(repositoryPath);
         }
+    }
+
+    private static void DeleteDirectory(string path)
+    {
+        if (!Directory.Exists(path))
+        {
+            return;
+        }
+
+        foreach (var entry in Directory.EnumerateFileSystemEntries(path, "*", SearchOption.AllDirectories))
+        {
+            File.SetAttributes(entry, FileAttributes.Normal);
+        }
+
+        File.SetAttributes(path, FileAttributes.Normal);
+        Directory.Delete(path, recursive: true);
     }
 
     private static string CreateRepository()
