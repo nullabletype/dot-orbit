@@ -3,14 +3,20 @@ using Avalonia.Automation.Peers;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.VisualTree;
+using DotOrbit.Core.Workspaces;
 using DotOrbit.Desktop.ViewModels;
 using DotOrbit.Desktop.Views;
+using DotOrbit.Storage.Sqlite;
 
 namespace DotOrbit.Desktop;
 
-internal readonly record struct NativeSmokeScenario(bool IsEnabled, NativeSmokeFailure Failure)
+internal readonly record struct NativeSmokeScenario(
+    bool IsEnabled,
+    bool ExercisesPackagedWorkspace,
+    NativeSmokeFailure Failure)
 {
     private const string SmokeArgument = "--native-smoke";
+    private const string PackageSmokeArgument = "--package-smoke";
     private const string StartupFailureArgument = "--native-smoke-failure=startup";
     private const string NavigationFailureArgument = "--native-smoke-failure=navigation";
 
@@ -18,16 +24,21 @@ internal readonly record struct NativeSmokeScenario(bool IsEnabled, NativeSmokeF
     {
         if (arguments?.Contains(StartupFailureArgument, StringComparer.Ordinal) is true)
         {
-            return new(true, NativeSmokeFailure.Startup);
+            return new(true, false, NativeSmokeFailure.Startup);
         }
 
         if (arguments?.Contains(NavigationFailureArgument, StringComparer.Ordinal) is true)
         {
-            return new(true, NativeSmokeFailure.NavigationAssertion);
+            return new(true, false, NativeSmokeFailure.NavigationAssertion);
         }
 
+        var exercisesPackagedWorkspace =
+            arguments?.Contains(PackageSmokeArgument, StringComparer.Ordinal) is true;
+
         return new(
-            arguments?.Contains(SmokeArgument, StringComparer.Ordinal) is true,
+            exercisesPackagedWorkspace
+            || arguments?.Contains(SmokeArgument, StringComparer.Ordinal) is true,
+            exercisesPackagedWorkspace,
             NativeSmokeFailure.None);
     }
 }
@@ -51,6 +62,15 @@ internal static class NativeSmokeRunner
         if (scenario.Failure == NativeSmokeFailure.Startup)
         {
             return Fail(StartupFailureExitCode, "startup");
+        }
+
+        if (scenario.ExercisesPackagedWorkspace)
+        {
+            var workspaceExitCode = PackagedWorkspaceSmoke.Run();
+            if (workspaceExitCode != 0)
+            {
+                return workspaceExitCode;
+            }
         }
 
         try
@@ -151,5 +171,106 @@ internal static class NativeSmokeRunner
         public int ExitCode { get; } = exitCode;
 
         public string Phase { get; } = phase;
+    }
+}
+
+internal static class PackagedWorkspaceSmoke
+{
+    internal const int WorkspaceFailureExitCode = 22;
+
+    private const string SyntheticPassphrase = "synthetic package smoke passphrase";
+    private const string SyntheticCategory = "Package smoke";
+
+    public static int Run() => Run(Path.Combine(
+        Path.GetTempPath(),
+        $"dot-orbit-package-smoke-{Guid.NewGuid():N}"));
+
+    internal static int Run(string directory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(directory);
+
+        int exitCode;
+        try
+        {
+            exitCode = ExerciseWorkspace(directory);
+        }
+        catch (IOException)
+        {
+            exitCode = Fail();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            exitCode = Fail();
+        }
+
+        try
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+        catch (DirectoryNotFoundException)
+        {
+            // A failed setup may not have created the temporary directory.
+        }
+        catch (IOException)
+        {
+            return Fail();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Fail();
+        }
+
+        return exitCode;
+    }
+
+    private static int ExerciseWorkspace(string directory)
+    {
+        Directory.CreateDirectory(directory);
+        var workspacePath = Path.Combine(directory, "workspace.db");
+        var store = new EncryptedWorkspaceStore();
+        var passphrase = WorkspacePassphrase.Create(
+            SyntheticPassphrase,
+            SyntheticPassphrase).Passphrase;
+        var category = CategoryName.Create(SyntheticCategory).CategoryName;
+        if (passphrase is null || category is null)
+        {
+            return Fail();
+        }
+
+        var created = store.Create(workspacePath, passphrase, category);
+        using (created.Session)
+        {
+            if (created.Status != WorkspaceCreationStatus.Created || created.Session is null)
+            {
+                return Fail();
+            }
+        }
+
+        var opened = store.Open(
+            workspacePath,
+            WorkspacePassphrase.ForUnlock(SyntheticPassphrase)!);
+        using (opened.Session)
+        {
+            if (opened.Status != WorkspaceOpenStatus.Opened
+                || opened.Session is null
+                || opened.Session.SchemaVersion != EncryptedWorkspaceStore.CurrentSchemaVersion
+                || !string.Equals(
+                    opened.Session.FirstCategoryName,
+                    SyntheticCategory,
+                    StringComparison.Ordinal))
+            {
+                return Fail();
+            }
+        }
+
+        Console.WriteLine("package-smoke: phase=encrypted-workspace result=passed");
+        return 0;
+    }
+
+    private static int Fail()
+    {
+        Console.Error.WriteLine(
+            $"package-smoke: phase=encrypted-workspace result=failed code={WorkspaceFailureExitCode}");
+        return WorkspaceFailureExitCode;
     }
 }

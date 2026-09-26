@@ -42,6 +42,34 @@
       "dotorbit.core": {
         "type": "Project"
       }
+    },
+    "net10.0/linux-x64": {
+      "SQLite3MC.PCLRaw.lib": {
+        "type": "Transitive",
+        "resolved": "2.4.0",
+        "contentHash": "1In6cTL5SGGVbyJh5Uf6Qq6/hf9ecP6bSIUkU7F9JaVvAiMZTwzLXwgXqm4jjWtHpjHiaVURUrjkpbDG3kTKHw=="
+      }
+    },
+    "net10.0/osx-arm64": {
+      "SQLite3MC.PCLRaw.lib": {
+        "type": "Transitive",
+        "resolved": "2.4.0",
+        "contentHash": "1In6cTL5SGGVbyJh5Uf6Qq6/hf9ecP6bSIUkU7F9JaVvAiMZTwzLXwgXqm4jjWtHpjHiaVURUrjkpbDG3kTKHw=="
+      }
+    },
+    "net10.0/osx-x64": {
+      "SQLite3MC.PCLRaw.lib": {
+        "type": "Transitive",
+        "resolved": "2.4.0",
+        "contentHash": "1In6cTL5SGGVbyJh5Uf6Qq6/hf9ecP6bSIUkU7F9JaVvAiMZTwzLXwgXqm4jjWtHpjHiaVURUrjkpbDG3kTKHw=="
+      }
+    },
+    "net10.0/win-x64": {
+      "SQLite3MC.PCLRaw.lib": {
+        "type": "Transitive",
+        "resolved": "2.4.0",
+        "contentHash": "1In6cTL5SGGVbyJh5Uf6Qq6/hf9ecP6bSIUkU7F9JaVvAiMZTwzLXwgXqm4jjWtHpjHiaVURUrjkpbDG3kTKHw=="
+      }
     }
   }
 }
