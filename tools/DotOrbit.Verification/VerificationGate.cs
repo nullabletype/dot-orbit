@@ -366,7 +366,7 @@ internal sealed class GitVerificationWorkspaceProvider(
     private static readonly TimeSpan CleanupTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DefaultCleanupRetryDelay = TimeSpan.FromMilliseconds(500);
     private const int CleanupAttempts = 10;
-    private readonly HashSet<string> ownedPaths = new(
+    private readonly Dictionary<string, string> ownedPaths = new(
         OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
     private readonly TimeSpan cleanupRetryDelay = cleanupRetryDelay ?? DefaultCleanupRetryDelay;
 
@@ -385,14 +385,31 @@ internal sealed class GitVerificationWorkspaceProvider(
             return null;
         }
 
-        ownedPaths.Add(Path.GetFullPath(path));
+        var canonicalPathResult = await runner.RunAsync(
+            new ProcessRequest(
+                "git",
+                ["-C", path, "rev-parse", "--show-toplevel"],
+                EchoOutput: false,
+                WorkingDirectory: path),
+            cancellationToken).ConfigureAwait(false);
+        if (canonicalPathResult.ExitCode != 0 || string.IsNullOrWhiteSpace(canonicalPathResult.StandardOutput))
+        {
+            if (!await RemoveAfterFailedCreationAsync(path).ConfigureAwait(false))
+            {
+                throw new InvalidOperationException("The verification snapshot could not be cleaned up after setup failed.");
+            }
+
+            return null;
+        }
+
+        ownedPaths.Add(Path.GetFullPath(path), canonicalPathResult.StandardOutput.Trim());
         return path;
     }
 
     public async Task<bool> RemoveAsync(string path, CancellationToken cancellationToken)
     {
         var fullPath = Path.GetFullPath(path);
-        if (!ownedPaths.Contains(fullPath))
+        if (!ownedPaths.TryGetValue(fullPath, out var registeredPath))
         {
             return false;
         }
@@ -404,10 +421,17 @@ internal sealed class GitVerificationWorkspaceProvider(
                     "git",
                     ["-C", repositoryRoot, "worktree", "remove", "--force", fullPath],
                     CleanupTimeout,
-                    EchoOutput: attempt == CleanupAttempts,
+                    EchoOutput: false,
                     WorkingDirectory: repositoryRoot),
                 cancellationToken).ConfigureAwait(false);
             if (result.ExitCode == 0)
+            {
+                ownedPaths.Remove(fullPath);
+                return true;
+            }
+
+            if (!await IsRegisteredAsync(registeredPath, cancellationToken).ConfigureAwait(false)
+                && TryDeleteTree(fullPath))
             {
                 ownedPaths.Remove(fullPath);
                 return true;
@@ -421,6 +445,121 @@ internal sealed class GitVerificationWorkspaceProvider(
         }
 
         return false;
+    }
+
+    private async Task<bool> RemoveAfterFailedCreationAsync(string path)
+    {
+        for (var attempt = 1; attempt <= CleanupAttempts; attempt++)
+        {
+            var result = await runner.RunAsync(
+                new ProcessRequest(
+                    "git",
+                    ["-C", repositoryRoot, "worktree", "remove", "--force", path],
+                    CleanupTimeout,
+                    EchoOutput: false,
+                    WorkingDirectory: repositoryRoot),
+                CancellationToken.None).ConfigureAwait(false);
+            if (result.ExitCode == 0)
+            {
+                return true;
+            }
+
+            NormalizeAttributes(path);
+            if (attempt < CleanupAttempts)
+            {
+                await Task.Delay(cleanupRetryDelay, CancellationToken.None).ConfigureAwait(false);
+            }
+        }
+
+        return false;
+    }
+
+    private async Task<bool> IsRegisteredAsync(string registeredPath, CancellationToken cancellationToken)
+    {
+        var result = await runner.RunAsync(
+            new ProcessRequest(
+                "git",
+                ["-C", repositoryRoot, "worktree", "list", "--porcelain", "-z"],
+                CleanupTimeout,
+                EchoOutput: false,
+                WorkingDirectory: repositoryRoot),
+            cancellationToken).ConfigureAwait(false);
+        if (result.ExitCode != 0)
+        {
+            return true;
+        }
+
+        return ContainsRegisteredWorktree(result.StandardOutput, registeredPath);
+    }
+
+    internal static bool ContainsRegisteredWorktree(string porcelainOutput, string registeredPath)
+    {
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        foreach (var field in porcelainOutput.Split('\0', StringSplitOptions.RemoveEmptyEntries))
+        {
+            const string prefix = "worktree ";
+            if (field.StartsWith(prefix, StringComparison.Ordinal)
+                && string.Equals(
+                    field[prefix.Length..].TrimEnd('/', '\\'),
+                    registeredPath.TrimEnd('/', '\\'),
+                    comparison))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryDeleteTree(string path)
+    {
+        if (!Directory.Exists(path))
+        {
+            return true;
+        }
+
+        try
+        {
+            DeleteEntry(path);
+            return !Directory.Exists(path);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static void DeleteEntry(string path)
+    {
+        var attributes = File.GetAttributes(path);
+        var isDirectory = (attributes & FileAttributes.Directory) != 0;
+        if ((attributes & FileAttributes.ReparsePoint) != 0)
+        {
+            if (isDirectory)
+            {
+                Directory.Delete(path, recursive: false);
+            }
+            else
+            {
+                File.Delete(path);
+            }
+
+            return;
+        }
+
+        File.SetAttributes(path, FileAttributes.Normal);
+        if (!isDirectory)
+        {
+            File.Delete(path);
+            return;
+        }
+
+        foreach (var entry in Directory.EnumerateFileSystemEntries(path))
+        {
+            DeleteEntry(entry);
+        }
+
+        Directory.Delete(path, recursive: false);
     }
 
     private static void NormalizeAttributes(string path)

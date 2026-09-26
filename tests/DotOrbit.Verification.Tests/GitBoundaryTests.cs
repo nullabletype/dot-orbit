@@ -76,13 +76,63 @@ public sealed class GitBoundaryTests
     [Fact]
     public async Task VerificationWorkspaceRetriesFailedCleanup()
     {
-        var runner = new WorkspaceProcessRunner(1, 0);
+        var runner = new WorkspaceProcessRunner([1, 0], canonicalPathOverride: "/canonical/temp/worktree");
         var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner, TimeSpan.Zero);
         var snapshotPath = await provider.CreateAsync(new string('a', 40), CancellationToken.None);
 
         Assert.NotNull(snapshotPath);
         Assert.True(await provider.RemoveAsync(snapshotPath, CancellationToken.None));
         Assert.Equal(2, runner.RemoveCalls);
+    }
+
+    [Fact]
+    public void WorktreeRegistrationParserHandlesRawNonAsciiPaths()
+    {
+        const string path = "C:/Témp/工作/dov-123";
+        var output = $"worktree {path}\0HEAD synthetic\0branch refs/heads/example\0\0";
+
+        Assert.True(GitVerificationWorkspaceProvider.ContainsRegisteredWorktree(output, path));
+        Assert.False(GitVerificationWorkspaceProvider.ContainsRegisteredWorktree(output, "C:/Temp/other"));
+    }
+
+    [Fact]
+    public async Task VerificationWorkspaceCleansUpWhenCanonicalPathLookupFails()
+    {
+        var runner = new WorkspaceProcessRunner([0], canonicalLookupFails: true);
+        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner, TimeSpan.Zero);
+
+        Assert.Null(await provider.CreateAsync(new string('a', 40), CancellationToken.None));
+        Assert.Equal(1, runner.RemoveCalls);
+    }
+
+    [Fact]
+    public async Task VerificationWorkspaceRetriesCleanupWhenCanonicalPathLookupFails()
+    {
+        var runner = new WorkspaceProcessRunner([1, 0], canonicalLookupFails: true);
+        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner, TimeSpan.Zero);
+
+        Assert.Null(await provider.CreateAsync(new string('a', 40), CancellationToken.None));
+        Assert.Equal(2, runner.RemoveCalls);
+    }
+
+    [Fact]
+    public async Task VerificationWorkspacePropagatesExhaustedCleanupAfterCanonicalPathLookupFails()
+    {
+        var runner = new WorkspaceProcessRunner(
+            Enumerable.Repeat(1, 10).ToArray(),
+            canonicalLookupFails: true);
+        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner, TimeSpan.Zero);
+
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => provider.CreateAsync(new string('a', 40), CancellationToken.None));
+            Assert.Equal(10, runner.RemoveCalls);
+        }
+        finally
+        {
+            DeleteDirectory(runner.CreatedPath!);
+        }
     }
 
     [Fact]
@@ -105,17 +155,18 @@ public sealed class GitBoundaryTests
     }
 
     [Fact]
-    public async Task VerificationWorkspaceDoesNotTreatPartialRemovalAsSuccess()
+    public async Task VerificationWorkspaceFinishesDeletionAfterGitUnregistersIt()
     {
         var runner = new WorkspaceProcessRunner(
-            Enumerable.Repeat(1, 10).ToArray(),
-            deleteOnFirstFailedRemoval: true);
+            [1],
+            unregisterOnFirstFailedRemoval: true);
         var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner, TimeSpan.Zero);
         var snapshotPath = await provider.CreateAsync(new string('a', 40), CancellationToken.None);
 
         Assert.NotNull(snapshotPath);
-        Assert.False(await provider.RemoveAsync(snapshotPath, CancellationToken.None));
-        Assert.Equal(10, runner.RemoveCalls);
+        Assert.True(await provider.RemoveAsync(snapshotPath, CancellationToken.None));
+        Assert.Equal(1, runner.RemoveCalls);
+        Assert.False(Directory.Exists(snapshotPath));
     }
 
     [Fact]
@@ -217,35 +268,68 @@ public sealed class GitBoundaryTests
     private sealed class WorkspaceProcessRunner : IProcessRunner
     {
         private readonly Queue<int> removalExitCodes;
-        private readonly bool deleteOnFirstFailedRemoval;
+        private readonly bool unregisterOnFirstFailedRemoval;
+        private readonly string? canonicalPathOverride;
+        private readonly bool canonicalLookupFails;
+        private string? worktreePath;
+        private string? canonicalPath;
+        private bool registered;
 
         public WorkspaceProcessRunner(params int[] removalExitCodes)
-            : this(removalExitCodes, deleteOnFirstFailedRemoval: false)
+            : this(removalExitCodes, unregisterOnFirstFailedRemoval: false, canonicalPathOverride: null)
         {
         }
 
-        public WorkspaceProcessRunner(int[] removalExitCodes, bool deleteOnFirstFailedRemoval)
+        public WorkspaceProcessRunner(
+            int[] removalExitCodes,
+            bool unregisterOnFirstFailedRemoval = false,
+            string? canonicalPathOverride = null,
+            bool canonicalLookupFails = false)
         {
             this.removalExitCodes = new Queue<int>(removalExitCodes);
-            this.deleteOnFirstFailedRemoval = deleteOnFirstFailedRemoval;
+            this.unregisterOnFirstFailedRemoval = unregisterOnFirstFailedRemoval;
+            this.canonicalPathOverride = canonicalPathOverride;
+            this.canonicalLookupFails = canonicalLookupFails;
         }
 
         public int RemoveCalls { get; private set; }
+        public string? CreatedPath => worktreePath;
 
         public Task<ProcessResult> RunAsync(ProcessRequest request, CancellationToken cancellationToken)
         {
             if (request.Arguments.Contains("add", StringComparer.Ordinal))
             {
-                Directory.CreateDirectory(request.Arguments[^2]);
+                worktreePath = request.Arguments[^2];
+                canonicalPath = canonicalPathOverride ?? worktreePath;
+                registered = true;
+                Directory.CreateDirectory(worktreePath);
                 return Task.FromResult(new ProcessResult(0, "", ""));
+            }
+
+            if (request.Arguments.Contains("rev-parse", StringComparer.Ordinal))
+            {
+                return Task.FromResult(canonicalLookupFails
+                    ? new ProcessResult(1, "", "synthetic canonical path failure")
+                    : new ProcessResult(0, $"{canonicalPath}\n", ""));
+            }
+
+            if (request.Arguments.Contains("list", StringComparer.Ordinal))
+            {
+                var output = registered ? $"worktree {canonicalPath}\0HEAD synthetic\0\0" : "";
+                return Task.FromResult(new ProcessResult(0, output, ""));
             }
 
             RemoveCalls++;
             var path = request.Arguments[^1];
             var exitCode = removalExitCodes.Dequeue();
-            if (exitCode == 0 || (deleteOnFirstFailedRemoval && RemoveCalls == 1))
+            if (exitCode == 0)
             {
+                registered = false;
                 DeleteDirectory(path);
+            }
+            else if (unregisterOnFirstFailedRemoval && RemoveCalls == 1)
+            {
+                registered = false;
             }
 
             return Task.FromResult(new ProcessResult(exitCode, "", ""));
