@@ -20,6 +20,7 @@ _ReSharper*/
 *.ncrunch*
 
 # .NET build and package output
+.dotnet/
 [Bb]in/
 [Oo]bj/
 [Aa]rtifacts/
@@ -69,6 +70,7 @@ backups/
 *.sqlite-*
 *.sqlite3
 *.sqlite3-*
+!src/DotOrbit.Storage.Sqlite/
 *.dotorbit-backup
 *.dotorbit-backup.*
 

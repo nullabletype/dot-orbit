@@ -2,11 +2,12 @@
 
 dot-orbit is a personal, open-source desktop task manager built around projects, deliberate daily focus, and manual ordering.
 
-The repository is currently at the specification and interactive-prototype stage. Nothing in `docs/` should be read as evidence of a production implementation unless it is explicitly marked as implemented and verified.
+The repository contains the first runnable Avalonia shell and the earlier interactive product prototype. Nothing in `docs/` should be read as evidence of implemented behaviour unless it is explicitly marked as implemented and verified.
 
 ## Start here
 
-- Open `prototype/index.html` in a modern desktop browser. It is self-contained and needs no build step.
+- Run `dotnet run --project src/DotOrbit.Desktop/DotOrbit.Desktop.csproj` to open the desktop shell.
+- Open `prototype/index.html` in a modern desktop browser to explore the broader product direction. It is self-contained and needs no build step.
 - Read `docs/product/brief.md` for the product boundary.
 - Read `docs/product/requirements.md` for the current behavioural specification.
 - Read `docs/design/ui-specification.md` alongside the prototype.
@@ -19,8 +20,21 @@ The repository is currently at the specification and interactive-prototype stage
 - UI prototype: interactive and locally verified for the original six views; it predates the accepted Upcoming-view decision and must be updated before serving as evidence for that view.
 - Application platform: Avalonia UI on .NET, targeting macOS, Linux, and Windows.
 - Local persistence: SQLite encrypted with SQLite3MC, with the automatic backup and retention policy specified.
-- Production application: not started.
+- Production application: the cross-platform navigation shell is implemented; domain data and persistence are not.
 - Licence: MIT.
+
+## Build and test
+
+The repository pins .NET SDK 10.0.401 in `global.json`. From the repository root:
+
+```sh
+dotnet restore DotOrbit.slnx --locked-mode
+dotnet format DotOrbit.slnx --no-restore --verify-no-changes
+dotnet build DotOrbit.slnx --configuration Release --no-restore
+dotnet test --solution DotOrbit.slnx --configuration Release --no-build
+```
+
+The same gate runs on pinned Ubuntu, Windows, and macOS GitHub-hosted runners. See `docs/development/dependency-baseline.md` for the checked dependency and runner baseline.
 
 ## Licence
 

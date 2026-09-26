@@ -1,0 +1,189 @@
+<Window
+    x:Class="DotOrbit.Desktop.Views.MainWindow"
+    x:DataType="vm:ShellViewModel"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:DotOrbit.Desktop.ViewModels"
+    Title="dot-orbit"
+    Width="1180"
+    Height="760"
+    MinWidth="1120"
+    MinHeight="600"
+    Background="{StaticResource BackgroundBrush}">
+  <Window.Resources>
+    <DataTemplate x:Key="NavigationItemTemplate" x:DataType="vm:NavigationItemViewModel">
+      <RadioButton
+          AutomationProperties.AutomationId="{Binding AutomationId}"
+          AutomationProperties.HelpText="{Binding AccessibleHelpText}"
+          AutomationProperties.Name="{Binding AccessibleName}"
+          Classes="nav-item"
+          Command="{Binding SelectCommand}"
+          Focusable="True"
+          GroupName="PrimaryNavigation"
+          IsChecked="{Binding IsSelected, Mode=OneWay}">
+        <Grid ColumnDefinitions="22,*,Auto">
+          <PathIcon
+              Width="15"
+              Height="15"
+              HorizontalAlignment="Center"
+              Data="{Binding IconData}" />
+          <TextBlock
+              Grid.Column="1"
+              Margin="8,0,0,0"
+              FontSize="14"
+              VerticalAlignment="Center"
+              Text="{Binding Title}" />
+          <TextBlock
+              Grid.Column="2"
+              Classes="nav-count"
+              IsVisible="{Binding HasCount}"
+              Text="{Binding CountText}" />
+        </Grid>
+      </RadioButton>
+    </DataTemplate>
+  </Window.Resources>
+
+  <Grid ColumnDefinitions="228,*,320" RowDefinitions="64,*">
+    <Border
+        x:Name="TopBar"
+        Grid.Row="0"
+        Grid.ColumnSpan="3"
+        Background="{StaticResource BackgroundBrush}"
+        BorderBrush="{StaticResource LineBrush}"
+        BorderThickness="0,0,0,1">
+      <Grid ColumnDefinitions="228,*">
+        <StackPanel
+            Grid.Column="0"
+            Margin="22,0,0,0"
+            VerticalAlignment="Center"
+            Orientation="Horizontal"
+            Spacing="10">
+          <Image
+              x:Name="BrandMarkImage"
+              Width="30"
+              Height="30"
+              Source="{StaticResource OrbitMarkImage}"
+              Stretch="Uniform" />
+          <TextBlock
+              x:Name="BrandNameText"
+              VerticalAlignment="Center"
+              FontSize="18"
+              FontWeight="Bold"
+              Text="dot-orbit" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <Border
+        Grid.Row="1"
+        Grid.Column="0"
+        Padding="12,18"
+        Background="{StaticResource SidebarBrush}"
+        BorderBrush="{StaticResource LineBrush}"
+        BorderThickness="0,0,1,0">
+      <Grid RowDefinitions="Auto,*,Auto">
+        <TextBlock
+            x:Name="WorkspaceLabelText"
+            Margin="12,4,12,8"
+            FontSize="11"
+            FontWeight="Bold"
+            Foreground="{StaticResource QuietTextBrush}"
+            LetterSpacing="1.4"
+            Text="WORKSPACE" />
+
+        <ItemsControl
+            Grid.Row="1"
+            ItemTemplate="{StaticResource NavigationItemTemplate}"
+            ItemsSource="{Binding PrimaryNavigation}" />
+
+        <Border
+            Grid.Row="2"
+            Padding="0,12,0,0"
+            BorderBrush="{StaticResource LineSoftBrush}"
+            BorderThickness="0,1,0,0">
+          <ContentControl
+              HorizontalContentAlignment="Stretch"
+              Content="{Binding BinNavigation}"
+              ContentTemplate="{StaticResource NavigationItemTemplate}" />
+        </Border>
+      </Grid>
+    </Border>
+
+    <Grid
+        x:Name="CurrentViewRegion"
+        Grid.Row="1"
+        Grid.Column="1"
+        Margin="32,30,32,60"
+        AutomationProperties.LiveSetting="Polite"
+        RowDefinitions="Auto,28,*">
+      <StackPanel Grid.Row="0" Spacing="7">
+        <TextBlock
+            x:Name="CurrentViewEyebrowText"
+            Classes="eyebrow"
+            Text="PERSONAL WORKSPACE" />
+        <TextBlock
+            x:Name="CurrentViewTitleText"
+            AutomationProperties.Name="Current view"
+            FontSize="31"
+            FontWeight="Bold"
+            LetterSpacing="-1.2"
+            Text="{Binding ViewTitle}" />
+        <TextBlock
+            x:Name="CurrentViewSubtitleText"
+            FontSize="14"
+            Foreground="{StaticResource MutedTextBrush}"
+            Text="{Binding ViewSubtitle}"
+            TextWrapping="Wrap" />
+      </StackPanel>
+
+      <Border
+          Grid.Row="2"
+          Padding="42"
+          VerticalAlignment="Top"
+          Background="Transparent"
+          BorderBrush="{StaticResource LineBrush}"
+          BorderThickness="1"
+          CornerRadius="14">
+        <StackPanel HorizontalAlignment="Center" Spacing="8">
+          <TextBlock
+              x:Name="EmptyStateHeadingText"
+              HorizontalAlignment="Center"
+              FontSize="18"
+              FontWeight="SemiBold"
+              Text="{Binding EmptyStateHeading}"
+              TextAlignment="Center"
+              TextWrapping="Wrap" />
+          <TextBlock
+              x:Name="EmptyStateBodyText"
+              MaxWidth="440"
+              HorizontalAlignment="Center"
+              FontSize="14"
+              Foreground="{StaticResource MutedTextBrush}"
+              LineHeight="21"
+              Text="{Binding EmptyStateBody}"
+              TextAlignment="Center"
+              TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
+    </Grid>
+
+    <Border
+        x:Name="InspectorRegion"
+        Grid.Row="1"
+        Grid.Column="2"
+        Padding="22"
+        Background="{StaticResource PanelBrush}"
+        BorderBrush="{StaticResource LineBrush}"
+        BorderThickness="1,0,0,0">
+      <TextBlock
+          x:Name="InspectorEmptyText"
+          HorizontalAlignment="Center"
+          VerticalAlignment="Center"
+          FontSize="14"
+          Foreground="{StaticResource QuietTextBrush}"
+          LineHeight="19"
+          Text="Select a project or task&#x0a;to see its details"
+          TextAlignment="Center" />
+    </Border>
+  </Grid>
+</Window>
