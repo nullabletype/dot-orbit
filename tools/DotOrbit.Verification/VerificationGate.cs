@@ -1,7 +1,10 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace DotOrbit.Verification;
@@ -384,7 +387,8 @@ internal sealed class GitVerificationWorkspaceProvider(
     IProcessRunner runner,
     TimeSpan? cleanupRetryDelay = null,
     Func<string, bool>? deleteTree = null,
-    Func<string, bool>? deleteFile = null)
+    Func<string, bool>? deleteFile = null,
+    Action<string>? reportDiagnostic = null)
     : IVerificationWorkspaceProvider
 {
     private static readonly TimeSpan DefaultCleanupRetryDelay = TimeSpan.FromMilliseconds(500);
@@ -446,8 +450,10 @@ internal sealed class GitVerificationWorkspaceProvider(
         {
             Directory.CreateDirectory(path);
             ZipFile.ExtractToDirectory(archivePath, path);
-            if (!await MatchesExpectedTreeAsync(path, expectedTree, cancellationToken).ConfigureAwait(false))
+            var mismatchReason = FindSnapshotMismatch(path, expectedTree, cancellationToken);
+            if (mismatchReason is not null)
             {
+                reportDiagnostic?.Invoke($"verify: snapshot result=failed reason={mismatchReason}");
                 throw new InvalidDataException("The verification snapshot does not match the requested commit tree.");
             }
         }
@@ -532,7 +538,7 @@ internal sealed class GitVerificationWorkspaceProvider(
         return expectedTree;
     }
 
-    private async Task<bool> MatchesExpectedTreeAsync(
+    private static string? FindSnapshotMismatch(
         string path,
         IReadOnlyDictionary<string, string> expectedTree,
         CancellationToken cancellationToken)
@@ -542,32 +548,43 @@ internal sealed class GitVerificationWorkspaceProvider(
             .ToArray();
         if (actualPaths.Length != expectedTree.Count)
         {
-            return false;
+            return "path-count-mismatch";
         }
 
         foreach (var (file, relativePath) in actualPaths)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!expectedTree.TryGetValue(relativePath, out var expectedObjectId))
             {
-                return false;
+                return "unexpected-path";
             }
 
-            var actualObjectId = await runner.RunAsync(
-                new ProcessRequest(
-                    "git",
-                    ["-C", repositoryRoot, "hash-object", "--no-filters", file],
-                    EchoOutput: false,
-                    WorkingDirectory: repositoryRoot,
-                    EnvironmentVariables: GitIdentityEnvironment),
-                cancellationToken).ConfigureAwait(false);
-            if (actualObjectId.ExitCode != 0
-                || !string.Equals(actualObjectId.StandardOutput.Trim(), expectedObjectId, StringComparison.Ordinal))
+            if (!string.Equals(ComputeGitBlobObjectId(file), expectedObjectId, StringComparison.Ordinal))
             {
-                return false;
+                return "blob-mismatch";
             }
         }
 
-        return true;
+        return null;
+    }
+
+    [SuppressMessage(
+        "Security",
+        "CA5350:Do not use weak cryptographic algorithms",
+        Justification = "SHA-1 is required here only to reproduce this SHA-1 Git repository's blob object identifiers, not for security.")]
+    internal static string ComputeGitBlobObjectId(string path)
+    {
+        using var stream = File.OpenRead(path);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA1);
+        hash.AppendData(Encoding.ASCII.GetBytes($"blob {stream.Length}\0"));
+        var buffer = new byte[81920];
+        int bytesRead;
+        while ((bytesRead = stream.Read(buffer)) > 0)
+        {
+            hash.AppendData(buffer, 0, bytesRead);
+        }
+
+        return Convert.ToHexStringLower(hash.GetHashAndReset());
     }
 
     public async Task<bool> RemoveAsync(string path, CancellationToken cancellationToken)

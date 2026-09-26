@@ -73,6 +73,67 @@ public sealed class GitBoundaryTests
         }
     }
 
+    [Fact]
+    public void GitBlobObjectIdMatchesKnownGitVectors()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dot-orbit-blob-{Guid.NewGuid():N}");
+        try
+        {
+            var vectors = new (byte[] Content, string ObjectId)[]
+            {
+                ([], "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"),
+                ("hello\n"u8.ToArray(), "ce013625030ba8dba906f756967f9e9ca394464a"),
+                ("hello\r\n"u8.ToArray(), "ef0493b275aa2080237f676d2ef6559246f56636"),
+                ([0x00, 0x01, 0xff], "494b1410a95b9ef0a980c33411fbf7d564472741"),
+            };
+
+            foreach (var (content, objectId) in vectors)
+            {
+                File.WriteAllBytes(path, content);
+                Assert.Equal(objectId, GitVerificationWorkspaceProvider.ComputeGitBlobObjectId(path));
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task VerificationWorkspaceSupportsNestedPathsContainingSpaces()
+    {
+        const string relativePath = "nested folder/tracked file.txt";
+        var runner = new ArchiveProcessRunner(
+            treeOutput: $"100644 blob da2bdc1b30ad8d1a827b1f81f14f674716f00927\t{relativePath}\0",
+            archiveEntryPath: relativePath);
+        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner, TimeSpan.Zero);
+        var snapshotPath = await provider.CreateAsync(new string('a', 40), CancellationToken.None);
+
+        Assert.NotNull(snapshotPath);
+        Assert.Equal("committed", File.ReadAllText(Path.Combine(snapshotPath, "nested folder", "tracked file.txt")));
+        Assert.True(await provider.RemoveAsync(snapshotPath, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task VerificationWorkspaceRejectsSamePathWithDifferentBlobContent()
+    {
+        var directoryDeletion = new ControlledDeletion(true);
+        var fileDeletion = new ControlledFileDeletion(true);
+        var diagnostics = new List<string>();
+        var provider = new GitVerificationWorkspaceProvider(
+            Path.GetTempPath(),
+            new ArchiveProcessRunner(archiveContent: "altered"),
+            TimeSpan.Zero,
+            directoryDeletion.TryDelete,
+            fileDeletion.TryDelete,
+            diagnostics.Add);
+
+        Assert.Null(await provider.CreateAsync(new string('a', 40), CancellationToken.None));
+        Assert.Equal(1, directoryDeletion.Calls);
+        Assert.Equal(1, fileDeletion.Calls);
+        Assert.Equal(["verify: snapshot result=failed reason=blob-mismatch"], diagnostics);
+    }
+
     [Theory]
     [InlineData("100755")]
     [InlineData("120000")]
@@ -394,10 +455,12 @@ public sealed class GitBoundaryTests
     }
 
     private sealed class ArchiveProcessRunner(
-        string treeOutput = "100644 blob synthetic\ttracked.txt\0",
+        string treeOutput = "100644 blob da2bdc1b30ad8d1a827b1f81f14f674716f00927\ttracked.txt\0",
         int archiveExitCode = 0,
         bool writeInvalidArchive = false,
-        Exception? archiveException = null) : IProcessRunner
+        Exception? archiveException = null,
+        string archiveEntryPath = "tracked.txt",
+        string archiveContent = "committed") : IProcessRunner
     {
         public int ArchiveCalls { get; private set; }
         public string? LastArchivePath { get; private set; }
@@ -407,11 +470,6 @@ public sealed class GitBoundaryTests
             if (request.Arguments.Contains("ls-tree", StringComparer.Ordinal))
             {
                 return Task.FromResult(new ProcessResult(0, treeOutput, ""));
-            }
-
-            if (request.Arguments.Contains("hash-object", StringComparer.Ordinal))
-            {
-                return Task.FromResult(new ProcessResult(0, "synthetic\n", ""));
             }
 
             ArchiveCalls++;
@@ -430,9 +488,9 @@ public sealed class GitBoundaryTests
             }
 
             using var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create);
-            var entry = archive.CreateEntry("tracked.txt");
+            var entry = archive.CreateEntry(archiveEntryPath);
             using var writer = new StreamWriter(entry.Open());
-            writer.Write("committed");
+            writer.Write(archiveContent);
             return Task.FromResult(new ProcessResult(archiveExitCode, "", ""));
         }
     }

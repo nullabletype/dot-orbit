@@ -14,7 +14,10 @@ internal static class Program
         var output = new ConsoleVerificationOutput();
         var runner = new ProcessRunner(output);
         var repository = new GitRepositoryInspector(repositoryRoot, runner);
-        var workspaces = new GitVerificationWorkspaceProvider(repositoryRoot, runner);
+        var workspaces = new GitVerificationWorkspaceProvider(
+            repositoryRoot,
+            runner,
+            reportDiagnostic: output.WriteError);
         var gate = new VerificationGate(repositoryRoot, repository, workspaces, runner, output);
         try
         {
