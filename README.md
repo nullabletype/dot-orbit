@@ -6,7 +6,7 @@ The repository contains the first runnable Avalonia shell and the earlier intera
 
 ## Start here
 
-- Run `dotnet run --project src/DotOrbit.Desktop/DotOrbit.Desktop.csproj` to open the desktop shell.
+- Run `dotnet run --project src/DotOrbit.Desktop/DotOrbit.Desktop.csproj` to create or unlock the local encrypted workspace and open the desktop shell.
 - Open `prototype/index.html` in a modern desktop browser to explore the broader product direction. It is self-contained and needs no build step.
 - Read `docs/product/brief.md` for the product boundary.
 - Read `docs/product/requirements.md` for the current behavioural specification.
@@ -19,8 +19,8 @@ The repository contains the first runnable Avalonia shell and the earlier intera
 - Product requirements: drafted from the design conversation.
 - UI prototype: interactive and locally verified for the original six views; it predates the accepted Upcoming-view decision and must be updated before serving as evidence for that view.
 - Application platform: Avalonia UI on .NET, targeting macOS, Linux, and Windows.
-- Local persistence: SQLite encrypted with SQLite3MC, with the automatic backup and retention policy specified.
-- Production application: the cross-platform navigation shell is implemented; domain data and persistence are not.
+- Local persistence: encrypted workspace creation and unlock are implemented with SQLite3MC; backup and restore remain specified but are not implemented.
+- Production application: the cross-platform navigation shell, first-run passphrase flow, first named Category, and later-launch unlock flow are implemented. Projects and Tasks are not yet implemented.
 - Licence: MIT.
 
 ## Build and test
