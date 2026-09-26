@@ -6,4 +6,7 @@
   <ItemGroup>
     <ProjectReference Include="../DotOrbit.Core/DotOrbit.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="DotOrbit.Storage.Sqlite.Tests" />
+  </ItemGroup>
 </Project>

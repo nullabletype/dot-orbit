@@ -16,24 +16,34 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
 
     private static readonly object InitialisationLock = new();
     private static bool _initialised;
+    private readonly IWorkspaceFileOperations _fileOperations;
     private readonly IIdentifierGenerator _identifierGenerator;
 
     public EncryptedWorkspaceStore()
-        : this(new SystemIdentifierGenerator())
+        : this(new SystemIdentifierGenerator(), new WorkspaceFileOperations())
     {
     }
 
     public EncryptedWorkspaceStore(IIdentifierGenerator identifierGenerator)
+        : this(identifierGenerator, new WorkspaceFileOperations())
+    {
+    }
+
+    internal EncryptedWorkspaceStore(
+        IIdentifierGenerator identifierGenerator,
+        IWorkspaceFileOperations fileOperations)
     {
         ArgumentNullException.ThrowIfNull(identifierGenerator);
+        ArgumentNullException.ThrowIfNull(fileOperations);
         _identifierGenerator = identifierGenerator;
+        _fileOperations = fileOperations;
         EnsureProviderInitialised();
     }
 
     public bool Exists(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        return File.Exists(path);
+        return _fileOperations.Exists(_fileOperations.ResolvePath(path));
     }
 
     public WorkspaceCreationResult Create(
@@ -45,26 +55,18 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         ArgumentNullException.ThrowIfNull(passphrase);
         ArgumentNullException.ThrowIfNull(firstCategory);
 
-        var fullPath = Path.GetFullPath(path);
-        if (File.Exists(fullPath))
+        var fullPath = _fileOperations.ResolvePath(path);
+        if (_fileOperations.Exists(fullPath))
         {
             return WorkspaceCreationResult.AlreadyExists();
-        }
-
-        var directory = Path.GetDirectoryName(fullPath);
-        if (string.IsNullOrEmpty(directory))
-        {
-            return WorkspaceCreationResult.Failed();
         }
 
         var candidatePath = string.Empty;
 
         try
         {
-            Directory.CreateDirectory(directory);
-            candidatePath = Path.Combine(
-                directory,
-                $".{Path.GetFileName(fullPath)}.{GetIdentifier()}.creating");
+            _fileOperations.EnsureParentDirectory(fullPath);
+            candidatePath = _fileOperations.GetCandidatePath(fullPath, GetIdentifier());
             using (var connection = OpenConnection(
                        candidatePath,
                        passphrase,
@@ -97,9 +99,9 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
 
             try
             {
-                File.Move(candidatePath, fullPath, overwrite: false);
+                _fileOperations.Publish(candidatePath, fullPath);
             }
-            catch (IOException) when (File.Exists(fullPath))
+            catch (IOException) when (_fileOperations.Exists(fullPath))
             {
                 return WorkspaceCreationResult.AlreadyExists();
             }
@@ -125,7 +127,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         {
             if (!string.IsNullOrEmpty(candidatePath))
             {
-                DeleteCandidate(candidatePath);
+                _fileOperations.DeleteCandidate(candidatePath);
             }
         }
     }
@@ -135,8 +137,8 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         ArgumentNullException.ThrowIfNull(passphrase);
 
-        var fullPath = Path.GetFullPath(path);
-        if (!File.Exists(fullPath))
+        var fullPath = _fileOperations.ResolvePath(path);
+        if (!_fileOperations.Exists(fullPath))
         {
             return WorkspaceOpenResult.InvalidPassphraseOrStore();
         }
@@ -213,7 +215,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         SqliteOpenMode mode) =>
         passphrase.Use(value =>
         {
-            var databaseUri = new Uri(Path.GetFullPath(path)).AbsoluteUri + "?" + CipherQuery;
+            var databaseUri = new Uri(path).AbsoluteUri + "?" + CipherQuery;
             var builder = new SqliteConnectionStringBuilder
             {
                 DataSource = databaseUri,
@@ -249,7 +251,8 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
                 StringComparison.Ordinal)
             || ExecuteScalar<long>(connection, "PRAGMA legacy;") != 0
             || ExecuteScalar<long>(connection, "PRAGMA kdf_iter;") != KdfIterations
-            || ExecuteScalar<long>(connection, "PRAGMA plaintext_header_size;") != 0)
+            || ExecuteScalar<long>(connection, "PRAGMA plaintext_header_size;") != 0
+            || ExecuteScalar<long>(connection, "PRAGMA hmac_check;") != 1)
         {
             throw new InvalidDataException();
         }
@@ -267,7 +270,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
     private static string ValidateWorkspaceShape(SqliteConnection connection)
     {
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT name FROM categories ORDER BY position LIMIT 2;";
+        command.CommandText = "SELECT name FROM categories ORDER BY position LIMIT 1;";
         using var reader = command.ExecuteReader();
         if (!reader.Read())
         {
@@ -275,11 +278,6 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         }
 
         var name = reader.GetString(0);
-        if (reader.Read())
-        {
-            throw new InvalidDataException();
-        }
-
         return name;
     }
 
@@ -294,25 +292,6 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         }
 
         return (T)Convert.ChangeType(value, typeof(T), CultureInfo.InvariantCulture);
-    }
-
-    private static void DeleteCandidate(string path)
-    {
-        try
-        {
-            File.Delete(path);
-            File.Delete(path + "-journal");
-            File.Delete(path + "-shm");
-            File.Delete(path + "-wal");
-        }
-        catch (IOException)
-        {
-            // A failed candidate is never published; later startup can ignore it safely.
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // A failed candidate is never published; later startup can ignore it safely.
-        }
     }
 
     private sealed class WorkspaceSession(

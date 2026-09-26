@@ -13,4 +13,7 @@
     <ProjectReference Include="../DotOrbit.Core/DotOrbit.Core.csproj" />
     <ProjectReference Include="../DotOrbit.Storage.Sqlite/DotOrbit.Storage.Sqlite.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="DotOrbit.Desktop.Tests" />
+  </ItemGroup>
 </Project>

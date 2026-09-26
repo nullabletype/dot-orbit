@@ -17,10 +17,11 @@ public sealed class EncryptedWorkspaceStoreTests
     {
         using var fixture = new WorkspaceFixture();
 
-        using var result = fixture.Store.Create(
+        var result = fixture.Store.Create(
             fixture.Path,
             CreatePassphrase(ValidPassphrase),
             CreateCategory("Personal Admin"));
+        using var session = result.Session;
 
         Assert.Equal(WorkspaceCreationStatus.Created, result.Status);
         Assert.NotNull(result.Session);
@@ -42,6 +43,7 @@ public sealed class EncryptedWorkspaceStoreTests
         Assert.Equal(0L, ExecuteScalar<long>(inspection, "PRAGMA legacy;"));
         Assert.Equal(64007L, ExecuteScalar<long>(inspection, "PRAGMA kdf_iter;"));
         Assert.Equal(0L, ExecuteScalar<long>(inspection, "PRAGMA plaintext_header_size;"));
+        Assert.Equal(1L, ExecuteScalar<long>(inspection, "PRAGMA hmac_check;"));
         Assert.Equal("Personal Admin", ExecuteScalar<string>(inspection, "SELECT name FROM categories;"));
         Assert.Equal(1L, ExecuteScalar<long>(inspection, "SELECT COUNT(*) FROM categories;"));
         Assert.Equal(
@@ -55,14 +57,10 @@ public sealed class EncryptedWorkspaceStoreTests
     public void OpenWithTheCorrectPassphraseReopensTheWorkspace()
     {
         using var fixture = new WorkspaceFixture();
-        using (fixture.Store.Create(
-                   fixture.Path,
-                   CreatePassphrase(ValidPassphrase),
-                   CreateCategory("Home")))
-        {
-        }
+        CreateAndClose(fixture, "Home");
 
-        using var result = fixture.Store.Open(fixture.Path, UnlockPassphrase(ValidPassphrase));
+        var result = fixture.Store.Open(fixture.Path, UnlockPassphrase(ValidPassphrase));
+        using var session = result.Session;
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
         Assert.NotNull(result.Session);
@@ -74,16 +72,11 @@ public sealed class EncryptedWorkspaceStoreTests
     public void CreateNeverReplacesAnExistingWorkspace()
     {
         using var fixture = new WorkspaceFixture();
-        using (fixture.Store.Create(
-                   fixture.Path,
-                   CreatePassphrase(ValidPassphrase),
-                   CreateCategory("Original")))
-        {
-        }
+        CreateAndClose(fixture, "Original");
 
         var originalHash = Hash(fixture.Path);
 
-        using var result = fixture.Store.Create(
+        var result = fixture.Store.Create(
             fixture.Path,
             CreatePassphrase("different valid password"),
             CreateCategory("Replacement"));
@@ -137,7 +130,7 @@ public sealed class EncryptedWorkspaceStoreTests
 
         var originalHash = Hash(fixture.Path);
 
-        using var result = fixture.Store.Open(fixture.Path, UnlockPassphrase(ValidPassphrase));
+        var result = fixture.Store.Open(fixture.Path, UnlockPassphrase(ValidPassphrase));
 
         Assert.Equal(WorkspaceOpenStatus.UnsupportedSchema, result.Status);
         Assert.Null(result.Session);
@@ -149,7 +142,7 @@ public sealed class EncryptedWorkspaceStoreTests
     {
         using var fixture = new WorkspaceFixture();
 
-        using var result = fixture.Store.Open(
+        var result = fixture.Store.Open(
             fixture.Path,
             UnlockPassphrase(ValidPassphrase));
 
@@ -166,7 +159,48 @@ public sealed class EncryptedWorkspaceStoreTests
         var store = new EncryptedWorkspaceStore(
             new SequenceIdentifierGenerator("candidate", null));
 
-        using var result = store.Create(
+        var result = store.Create(
+            fixture.Path,
+            CreatePassphrase(ValidPassphrase),
+            CreateCategory("Home"));
+
+        Assert.Equal(WorkspaceCreationStatus.Failed, result.Status);
+        Assert.Null(result.Session);
+        Assert.False(File.Exists(fixture.Path));
+        Assert.Empty(Directory.GetFiles(fixture.Directory));
+    }
+
+    [Fact]
+    public void OpenAcceptsAWorkspaceWithMoreThanOneCategory()
+    {
+        using var fixture = CreateWorkspace();
+        using (var connection = OpenInspectionConnection(fixture.Path, ValidPassphrase, readOnly: false))
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                INSERT INTO categories (id, name, position)
+                VALUES ('second-category', 'Work', 1);
+                """;
+            command.ExecuteNonQuery();
+        }
+
+        var result = fixture.Store.Open(fixture.Path, UnlockPassphrase(ValidPassphrase));
+        using var session = result.Session;
+
+        Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
+        Assert.NotNull(session);
+        Assert.Equal("Home", session.FirstCategoryName);
+    }
+
+    [Fact]
+    public void PublicationFailureLeavesNoWorkspaceOrCandidate()
+    {
+        using var fixture = new WorkspaceFixture();
+        var store = new EncryptedWorkspaceStore(
+            new SequenceIdentifierGenerator("candidate", "category"),
+            new FailingPublishFileOperations());
+
+        var result = store.Create(
             fixture.Path,
             CreatePassphrase(ValidPassphrase),
             CreateCategory("Home"));
@@ -180,11 +214,12 @@ public sealed class EncryptedWorkspaceStoreTests
     private static WorkspaceFixture CreateWorkspace()
     {
         var fixture = new WorkspaceFixture();
-        using var result = fixture.Store.Create(
+        var result = fixture.Store.Create(
             fixture.Path,
             CreatePassphrase(ValidPassphrase),
             CreateCategory("Home"));
         Assert.Equal(WorkspaceCreationStatus.Created, result.Status);
+        result.Session?.Dispose();
         return fixture;
     }
 
@@ -194,7 +229,7 @@ public sealed class EncryptedWorkspaceStoreTests
     {
         var originalHash = Hash(fixture.Path);
 
-        using var result = fixture.Store.Open(fixture.Path, passphrase);
+        var result = fixture.Store.Open(fixture.Path, passphrase);
 
         Assert.Equal(WorkspaceOpenStatus.InvalidPassphraseOrStore, result.Status);
         Assert.Null(result.Session);
@@ -209,6 +244,16 @@ public sealed class EncryptedWorkspaceStoreTests
 
     private static CategoryName CreateCategory(string value) =>
         Assert.IsType<CategoryName>(CategoryName.Create(value).CategoryName);
+
+    private static void CreateAndClose(WorkspaceFixture fixture, string categoryName)
+    {
+        var result = fixture.Store.Create(
+            fixture.Path,
+            CreatePassphrase(ValidPassphrase),
+            CreateCategory(categoryName));
+        Assert.Equal(WorkspaceCreationStatus.Created, result.Status);
+        result.Session?.Dispose();
+    }
 
     private static string Hash(string path) =>
         Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
@@ -266,5 +311,24 @@ public sealed class EncryptedWorkspaceStoreTests
         private readonly Queue<string?> _values = new(values);
 
         public string NewIdentifier() => _values.Dequeue()!;
+    }
+
+    private sealed class FailingPublishFileOperations : IWorkspaceFileOperations
+    {
+        private readonly WorkspaceFileOperations _inner = new();
+
+        public string ResolvePath(string path) => _inner.ResolvePath(path);
+
+        public bool Exists(string path) => _inner.Exists(path);
+
+        public void EnsureParentDirectory(string path) => _inner.EnsureParentDirectory(path);
+
+        public string GetCandidatePath(string targetPath, string identifier) =>
+            _inner.GetCandidatePath(targetPath, identifier);
+
+        public void Publish(string candidatePath, string targetPath) =>
+            throw new IOException("Injected publication failure.");
+
+        public void DeleteCandidate(string candidatePath) => _inner.DeleteCandidate(candidatePath);
     }
 }

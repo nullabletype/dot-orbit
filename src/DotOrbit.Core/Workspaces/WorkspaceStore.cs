@@ -36,7 +36,7 @@ public enum WorkspaceCreationStatus
     Failed,
 }
 
-public sealed class WorkspaceCreationResult : IDisposable
+public sealed class WorkspaceCreationResult
 {
     private WorkspaceCreationResult(
         WorkspaceCreationStatus status,
@@ -58,7 +58,6 @@ public sealed class WorkspaceCreationResult : IDisposable
 
     public static WorkspaceCreationResult Failed() => new(WorkspaceCreationStatus.Failed, null);
 
-    public void Dispose() => Session?.Dispose();
 }
 
 public enum WorkspaceOpenStatus
@@ -69,7 +68,7 @@ public enum WorkspaceOpenStatus
     Failed,
 }
 
-public sealed class WorkspaceOpenResult : IDisposable
+public sealed class WorkspaceOpenResult
 {
     private WorkspaceOpenResult(WorkspaceOpenStatus status, IWorkspaceSession? session)
     {
@@ -92,5 +91,4 @@ public sealed class WorkspaceOpenResult : IDisposable
 
     public static WorkspaceOpenResult Failed() => new(WorkspaceOpenStatus.Failed, null);
 
-    public void Dispose() => Session?.Dispose();
 }
