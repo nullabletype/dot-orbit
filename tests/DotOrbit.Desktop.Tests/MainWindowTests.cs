@@ -4,6 +4,7 @@ using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Input.Raw;
+using Avalonia.Media;
 using Avalonia.VisualTree;
 using DotOrbit.Desktop.ViewModels;
 using DotOrbit.Desktop.Views;
@@ -84,6 +85,29 @@ public sealed class MainWindowTests
         Assert.Single(
             window.GetVisualDescendants().OfType<Border>(),
             border => border.Name == "SelectionIndicator" && border.IsVisible);
+    }
+
+    [AvaloniaFact]
+    public void HeaderAndNavigationUseTheReviewedVisualAssetsAndAlignment()
+    {
+        var window = new MainWindow();
+        window.Show();
+
+        var brandMark = window.FindControl<Image>("BrandMarkImage");
+        Assert.IsType<DrawingImage>(brandMark?.Source);
+        Assert.DoesNotContain(
+            window.GetVisualDescendants().OfType<TextBlock>(),
+            text => text.Text?.Contains("Calm three-pane workspace", StringComparison.Ordinal) is true);
+
+        var navigation = window.GetVisualDescendants().OfType<RadioButton>().ToArray();
+        Assert.All(navigation, control => Assert.True(control.Bounds.Width > 180));
+
+        var counts = window.GetVisualDescendants()
+            .OfType<TextBlock>()
+            .Where(text => text.Classes.Contains("nav-count") && text.IsVisible)
+            .ToArray();
+        Assert.Equal(7, counts.Length);
+        Assert.All(counts, count => Assert.Equal(counts[0].Bounds.Right, count.Bounds.Right, 1));
     }
 
     [AvaloniaFact]

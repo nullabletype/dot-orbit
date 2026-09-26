@@ -31,6 +31,7 @@
               Grid.Column="1"
               Margin="8,0,0,0"
               FontSize="14"
+              VerticalAlignment="Center"
               Text="{Binding Title}" />
           <TextBlock
               Grid.Column="2"
@@ -57,21 +58,12 @@
             VerticalAlignment="Center"
             Orientation="Horizontal"
             Spacing="10">
-          <Grid Width="27" Height="27">
-            <Ellipse
-                Fill="{StaticResource BackgroundBrush}"
-                Stroke="{StaticResource AccentBrush}"
-                StrokeThickness="2" />
-            <Ellipse
-                Width="8"
-                Height="8"
-                Margin="0,-2,-2,0"
-                HorizontalAlignment="Right"
-                VerticalAlignment="Top"
-                Fill="{StaticResource SuccessBrush}"
-                Stroke="{StaticResource BackgroundBrush}"
-                StrokeThickness="2" />
-          </Grid>
+          <Image
+              x:Name="BrandMarkImage"
+              Width="27"
+              Height="27"
+              Source="{StaticResource OrbitMarkImage}"
+              Stretch="Uniform" />
           <TextBlock
               x:Name="BrandNameText"
               VerticalAlignment="Center"
@@ -79,14 +71,6 @@
               FontWeight="Bold"
               Text="dot-orbit" />
         </StackPanel>
-
-        <TextBlock
-            Grid.Column="1"
-            Margin="0,0,18,0"
-            VerticalAlignment="Center"
-            FontSize="13"
-            Foreground="{StaticResource MutedTextBrush}"
-            Text="Calm three-pane workspace · context stays visible" />
       </Grid>
     </Border>
 
@@ -118,6 +102,7 @@
             BorderBrush="{StaticResource LineSoftBrush}"
             BorderThickness="0,1,0,0">
           <ContentControl
+              HorizontalContentAlignment="Stretch"
               Content="{Binding BinNavigation}"
               ContentTemplate="{StaticResource NavigationItemTemplate}" />
         </Border>
