@@ -12,7 +12,7 @@
     <SolidColorBrush x:Key="LineSoftBrush">#1D222C</SolidColorBrush>
     <SolidColorBrush x:Key="TextBrush">#F2F4F7</SolidColorBrush>
     <SolidColorBrush x:Key="MutedTextBrush">#9099A9</SolidColorBrush>
-    <SolidColorBrush x:Key="QuietTextBrush">#707988</SolidColorBrush>
+    <SolidColorBrush x:Key="QuietTextBrush">#858E9D</SolidColorBrush>
     <SolidColorBrush x:Key="AccentBrush">#FF4FA3</SolidColorBrush>
     <SolidColorBrush x:Key="AccentSurfaceBrush">#25131F</SolidColorBrush>
     <SolidColorBrush x:Key="SuccessBrush">#7CE7B2</SolidColorBrush>
@@ -43,11 +43,23 @@
               BorderBrush="{TemplateBinding BorderBrush}"
               BorderThickness="{TemplateBinding BorderThickness}"
               CornerRadius="9">
+            <Grid>
+              <Border
+                  x:Name="SelectionIndicator"
+                  Width="3"
+                  Height="18"
+                  Margin="-5,0,0,0"
+                  HorizontalAlignment="Left"
+                  VerticalAlignment="Center"
+                  Background="{StaticResource AccentBrush}"
+                  CornerRadius="2"
+                  IsVisible="{TemplateBinding IsChecked}" />
             <ContentPresenter
                 HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
                 VerticalContentAlignment="Center"
                 Content="{TemplateBinding Content}"
                 ContentTemplate="{TemplateBinding ContentTemplate}" />
+            </Grid>
           </Border>
         </ControlTemplate>
       </Setter>

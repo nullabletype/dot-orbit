@@ -35,6 +35,18 @@ public sealed class ShellViewModelTests
     }
 
     [Fact]
+    public void UpcomingCopyMatchesTheAcceptedDateWindow()
+    {
+        var shell = new ShellViewModel();
+        var upcoming = Assert.Single(shell.PrimaryNavigation, item => item.Title == "Upcoming");
+
+        Assert.Contains("overdue", upcoming.ViewSubtitle, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("same weekday next week", upcoming.ViewSubtitle, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("overdue", upcoming.EmptyStateBody, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("same weekday next week", upcoming.EmptyStateBody, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void SelectingADestinationUpdatesSelectionAndVisibleCopy()
     {
         var shell = new ShellViewModel();

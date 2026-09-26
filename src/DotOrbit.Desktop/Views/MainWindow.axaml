@@ -7,7 +7,7 @@
     Title="dot-orbit"
     Width="1180"
     Height="760"
-    MinWidth="1020"
+    MinWidth="1120"
     MinHeight="600"
     Background="{StaticResource BackgroundBrush}">
   <Window.Resources>
@@ -50,7 +50,7 @@
         Background="{StaticResource BackgroundBrush}"
         BorderBrush="{StaticResource LineBrush}"
         BorderThickness="0,0,0,1">
-      <Grid ColumnDefinitions="228,*,Auto">
+      <Grid ColumnDefinitions="228,*">
         <StackPanel
             Grid.Column="0"
             Margin="22,0,0,0"

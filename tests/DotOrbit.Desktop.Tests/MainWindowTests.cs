@@ -81,6 +81,9 @@ public sealed class MainWindowTests
         Assert.NotNull(window.FindControl<Border>("TopBar"));
         Assert.NotNull(window.FindControl<Border>("InspectorRegion"));
         Assert.Equal(8, window.GetVisualDescendants().OfType<PathIcon>().Count());
+        Assert.Single(
+            window.GetVisualDescendants().OfType<Border>(),
+            border => border.Name == "SelectionIndicator" && border.IsVisible);
     }
 
     [AvaloniaFact]

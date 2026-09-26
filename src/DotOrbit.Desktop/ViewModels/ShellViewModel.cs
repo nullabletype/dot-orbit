@@ -20,9 +20,9 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             CreateNavigationItem(
                 "Upcoming",
                 "M12,2A10,10 0 1,0 12,22A10,10 0 1,0 12,2M13,7H11V13L16.2,16.2L17.3,14.5L13,12V7",
-                "Tasks due through the end of next week, grouped by date.",
+                "Overdue tasks and tasks due through the same weekday next week, grouped by date.",
                 "No upcoming tasks",
-                "Tasks with due dates in the next seven days will appear here."),
+                "Overdue tasks and tasks due through the same weekday next week will appear here."),
             CreateNavigationItem(
                 "Backlog",
                 "M3,5H6V8H3V5M9,5H21V8H9V5M3,11H6V14H3V11M9,11H21V14H9V11M3,17H6V20H3V17M9,17H21V20H9V17",
