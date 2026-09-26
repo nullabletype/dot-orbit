@@ -9,11 +9,11 @@
             Geometry="M 0,0 H 32 V 32 H 0 Z" />
         <GeometryDrawing Geometry="M 16,8 A 8,8 0 1 1 15.99,8">
           <GeometryDrawing.Pen>
-            <Pen Brush="#FF4FA3" Thickness="3" />
+            <Pen Brush="{DynamicResource AccentBrush}" Thickness="3" />
           </GeometryDrawing.Pen>
         </GeometryDrawing>
         <GeometryDrawing
-            Brush="#7CE7B2"
+            Brush="{DynamicResource SuccessBrush}"
             Geometry="M 22,7 A 3,3 0 1 1 21.99,7" />
       </DrawingGroup>
     </DrawingImage.Drawing>
