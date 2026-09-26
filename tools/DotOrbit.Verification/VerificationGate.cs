@@ -357,18 +357,22 @@ internal sealed class ProcessRunner(IVerificationOutput output) : IProcessRunner
     }
 }
 
-internal sealed class GitVerificationWorkspaceProvider(string repositoryRoot, IProcessRunner runner)
+internal sealed class GitVerificationWorkspaceProvider(
+    string repositoryRoot,
+    IProcessRunner runner,
+    TimeSpan? cleanupRetryDelay = null)
     : IVerificationWorkspaceProvider
 {
     private static readonly TimeSpan CleanupTimeout = TimeSpan.FromSeconds(30);
-    private static readonly TimeSpan CleanupRetryDelay = TimeSpan.FromMilliseconds(250);
-    private const int CleanupAttempts = 3;
+    private static readonly TimeSpan DefaultCleanupRetryDelay = TimeSpan.FromMilliseconds(500);
+    private const int CleanupAttempts = 10;
     private readonly HashSet<string> ownedPaths = new(
         OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+    private readonly TimeSpan cleanupRetryDelay = cleanupRetryDelay ?? DefaultCleanupRetryDelay;
 
     public async Task<string?> CreateAsync(string commit, CancellationToken cancellationToken)
     {
-        var path = Path.Combine(Path.GetTempPath(), $"dot-orbit-verification-{Guid.NewGuid():N}");
+        var path = Path.Combine(Path.GetTempPath(), $"dov-{Guid.NewGuid():N}");
         var result = await runner.RunAsync(
             new ProcessRequest(
                 "git",
@@ -412,7 +416,7 @@ internal sealed class GitVerificationWorkspaceProvider(string repositoryRoot, IP
             NormalizeAttributes(fullPath);
             if (attempt < CleanupAttempts)
             {
-                await Task.Delay(CleanupRetryDelay, cancellationToken).ConfigureAwait(false);
+                await Task.Delay(cleanupRetryDelay, cancellationToken).ConfigureAwait(false);
             }
         }
 

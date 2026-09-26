@@ -77,7 +77,7 @@ public sealed class GitBoundaryTests
     public async Task VerificationWorkspaceRetriesFailedCleanup()
     {
         var runner = new WorkspaceProcessRunner(1, 0);
-        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner);
+        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner, TimeSpan.Zero);
         var snapshotPath = await provider.CreateAsync(new string('a', 40), CancellationToken.None);
 
         Assert.NotNull(snapshotPath);
@@ -88,15 +88,15 @@ public sealed class GitBoundaryTests
     [Fact]
     public async Task VerificationWorkspaceFailsAfterBoundedCleanupAttempts()
     {
-        var runner = new WorkspaceProcessRunner(1, 1, 1);
-        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner);
+        var runner = new WorkspaceProcessRunner(Enumerable.Repeat(1, 10).ToArray());
+        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner, TimeSpan.Zero);
         var snapshotPath = await provider.CreateAsync(new string('a', 40), CancellationToken.None);
 
         Assert.NotNull(snapshotPath);
         try
         {
             Assert.False(await provider.RemoveAsync(snapshotPath, CancellationToken.None));
-            Assert.Equal(3, runner.RemoveCalls);
+            Assert.Equal(10, runner.RemoveCalls);
         }
         finally
         {
@@ -107,20 +107,22 @@ public sealed class GitBoundaryTests
     [Fact]
     public async Task VerificationWorkspaceDoesNotTreatPartialRemovalAsSuccess()
     {
-        var runner = new WorkspaceProcessRunner([1, 1, 1], deleteOnFirstFailedRemoval: true);
-        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner);
+        var runner = new WorkspaceProcessRunner(
+            Enumerable.Repeat(1, 10).ToArray(),
+            deleteOnFirstFailedRemoval: true);
+        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner, TimeSpan.Zero);
         var snapshotPath = await provider.CreateAsync(new string('a', 40), CancellationToken.None);
 
         Assert.NotNull(snapshotPath);
         Assert.False(await provider.RemoveAsync(snapshotPath, CancellationToken.None));
-        Assert.Equal(3, runner.RemoveCalls);
+        Assert.Equal(10, runner.RemoveCalls);
     }
 
     [Fact]
     public async Task VerificationWorkspaceRefusesUnownedCleanupPath()
     {
         var runner = new WorkspaceProcessRunner(0);
-        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner);
+        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner, TimeSpan.Zero);
 
         Assert.False(await provider.RemoveAsync(Path.GetTempPath(), CancellationToken.None));
         Assert.Equal(0, runner.RemoveCalls);
@@ -130,7 +132,7 @@ public sealed class GitBoundaryTests
     public async Task VerificationWorkspaceCleanupHonoursCancellationBetweenAttempts()
     {
         var runner = new WorkspaceProcessRunner(1, 0);
-        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner);
+        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner, TimeSpan.Zero);
         var snapshotPath = await provider.CreateAsync(new string('a', 40), CancellationToken.None);
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
