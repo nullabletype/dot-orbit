@@ -16,15 +16,19 @@ The repository is currently at the specification and interactive-prototype stage
 ## Current status
 
 - Product requirements: drafted from the design conversation.
-- UI prototype: interactive and locally verified.
+- UI prototype: interactive and locally verified for the original six views; it predates the accepted Upcoming-view decision and must be updated before serving as evidence for that view.
 - Application platform: Avalonia UI on .NET, targeting macOS, Linux, and Windows.
-- Local persistence: SQLite encrypted with SQLite3MC; automatic backup policy remains to be specified.
+- Local persistence: SQLite encrypted with SQLite3MC, with the automatic backup and retention policy specified.
 - Production application: not started.
 - Licence: MIT.
 
 ## Licence
 
 dot-orbit is licensed under the [MIT License](LICENSE).
+
+## Contributing and security
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing changes. Report suspected vulnerabilities privately as described in [SECURITY.md](SECURITY.md), never through a public issue.
 
 ## Name
 
