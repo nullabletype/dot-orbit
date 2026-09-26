@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO.Compression;
 using DotOrbit.Verification;
 using Xunit;
 
@@ -16,17 +17,14 @@ public sealed class GitBoundaryTests
             var inspector = new GitRepositoryInspector(repositoryPath, runner);
 
             Assert.True((await inspector.ReadAsync(CancellationToken.None))!.IsClean);
-
             File.WriteAllText(Path.Combine(repositoryPath, "ignored.txt"), "ignored");
             Assert.True((await inspector.ReadAsync(CancellationToken.None))!.IsClean);
 
             var trackedPath = Path.Combine(repositoryPath, "work.txt");
             File.WriteAllText(trackedPath, "untracked");
             Assert.False((await inspector.ReadAsync(CancellationToken.None))!.IsClean);
-
             RunGit(repositoryPath, "add", "work.txt");
             Assert.False((await inspector.ReadAsync(CancellationToken.None))!.IsClean);
-
             RunGit(repositoryPath, "commit", "-m", "Add work file");
             File.AppendAllText(trackedPath, " changed");
             Assert.False((await inspector.ReadAsync(CancellationToken.None))!.IsClean);
@@ -38,7 +36,7 @@ public sealed class GitBoundaryTests
     }
 
     [Fact]
-    public async Task VerificationWorkspaceUsesDetachedCommitSnapshotAndRemovesIt()
+    public async Task VerificationWorkspaceUsesExactCommitSnapshotAndRemovesIt()
     {
         var repositoryPath = CreateRepository();
         string? snapshotPath = null;
@@ -52,7 +50,9 @@ public sealed class GitBoundaryTests
             snapshotPath = await provider.CreateAsync(commit, CancellationToken.None);
 
             Assert.NotNull(snapshotPath);
-            Assert.True(File.Exists(Path.Combine(snapshotPath, "tracked.txt")));
+            Assert.False(File.Exists(Path.Combine(snapshotPath, ".git")));
+            Assert.False(Directory.Exists(Path.Combine(snapshotPath, ".git")));
+            Assert.Equal("committed", File.ReadAllText(Path.Combine(snapshotPath, "tracked.txt")));
             File.WriteAllText(Path.Combine(repositoryPath, "tracked.txt"), "changed outside snapshot");
             Assert.Equal("committed", File.ReadAllText(Path.Combine(snapshotPath, "tracked.txt")));
             var readOnlyPath = Path.Combine(snapshotPath, "read-only-output.tmp");
@@ -64,9 +64,109 @@ public sealed class GitBoundaryTests
         }
         finally
         {
-            if (snapshotPath is not null && Directory.Exists(snapshotPath))
+            if (snapshotPath is not null)
             {
-                RunGit(repositoryPath, "worktree", "remove", "--force", snapshotPath);
+                DeleteDirectory(snapshotPath);
+            }
+
+            DeleteDirectory(repositoryPath);
+        }
+    }
+
+    [Theory]
+    [InlineData("100755")]
+    [InlineData("120000")]
+    [InlineData("160000")]
+    public async Task VerificationWorkspaceRejectsTreesThatArchiveCannotRepresentExactly(string mode)
+    {
+        var runner = new ArchiveProcessRunner(treeOutput: $"{mode} blob synthetic\ttracked.txt\0");
+        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner, TimeSpan.Zero);
+
+        Assert.Null(await provider.CreateAsync(new string('a', 40), CancellationToken.None));
+        Assert.Equal(0, runner.ArchiveCalls);
+    }
+
+    [Fact]
+    public async Task VerificationWorkspaceRejectsLocalExportAttributesThatChangeTheCommitTree()
+    {
+        var repositoryPath = CreateRepository();
+        try
+        {
+            var runner = new ProcessRunner(new NullOutput());
+            var inspector = new GitRepositoryInspector(repositoryPath, runner);
+            var commit = (await inspector.ReadAsync(CancellationToken.None))!.Commit;
+            File.WriteAllText(Path.Combine(repositoryPath, ".git", "info", "attributes"), "tracked.txt export-ignore\n");
+            var provider = new GitVerificationWorkspaceProvider(repositoryPath, runner, TimeSpan.Zero);
+
+            Assert.Null(await provider.CreateAsync(commit, CancellationToken.None));
+        }
+        finally
+        {
+            DeleteDirectory(repositoryPath);
+        }
+    }
+
+    [Fact]
+    public async Task VerificationWorkspaceRejectsLocalExportSubstitutionThatChangesBlobContent()
+    {
+        var repositoryPath = CreateRepository();
+        try
+        {
+            File.WriteAllText(Path.Combine(repositoryPath, "tracked.txt"), "$Format:%H$");
+            RunGit(repositoryPath, "add", "tracked.txt");
+            RunGit(repositoryPath, "commit", "--quiet", "-m", "Add archive placeholder");
+            File.WriteAllText(Path.Combine(repositoryPath, ".git", "info", "attributes"), "tracked.txt export-subst\n");
+            var runner = new ProcessRunner(new NullOutput());
+            var inspector = new GitRepositoryInspector(repositoryPath, runner);
+            var commit = (await inspector.ReadAsync(CancellationToken.None))!.Commit;
+            var directoryDeletion = new ControlledDeletion(true);
+            var fileDeletion = new ControlledFileDeletion(true);
+            var provider = new GitVerificationWorkspaceProvider(
+                repositoryPath,
+                runner,
+                TimeSpan.Zero,
+                directoryDeletion.TryDelete,
+                fileDeletion.TryDelete);
+
+            Assert.Null(await provider.CreateAsync(commit, CancellationToken.None));
+            Assert.Equal(1, directoryDeletion.Calls);
+            Assert.Equal(1, fileDeletion.Calls);
+        }
+        finally
+        {
+            DeleteDirectory(repositoryPath);
+        }
+    }
+
+    [Fact]
+    public async Task VerificationWorkspaceIgnoresReplacementRefsWhenReadingExactCommit()
+    {
+        var repositoryPath = CreateRepository();
+        string? snapshotPath = null;
+        try
+        {
+            var runner = new ProcessRunner(new NullOutput());
+            var inspector = new GitRepositoryInspector(repositoryPath, runner);
+            var originalCommit = (await inspector.ReadAsync(CancellationToken.None))!.Commit;
+            File.WriteAllText(Path.Combine(repositoryPath, "tracked.txt"), "replacement");
+            RunGit(repositoryPath, "add", "tracked.txt");
+            RunGit(repositoryPath, "commit", "--quiet", "-m", "Replacement commit");
+            var replacementCommit = (await inspector.ReadAsync(CancellationToken.None))!.Commit;
+            RunGit(repositoryPath, "replace", originalCommit, replacementCommit);
+            var provider = new GitVerificationWorkspaceProvider(repositoryPath, runner, TimeSpan.Zero);
+
+            snapshotPath = await provider.CreateAsync(originalCommit, CancellationToken.None);
+
+            Assert.NotNull(snapshotPath);
+            Assert.Equal("committed", File.ReadAllText(Path.Combine(snapshotPath, "tracked.txt")));
+            Assert.True(await provider.RemoveAsync(snapshotPath, CancellationToken.None));
+            snapshotPath = null;
+        }
+        finally
+        {
+            if (snapshotPath is not null)
+            {
+                DeleteDirectory(snapshotPath);
             }
 
             DeleteDirectory(repositoryPath);
@@ -74,79 +174,120 @@ public sealed class GitBoundaryTests
     }
 
     [Fact]
-    public async Task VerificationWorkspaceRetriesFailedCleanup()
+    public async Task VerificationWorkspaceRemovesPartialArchiveWhenGitArchiveFails()
     {
-        var runner = new WorkspaceProcessRunner([1, 0], canonicalPathOverride: "/canonical/temp/worktree");
-        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner, TimeSpan.Zero);
-        var snapshotPath = await provider.CreateAsync(new string('a', 40), CancellationToken.None);
-
-        Assert.NotNull(snapshotPath);
-        Assert.True(await provider.RemoveAsync(snapshotPath, CancellationToken.None));
-        Assert.Equal(2, runner.RemoveCalls);
-    }
-
-    [Fact]
-    public void WorktreeRegistrationParserHandlesRawNonAsciiPaths()
-    {
-        const string path = "C:/Témp/工作/dov-123";
-        var output = $"worktree {path}\0HEAD synthetic\0branch refs/heads/example\0\0";
-
-        Assert.True(GitVerificationWorkspaceProvider.ContainsRegisteredWorktree(output, path));
-        Assert.False(GitVerificationWorkspaceProvider.ContainsRegisteredWorktree(output, "C:/Temp/other"));
-    }
-
-    [Fact]
-    public async Task VerificationWorkspaceCleansUpWhenCanonicalPathLookupFails()
-    {
-        var runner = new WorkspaceProcessRunner([0], canonicalLookupFails: true);
-        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner, TimeSpan.Zero);
+        var runner = new ArchiveProcessRunner(archiveExitCode: 1, writeInvalidArchive: true);
+        var fileDeletion = new ControlledFileDeletion(true);
+        var provider = new GitVerificationWorkspaceProvider(
+            Path.GetTempPath(), runner, TimeSpan.Zero, deleteFile: fileDeletion.TryDelete);
 
         Assert.Null(await provider.CreateAsync(new string('a', 40), CancellationToken.None));
-        Assert.Equal(1, runner.RemoveCalls);
+        Assert.Equal(1, fileDeletion.Calls);
+        Assert.False(File.Exists(runner.LastArchivePath));
     }
 
     [Fact]
-    public async Task VerificationWorkspaceRetriesCleanupWhenCanonicalPathLookupFails()
+    public async Task VerificationWorkspaceRemovesPartialArchiveWhenArchiveRunnerThrows()
     {
-        var runner = new WorkspaceProcessRunner([1, 0], canonicalLookupFails: true);
-        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner, TimeSpan.Zero);
+        var runner = new ArchiveProcessRunner(
+            writeInvalidArchive: true,
+            archiveException: new OperationCanceledException("synthetic cancellation"));
+        var fileDeletion = new ControlledFileDeletion(true);
+        var provider = new GitVerificationWorkspaceProvider(
+            Path.GetTempPath(), runner, TimeSpan.Zero, deleteFile: fileDeletion.TryDelete);
 
-        Assert.Null(await provider.CreateAsync(new string('a', 40), CancellationToken.None));
-        Assert.Equal(2, runner.RemoveCalls);
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => provider.CreateAsync(new string('a', 40), CancellationToken.None));
+        Assert.Equal(1, fileDeletion.Calls);
+        Assert.False(File.Exists(runner.LastArchivePath));
     }
 
     [Fact]
-    public async Task VerificationWorkspacePropagatesExhaustedCleanupAfterCanonicalPathLookupFails()
+    public async Task VerificationWorkspaceCleansDirectoryAndArchiveIndependentlyWhenExtractionFails()
     {
-        var runner = new WorkspaceProcessRunner(
-            Enumerable.Repeat(1, 10).ToArray(),
-            canonicalLookupFails: true);
-        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner, TimeSpan.Zero);
+        var runner = new ArchiveProcessRunner(writeInvalidArchive: true);
+        var directoryDeletion = new ControlledDeletion(Enumerable.Repeat(false, 10).ToArray());
+        var fileDeletion = new ControlledFileDeletion(true);
+        var provider = new GitVerificationWorkspaceProvider(
+            Path.GetTempPath(),
+            runner,
+            TimeSpan.Zero,
+            directoryDeletion.TryDelete,
+            fileDeletion.TryDelete);
 
         try
         {
             await Assert.ThrowsAsync<InvalidOperationException>(
                 () => provider.CreateAsync(new string('a', 40), CancellationToken.None));
-            Assert.Equal(10, runner.RemoveCalls);
+            Assert.Equal(10, directoryDeletion.Calls);
+            Assert.Equal(1, fileDeletion.Calls);
+            Assert.False(File.Exists(runner.LastArchivePath));
         }
         finally
         {
-            DeleteDirectory(runner.CreatedPath!);
+            if (runner.LastArchivePath is not null)
+            {
+                DeleteDirectory(Path.ChangeExtension(runner.LastArchivePath, null));
+            }
         }
+    }
+
+    [Fact]
+    public async Task VerificationWorkspaceReportsArchiveCleanupExhaustionAndRemovesExtractedDirectory()
+    {
+        var runner = new ArchiveProcessRunner();
+        var directoryDeletion = new ControlledDeletion(true);
+        var fileDeletion = new ControlledFileDeletion(Enumerable.Repeat(false, 10).ToArray());
+        var provider = new GitVerificationWorkspaceProvider(
+            Path.GetTempPath(),
+            runner,
+            TimeSpan.Zero,
+            directoryDeletion.TryDelete,
+            fileDeletion.TryDelete);
+
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => provider.CreateAsync(new string('a', 40), CancellationToken.None));
+            Assert.Equal(10, fileDeletion.Calls);
+            Assert.Equal(1, directoryDeletion.Calls);
+        }
+        finally
+        {
+            if (runner.LastArchivePath is not null)
+            {
+                File.Delete(runner.LastArchivePath);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task VerificationWorkspaceRetriesFailedCleanup()
+    {
+        var runner = new ArchiveProcessRunner();
+        var deletion = new ControlledDeletion(false, true);
+        var provider = new GitVerificationWorkspaceProvider(
+            Path.GetTempPath(), runner, TimeSpan.Zero, deletion.TryDelete);
+        var snapshotPath = await provider.CreateAsync(new string('a', 40), CancellationToken.None);
+
+        Assert.NotNull(snapshotPath);
+        Assert.True(await provider.RemoveAsync(snapshotPath, CancellationToken.None));
+        Assert.Equal(2, deletion.Calls);
     }
 
     [Fact]
     public async Task VerificationWorkspaceFailsAfterBoundedCleanupAttempts()
     {
-        var runner = new WorkspaceProcessRunner(Enumerable.Repeat(1, 10).ToArray());
-        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner, TimeSpan.Zero);
+        var deletion = new ControlledDeletion(Enumerable.Repeat(false, 10).ToArray());
+        var provider = new GitVerificationWorkspaceProvider(
+            Path.GetTempPath(), new ArchiveProcessRunner(), TimeSpan.Zero, deletion.TryDelete);
         var snapshotPath = await provider.CreateAsync(new string('a', 40), CancellationToken.None);
 
         Assert.NotNull(snapshotPath);
         try
         {
             Assert.False(await provider.RemoveAsync(snapshotPath, CancellationToken.None));
-            Assert.Equal(10, runner.RemoveCalls);
+            Assert.Equal(10, deletion.Calls);
         }
         finally
         {
@@ -155,35 +296,22 @@ public sealed class GitBoundaryTests
     }
 
     [Fact]
-    public async Task VerificationWorkspaceFinishesDeletionAfterGitUnregistersIt()
-    {
-        var runner = new WorkspaceProcessRunner(
-            [1],
-            unregisterOnFirstFailedRemoval: true);
-        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner, TimeSpan.Zero);
-        var snapshotPath = await provider.CreateAsync(new string('a', 40), CancellationToken.None);
-
-        Assert.NotNull(snapshotPath);
-        Assert.True(await provider.RemoveAsync(snapshotPath, CancellationToken.None));
-        Assert.Equal(1, runner.RemoveCalls);
-        Assert.False(Directory.Exists(snapshotPath));
-    }
-
-    [Fact]
     public async Task VerificationWorkspaceRefusesUnownedCleanupPath()
     {
-        var runner = new WorkspaceProcessRunner(0);
-        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner, TimeSpan.Zero);
+        var deletion = new ControlledDeletion(true);
+        var provider = new GitVerificationWorkspaceProvider(
+            Path.GetTempPath(), new ArchiveProcessRunner(), TimeSpan.Zero, deletion.TryDelete);
 
         Assert.False(await provider.RemoveAsync(Path.GetTempPath(), CancellationToken.None));
-        Assert.Equal(0, runner.RemoveCalls);
+        Assert.Equal(0, deletion.Calls);
     }
 
     [Fact]
     public async Task VerificationWorkspaceCleanupHonoursCancellationBetweenAttempts()
     {
-        var runner = new WorkspaceProcessRunner(1, 0);
-        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner, TimeSpan.Zero);
+        var deletion = new ControlledDeletion(false, true);
+        var provider = new GitVerificationWorkspaceProvider(
+            Path.GetTempPath(), new ArchiveProcessRunner(), TimeSpan.Zero, deletion.TryDelete);
         var snapshotPath = await provider.CreateAsync(new string('a', 40), CancellationToken.None);
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
@@ -193,7 +321,7 @@ public sealed class GitBoundaryTests
         {
             await Assert.ThrowsAsync<TaskCanceledException>(
                 () => provider.RemoveAsync(snapshotPath, cancellation.Token));
-            Assert.Equal(1, runner.RemoveCalls);
+            Assert.Equal(1, deletion.Calls);
         }
         finally
         {
@@ -265,74 +393,86 @@ public sealed class GitBoundaryTests
         }
     }
 
-    private sealed class WorkspaceProcessRunner : IProcessRunner
+    private sealed class ArchiveProcessRunner(
+        string treeOutput = "100644 blob synthetic\ttracked.txt\0",
+        int archiveExitCode = 0,
+        bool writeInvalidArchive = false,
+        Exception? archiveException = null) : IProcessRunner
     {
-        private readonly Queue<int> removalExitCodes;
-        private readonly bool unregisterOnFirstFailedRemoval;
-        private readonly string? canonicalPathOverride;
-        private readonly bool canonicalLookupFails;
-        private string? worktreePath;
-        private string? canonicalPath;
-        private bool registered;
-
-        public WorkspaceProcessRunner(params int[] removalExitCodes)
-            : this(removalExitCodes, unregisterOnFirstFailedRemoval: false, canonicalPathOverride: null)
-        {
-        }
-
-        public WorkspaceProcessRunner(
-            int[] removalExitCodes,
-            bool unregisterOnFirstFailedRemoval = false,
-            string? canonicalPathOverride = null,
-            bool canonicalLookupFails = false)
-        {
-            this.removalExitCodes = new Queue<int>(removalExitCodes);
-            this.unregisterOnFirstFailedRemoval = unregisterOnFirstFailedRemoval;
-            this.canonicalPathOverride = canonicalPathOverride;
-            this.canonicalLookupFails = canonicalLookupFails;
-        }
-
-        public int RemoveCalls { get; private set; }
-        public string? CreatedPath => worktreePath;
+        public int ArchiveCalls { get; private set; }
+        public string? LastArchivePath { get; private set; }
 
         public Task<ProcessResult> RunAsync(ProcessRequest request, CancellationToken cancellationToken)
         {
-            if (request.Arguments.Contains("add", StringComparer.Ordinal))
+            if (request.Arguments.Contains("ls-tree", StringComparer.Ordinal))
             {
-                worktreePath = request.Arguments[^2];
-                canonicalPath = canonicalPathOverride ?? worktreePath;
-                registered = true;
-                Directory.CreateDirectory(worktreePath);
-                return Task.FromResult(new ProcessResult(0, "", ""));
+                return Task.FromResult(new ProcessResult(0, treeOutput, ""));
             }
 
-            if (request.Arguments.Contains("rev-parse", StringComparer.Ordinal))
+            if (request.Arguments.Contains("hash-object", StringComparer.Ordinal))
             {
-                return Task.FromResult(canonicalLookupFails
-                    ? new ProcessResult(1, "", "synthetic canonical path failure")
-                    : new ProcessResult(0, $"{canonicalPath}\n", ""));
+                return Task.FromResult(new ProcessResult(0, "synthetic\n", ""));
             }
 
-            if (request.Arguments.Contains("list", StringComparer.Ordinal))
+            ArchiveCalls++;
+            var outputIndex = request.Arguments.ToList().IndexOf("--output");
+            var archivePath = request.Arguments[outputIndex + 1];
+            LastArchivePath = archivePath;
+            if (writeInvalidArchive)
             {
-                var output = registered ? $"worktree {canonicalPath}\0HEAD synthetic\0\0" : "";
-                return Task.FromResult(new ProcessResult(0, output, ""));
+                File.WriteAllText(archivePath, "not a zip archive");
+                if (archiveException is not null)
+                {
+                    throw archiveException;
+                }
+
+                return Task.FromResult(new ProcessResult(archiveExitCode, "", "synthetic archive failure"));
             }
 
-            RemoveCalls++;
-            var path = request.Arguments[^1];
-            var exitCode = removalExitCodes.Dequeue();
-            if (exitCode == 0)
+            using var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create);
+            var entry = archive.CreateEntry("tracked.txt");
+            using var writer = new StreamWriter(entry.Open());
+            writer.Write("committed");
+            return Task.FromResult(new ProcessResult(archiveExitCode, "", ""));
+        }
+    }
+
+    private sealed class ControlledDeletion(params bool[] results)
+    {
+        private readonly Queue<bool> results = new(results);
+
+        public int Calls { get; private set; }
+
+        public bool TryDelete(string path)
+        {
+            Calls++;
+            var result = results.Dequeue();
+            if (result)
             {
-                registered = false;
                 DeleteDirectory(path);
             }
-            else if (unregisterOnFirstFailedRemoval && RemoveCalls == 1)
+
+            return result;
+        }
+    }
+
+    private sealed class ControlledFileDeletion(params bool[] results)
+    {
+        private readonly Queue<bool> results = new(results);
+
+        public int Calls { get; private set; }
+
+        public bool TryDelete(string path)
+        {
+            Calls++;
+            var result = results.Dequeue();
+            if (result && File.Exists(path))
             {
-                registered = false;
+                File.SetAttributes(path, FileAttributes.Normal);
+                File.Delete(path);
             }
 
-            return Task.FromResult(new ProcessResult(exitCode, "", ""));
+            return result;
         }
     }
 }

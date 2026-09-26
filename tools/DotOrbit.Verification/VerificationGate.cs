@@ -1,5 +1,6 @@
-using System.Diagnostics;
 using System.ComponentModel;
+using System.Diagnostics;
+using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 
@@ -58,7 +59,8 @@ internal sealed record ProcessRequest(
     IReadOnlyList<string> Arguments,
     TimeSpan? Timeout = null,
     bool EchoOutput = true,
-    string? WorkingDirectory = null);
+    string? WorkingDirectory = null,
+    IReadOnlyDictionary<string, string>? EnvironmentVariables = null);
 
 internal sealed record ProcessResult(int ExitCode, string StandardOutput, string StandardError, bool TimedOut = false);
 
@@ -305,6 +307,13 @@ internal sealed class ProcessRunner(IVerificationOutput output) : IProcessRunner
         {
             process.StartInfo.ArgumentList.Add(argument);
         }
+        if (request.EnvironmentVariables is not null)
+        {
+            foreach (var variable in request.EnvironmentVariables)
+            {
+                process.StartInfo.Environment[variable.Key] = variable.Value;
+            }
+        }
 
         try
         {
@@ -314,8 +323,8 @@ internal sealed class ProcessRunner(IVerificationOutput output) : IProcessRunner
         {
             return new ProcessResult(-1, "", "");
         }
-        var standardOutput = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var standardError = process.StandardError.ReadToEndAsync(cancellationToken);
+        var standardOutput = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
+        var standardError = process.StandardError.ReadToEndAsync(CancellationToken.None);
         using var timeout = request.Timeout is null
             ? null
             : new CancellationTokenSource(request.Timeout.Value);
@@ -329,16 +338,17 @@ internal sealed class ProcessRunner(IVerificationOutput output) : IProcessRunner
         }
         catch (OperationCanceledException) when (timeout?.IsCancellationRequested is true)
         {
-            try
-            {
-                process.Kill(entireProcessTree: true);
-            }
-            catch (InvalidOperationException)
-            {
-                // The process exited between the timeout and termination request.
-            }
+            TryKillProcessTree(process);
             await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
             return new ProcessResult(-1, await standardOutput.ConfigureAwait(false), await standardError.ConfigureAwait(false), true);
+        }
+        catch (OperationCanceledException)
+        {
+            TryKillProcessTree(process);
+            await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+            await standardOutput.ConfigureAwait(false);
+            await standardError.ConfigureAwait(false);
+            throw;
         }
 
         var stdout = await standardOutput.ConfigureAwait(false);
@@ -355,156 +365,243 @@ internal sealed class ProcessRunner(IVerificationOutput output) : IProcessRunner
 
         return new ProcessResult(process.ExitCode, stdout, stderr);
     }
+
+    private static void TryKillProcessTree(Process process)
+    {
+        try
+        {
+            process.Kill(entireProcessTree: true);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or Win32Exception)
+        {
+            // The process exited between cancellation and the termination request.
+        }
+    }
 }
 
 internal sealed class GitVerificationWorkspaceProvider(
     string repositoryRoot,
     IProcessRunner runner,
-    TimeSpan? cleanupRetryDelay = null)
+    TimeSpan? cleanupRetryDelay = null,
+    Func<string, bool>? deleteTree = null,
+    Func<string, bool>? deleteFile = null)
     : IVerificationWorkspaceProvider
 {
-    private static readonly TimeSpan CleanupTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DefaultCleanupRetryDelay = TimeSpan.FromMilliseconds(500);
+    private static readonly IReadOnlyDictionary<string, string> GitIdentityEnvironment =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["GIT_NO_REPLACE_OBJECTS"] = "1",
+        };
     private const int CleanupAttempts = 10;
-    private readonly Dictionary<string, string> ownedPaths = new(
+    private readonly HashSet<string> ownedPaths = new(
         OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
     private readonly TimeSpan cleanupRetryDelay = cleanupRetryDelay ?? DefaultCleanupRetryDelay;
+    private readonly Func<string, bool> deleteTree = deleteTree ?? TryDeleteTree;
+    private readonly Func<string, bool> deleteFile = deleteFile ?? TryDeleteFile;
 
     public async Task<string?> CreateAsync(string commit, CancellationToken cancellationToken)
     {
         var path = Path.Combine(Path.GetTempPath(), $"dov-{Guid.NewGuid():N}");
-        var result = await runner.RunAsync(
-            new ProcessRequest(
-                "git",
-                ["-C", repositoryRoot, "worktree", "add", "--detach", "--quiet", path, commit],
-                EchoOutput: false,
-                WorkingDirectory: repositoryRoot),
-            cancellationToken).ConfigureAwait(false);
-        if (result.ExitCode != 0)
+        var archivePath = $"{path}.zip";
+        var expectedTree = await ReadExpectedTreeAsync(commit, cancellationToken).ConfigureAwait(false);
+        if (expectedTree is null)
         {
             return null;
         }
 
-        var canonicalPathResult = await runner.RunAsync(
-            new ProcessRequest(
-                "git",
-                ["-C", path, "rev-parse", "--show-toplevel"],
-                EchoOutput: false,
-                WorkingDirectory: path),
-            cancellationToken).ConfigureAwait(false);
-        if (canonicalPathResult.ExitCode != 0 || string.IsNullOrWhiteSpace(canonicalPathResult.StandardOutput))
+        ProcessResult result;
+        try
         {
-            if (!await RemoveAfterFailedCreationAsync(path).ConfigureAwait(false))
+            result = await runner.RunAsync(
+                new ProcessRequest(
+                    "git",
+                    ["-C", repositoryRoot, "archive", "--format=zip", "--output", archivePath, commit],
+                    EchoOutput: false,
+                    WorkingDirectory: repositoryRoot,
+                    EnvironmentVariables: GitIdentityEnvironment),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            if (!await DeleteWithRetriesAsync(archivePath, deleteFile, CancellationToken.None).ConfigureAwait(false))
             {
-                throw new InvalidOperationException("The verification snapshot could not be cleaned up after setup failed.");
+                throw new InvalidOperationException("The interrupted verification snapshot archive could not be cleaned up.");
+            }
+
+            throw;
+        }
+
+        if (result.ExitCode != 0)
+        {
+            if (!await DeleteWithRetriesAsync(archivePath, deleteFile, CancellationToken.None).ConfigureAwait(false))
+            {
+                throw new InvalidOperationException("The failed verification snapshot archive could not be cleaned up.");
             }
 
             return null;
         }
 
-        ownedPaths.Add(Path.GetFullPath(path), canonicalPathResult.StandardOutput.Trim());
+        try
+        {
+            Directory.CreateDirectory(path);
+            ZipFile.ExtractToDirectory(archivePath, path);
+            if (!await MatchesExpectedTreeAsync(path, expectedTree, cancellationToken).ConfigureAwait(false))
+            {
+                throw new InvalidDataException("The verification snapshot does not match the requested commit tree.");
+            }
+        }
+        catch (Exception exception)
+        {
+            var directoryRemoved = await DeleteWithRetriesAsync(
+                path,
+                deleteTree,
+                CancellationToken.None).ConfigureAwait(false);
+            var archiveRemoved = await DeleteWithRetriesAsync(
+                archivePath,
+                deleteFile,
+                CancellationToken.None).ConfigureAwait(false);
+            if (!directoryRemoved || !archiveRemoved)
+            {
+                throw new InvalidOperationException(
+                    "The verification snapshot could not be cleaned up after setup failed.",
+                    exception);
+            }
+
+            if (exception is InvalidDataException or IOException or UnauthorizedAccessException)
+            {
+                return null;
+            }
+
+            throw;
+        }
+
+        if (!await DeleteWithRetriesAsync(archivePath, deleteFile, CancellationToken.None).ConfigureAwait(false))
+        {
+            if (!await DeleteWithRetriesAsync(path, deleteTree, CancellationToken.None).ConfigureAwait(false))
+            {
+                throw new InvalidOperationException("The verification snapshot archive and directory could not be cleaned up.");
+            }
+
+            throw new InvalidOperationException("The verification snapshot archive could not be cleaned up.");
+        }
+
+        ownedPaths.Add(Path.GetFullPath(path));
         return path;
+    }
+
+    private async Task<IReadOnlyDictionary<string, string>?> ReadExpectedTreeAsync(
+        string commit,
+        CancellationToken cancellationToken)
+    {
+        var tree = await runner.RunAsync(
+            new ProcessRequest(
+                "git",
+                ["-C", repositoryRoot, "ls-tree", "-r", "-z", commit],
+                EchoOutput: false,
+                WorkingDirectory: repositoryRoot,
+                EnvironmentVariables: GitIdentityEnvironment),
+            cancellationToken).ConfigureAwait(false);
+        if (tree.ExitCode != 0)
+        {
+            return null;
+        }
+
+        var expectedTree = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var entry in tree.StandardOutput.Split('\0', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var tabIndex = entry.IndexOf('\t', StringComparison.Ordinal);
+            if (tabIndex < 0)
+            {
+                return null;
+            }
+
+            var metadata = entry[..tabIndex].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (metadata.Length != 3 || metadata[0] != "100644")
+            {
+                return null;
+            }
+
+            var entryPath = entry[(tabIndex + 1)..];
+            if (!expectedTree.TryAdd(entryPath, metadata[2]))
+            {
+                return null;
+            }
+        }
+
+        return expectedTree;
+    }
+
+    private async Task<bool> MatchesExpectedTreeAsync(
+        string path,
+        IReadOnlyDictionary<string, string> expectedTree,
+        CancellationToken cancellationToken)
+    {
+        var actualPaths = Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)
+            .Select(file => (File: file, RelativePath: Path.GetRelativePath(path, file).Replace('\\', '/')))
+            .ToArray();
+        if (actualPaths.Length != expectedTree.Count)
+        {
+            return false;
+        }
+
+        foreach (var (file, relativePath) in actualPaths)
+        {
+            if (!expectedTree.TryGetValue(relativePath, out var expectedObjectId))
+            {
+                return false;
+            }
+
+            var actualObjectId = await runner.RunAsync(
+                new ProcessRequest(
+                    "git",
+                    ["-C", repositoryRoot, "hash-object", "--no-filters", file],
+                    EchoOutput: false,
+                    WorkingDirectory: repositoryRoot,
+                    EnvironmentVariables: GitIdentityEnvironment),
+                cancellationToken).ConfigureAwait(false);
+            if (actualObjectId.ExitCode != 0
+                || !string.Equals(actualObjectId.StandardOutput.Trim(), expectedObjectId, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public async Task<bool> RemoveAsync(string path, CancellationToken cancellationToken)
     {
         var fullPath = Path.GetFullPath(path);
-        if (!ownedPaths.TryGetValue(fullPath, out var registeredPath))
+        if (!ownedPaths.Contains(fullPath))
         {
             return false;
         }
 
+        var removed = await DeleteWithRetriesAsync(fullPath, deleteTree, cancellationToken).ConfigureAwait(false);
+        if (removed)
+        {
+            ownedPaths.Remove(fullPath);
+        }
+
+        return removed;
+    }
+
+    private async Task<bool> DeleteWithRetriesAsync(
+        string path,
+        Func<string, bool> delete,
+        CancellationToken cancellationToken)
+    {
         for (var attempt = 1; attempt <= CleanupAttempts; attempt++)
         {
-            var result = await runner.RunAsync(
-                new ProcessRequest(
-                    "git",
-                    ["-C", repositoryRoot, "worktree", "remove", "--force", fullPath],
-                    CleanupTimeout,
-                    EchoOutput: false,
-                    WorkingDirectory: repositoryRoot),
-                cancellationToken).ConfigureAwait(false);
-            if (result.ExitCode == 0)
+            if (delete(path))
             {
-                ownedPaths.Remove(fullPath);
                 return true;
             }
 
-            if (!await IsRegisteredAsync(registeredPath, cancellationToken).ConfigureAwait(false)
-                && TryDeleteTree(fullPath))
-            {
-                ownedPaths.Remove(fullPath);
-                return true;
-            }
-
-            NormalizeAttributes(fullPath);
             if (attempt < CleanupAttempts)
             {
                 await Task.Delay(cleanupRetryDelay, cancellationToken).ConfigureAwait(false);
-            }
-        }
-
-        return false;
-    }
-
-    private async Task<bool> RemoveAfterFailedCreationAsync(string path)
-    {
-        for (var attempt = 1; attempt <= CleanupAttempts; attempt++)
-        {
-            var result = await runner.RunAsync(
-                new ProcessRequest(
-                    "git",
-                    ["-C", repositoryRoot, "worktree", "remove", "--force", path],
-                    CleanupTimeout,
-                    EchoOutput: false,
-                    WorkingDirectory: repositoryRoot),
-                CancellationToken.None).ConfigureAwait(false);
-            if (result.ExitCode == 0)
-            {
-                return true;
-            }
-
-            NormalizeAttributes(path);
-            if (attempt < CleanupAttempts)
-            {
-                await Task.Delay(cleanupRetryDelay, CancellationToken.None).ConfigureAwait(false);
-            }
-        }
-
-        return false;
-    }
-
-    private async Task<bool> IsRegisteredAsync(string registeredPath, CancellationToken cancellationToken)
-    {
-        var result = await runner.RunAsync(
-            new ProcessRequest(
-                "git",
-                ["-C", repositoryRoot, "worktree", "list", "--porcelain", "-z"],
-                CleanupTimeout,
-                EchoOutput: false,
-                WorkingDirectory: repositoryRoot),
-            cancellationToken).ConfigureAwait(false);
-        if (result.ExitCode != 0)
-        {
-            return true;
-        }
-
-        return ContainsRegisteredWorktree(result.StandardOutput, registeredPath);
-    }
-
-    internal static bool ContainsRegisteredWorktree(string porcelainOutput, string registeredPath)
-    {
-        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        foreach (var field in porcelainOutput.Split('\0', StringSplitOptions.RemoveEmptyEntries))
-        {
-            const string prefix = "worktree ";
-            if (field.StartsWith(prefix, StringComparison.Ordinal)
-                && string.Equals(
-                    field[prefix.Length..].TrimEnd('/', '\\'),
-                    registeredPath.TrimEnd('/', '\\'),
-                    comparison))
-            {
-                return true;
             }
         }
 
@@ -522,6 +619,25 @@ internal sealed class GitVerificationWorkspaceProvider(
         {
             DeleteEntry(path);
             return !Directory.Exists(path);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryDeleteFile(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return true;
+        }
+
+        try
+        {
+            File.SetAttributes(path, FileAttributes.Normal);
+            File.Delete(path);
+            return !File.Exists(path);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
@@ -562,36 +678,6 @@ internal sealed class GitVerificationWorkspaceProvider(
         Directory.Delete(path, recursive: false);
     }
 
-    private static void NormalizeAttributes(string path)
-    {
-        try
-        {
-            var pending = new Stack<string>();
-            pending.Push(path);
-            while (pending.TryPop(out var directory))
-            {
-                File.SetAttributes(directory, FileAttributes.Normal);
-                foreach (var entry in Directory.EnumerateFileSystemEntries(directory))
-                {
-                    var attributes = File.GetAttributes(entry);
-                    if ((attributes & FileAttributes.ReparsePoint) != 0)
-                    {
-                        continue;
-                    }
-
-                    File.SetAttributes(entry, FileAttributes.Normal);
-                    if ((attributes & FileAttributes.Directory) != 0)
-                    {
-                        pending.Push(entry);
-                    }
-                }
-            }
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            // The next bounded Git removal attempt remains the source of truth for cleanup success.
-        }
-    }
 }
 
 internal sealed class GitRepositoryInspector(string repositoryRoot, IProcessRunner runner) : IRepositoryInspector
