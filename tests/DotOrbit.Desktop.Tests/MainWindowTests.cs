@@ -95,6 +95,8 @@ public sealed class MainWindowTests
 
         var brandMark = window.FindControl<Image>("BrandMarkImage");
         Assert.IsType<DrawingImage>(brandMark?.Source);
+        Assert.Equal(30, brandMark?.Width);
+        Assert.Equal(18, window.FindControl<TextBlock>("BrandNameText")?.FontSize);
         Assert.DoesNotContain(
             window.GetVisualDescendants().OfType<TextBlock>(),
             text => text.Text?.Contains("Calm three-pane workspace", StringComparison.Ordinal) is true);

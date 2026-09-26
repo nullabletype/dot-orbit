@@ -60,14 +60,14 @@
             Spacing="10">
           <Image
               x:Name="BrandMarkImage"
-              Width="27"
-              Height="27"
+              Width="30"
+              Height="30"
               Source="{StaticResource OrbitMarkImage}"
               Stretch="Uniform" />
           <TextBlock
               x:Name="BrandNameText"
               VerticalAlignment="Center"
-              FontSize="15"
+              FontSize="18"
               FontWeight="Bold"
               Text="dot-orbit" />
         </StackPanel>

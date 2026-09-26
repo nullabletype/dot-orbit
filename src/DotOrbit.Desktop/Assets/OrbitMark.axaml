@@ -1,20 +1,24 @@
 <ResourceDictionary
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- Native rendering counterpart of /assets/orbit-mark.svg; keep geometry in sync. -->
   <DrawingImage x:Key="OrbitMarkImage">
     <DrawingImage.Drawing>
       <DrawingGroup>
         <GeometryDrawing
             Brush="Transparent"
             Geometry="M 0,0 H 32 V 32 H 0 Z" />
-        <GeometryDrawing Geometry="M 16,8 A 8,8 0 1 1 15.99,8">
+        <GeometryDrawing Geometry="M 28.43,12.20 A 13,13 0 1 1 19.80,3.57">
           <GeometryDrawing.Pen>
-            <Pen Brush="{DynamicResource AccentBrush}" Thickness="3" />
+            <Pen
+                Brush="{DynamicResource AccentBrush}"
+                LineCap="Round"
+                Thickness="3" />
           </GeometryDrawing.Pen>
         </GeometryDrawing>
         <GeometryDrawing
             Brush="{DynamicResource SuccessBrush}"
-            Geometry="M 22,7 A 3,3 0 1 1 21.99,7" />
+            Geometry="M 25.19,3.31 A 3.5,3.5 0 1 1 25.18,3.31" />
       </DrawingGroup>
     </DrawingImage.Drawing>
   </DrawingImage>
