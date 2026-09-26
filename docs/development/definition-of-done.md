@@ -29,7 +29,7 @@ dotnet build DotOrbit.slnx --configuration Release --no-restore
 dotnet test --solution DotOrbit.slnx --configuration Release --no-build
 ```
 
-The first shell deliberately does not define a packaging command. Packaging, signing, installers, and release publication remain outside issue #1 and must be added with their own supported-runtime evidence before the first release.
+Self-contained Release packaging uses the checked-in command documented in `docs/development/release-packaging.md`. Signing, installers, and release publication remain separate work and are not implied by a validated archive.
 
 ## Desktop verification levels
 

@@ -7,6 +7,7 @@ The repository contains the first runnable Avalonia shell and the earlier intera
 ## Start here
 
 - Run `dotnet run --project src/DotOrbit.Desktop/DotOrbit.Desktop.csproj` to create or unlock the local encrypted workspace and open the desktop shell.
+- Build and validate self-contained Release archives with the commands in [`docs/development/release-packaging.md`](docs/development/release-packaging.md).
 - Open `prototype/index.html` in a modern desktop browser to explore the broader product direction. It is self-contained and needs no build step.
 - Read `docs/product/brief.md` for the product boundary.
 - Read `docs/product/requirements.md` for the current behavioural specification.

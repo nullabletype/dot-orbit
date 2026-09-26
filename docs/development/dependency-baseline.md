@@ -2,7 +2,7 @@
 
 Checked: 2026-09-26
 
-This file records the support check for the runnable desktop shell and encrypted workspace lifecycle. Package lock files remain the reproducible record of the complete transitive graph.
+This file records the support check for the runnable desktop shell, encrypted workspace lifecycle, and self-contained release packaging. Package lock files remain the reproducible record of the complete transitive graph.
 
 ## Runtime and SDK
 
@@ -22,11 +22,19 @@ This file records the support check for the runnable desktop shell and encrypted
 ## Continuous integration
 
 - Runner labels are explicit: `ubuntu-24.04`, `windows-2025`, and `macos-26`. These were listed as generally available by the [GitHub runner-images project](https://github.com/actions/runner-images/blob/main/README.md) on the check date.
+- Release packaging uses `macos-26` for Apple Silicon and `macos-26-intel` for Intel. The runner-images catalogue lists those as the current macOS 26 ARM64 and x64 labels respectively.
 - `actions/checkout` is pinned to the full commit SHA for v7.0.1.
 - `actions/setup-dotnet` is pinned to the full commit SHA for v6.0.0 and installs SDK 10.0.401 exactly.
+- The manual package upload uses `actions/upload-artifact` v7.0.1 pinned to commit `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`. This is the current supported Node 24 release; pull-request runs never execute the upload step.
 - The workflow performs locked restore, formatting verification, Release build, and tests. It uploads no artifacts.
 - The same explicit matrix launches the real Release-built desktop application. Linux uses the `xvfb` package included in the pinned Ubuntu 24.04 runner image; macOS and Windows use their native desktop environments. The smoke runner adds no package or action dependency and uploads no artifacts.
 - The native journey locates standard Avalonia controls by their automation IDs and checks their built-in automation peers before routing keyboard input. Avalonia exposes those peers through UI Automation on Windows, NSAccessibility on macOS, and AT-SPI2 on Linux. Source: [Avalonia accessibility](https://docs.avaloniaui.net/docs/app-development/accessibility) and the [Ubuntu 24.04 runner software inventory](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md).
+
+## Packaging tools
+
+- The repository packager targets the pinned .NET 10 SDK and uses only supported base-class-library APIs for Zip, POSIX tar, GZip, SHA-256, and JSON. It introduces no additional package dependency or floating host tool.
+- Package restore is locked for all four explicit runtime identifiers. The final archive contains one self-contained executable plus the repository licence, third-party notices, and the generated integrity manifest.
+- Relevant pull requests assemble, inspect, extract, and run every archive on its matching architecture. Only a manual dispatch uploads the final validated archive, using the action pin recorded above.
 
 ## Review trigger
 
