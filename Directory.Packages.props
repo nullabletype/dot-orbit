@@ -8,6 +8,8 @@
     <PackageVersion Include="Avalonia.Fonts.Inter" Version="12.1.3" />
     <PackageVersion Include="Avalonia.Headless.XUnit" Version="12.1.3" />
     <PackageVersion Include="Avalonia.Themes.Fluent" Version="12.1.3" />
+    <PackageVersion Include="Microsoft.Data.Sqlite.Core" Version="10.0.12" />
+    <PackageVersion Include="SQLite3MC.PCLRaw.bundle" Version="2.4.0" />
     <!-- Avalonia.Headless.XUnit 12.1.3 is compiled against the xUnit 3.2 discovery API. -->
     <PackageVersion Include="xunit.v3" Version="3.2.2" />
   </ItemGroup>

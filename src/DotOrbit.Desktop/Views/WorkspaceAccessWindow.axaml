@@ -1,0 +1,145 @@
+<Window
+    x:Class="DotOrbit.Desktop.Views.WorkspaceAccessWindow"
+    x:DataType="vm:WorkspaceAccessViewModel"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:DotOrbit.Desktop.ViewModels"
+    Title="dot-orbit workspace"
+    Width="560"
+    Height="660"
+    MinWidth="500"
+    MinHeight="600"
+    Background="{StaticResource BackgroundBrush}"
+    WindowStartupLocation="CenterScreen">
+  <Grid RowDefinitions="64,*">
+    <Border
+        Grid.Row="0"
+        BorderBrush="{StaticResource LineBrush}"
+        BorderThickness="0,0,0,1">
+      <StackPanel
+          Margin="24,0"
+          VerticalAlignment="Center"
+          Orientation="Horizontal"
+          Spacing="10">
+        <Image
+            Width="30"
+            Height="30"
+            Source="{StaticResource OrbitMarkImage}"
+            Stretch="Uniform" />
+        <TextBlock
+            VerticalAlignment="Center"
+            FontSize="18"
+            FontWeight="Bold"
+            Text="dot-orbit" />
+      </StackPanel>
+    </Border>
+
+    <ScrollViewer Grid.Row="1">
+      <StackPanel
+          Width="440"
+          Margin="40,38"
+          HorizontalAlignment="Center"
+          Spacing="14">
+        <TextBlock
+            Classes="eyebrow"
+            Text="ENCRYPTED LOCAL WORKSPACE" />
+        <TextBlock
+            FontSize="28"
+            FontWeight="Bold"
+            Text="{Binding Heading}" />
+        <TextBlock
+            Margin="0,0,0,8"
+            Foreground="{StaticResource MutedTextBrush}"
+            LineHeight="21"
+            Text="{Binding Intro}"
+            TextWrapping="Wrap" />
+
+        <TextBlock
+            IsVisible="{Binding IsCreateMode}"
+            Text="First Category" />
+        <TextBox
+            x:Name="FirstCategoryTextBox"
+            AutomationProperties.HelpText="Name the first Category before Projects or Tasks can be created."
+            AutomationProperties.Name="First Category name"
+            IsVisible="{Binding IsCreateMode}"
+            TabIndex="0"
+            Text="{Binding FirstCategoryName, Mode=TwoWay}"
+            PlaceholderText="For example, Personal Admin" />
+
+        <TextBlock Margin="0,6,0,0" Text="Passphrase" />
+        <TextBox
+            x:Name="PassphraseTextBox"
+            AutomationProperties.HelpText="Paste or type a passphrase. Password-manager generated values are supported."
+            AutomationProperties.Name="Passphrase"
+            PasswordChar="{Binding PasswordCharacter}"
+            TabIndex="1"
+            Text="{Binding Passphrase, Mode=TwoWay}" />
+
+        <TextBlock
+            IsVisible="{Binding IsCreateMode}"
+            Text="Confirm passphrase" />
+        <TextBox
+            x:Name="ConfirmationTextBox"
+            AutomationProperties.HelpText="Enter the same passphrase again."
+            AutomationProperties.Name="Confirm passphrase"
+            IsVisible="{Binding IsCreateMode}"
+            PasswordChar="{Binding PasswordCharacter}"
+            TabIndex="2"
+            Text="{Binding Confirmation, Mode=TwoWay}" />
+
+        <ToggleButton
+            x:Name="PassphraseVisibilityToggle"
+            HorizontalAlignment="Left"
+            AutomationProperties.HelpText="Change whether the passphrase fields display their text."
+            AutomationProperties.Name="{Binding PassphraseVisibilityActionName}"
+            Command="{Binding TogglePassphraseVisibilityCommand}"
+            IsChecked="{Binding IsPassphraseVisible, Mode=OneWay}"
+            TabIndex="3">
+          <TextBlock Text="{Binding PassphraseVisibilityActionName}" />
+        </ToggleButton>
+
+        <Border
+            IsVisible="{Binding IsCreateMode}"
+            Margin="0,4,0,0"
+            Padding="14"
+            Background="{StaticResource PanelBrush}"
+            BorderBrush="{StaticResource LineBrush}"
+            BorderThickness="1"
+            CornerRadius="8">
+          <StackPanel Spacing="6">
+            <TextBlock
+                x:Name="PassphraseGuidance"
+                FontWeight="SemiBold"
+                Text="Use 16 or more characters, or a multi-word passphrase."
+                TextWrapping="Wrap" />
+            <TextBlock
+                x:Name="NoRecoveryWarning"
+                Foreground="{StaticResource MutedTextBrush}"
+                Text="There is no recovery mechanism. If you lose this passphrase, the workspace cannot be opened."
+                TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+
+        <TextBlock
+            x:Name="ValidationMessage"
+            AutomationProperties.LiveSetting="Assertive"
+            Foreground="#FFD88A8A"
+            IsVisible="{Binding HasValidationMessage}"
+            Text="{Binding ValidationMessage}"
+            TextWrapping="Wrap" />
+
+        <Button
+            x:Name="SubmitButton"
+            Margin="0,8,0,0"
+            HorizontalAlignment="Stretch"
+            HorizontalContentAlignment="Center"
+            AutomationProperties.Name="{Binding SubmitActionName}"
+            Command="{Binding SubmitCommand}"
+            IsDefault="True"
+            TabIndex="4">
+          <TextBlock Text="{Binding SubmitActionName}" />
+        </Button>
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</Window>
