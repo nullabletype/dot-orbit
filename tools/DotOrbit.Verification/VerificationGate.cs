@@ -404,7 +404,7 @@ internal sealed class GitVerificationWorkspaceProvider(
                     "git",
                     ["-C", repositoryRoot, "worktree", "remove", "--force", fullPath],
                     CleanupTimeout,
-                    EchoOutput: false,
+                    EchoOutput: attempt == CleanupAttempts,
                     WorkingDirectory: repositoryRoot),
                 cancellationToken).ConfigureAwait(false);
             if (result.ExitCode == 0)
