@@ -49,6 +49,7 @@ Incomplete work must leave:
 - If independent review was unavailable, state that rather than implying review occurred.
 - Record concise verification evidence in the issue or pull request. Do not upload logs, screenshots, test results, source trees, intermediate outputs, or general evidence bundles to GitHub artifact storage.
 - GitHub artifacts are reserved for packaged, Release-configuration application binaries for supported runtimes; PDB files are optional. Containers and container filesystems are prohibited.
+- Treat the cross-platform native desktop smoke journey and headless interaction suite as the routine pull-request baseline. Add targeted manual visual or accessibility checks when the changed behaviour needs them, and reserve full assistive-technology and supported-runtime verification for release milestones.
 
 ## Suggested first issue sequence
 

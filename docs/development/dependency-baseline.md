@@ -25,6 +25,8 @@ This file records the support check for the runnable desktop shell and encrypted
 - `actions/checkout` is pinned to the full commit SHA for v7.0.1.
 - `actions/setup-dotnet` is pinned to the full commit SHA for v6.0.0 and installs SDK 10.0.401 exactly.
 - The workflow performs locked restore, formatting verification, Release build, and tests. It uploads no artifacts.
+- The same explicit matrix launches the real Release-built desktop application. Linux uses the `xvfb` package included in the pinned Ubuntu 24.04 runner image; macOS and Windows use their native desktop environments. The smoke runner adds no package or action dependency and uploads no artifacts.
+- The native journey locates standard Avalonia controls by their automation IDs and checks their built-in automation peers before routing keyboard input. Avalonia exposes those peers through UI Automation on Windows, NSAccessibility on macOS, and AT-SPI2 on Linux. Source: [Avalonia accessibility](https://docs.avaloniaui.net/docs/app-development/accessibility) and the [Ubuntu 24.04 runner software inventory](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md).
 
 ## Review trigger
 
