@@ -16,6 +16,18 @@ namespace DotOrbit.Desktop.Tests;
 public sealed class WorkspaceAccessWindowTests
 {
     [AvaloniaFact]
+    public void StartupUsesThePlatformWorkspacePathProvider()
+    {
+        var store = new StubWorkspaceStore(exists: false);
+
+        _ = new WorkspaceAccessWindow(
+            store,
+            new StubWorkspacePathProvider("/platform-data/dot-orbit/workspace.db"));
+
+        Assert.Equal("/platform-data/dot-orbit/workspace.db", store.LastExistsPath);
+    }
+
+    [AvaloniaFact]
     public void FirstRunFieldsExposeAccessibleNamesHelpAndLogicalTabOrder()
     {
         var window = CreateWindow(exists: false);
@@ -105,7 +117,13 @@ public sealed class WorkspaceAccessWindowTests
 
     private sealed class StubWorkspaceStore(bool exists) : IWorkspaceStore
     {
-        public bool Exists(string path) => exists;
+        public string? LastExistsPath { get; private set; }
+
+        public bool Exists(string path)
+        {
+            LastExistsPath = path;
+            return exists;
+        }
 
         public WorkspaceCreationResult Create(
             string path,
@@ -114,5 +132,10 @@ public sealed class WorkspaceAccessWindowTests
 
         public WorkspaceOpenResult Open(string path, WorkspacePassphrase passphrase) =>
             WorkspaceOpenResult.InvalidPassphraseOrStore();
+    }
+
+    private sealed class StubWorkspacePathProvider(string path) : IWorkspacePathProvider
+    {
+        public string GetDefaultWorkspacePath() => path;
     }
 }

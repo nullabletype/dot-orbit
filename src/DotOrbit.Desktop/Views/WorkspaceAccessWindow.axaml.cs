@@ -13,10 +13,19 @@ public sealed partial class WorkspaceAccessWindow : Window
     private WorkspaceAccessViewModel _viewModel = null!;
 
     public WorkspaceAccessWindow()
+        : this(new EncryptedWorkspaceStore(), new SystemWorkspacePathProvider())
     {
+    }
+
+    internal WorkspaceAccessWindow(
+        IWorkspaceStore workspaceStore,
+        IWorkspacePathProvider workspacePathProvider)
+    {
+        ArgumentNullException.ThrowIfNull(workspaceStore);
+        ArgumentNullException.ThrowIfNull(workspacePathProvider);
         Initialise(new WorkspaceAccessViewModel(
-            new EncryptedWorkspaceStore(),
-            WorkspacePaths.DefaultWorkspacePath,
+            workspaceStore,
+            workspacePathProvider.GetDefaultWorkspacePath(),
             OpenDefaultShell));
     }
 
