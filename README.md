@@ -26,16 +26,13 @@ The repository contains the first runnable Avalonia shell and the earlier intera
 
 ## Build and test
 
-The repository pins .NET SDK 10.0.401 in `global.json`. From the repository root:
+The repository pins .NET SDK 10.0.401 in `global.json`. From the repository root, run the canonical repository gate:
 
 ```sh
-dotnet restore DotOrbit.slnx --locked-mode
-dotnet format DotOrbit.slnx --no-restore --verify-no-changes
-dotnet build DotOrbit.slnx --configuration Release --no-restore
-dotnet test --solution DotOrbit.slnx --configuration Release --no-build
+dotnet run --project tools/DotOrbit.Verification/DotOrbit.Verification.csproj -p:RestoreLockedMode=true
 ```
 
-The same gate runs on pinned Ubuntu, Windows, and macOS GitHub-hosted runners. See `docs/development/dependency-baseline.md` for the checked dependency and runner baseline.
+It performs locked restore, formatting verification, a deterministic Release build, all tests, the native desktop smoke journey, and both smoke negative controls. Add `-- --evidence --expected-sha <full-commit-sha>` to validate a detached snapshot of an exact clean commit. The same entry point runs on pinned Ubuntu, Windows, and macOS GitHub-hosted runners. See `docs/development/dependency-baseline.md` for the checked dependency and runner baseline.
 
 ## Licence
 

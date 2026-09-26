@@ -23,11 +23,10 @@ An issue is complete only when:
 Run the following from the repository root:
 
 ```sh
-dotnet restore DotOrbit.slnx --locked-mode
-dotnet format DotOrbit.slnx --no-restore --verify-no-changes
-dotnet build DotOrbit.slnx --configuration Release --no-restore
-dotnet test --solution DotOrbit.slnx --configuration Release --no-build
+dotnet run --project tools/DotOrbit.Verification/DotOrbit.Verification.csproj -p:RestoreLockedMode=true
 ```
+
+This is the canonical local and continuous-integration gate. It performs locked restore, formatting verification, a deterministic Release build, all tests, the native desktop smoke journey, and both smoke negative controls. Add `-- --evidence --expected-sha <full-commit-sha>` from a clean worktree when recording commit-bound evidence. Evidence mode validates a detached snapshot of that commit, then confirms the source worktree remained clean and on the same commit. Its verification summary contains only the commit, clean or dirty state, operating system, .NET runtime, phase results, and final result; the underlying build and test commands retain their normal console output. Evidence mode refuses dirty worktrees and SHA mismatches.
 
 Self-contained Release packaging uses the checked-in command documented in `docs/development/release-packaging.md`. Signing, installers, and release publication remain separate work and are not implied by a validated archive.
 
