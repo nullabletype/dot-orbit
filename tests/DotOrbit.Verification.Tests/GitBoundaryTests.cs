@@ -55,6 +55,9 @@ public sealed class GitBoundaryTests
             Assert.True(File.Exists(Path.Combine(snapshotPath, "tracked.txt")));
             File.WriteAllText(Path.Combine(repositoryPath, "tracked.txt"), "changed outside snapshot");
             Assert.Equal("committed", File.ReadAllText(Path.Combine(snapshotPath, "tracked.txt")));
+            var readOnlyPath = Path.Combine(snapshotPath, "read-only-output.tmp");
+            File.WriteAllText(readOnlyPath, "generated output");
+            File.SetAttributes(readOnlyPath, FileAttributes.ReadOnly);
             Assert.True(await provider.RemoveAsync(snapshotPath, CancellationToken.None));
             Assert.False(Directory.Exists(snapshotPath));
             snapshotPath = null;
@@ -67,6 +70,81 @@ public sealed class GitBoundaryTests
             }
 
             DeleteDirectory(repositoryPath);
+        }
+    }
+
+    [Fact]
+    public async Task VerificationWorkspaceRetriesFailedCleanup()
+    {
+        var runner = new WorkspaceProcessRunner(1, 0);
+        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner);
+        var snapshotPath = await provider.CreateAsync(new string('a', 40), CancellationToken.None);
+
+        Assert.NotNull(snapshotPath);
+        Assert.True(await provider.RemoveAsync(snapshotPath, CancellationToken.None));
+        Assert.Equal(2, runner.RemoveCalls);
+    }
+
+    [Fact]
+    public async Task VerificationWorkspaceFailsAfterBoundedCleanupAttempts()
+    {
+        var runner = new WorkspaceProcessRunner(1, 1, 1);
+        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner);
+        var snapshotPath = await provider.CreateAsync(new string('a', 40), CancellationToken.None);
+
+        Assert.NotNull(snapshotPath);
+        try
+        {
+            Assert.False(await provider.RemoveAsync(snapshotPath, CancellationToken.None));
+            Assert.Equal(3, runner.RemoveCalls);
+        }
+        finally
+        {
+            DeleteDirectory(snapshotPath);
+        }
+    }
+
+    [Fact]
+    public async Task VerificationWorkspaceDoesNotTreatPartialRemovalAsSuccess()
+    {
+        var runner = new WorkspaceProcessRunner([1, 1, 1], deleteOnFirstFailedRemoval: true);
+        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner);
+        var snapshotPath = await provider.CreateAsync(new string('a', 40), CancellationToken.None);
+
+        Assert.NotNull(snapshotPath);
+        Assert.False(await provider.RemoveAsync(snapshotPath, CancellationToken.None));
+        Assert.Equal(3, runner.RemoveCalls);
+    }
+
+    [Fact]
+    public async Task VerificationWorkspaceRefusesUnownedCleanupPath()
+    {
+        var runner = new WorkspaceProcessRunner(0);
+        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner);
+
+        Assert.False(await provider.RemoveAsync(Path.GetTempPath(), CancellationToken.None));
+        Assert.Equal(0, runner.RemoveCalls);
+    }
+
+    [Fact]
+    public async Task VerificationWorkspaceCleanupHonoursCancellationBetweenAttempts()
+    {
+        var runner = new WorkspaceProcessRunner(1, 0);
+        var provider = new GitVerificationWorkspaceProvider(Path.GetTempPath(), runner);
+        var snapshotPath = await provider.CreateAsync(new string('a', 40), CancellationToken.None);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        Assert.NotNull(snapshotPath);
+        try
+        {
+            await Assert.ThrowsAsync<TaskCanceledException>(
+                () => provider.RemoveAsync(snapshotPath, cancellation.Token));
+            Assert.Equal(1, runner.RemoveCalls);
+        }
+        finally
+        {
+            DeleteDirectory(snapshotPath);
         }
     }
 
@@ -131,6 +209,44 @@ public sealed class GitBoundaryTests
 
         public void WriteError(string message)
         {
+        }
+    }
+
+    private sealed class WorkspaceProcessRunner : IProcessRunner
+    {
+        private readonly Queue<int> removalExitCodes;
+        private readonly bool deleteOnFirstFailedRemoval;
+
+        public WorkspaceProcessRunner(params int[] removalExitCodes)
+            : this(removalExitCodes, deleteOnFirstFailedRemoval: false)
+        {
+        }
+
+        public WorkspaceProcessRunner(int[] removalExitCodes, bool deleteOnFirstFailedRemoval)
+        {
+            this.removalExitCodes = new Queue<int>(removalExitCodes);
+            this.deleteOnFirstFailedRemoval = deleteOnFirstFailedRemoval;
+        }
+
+        public int RemoveCalls { get; private set; }
+
+        public Task<ProcessResult> RunAsync(ProcessRequest request, CancellationToken cancellationToken)
+        {
+            if (request.Arguments.Contains("add", StringComparer.Ordinal))
+            {
+                Directory.CreateDirectory(request.Arguments[^2]);
+                return Task.FromResult(new ProcessResult(0, "", ""));
+            }
+
+            RemoveCalls++;
+            var path = request.Arguments[^1];
+            var exitCode = removalExitCodes.Dequeue();
+            if (exitCode == 0 || (deleteOnFirstFailedRemoval && RemoveCalls == 1))
+            {
+                DeleteDirectory(path);
+            }
+
+            return Task.FromResult(new ProcessResult(exitCode, "", ""));
         }
     }
 }

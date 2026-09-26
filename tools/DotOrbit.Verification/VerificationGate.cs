@@ -361,6 +361,10 @@ internal sealed class GitVerificationWorkspaceProvider(string repositoryRoot, IP
     : IVerificationWorkspaceProvider
 {
     private static readonly TimeSpan CleanupTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan CleanupRetryDelay = TimeSpan.FromMilliseconds(250);
+    private const int CleanupAttempts = 3;
+    private readonly HashSet<string> ownedPaths = new(
+        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
 
     public async Task<string?> CreateAsync(string commit, CancellationToken cancellationToken)
     {
@@ -372,20 +376,78 @@ internal sealed class GitVerificationWorkspaceProvider(string repositoryRoot, IP
                 EchoOutput: false,
                 WorkingDirectory: repositoryRoot),
             cancellationToken).ConfigureAwait(false);
-        return result.ExitCode == 0 ? path : null;
+        if (result.ExitCode != 0)
+        {
+            return null;
+        }
+
+        ownedPaths.Add(Path.GetFullPath(path));
+        return path;
     }
 
     public async Task<bool> RemoveAsync(string path, CancellationToken cancellationToken)
     {
-        var result = await runner.RunAsync(
-            new ProcessRequest(
-                "git",
-                ["-C", repositoryRoot, "worktree", "remove", "--force", path],
-                CleanupTimeout,
-                EchoOutput: false,
-                WorkingDirectory: repositoryRoot),
-            cancellationToken).ConfigureAwait(false);
-        return result.ExitCode == 0;
+        var fullPath = Path.GetFullPath(path);
+        if (!ownedPaths.Contains(fullPath))
+        {
+            return false;
+        }
+
+        for (var attempt = 1; attempt <= CleanupAttempts; attempt++)
+        {
+            var result = await runner.RunAsync(
+                new ProcessRequest(
+                    "git",
+                    ["-C", repositoryRoot, "worktree", "remove", "--force", fullPath],
+                    CleanupTimeout,
+                    EchoOutput: false,
+                    WorkingDirectory: repositoryRoot),
+                cancellationToken).ConfigureAwait(false);
+            if (result.ExitCode == 0)
+            {
+                ownedPaths.Remove(fullPath);
+                return true;
+            }
+
+            NormalizeAttributes(fullPath);
+            if (attempt < CleanupAttempts)
+            {
+                await Task.Delay(CleanupRetryDelay, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        return false;
+    }
+
+    private static void NormalizeAttributes(string path)
+    {
+        try
+        {
+            var pending = new Stack<string>();
+            pending.Push(path);
+            while (pending.TryPop(out var directory))
+            {
+                File.SetAttributes(directory, FileAttributes.Normal);
+                foreach (var entry in Directory.EnumerateFileSystemEntries(directory))
+                {
+                    var attributes = File.GetAttributes(entry);
+                    if ((attributes & FileAttributes.ReparsePoint) != 0)
+                    {
+                        continue;
+                    }
+
+                    File.SetAttributes(entry, FileAttributes.Normal);
+                    if ((attributes & FileAttributes.Directory) != 0)
+                    {
+                        pending.Push(entry);
+                    }
+                }
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // The next bounded Git removal attempt remains the source of truth for cleanup success.
+        }
     }
 }
 
