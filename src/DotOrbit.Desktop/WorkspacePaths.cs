@@ -1,11 +1,5 @@
 namespace DotOrbit.Desktop;
 
-public static class WorkspacePaths
-{
-    public static string DefaultWorkspacePath =>
-        new SystemWorkspacePathProvider().GetDefaultWorkspacePath();
-}
-
 internal interface IWorkspacePathProvider
 {
     string GetDefaultWorkspacePath();

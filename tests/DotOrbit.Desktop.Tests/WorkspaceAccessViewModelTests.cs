@@ -9,9 +9,11 @@ public sealed class WorkspaceAccessViewModelTests
     [Fact]
     public void DefaultWorkspacePathUsesTheLocalDotOrbitDirectory()
     {
-        Assert.True(Path.IsPathFullyQualified(WorkspacePaths.DefaultWorkspacePath));
-        Assert.Equal("workspace.db", Path.GetFileName(WorkspacePaths.DefaultWorkspacePath));
-        Assert.Equal("dot-orbit", Path.GetFileName(Path.GetDirectoryName(WorkspacePaths.DefaultWorkspacePath)));
+        var workspacePath = new SystemWorkspacePathProvider().GetDefaultWorkspacePath();
+
+        Assert.True(Path.IsPathFullyQualified(workspacePath));
+        Assert.Equal("workspace.db", Path.GetFileName(workspacePath));
+        Assert.Equal("dot-orbit", Path.GetFileName(Path.GetDirectoryName(workspacePath)));
     }
 
     [Fact]
