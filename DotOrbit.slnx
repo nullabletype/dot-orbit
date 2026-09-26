@@ -5,6 +5,8 @@
     <Project Path="src/DotOrbit.Storage.Sqlite/DotOrbit.Storage.Sqlite.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/DotOrbit.Core.Tests/DotOrbit.Core.Tests.csproj" />
     <Project Path="tests/DotOrbit.Desktop.Tests/DotOrbit.Desktop.Tests.csproj" />
+    <Project Path="tests/DotOrbit.Storage.Sqlite.Tests/DotOrbit.Storage.Sqlite.Tests.csproj" />
   </Folder>
 </Solution>

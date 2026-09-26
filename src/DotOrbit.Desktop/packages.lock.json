@@ -192,6 +192,24 @@
         "resolved": "3.119.4",
         "contentHash": "XOpbx/4CReO2wYsq2s6rbvdauc6dntG4Zv499sHGTJ87bwZaFXszFkwql3+FIZMc8kUPeaj3Mx2ezIJmo8a1Kg=="
       },
+      "SQLite3MC.PCLRaw.lib": {
+        "type": "Transitive",
+        "resolved": "2.4.0",
+        "contentHash": "1In6cTL5SGGVbyJh5Uf6Qq6/hf9ecP6bSIUkU7F9JaVvAiMZTwzLXwgXqm4jjWtHpjHiaVURUrjkpbDG3kTKHw=="
+      },
+      "SQLite3MC.PCLRaw.provider": {
+        "type": "Transitive",
+        "resolved": "2.4.0",
+        "contentHash": "2PTNuZ/3k1Bpva0ZbEa4Q6w6hFclZQGyTi46WtQCp99rgwczOMzoxDWJlCWndIne7giMM/BK8hmHZ0ekbqPxUQ==",
+        "dependencies": {
+          "SQLitePCLRaw.core": "3.0.2"
+        }
+      },
+      "SQLitePCLRaw.core": {
+        "type": "Transitive",
+        "resolved": "3.0.2",
+        "contentHash": "tnbRf0muOOSJK1RLCfyYK13jynFScgL4xMj7yC3oy8lrrGKXTKmOoWjfdV+cFfBRdppm4qST31hvp8ihgIgvMQ=="
+      },
       "Tmds.DBus.Protocol": {
         "type": "Transitive",
         "resolved": "0.94.1",
@@ -203,7 +221,28 @@
       "dotorbit.storage.sqlite": {
         "type": "Project",
         "dependencies": {
-          "DotOrbit.Core": "[1.0.0, )"
+          "DotOrbit.Core": "[1.0.0, )",
+          "Microsoft.Data.Sqlite.Core": "[10.0.12, )",
+          "SQLite3MC.PCLRaw.bundle": "[2.4.0, )"
+        }
+      },
+      "Microsoft.Data.Sqlite.Core": {
+        "type": "CentralTransitive",
+        "requested": "[10.0.12, )",
+        "resolved": "10.0.12",
+        "contentHash": "2aL9eL5HQr0V4b8V909SD+jQAx6qnTTl7sT/v3D8dIvmr2UGdpZIQxqm1pj2Js3e4EYTvpw0oMH7DjapJJuPPw==",
+        "dependencies": {
+          "SQLitePCLRaw.core": "2.1.12"
+        }
+      },
+      "SQLite3MC.PCLRaw.bundle": {
+        "type": "CentralTransitive",
+        "requested": "[2.4.0, )",
+        "resolved": "2.4.0",
+        "contentHash": "D86SPXNYZQPLnurZnDoo6ZI3TUsw7X5JWIBAMcusAJxPiGepjd5ZvyaXWOFt/GjSfSI2H5B9oGT7P7ymUC1TBg==",
+        "dependencies": {
+          "SQLite3MC.PCLRaw.lib": "2.4.0",
+          "SQLite3MC.PCLRaw.provider": "2.4.0"
         }
       }
     }
