@@ -69,11 +69,10 @@ internal static class NativeSmokeRunner
     private static void VerifyInitialView(MainWindow window)
     {
         var shell = GetShell(window);
-        var displayedView = window.FindControl<TextBlock>("CurrentViewTitleText");
         Ensure(
             shell.ViewTitle == "Today" &&
             shell.SelectedItem.AutomationId == "navigation-today" &&
-            displayedView?.Text == "Today",
+            GetDisplayedView(window) == "Today",
             StartupFailureExitCode,
             "startup");
         Console.WriteLine("native-smoke: phase=startup result=passed view=Today");
@@ -111,19 +110,21 @@ internal static class NativeSmokeRunner
         });
 
         var shell = GetShell(window);
-        var displayedView = window.FindControl<TextBlock>("CurrentViewTitleText");
         var expectedView = scenario.Failure == NativeSmokeFailure.NavigationAssertion
             ? "Intentional assertion failure"
             : "Archive";
         Ensure(
             shell.ViewTitle == expectedView &&
-            displayedView?.Text == expectedView &&
+            GetDisplayedView(window) == expectedView &&
             archive.IsChecked is true &&
             archive.IsFocused,
             NavigationFailureExitCode,
             "navigation-assertion");
         Console.WriteLine("native-smoke: phase=navigation result=passed view=Archive focus=usable");
     }
+
+    private static string? GetDisplayedView(MainWindow window) =>
+        window.FindControl<TextBlock>("CurrentViewTitleText")?.Text;
 
     private static ShellViewModel GetShell(MainWindow window)
     {
