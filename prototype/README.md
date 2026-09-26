@@ -4,6 +4,8 @@ Open `index.html` in any modern desktop browser. No installation, account, or bu
 
 All names, projects, tasks, dates, and descriptions in the prototype are fictional sample data.
 
+The prototype predates the accepted Upcoming view and sidebar-badge decision. It remains evidence for the original interactions only until that view is added and re-verified.
+
 ## What to try
 
 - Switch between **Workbench**, **Canvas**, and **Ledger** with the floating prototype control. The chosen direction is reflected in the `?variant=` URL and the left/right arrow keys also cycle it.

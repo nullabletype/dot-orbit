@@ -16,12 +16,13 @@ dot-orbit has four manual ordering scopes:
 3. One subtask order per Project.
 4. One Category order used by the Categories view.
 
-Today is a filtered projection of the shared Task order. Reordering its visible subset changes the relative positions of those Tasks in the shared order while preserving the positions of non-Today Tasks.
+Today is a filtered and grouped projection of the shared Task order. Its incomplete Tasks appear in persisted Planned and In progress lanes. Changing a Task's lane does not change shared order. Reordering the visible subset within one lane changes the relative positions of those Tasks in the shared order while preserving the positions of Tasks outside that lane.
 
 ## Consequences
 
 - There is no High/Medium/Low priority field in the current model.
 - Persistence must store stable ordered identifiers for each scope.
-- Moving a Task between Projects must update both Projects' subtask orders without losing its shared Task position.
+- Attaching, detaching, or moving a Task between Projects must update affected per-Project orders without losing its shared Task position.
 - Removing a Task from Today does not change shared ordering.
+- Moving a Task between Today lanes does not change shared ordering.
 - Every drag interaction needs a keyboard-accessible equivalent.

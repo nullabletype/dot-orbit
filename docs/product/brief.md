@@ -21,9 +21,9 @@ One person managing their own work on a desktop. Collaboration, organisational a
 ## Initial scope
 
 - Avalonia/.NET desktop application for macOS, Linux, and Windows, with a modern dark interface.
-- Projects with nested Tasks.
+- Projects with nested Tasks, plus standalone Tasks for work that does not justify a Project.
 - Categories with inheritance and Task overrides.
-- Today, Backlog, Projects, Categories, Completed, and Archive views.
+- Today, Upcoming, Backlog, Projects, Categories, Completed, and Archive views.
 - Independent manual ordering scopes.
 - Markdown descriptions with live rendering and rich-copy output.
 - Optional Task participants without an assignee model.
@@ -35,8 +35,14 @@ One person managing their own work on a desktop. Collaboration, organisational a
 - Real-time collaboration.
 - Mobile-first layouts.
 - AI task generation or automatic prioritisation.
+- Recurring Tasks.
+- Operating-system notifications and reminders.
 - Calendar replacement, time tracking, or resource planning.
 - Hosted service or account system.
+
+## Planned extension
+
+dot-orbit should later support tool-neutral, human-reviewed interchange for agent-assisted planning. A user can export current active work, ask an external tool to propose changes from material such as meeting notes, then import a structured change proposal for validation, preview, and explicit approval. Transcript ingestion, autonomous mutation, and provider-specific AI integration are not part of the first useful release.
 
 ## Success signal
 
