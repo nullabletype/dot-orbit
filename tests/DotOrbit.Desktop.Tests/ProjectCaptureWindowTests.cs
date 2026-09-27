@@ -15,6 +15,67 @@ namespace DotOrbit.Desktop.Tests;
 public sealed class ProjectCaptureWindowTests
 {
     [AvaloniaFact]
+    public void ProjectButtonsCreateCancelEditAndResolveFailedNavigationThroughBindings()
+    {
+        using var session = new RecoveryViewModelTests.StubWorkspaceSession(new RecoveryViewModelTests.StubWorkspaceRecovery());
+        var work = Assert.IsType<MemoryWorkspaceWork>(session.Work);
+        var window = new MainWindow(session);
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        Activate(window, NamedButton(window, "Open Projects"));
+        Activate(window, NamedButton(window, "New project"));
+        var title = window.FindControl<TextBox>("DraftTitle")!;
+        Assert.True(title.IsFocused);
+        window.KeyTextInput("Cancelled project");
+        Assert.Empty(work.Read().Projects);
+        Assert.Empty(shell.Work!.Projects);
+        Activate(window, NamedButton(window, "Cancel editing"));
+        Assert.Empty(work.Read().Projects);
+        Assert.False(shell.Work.HasInspector);
+        Assert.True(window.FindControl<Button>("NewProjectButton")!.IsFocused);
+
+        Activate(window, NamedButton(window, "New project"));
+        window.KeyTextInput("Garden");
+        Activate(window, NamedButton(window, "Create"));
+        Assert.Equal("Garden", Assert.Single(work.Read().Projects).Title);
+        Assert.Equal("Garden", Assert.Single(shell.Work.Projects).Title);
+        Assert.NotNull(NamedButton(window, "Garden"));
+        Assert.Equal("1", shell.PrimaryNavigation.Single(n => n.Title == "Projects").CountText);
+
+        Activate(window, NamedButton(window, "Garden"));
+        Assert.True(title.IsFocused);
+        title.SelectAll();
+        window.KeyTextInput("Renamed garden");
+        Assert.Equal("Garden", Assert.Single(work.Read().Projects).Title);
+        Activate(window, NamedButton(window, "Save"));
+        Assert.Equal("Renamed garden", Assert.Single(work.Read().Projects).Title);
+        Assert.Equal("Renamed garden", Assert.Single(shell.Work.Projects).Title);
+
+        title.Focus();
+        title.SelectAll();
+        window.KeyTextInput("Unsaved edit");
+        Activate(window, NamedButton(window, "Open Backlog"));
+        Assert.True(shell.Work.NeedsDecision);
+        work.FailWrites = true;
+        Activate(window, NamedButton(window, "Save changes and leave"));
+        Assert.True(shell.Work.NeedsDecision);
+        Assert.True(window.FindControl<Button>("GuardSave")!.IsFocused);
+        Assert.Equal("Projects", shell.ViewTitle);
+        Assert.Equal("Unsaved edit", title.Text);
+        Assert.Equal("Renamed garden", Assert.Single(work.Read().Projects).Title);
+        Activate(window, NamedButton(window, "Stay and keep editing"));
+        Assert.False(shell.Work.NeedsDecision);
+        Assert.True(title.IsFocused);
+        Assert.Equal("Unsaved edit", title.Text);
+        Activate(window, NamedButton(window, "Cancel editing"));
+        Assert.True(title.IsFocused);
+        Assert.Equal("Renamed garden", title.Text);
+        Assert.Equal("Renamed garden", Assert.Single(work.Read().Projects).Title);
+        Assert.False(shell.Work.IsDirty);
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public void DirtyNavigationRetainsCheckedViewUntilDecision()
     {
         using var session = new RecoveryViewModelTests.StubWorkspaceSession(new RecoveryViewModelTests.StubWorkspaceRecovery());
@@ -124,6 +185,17 @@ public sealed class ProjectCaptureWindowTests
         Assert.Equal("Keep me", field.Text);
         Assert.True(field.IsFocused);
         window.Close();
+    }
+
+    private static Button NamedButton(Window window, string name) => Assert.Single(
+        window.GetVisualDescendants().OfType<Button>(), button => AutomationProperties.GetName(button) == name);
+
+    private static void Activate(Window window, Button button)
+    {
+        Assert.True(button.Focus());
+        window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
     }
 
     private static TextBox QuickField(Window window) => Assert.Single(window.GetVisualDescendants().OfType<TextBox>(), b => b.Classes.Contains("quick-add"));

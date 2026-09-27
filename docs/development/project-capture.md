@@ -14,6 +14,7 @@ These are test names, not a claim about an untested commit. Run the repository v
 
 | Requirement | Test evidence |
 | --- | --- |
+| Actual New project/Create/Save/Cancel button bindings, row refresh, failed-save focus and Stay focus | `ProjectCaptureWindowTests.ProjectButtonsCreateCancelEditAndResolveFailedNavigationThroughBindings` |
 | Transient Project creation and cancellation | `ProjectCaptureViewModelTests.CreationIsTransientAndCancelLeavesNoProject` |
 | Required title and empty derived state | `ProjectCaptureViewModelTests.CreateRequiresTitleAndShowsEmptyDerivedSummary` |
 | Enter/Tab capture, fresh focus, empty Tab exit and Escape clear | `ProjectCaptureWindowTests.RapidCaptureKeysCreateOnceRetainFocusAndAllowEmptyTabExit` |
