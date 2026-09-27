@@ -129,6 +129,64 @@ public sealed class WorkspaceWorkTests : IDisposable
         Assert.Empty(session.Work.Read().Projects);
     }
 
+    [Theory]
+    [InlineData(" REFERENCES categories(id)", "")]
+    [InlineData(" REFERENCES projects(id)", "")]
+    [InlineData("NOT NULL UNIQUE", "NOT NULL")]
+    [InlineData(" CHECK(position >= 0)", "")]
+    [InlineData(" CHECK(project_position >= 0)", "")]
+    [InlineData("UNIQUE(project_id, project_position)", "CHECK(project_position >= 0)")]
+    [InlineData(" CHECK(length(trim(title)) > 0)", "")]
+    [InlineData("title TEXT", "title INTEGER")]
+    [InlineData("description TEXT NOT NULL", "description TEXT")]
+    public void OpenRejectsSchemaThreeWithMissingConstraintsOrChangedTypes(string original, string replacement)
+    {
+        _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!.Dispose();
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        {
+            using var command = connection.CreateCommand();
+            // Rebuild the empty work tables with valid SQL that weakens one schema guarantee.
+            command.CommandText = "DROP TABLE tasks; DROP TABLE projects;" +
+                SqliteWorkspaceWork.Schema.Replace(original, replacement, StringComparison.Ordinal);
+            command.ExecuteNonQuery();
+            Assert.Equal("ok", EncryptedWorkspaceStore.ExecuteScalar<string>(connection, "PRAGMA integrity_check;"));
+        }
+        var before = File.ReadAllBytes(WorkspacePath);
+        var result = _store.Open(WorkspacePath, _passphrase);
+        Assert.Equal(WorkspaceOpenStatus.InvalidPassphraseOrStore, result.Status);
+        Assert.Null(result.Session);
+        Assert.Equal(before, File.ReadAllBytes(WorkspacePath));
+    }
+
+    [Theory]
+    [InlineData("projects", "target_date", "private-invalid-date")]
+    [InlineData("projects", "target_date", "2027-02-29")]
+    [InlineData("tasks", "due_date", "2030-13-01")]
+    [InlineData("tasks", "due_date", "2030-01-01T12:00:00")]
+    public void InvalidPersistedDatesAreRejectedOnOpenAndReadWithoutExposingValues(string table, string column, string value)
+    {
+        var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var project = session.Work.CreateProject("Project", "", session.Work.Read().Categories[0].Id, null);
+        session.Work.CreateTask(project.Id, "Task");
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = $"UPDATE {table} SET {column}=$value;";
+            command.Parameters.AddWithValue("$value", value);
+            command.ExecuteNonQuery();
+            Assert.Equal("ok", EncryptedWorkspaceStore.ExecuteScalar<string>(connection, "PRAGMA integrity_check;"));
+        }
+        var error = Assert.Throws<WorkspaceWorkException>(() => session.Work.Read());
+        Assert.Equal("The workspace operation could not be completed.", error.Message);
+        Assert.Null(error.InnerException);
+        session.Dispose();
+        var before = File.ReadAllBytes(WorkspacePath);
+        var result = _store.Open(WorkspacePath, _passphrase);
+        Assert.Equal(WorkspaceOpenStatus.InvalidPassphraseOrStore, result.Status);
+        Assert.Null(result.Session);
+        Assert.Equal(before, File.ReadAllBytes(WorkspacePath));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_directory)) Directory.Delete(_directory, recursive: true);

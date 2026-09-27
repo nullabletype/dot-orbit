@@ -35,22 +35,46 @@ internal sealed class SqliteWorkspaceWork(
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = """
-            SELECT id, title, description, category_id, target_date, position FROM projects LIMIT 0;
-            SELECT id, project_id, title, description, category_override_id, due_date, shared_position, project_position FROM tasks LIMIT 0;
-            """;
-        using (var reader = command.ExecuteReader())
+        // Schema 3 has one canonical definition, shared by creation and migration.
+        // Checking it also verifies types, nullability, foreign keys, uniqueness and CHECKs;
+        // foreign_key_check alone cannot detect missing foreign-key declarations.
+        var definitions = Schema.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        ValidateTableDefinition(command, "projects", definitions[0]);
+        ValidateTableDefinition(command, "tasks", definitions[1]);
+        command.Parameters.Clear();
+        command.CommandText = "PRAGMA foreign_key_check;";
+        using (var foreignKeys = command.ExecuteReader())
         {
-            while (reader.NextResult()) { }
+            if (foreignKeys.Read()) throw new InvalidDataException();
         }
 
-        command.CommandText = "PRAGMA foreign_key_check;";
-        using var foreignKeys = command.ExecuteReader();
-        if (foreignKeys.Read())
+        command.CommandText = "SELECT target_date FROM projects UNION ALL SELECT due_date FROM tasks;";
+        using var dates = command.ExecuteReader();
+        while (dates.Read())
+        {
+            if (!dates.IsDBNull(0)
+                && !DateOnly.TryParseExact(dates.GetString(0), "yyyy-MM-dd",
+                    CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
+            {
+                throw new InvalidDataException();
+            }
+        }
+    }
+
+    private static void ValidateTableDefinition(SqliteCommand command, string table, string expected)
+    {
+        command.Parameters.Clear();
+        command.CommandText = "SELECT sql FROM sqlite_schema WHERE type='table' AND name=$table;";
+        command.Parameters.AddWithValue("$table", table);
+        var actual = command.ExecuteScalar() as string;
+        if (actual is null || !string.Equals(NormalizeDefinition(actual), NormalizeDefinition(expected), StringComparison.Ordinal))
         {
             throw new InvalidDataException();
         }
     }
+
+    private static string NormalizeDefinition(string definition) =>
+        string.Join(' ', definition.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
     public WorkspaceWorkSnapshot Read() => Guard(() => transactions.Read(ReadSnapshot));
 
@@ -177,5 +201,6 @@ internal sealed class SqliteWorkspaceWork(
         catch (SqliteException) { throw new WorkspaceWorkException(); }
         catch (IOException) { throw new WorkspaceWorkException(); }
         catch (UnauthorizedAccessException) { throw new WorkspaceWorkException(); }
+        catch (FormatException) { throw new WorkspaceWorkException(); }
     }
 }
