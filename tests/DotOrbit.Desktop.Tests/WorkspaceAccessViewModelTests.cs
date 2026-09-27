@@ -256,6 +256,8 @@ public sealed class WorkspaceAccessViewModelTests
 
     private sealed class StubWorkspaceSession(string firstCategoryName) : IWorkspaceSession
     {
+        public IWorkspaceWork Work { get; } = new MemoryWorkspaceWork();
+
         public int SchemaVersion => 1;
 
         public string FirstCategoryName { get; } = firstCategoryName;

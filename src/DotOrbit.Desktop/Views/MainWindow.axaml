@@ -46,6 +46,7 @@
   <Grid ColumnDefinitions="228,*,320" RowDefinitions="64,*">
     <Border
         x:Name="TopBar"
+        IsEnabled="{Binding !Work.NeedsDecision, FallbackValue=True}"
         Grid.Row="0"
         Grid.ColumnSpan="3"
         Background="{StaticResource BackgroundBrush}"
@@ -89,6 +90,7 @@
     <Border
         Grid.Row="1"
         Grid.Column="0"
+        IsEnabled="{Binding !Work.NeedsDecision, FallbackValue=True}"
         Padding="12,18"
         Background="{StaticResource SidebarBrush}"
         BorderBrush="{StaticResource LineBrush}"
@@ -123,6 +125,7 @@
 
     <Grid
         x:Name="CurrentViewRegion"
+        IsEnabled="{Binding !Work.NeedsDecision, FallbackValue=True}"
         Grid.Row="1"
         Grid.Column="1"
         Margin="32,30,32,60"
@@ -150,6 +153,7 @@
 
       <Border
           Grid.Row="2"
+          IsVisible="{Binding ShowEmpty}"
           Padding="42"
           VerticalAlignment="Top"
           Background="Transparent"
@@ -177,17 +181,60 @@
               TextWrapping="Wrap" />
         </StackPanel>
       </Border>
+      <ScrollViewer Grid.Row="2" IsVisible="{Binding ShowProjects}">
+        <StackPanel Spacing="16">
+          <Button x:Name="NewProjectButton" Content="New project" Command="{Binding Work.NewProjectCommand}" AutomationProperties.Name="New project" Click="OnFocusInspector" />
+          <ItemsControl ItemsSource="{Binding Work.Projects}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:ProjectRowViewModel">
+                <Expander HorizontalAlignment="Stretch" IsExpanded="{Binding IsExpanded}">
+                  <Expander.Header>
+                    <StackPanel Spacing="5">
+                      <Button Content="{Binding Title}" Command="{Binding SelectCommand}" AutomationProperties.Name="{Binding Title}" Click="OnFocusInspector" />
+                      <TextBlock Text="{Binding Summary}" FontSize="12" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </Expander.Header>
+                  <StackPanel Spacing="8">
+                    <ItemsControl ItemsSource="{Binding Tasks}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:TaskRowViewModel">
+                          <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Content="{Binding Title}" Command="{Binding SelectCommand}" AutomationProperties.Name="{Binding Title}" Click="OnFocusInspector" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBox Classes="quick-add" Text="{Binding QuickTitle, Mode=TwoWay}" PlaceholderText="Quick add task" AutomationProperties.Name="Quick add task" AutomationProperties.HelpText="Enter or Tab creates a task. Escape clears the title. Tab on an empty field moves on." KeyDown="OnQuickAddKeyDown" />
+                  </StackPanel>
+                </Expander>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </ScrollViewer>
+      <ScrollViewer Grid.Row="2" IsVisible="{Binding ShowBacklog}">
+        <ItemsControl ItemsSource="{Binding Work.Backlog}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:TaskRowViewModel">
+              <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Command="{Binding SelectCommand}" AutomationProperties.Name="{Binding Title}" Click="OnFocusInspector">
+                <StackPanel Spacing="4"><TextBlock Text="{Binding Title}" /><TextBlock Text="{Binding CategoryName}" FontSize="12" /></StackPanel>
+              </Button>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
     </Grid>
 
     <Border
         x:Name="InspectorRegion"
+        IsEnabled="{Binding !Work.NeedsDecision, FallbackValue=True}"
         Grid.Row="1"
         Grid.Column="2"
         Padding="22"
         Background="{StaticResource PanelBrush}"
         BorderBrush="{StaticResource LineBrush}"
         BorderThickness="1,0,0,0">
+      <Grid>
       <TextBlock
+          IsVisible="{Binding Work.HasNoInspector, FallbackValue=True}"
           x:Name="InspectorEmptyText"
           HorizontalAlignment="Center"
           VerticalAlignment="Center"
@@ -196,6 +243,41 @@
           LineHeight="19"
           Text="Select a project or task&#x0a;to see its details"
           TextAlignment="Center" />
+      <ScrollViewer IsVisible="{Binding Work.HasInspector}">
+        <StackPanel Spacing="12">
+          <TextBlock Text="{Binding Work.InspectorHeading}" FontSize="20" FontWeight="Bold" />
+          <TextBlock IsVisible="{Binding Work.ShowProjectSummary}" Text="{Binding Work.ProjectSummary}" TextWrapping="Wrap" FontSize="12" />
+          <TextBlock Text="Title" />
+          <TextBox x:Name="DraftTitle" Text="{Binding Work.Title, Mode=TwoWay}" AutomationProperties.Name="Title" />
+          <TextBlock Text="Description (Markdown source)" />
+          <TextBox Text="{Binding Work.Description, Mode=TwoWay}" AcceptsReturn="True" MinHeight="110" TextWrapping="Wrap" AutomationProperties.Name="Description, Markdown source" />
+          <TextBlock Text="{Binding Work.DateLabel}" />
+          <TextBox Text="{Binding Work.Date, Mode=TwoWay}" PlaceholderText="YYYY-MM-DD" AutomationProperties.Name="{Binding Work.DateLabel}" />
+          <TextBlock Text="Category" />
+          <ComboBox ItemsSource="{Binding Work.Categories}" SelectedItem="{Binding Work.Category, Mode=TwoWay}" HorizontalAlignment="Stretch" AutomationProperties.Name="Category">
+            <ComboBox.ItemTemplate><DataTemplate x:DataType="vm:CategoryChoice"><TextBlock Text="{Binding Name}" /></DataTemplate></ComboBox.ItemTemplate>
+          </ComboBox>
+          <TextBlock Text="{Binding Work.CategoryHint}" FontSize="12" TextWrapping="Wrap" />
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Content="{Binding Work.SaveLabel}" Command="{Binding Work.SaveCommand}" AutomationProperties.Name="{Binding Work.SaveLabel}" />
+            <Button Content="Cancel" Command="{Binding Work.CancelCommand}" Click="OnFocusInspector" AutomationProperties.Name="Cancel editing" />
+          </StackPanel>
+        </StackPanel>
+      </ScrollViewer>
+      </Grid>
+    </Border>
+    <Border Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Bottom" Padding="12" Background="{StaticResource PanelBrush}" IsVisible="{Binding Work.HasMessage}">
+      <TextBlock Text="{Binding Work.Message}" AutomationProperties.LiveSetting="Polite" TextWrapping="Wrap" />
+    </Border>
+    <Border Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Padding="24" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding Work.NeedsDecision}">
+      <StackPanel Spacing="16" AutomationProperties.LiveSetting="Assertive">
+        <TextBlock Text="Save your changes before leaving?" FontSize="20" />
+        <StackPanel Orientation="Horizontal" Spacing="12">
+          <Button x:Name="GuardSave" Content="Save and leave" Command="{Binding Work.SaveAndLeaveCommand}" AutomationProperties.Name="Save changes and leave" />
+          <Button Content="Discard and leave" Command="{Binding Work.DiscardAndLeaveCommand}" AutomationProperties.Name="Discard changes and leave" />
+          <Button Content="Stay" Command="{Binding Work.StayCommand}" AutomationProperties.Name="Stay and keep editing" Click="OnFocusInspector" />
+        </StackPanel>
+      </StackPanel>
     </Border>
   </Grid>
 </Window>

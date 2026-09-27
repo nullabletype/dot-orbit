@@ -269,6 +269,8 @@ public sealed class RecoveryViewModelTests
 
     internal sealed class StubWorkspaceSession(IWorkspaceRecovery recovery) : IWorkspaceSession
     {
+        public IWorkspaceWork Work { get; } = new MemoryWorkspaceWork();
+
         public int SchemaVersion => 1;
 
         public string FirstCategoryName => "Home";

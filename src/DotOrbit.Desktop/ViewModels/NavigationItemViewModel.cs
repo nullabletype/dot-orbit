@@ -7,6 +7,7 @@ namespace DotOrbit.Desktop.ViewModels;
 public sealed class NavigationItemViewModel : INotifyPropertyChanged
 {
     private bool _isSelected;
+    private string? _countText;
 
     internal NavigationItemViewModel(
         string title,
@@ -34,7 +35,11 @@ public sealed class NavigationItemViewModel : INotifyPropertyChanged
 
     public string IconData { get; }
 
-    public string? CountText { get; }
+    public string? CountText
+    {
+        get => _countText;
+        internal set { _countText = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasCount)); }
+    }
 
     public bool HasCount => CountText is not null;
 
