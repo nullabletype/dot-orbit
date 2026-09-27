@@ -261,6 +261,7 @@ internal static class WorkspaceMigrationRunner
             version = version switch
             {
                 1 => ApplySchemaOneToTwo(connection),
+                2 => ApplySchemaTwoToThree(connection),
                 _ => throw new InvalidDataException(),
             };
 
@@ -277,6 +278,12 @@ internal static class WorkspaceMigrationRunner
                 connection,
                 integrityCheck: integrityCheck);
         }
+    }
+
+    private static int ApplySchemaTwoToThree(SqliteConnection connection)
+    {
+        ExecuteNonQuery(connection, SqliteWorkspaceWork.Schema);
+        return 3;
     }
 
     private static int ApplySchemaOneToTwo(SqliteConnection connection)

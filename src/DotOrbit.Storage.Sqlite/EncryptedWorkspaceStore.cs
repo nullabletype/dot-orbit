@@ -6,7 +6,7 @@ namespace DotOrbit.Storage.Sqlite;
 
 public sealed class EncryptedWorkspaceStore : IWorkspaceStore
 {
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
 
     internal const string CipherName = "chacha20";
     internal const int KdfIterations = 64007;
@@ -107,6 +107,10 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
                 command.Parameters.AddWithValue("$id", GetIdentifier());
                 command.Parameters.AddWithValue("$name", firstCategory.Value);
                 command.ExecuteNonQuery();
+                using var workSchema = connection.CreateCommand();
+                workSchema.Transaction = transaction;
+                workSchema.CommandText = SqliteWorkspaceWork.Schema;
+                workSchema.ExecuteNonQuery();
                 transaction.Commit();
 
                 ValidateIntegrity(connection);
@@ -321,7 +325,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
     internal static void ConfigureConnection(SqliteConnection connection)
     {
         using var command = connection.CreateCommand();
-        command.CommandText = "PRAGMA temp_store = MEMORY; PRAGMA memory_security = 1;";
+        command.CommandText = "PRAGMA temp_store = MEMORY; PRAGMA memory_security = 1; PRAGMA foreign_keys = ON;";
         command.ExecuteNonQuery();
     }
 
@@ -378,6 +382,11 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         if (schemaVersion >= 2)
         {
             ValidateCategoryPositionIndex(connection, transaction);
+        }
+
+        if (schemaVersion >= 3)
+        {
+            SqliteWorkspaceWork.ValidateShape(connection, transaction);
         }
 
         return name;
@@ -524,6 +533,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
                 passphrase,
                 _recovery,
                 _gate);
+            Work = new SqliteWorkspaceWork(store, _transactions);
         }
 
         public int SchemaVersion { get; }
@@ -531,6 +541,8 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         public string FirstCategoryName { get; }
 
         public IWorkspaceRecovery Recovery => _recovery;
+
+        public IWorkspaceWork Work { get; }
 
         internal WorkspaceTransactionCoordinator Transactions => _transactions;
 

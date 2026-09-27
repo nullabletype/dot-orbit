@@ -24,6 +24,8 @@ public interface IWorkspaceSession : IDisposable
     string FirstCategoryName { get; }
 
     IWorkspaceRecovery Recovery { get; }
+
+    IWorkspaceWork Work { get; }
 }
 
 public interface IWorkspaceRecovery
