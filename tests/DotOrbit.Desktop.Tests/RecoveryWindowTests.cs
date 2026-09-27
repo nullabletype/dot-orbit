@@ -30,7 +30,11 @@ public sealed class RecoveryWindowTests
         var cancel = Assert.IsType<Button>(window.FindControl<Button>("CancelRestoreButton"));
         var close = Assert.IsType<Button>(window.FindControl<Button>("CloseRecoveryButton"));
 
-        Assert.Equal("Choose recovery directory", AutomationProperties.GetName(directory));
+        Assert.Equal("Choose automatic recovery directory", AutomationProperties.GetName(directory));
+        Assert.Contains(
+            "hourly automatic encrypted recovery points",
+            AutomationProperties.GetHelpText(directory),
+            StringComparison.Ordinal);
         Assert.Equal("Create encrypted recovery point", AutomationProperties.GetName(create));
         Assert.Equal("Choose encrypted recovery point", AutomationProperties.GetName(recoveryPoint));
         Assert.Equal("Review restore", AutomationProperties.GetName(review));
@@ -58,6 +62,13 @@ public sealed class RecoveryWindowTests
                 .Select(text => text.Text)
                 .First(text => text?.Contains("external sync", StringComparison.Ordinal) is true),
             StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            "retains 24 hourly, 30 daily, and 12 monthly points",
+            window.GetVisualDescendants()
+                .OfType<TextBlock>()
+                .Select(text => text.Text)
+                .First(text => text?.Contains("committed changes", StringComparison.Ordinal) is true),
+            StringComparison.Ordinal);
     }
 
     [AvaloniaFact]

@@ -21,6 +21,16 @@ internal interface IWorkspaceFileOperations
     void Replace(string candidatePath, string targetPath);
 
     void DeleteCandidate(string candidatePath);
+
+    IReadOnlyList<string> EnumerateFiles(string directoryPath, string searchPattern);
+
+    string ReadAllText(string path);
+
+    void WriteAllText(string path, string contents);
+
+    void PublishOrReplace(string candidatePath, string targetPath);
+
+    void DeleteFile(string path);
 }
 
 internal sealed class WorkspaceFileOperations : IWorkspaceFileOperations
@@ -94,4 +104,18 @@ internal sealed class WorkspaceFileOperations : IWorkspaceFileOperations
             // A failed candidate is never published; later startup can ignore it safely.
         }
     }
+
+    public IReadOnlyList<string> EnumerateFiles(string directoryPath, string searchPattern) =>
+        Directory.Exists(directoryPath)
+            ? Directory.GetFiles(directoryPath, searchPattern)
+            : [];
+
+    public string ReadAllText(string path) => File.ReadAllText(path);
+
+    public void WriteAllText(string path, string contents) => File.WriteAllText(path, contents);
+
+    public void PublishOrReplace(string candidatePath, string targetPath) =>
+        File.Move(candidatePath, targetPath, overwrite: true);
+
+    public void DeleteFile(string path) => File.Delete(path);
 }

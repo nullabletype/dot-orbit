@@ -23,11 +23,46 @@ public interface IWorkspaceSession : IDisposable
 
 public interface IWorkspaceRecovery
 {
+    string? AutomaticRecoveryDirectoryPath { get; }
+
+    RecoveryDirectoryConfigurationResult ConfigureAutomaticRecoveryDirectory(
+        string directoryPath);
+
     RecoveryPointCreationResult CreateRecoveryPoint(string directoryPath);
 
     WorkspaceRestoreResult Restore(
         string recoveryPointPath,
         string preRestoreRecoveryDirectoryPath);
+}
+
+public enum RecoveryDirectoryConfigurationStatus
+{
+    Configured,
+    Failed,
+}
+
+public sealed class RecoveryDirectoryConfigurationResult
+{
+    private RecoveryDirectoryConfigurationResult(
+        RecoveryDirectoryConfigurationStatus status,
+        string? directoryPath)
+    {
+        Status = status;
+        DirectoryPath = directoryPath;
+    }
+
+    public RecoveryDirectoryConfigurationStatus Status { get; }
+
+    public string? DirectoryPath { get; }
+
+    public static RecoveryDirectoryConfigurationResult Configured(string directoryPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(directoryPath);
+        return new(RecoveryDirectoryConfigurationStatus.Configured, directoryPath);
+    }
+
+    public static RecoveryDirectoryConfigurationResult Failed() =>
+        new(RecoveryDirectoryConfigurationStatus.Failed, null);
 }
 
 public interface IIdentifierGenerator

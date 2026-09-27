@@ -21,12 +21,16 @@
           Text="Create portable encrypted recovery points in any filesystem directory, including one managed by an external sync tool. This is recovery storage, not live synchronisation."
           TextWrapping="Wrap" />
 
-      <TextBlock Margin="0,8,0,0" FontWeight="SemiBold" Text="Recovery directory" />
+      <TextBlock Margin="0,8,0,0" FontWeight="SemiBold" Text="Automatic recovery directory" />
+      <TextBlock
+          Foreground="{StaticResource MutedTextBrush}"
+          Text="After committed changes, dot-orbit creates at most one automatic encrypted recovery point per hour. It retains 24 hourly, 30 daily, and 12 monthly points; manual and pre-restore points are not pruned automatically."
+          TextWrapping="Wrap" />
       <Button
           x:Name="SelectRecoveryDirectoryButton"
           HorizontalAlignment="Left"
-          AutomationProperties.HelpText="Choose where validated encrypted recovery points are written."
-          AutomationProperties.Name="Choose recovery directory"
+          AutomationProperties.HelpText="Choose where hourly automatic encrypted recovery points are written and retained."
+          AutomationProperties.Name="Choose automatic recovery directory"
           Click="OnSelectRecoveryDirectory"
           TabIndex="0">
         Choose directory…

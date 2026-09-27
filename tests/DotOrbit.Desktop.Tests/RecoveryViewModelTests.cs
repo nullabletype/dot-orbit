@@ -7,6 +7,20 @@ namespace DotOrbit.Desktop.Tests;
 public sealed class RecoveryViewModelTests
 {
     [Fact]
+    public void ConstructionLoadsThePersistedAutomaticRecoveryDirectory()
+    {
+        var recovery = new StubWorkspaceRecovery
+        {
+            AutomaticRecoveryDirectoryPath = "/persisted/recovery",
+        };
+
+        var viewModel = CreateViewModel(recovery, new StubRecoveryPathPicker());
+
+        Assert.Equal("/persisted/recovery", viewModel.RecoveryDirectoryPath);
+        Assert.True(viewModel.HasRecoveryDirectory);
+    }
+
+    [Fact]
     public async Task SelectionUsesFilesystemPathsAndCancellationPreservesTheExistingChoice()
     {
         var picker = new StubRecoveryPathPicker
@@ -45,6 +59,29 @@ public sealed class RecoveryViewModelTests
 
         Assert.Equal("/sync-folder/recovery", recovery.LastCreationDirectory);
         Assert.Equal("Encrypted recovery point created and validated.", viewModel.StatusMessage);
+    }
+
+    [Fact]
+    public async Task FailedAutomaticDirectoryConfigurationPreservesPreviousSelection()
+    {
+        var recovery = new StubWorkspaceRecovery
+        {
+            AutomaticRecoveryDirectoryPath = "/existing/recovery",
+            ConfigurationResult = RecoveryDirectoryConfigurationResult.Failed(),
+        };
+        var picker = new StubRecoveryPathPicker
+        {
+            DirectoryResults = new Queue<string?>(["/unavailable/recovery"]),
+        };
+        var viewModel = CreateViewModel(recovery, picker);
+
+        await viewModel.SelectRecoveryDirectoryAsync();
+
+        Assert.Equal("/existing/recovery", viewModel.RecoveryDirectoryPath);
+        Assert.Equal(
+            "The automatic recovery directory could not be saved. The previous directory is unchanged.",
+            viewModel.StatusMessage);
+        Assert.DoesNotContain("/unavailable/recovery", viewModel.StatusMessage, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -180,6 +217,11 @@ public sealed class RecoveryViewModelTests
 
     internal sealed class StubWorkspaceRecovery : IWorkspaceRecovery
     {
+        public string? AutomaticRecoveryDirectoryPath { get; set; }
+
+        public RecoveryDirectoryConfigurationResult ConfigurationResult { get; set; } =
+            RecoveryDirectoryConfigurationResult.Configured("/sync-folder/recovery");
+
         public int CreateCallCount { get; private set; }
 
         public string? LastCreationDirectory { get; private set; }
@@ -195,6 +237,17 @@ public sealed class RecoveryViewModelTests
 
         public WorkspaceRestoreResult RestoreResult { get; init; } =
             WorkspaceRestoreResult.Failed();
+
+        public RecoveryDirectoryConfigurationResult ConfigureAutomaticRecoveryDirectory(
+            string directoryPath)
+        {
+            if (ConfigurationResult.Status == RecoveryDirectoryConfigurationStatus.Configured)
+            {
+                AutomaticRecoveryDirectoryPath = ConfigurationResult.DirectoryPath;
+            }
+
+            return ConfigurationResult;
+        }
 
         public RecoveryPointCreationResult CreateRecoveryPoint(string directoryPath)
         {
