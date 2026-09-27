@@ -44,6 +44,7 @@ Incomplete work must leave:
 ## Evidence rules
 
 - Evidence belongs to the exact tested commit.
+- Before merging, follow the live controls, rollout order, and drift audit in [`main-branch-protection.md`](main-branch-protection.md).
 - Passing automated checks do not substitute for required visual or desktop behaviour checks.
 - A proposal is not implementation evidence.
 - If independent review was unavailable, state that rather than implying review occurred.
