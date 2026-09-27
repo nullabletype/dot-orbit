@@ -6,7 +6,7 @@ namespace DotOrbit.Storage.Sqlite;
 
 public sealed class EncryptedWorkspaceStore : IWorkspaceStore
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 
     internal const string CipherName = "chacha20";
     internal const int KdfIterations = 64007;
@@ -19,6 +19,9 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
     private readonly IWorkspaceFileOperations _fileOperations;
     private readonly IIdentifierGenerator _identifierGenerator;
     private readonly TimeProvider _timeProvider;
+    private readonly Action<WorkspaceMigrationCheckpoint, SqliteConnection>? _migrationCheckpoint;
+    private readonly Func<SqliteConnection, string>? _migrationIntegrityCheck;
+    private readonly Action? _afterMigration;
 
     public EncryptedWorkspaceStore()
         : this(
@@ -36,13 +39,19 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
     internal EncryptedWorkspaceStore(
         IIdentifierGenerator identifierGenerator,
         IWorkspaceFileOperations fileOperations,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        Action<WorkspaceMigrationCheckpoint, SqliteConnection>? migrationCheckpoint = null,
+        Func<SqliteConnection, string>? migrationIntegrityCheck = null,
+        Action? afterMigration = null)
     {
         ArgumentNullException.ThrowIfNull(identifierGenerator);
         ArgumentNullException.ThrowIfNull(fileOperations);
         _identifierGenerator = identifierGenerator;
         _fileOperations = fileOperations;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _migrationCheckpoint = migrationCheckpoint;
+        _migrationIntegrityCheck = migrationIntegrityCheck;
+        _afterMigration = afterMigration;
         EnsureProviderInitialised();
     }
 
@@ -90,9 +99,10 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
                         name TEXT NOT NULL COLLATE NOCASE UNIQUE,
                         position INTEGER NOT NULL CHECK (position >= 0)
                     );
+                    CREATE INDEX ix_categories_position ON categories(position);
                     INSERT INTO categories (id, name, position)
                     VALUES ($id, $name, 0);
-                    PRAGMA user_version = 1;
+                    PRAGMA user_version = 2;
                     """;
                 command.Parameters.AddWithValue("$id", GetIdentifier());
                 command.Parameters.AddWithValue("$name", firstCategory.Value);
@@ -152,12 +162,30 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         return OpenResolved(fullPath, passphrase);
     }
 
+    public MigrationRecoveryRestoreResult RestoreMigrationRecovery(
+        string workspacePath,
+        WorkspacePassphrase passphrase,
+        string recoveryPointPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workspacePath);
+        ArgumentNullException.ThrowIfNull(passphrase);
+        ArgumentException.ThrowIfNullOrWhiteSpace(recoveryPointPath);
+        return WorkspaceMigrationRunner.Restore(
+            this,
+            _fileOperations.ResolvePath(workspacePath),
+            passphrase,
+            _fileOperations.ResolvePath(recoveryPointPath),
+            _fileOperations,
+            _timeProvider,
+            _migrationCheckpoint);
+    }
+
     private WorkspaceOpenResult OpenResolved(
         string fullPath,
         WorkspacePassphrase passphrase)
     {
-
         SqliteConnection? connection = null;
+        string? migrationRecoveryPointPath = null;
         try
         {
             connection = OpenConnection(fullPath, passphrase, SqliteOpenMode.ReadOnly);
@@ -168,6 +196,40 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
                 connection.Dispose();
                 connection = null;
                 return WorkspaceOpenResult.UnsupportedSchema();
+            }
+
+            if (inspection.Status == WorkspaceInspectionStatus.RequiresMigration)
+            {
+                connection.Dispose();
+                connection = null;
+                var migration = WorkspaceMigrationRunner.Run(
+                    this,
+                    fullPath,
+                    passphrase,
+                    inspection.SchemaVersion,
+                    _fileOperations,
+                    _timeProvider,
+                    _migrationCheckpoint,
+                    _migrationIntegrityCheck);
+                if (!migration.Succeeded)
+                {
+                    return WorkspaceOpenResult.MigrationFailed(migration.RecoveryPointPath);
+                }
+
+                migrationRecoveryPointPath = migration.RecoveryPointPath;
+                _afterMigration?.Invoke();
+                connection = OpenConnection(fullPath, passphrase, SqliteOpenMode.ReadOnly);
+                ConfigureConnection(connection);
+                inspection = InspectWorkspace(connection);
+                if (inspection.Status == WorkspaceInspectionStatus.UnsupportedSchema)
+                {
+                    return WorkspaceOpenResult.UnsupportedSchema(migration.RecoveryPointPath);
+                }
+
+                if (inspection.Status != WorkspaceInspectionStatus.Valid)
+                {
+                    return WorkspaceOpenResult.MigrationFailed(migration.RecoveryPointPath);
+                }
             }
 
             var session = new WorkspaceSession(
@@ -182,11 +244,15 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         }
         catch (SqliteException)
         {
-            return WorkspaceOpenResult.InvalidPassphraseOrStore();
+            return migrationRecoveryPointPath is null
+                ? WorkspaceOpenResult.InvalidPassphraseOrStore()
+                : WorkspaceOpenResult.MigrationFailed(migrationRecoveryPointPath);
         }
         catch (InvalidDataException)
         {
-            return WorkspaceOpenResult.InvalidPassphraseOrStore();
+            return migrationRecoveryPointPath is null
+                ? WorkspaceOpenResult.InvalidPassphraseOrStore()
+                : WorkspaceOpenResult.MigrationFailed(migrationRecoveryPointPath);
         }
         catch (IOException)
         {
@@ -259,48 +325,121 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         command.ExecuteNonQuery();
     }
 
-    internal static void AssertEncryptionProfile(SqliteConnection connection)
+    internal static void AssertEncryptionProfile(
+        SqliteConnection connection,
+        SqliteTransaction? transaction = null)
     {
         if (!string.Equals(
-                ExecuteScalar<string>(connection, "PRAGMA cipher;"),
+                ExecuteScalar<string>(connection, "PRAGMA cipher;", transaction),
                 CipherName,
                 StringComparison.Ordinal)
-            || ExecuteScalar<long>(connection, "PRAGMA legacy;") != 0
-            || ExecuteScalar<long>(connection, "PRAGMA kdf_iter;") != KdfIterations
-            || ExecuteScalar<long>(connection, "PRAGMA plaintext_header_size;") != 0
-            || ExecuteScalar<long>(connection, "PRAGMA hmac_check;") != 1)
+            || ExecuteScalar<long>(connection, "PRAGMA legacy;", transaction) != 0
+            || ExecuteScalar<long>(connection, "PRAGMA kdf_iter;", transaction) != KdfIterations
+            || ExecuteScalar<long>(connection, "PRAGMA plaintext_header_size;", transaction) != 0
+            || ExecuteScalar<long>(connection, "PRAGMA hmac_check;", transaction) != 1)
         {
             throw new InvalidDataException();
         }
     }
 
-    internal static void ValidateIntegrity(SqliteConnection connection)
+    internal static void ValidateIntegrity(
+        SqliteConnection connection,
+        SqliteTransaction? transaction = null,
+        Func<SqliteConnection, string>? integrityCheck = null)
     {
-        var result = ExecuteScalar<string>(connection, "PRAGMA integrity_check;");
+        var result = integrityCheck is null
+            ? ExecuteScalar<string>(connection, "PRAGMA integrity_check;", transaction)
+            : integrityCheck(connection);
         if (!string.Equals(result, "ok", StringComparison.Ordinal))
         {
             throw new InvalidDataException();
         }
     }
 
-    internal static string ValidateWorkspaceShape(SqliteConnection connection)
+    internal static string ValidateWorkspaceShape(
+        SqliteConnection connection,
+        int schemaVersion,
+        SqliteTransaction? transaction = null)
     {
-        using var command = connection.CreateCommand();
-        command.CommandText = "SELECT name FROM categories ORDER BY position LIMIT 1;";
-        using var reader = command.ExecuteReader();
-        if (!reader.Read())
+        string name;
+        using (var command = connection.CreateCommand())
         {
-            throw new InvalidDataException();
+            command.Transaction = transaction;
+            command.CommandText = "SELECT name FROM categories ORDER BY position LIMIT 1;";
+            using var reader = command.ExecuteReader();
+            if (!reader.Read())
+            {
+                throw new InvalidDataException();
+            }
+
+            name = reader.GetString(0);
         }
 
-        var name = reader.GetString(0);
+        if (schemaVersion >= 2)
+        {
+            ValidateCategoryPositionIndex(connection, transaction);
+        }
+
         return name;
     }
 
-    internal static WorkspaceInspection InspectWorkspace(SqliteConnection connection)
+    internal static string ValidateWorkspaceShape(SqliteConnection connection) =>
+        ValidateWorkspaceShape(connection, CurrentSchemaVersion);
+
+    private static void ValidateCategoryPositionIndex(
+        SqliteConnection connection,
+        SqliteTransaction? transaction)
     {
-        AssertEncryptionProfile(connection);
-        var schemaVersion = ExecuteScalar<long>(connection, "PRAGMA user_version;");
+        using (var list = connection.CreateCommand())
+        {
+            list.Transaction = transaction;
+            list.CommandText = "PRAGMA index_list('categories');";
+            using var reader = list.ExecuteReader();
+            var matched = false;
+            while (reader.Read())
+            {
+                if (!string.Equals(
+                        reader.GetString(1),
+                        "ix_categories_position",
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (matched || reader.GetInt64(2) != 0 || reader.GetInt64(4) != 0)
+                {
+                    throw new InvalidDataException();
+                }
+
+                matched = true;
+            }
+
+            if (!matched)
+            {
+                throw new InvalidDataException();
+            }
+        }
+
+        using var info = connection.CreateCommand();
+        info.Transaction = transaction;
+        info.CommandText = "PRAGMA index_info('ix_categories_position');";
+        using var infoReader = info.ExecuteReader();
+        if (!infoReader.Read()
+            || infoReader.GetInt64(0) != 0
+            || infoReader.IsDBNull(2)
+            || !string.Equals(infoReader.GetString(2), "position", StringComparison.Ordinal)
+            || infoReader.Read())
+        {
+            throw new InvalidDataException();
+        }
+    }
+
+    internal static WorkspaceInspection InspectWorkspace(
+        SqliteConnection connection,
+        SqliteTransaction? transaction = null)
+    {
+        AssertEncryptionProfile(connection, transaction);
+        var schemaVersion = ExecuteScalar<long>(connection, "PRAGMA user_version;", transaction);
         if (schemaVersion > CurrentSchemaVersion)
         {
             return new WorkspaceInspection(
@@ -309,21 +448,28 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
                 string.Empty);
         }
 
-        if (schemaVersion != CurrentSchemaVersion)
+        if (schemaVersion < 1)
         {
             throw new InvalidDataException();
         }
 
-        ValidateIntegrity(connection);
+        ValidateIntegrity(connection, transaction);
+        var checkedSchemaVersion = checked((int)schemaVersion);
         return new WorkspaceInspection(
-            WorkspaceInspectionStatus.Valid,
-            checked((int)schemaVersion),
-            ValidateWorkspaceShape(connection));
+            checkedSchemaVersion == CurrentSchemaVersion
+                ? WorkspaceInspectionStatus.Valid
+                : WorkspaceInspectionStatus.RequiresMigration,
+            checkedSchemaVersion,
+            ValidateWorkspaceShape(connection, checkedSchemaVersion, transaction));
     }
 
-    private static T ExecuteScalar<T>(SqliteConnection connection, string sql)
+    internal static T ExecuteScalar<T>(
+        SqliteConnection connection,
+        string sql,
+        SqliteTransaction? transaction = null)
     {
         using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = sql;
         var value = command.ExecuteScalar();
         if (value is null || value is DBNull)
@@ -337,6 +483,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
     internal enum WorkspaceInspectionStatus
     {
         Valid,
+        RequiresMigration,
         UnsupportedSchema,
     }
 

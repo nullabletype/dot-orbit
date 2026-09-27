@@ -5,6 +5,7 @@ using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Input.Raw;
+using Avalonia.Media;
 using Avalonia.VisualTree;
 using DotOrbit.Core.Workspaces;
 using DotOrbit.Desktop.ViewModels;
@@ -50,7 +51,7 @@ public sealed class WorkspaceAccessWindowTests
         Assert.True(confirmation.Focusable);
         Assert.True(reveal.Focusable);
         Assert.True(submit.Focusable);
-        Assert.Equal([0, 1, 2, 3, 4], new[]
+        Assert.Equal([0, 1, 2, 3, 5], new[]
         {
             category.TabIndex,
             passphrase.TabIndex,
@@ -109,13 +110,52 @@ public sealed class WorkspaceAccessWindowTests
         Assert.DoesNotContain("a wrong passphrase", validation.Text, StringComparison.Ordinal);
     }
 
+    [AvaloniaFact]
+    public void MigrationFailureRecoveryPathIsWrappedAnnouncedAndReturnsFocus()
+    {
+        var recoveryPath = "/a/long/recovery/location/dot-orbit-pre-migration-v1-20260927T1200000000000Z-identifier.dotorbit-recovery";
+        var store = new StubWorkspaceStore(
+            exists: true,
+            WorkspaceOpenResult.MigrationFailed(recoveryPath));
+        var viewModel = new WorkspaceAccessViewModel(store, "/data/workspace.db", _ => { });
+        var window = new WorkspaceAccessWindow(viewModel);
+        window.Show();
+        var passphrase = Assert.IsType<TextBox>(window.FindControl<TextBox>("PassphraseTextBox"));
+        var submit = Assert.IsType<Button>(window.FindControl<Button>("SubmitButton"));
+        passphrase.Text = "correct horse battery";
+
+        Assert.True(submit.Focus());
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+
+        var validation = Assert.IsType<TextBlock>(window.FindControl<TextBlock>("ValidationMessage"));
+        var restore = Assert.IsType<Button>(
+            window.FindControl<Button>("RestoreMigrationRecoveryButton"));
+        Assert.True(validation.IsVisible);
+        Assert.Equal(TextWrapping.Wrap, validation.TextWrapping);
+        Assert.Equal(AutomationLiveSetting.Assertive, AutomationProperties.GetLiveSetting(validation));
+        Assert.Contains(recoveryPath, validation.Text, StringComparison.Ordinal);
+        Assert.True(restore.IsVisible);
+        Assert.Equal("Restore pre-upgrade workspace", AutomationProperties.GetName(restore));
+        Assert.Equal(4, restore.TabIndex);
+        Assert.True(passphrase.IsFocused);
+
+        Assert.True(restore.Focus());
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+
+        Assert.False(restore.IsVisible);
+        Assert.Contains("was restored", validation.Text, StringComparison.Ordinal);
+        Assert.True(passphrase.IsFocused);
+    }
+
     private static WorkspaceAccessWindow CreateWindow(bool exists) =>
         new(new WorkspaceAccessViewModel(
             new StubWorkspaceStore(exists),
             "/data/workspace.db",
             _ => { }));
 
-    private sealed class StubWorkspaceStore(bool exists) : IWorkspaceStore
+    private sealed class StubWorkspaceStore(
+        bool exists,
+        WorkspaceOpenResult? openResult = null) : IWorkspaceStore
     {
         public string? LastExistsPath { get; private set; }
 
@@ -131,7 +171,12 @@ public sealed class WorkspaceAccessWindowTests
             CategoryName firstCategory) => WorkspaceCreationResult.Failed();
 
         public WorkspaceOpenResult Open(string path, WorkspacePassphrase passphrase) =>
-            WorkspaceOpenResult.InvalidPassphraseOrStore();
+            openResult ?? WorkspaceOpenResult.InvalidPassphraseOrStore();
+
+        public MigrationRecoveryRestoreResult RestoreMigrationRecovery(
+            string workspacePath,
+            WorkspacePassphrase passphrase,
+            string recoveryPointPath) => MigrationRecoveryRestoreResult.Restored();
     }
 
     private sealed class StubWorkspacePathProvider(string path) : IWorkspacePathProvider

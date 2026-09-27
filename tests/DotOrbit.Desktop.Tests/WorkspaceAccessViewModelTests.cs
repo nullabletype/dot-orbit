@@ -117,7 +117,8 @@ public sealed class WorkspaceAccessViewModelTests
     {
         var store = new StubWorkspaceStore(exists: true)
         {
-            OpenResult = WorkspaceOpenResult.UnsupportedSchema(),
+            OpenResult = WorkspaceOpenResult.UnsupportedSchema(
+                "/safe/pre-migration.dotorbit-recovery"),
         };
         var viewModel = new WorkspaceAccessViewModel(store, "/data/workspace.db", _ => { })
         {
@@ -128,6 +129,41 @@ public sealed class WorkspaceAccessViewModelTests
 
         Assert.Equal(
             "This workspace was created by a newer version of dot-orbit. Update the application to open it.",
+            viewModel.ValidationMessage);
+        Assert.False(viewModel.CanRestoreMigrationRecovery);
+
+        viewModel.RestoreMigrationRecoveryCommand.Execute(null);
+
+        Assert.Equal(0, store.MigrationRestoreCallCount);
+    }
+
+    [Fact]
+    public void FailedMigrationIdentifiesTheValidatedRecoveryPoint()
+    {
+        var store = new StubWorkspaceStore(exists: true)
+        {
+            OpenResult = WorkspaceOpenResult.MigrationFailed("/safe/pre-migration.dotorbit-recovery"),
+            MigrationRestoreResult = MigrationRecoveryRestoreResult.Restored(),
+        };
+        var viewModel = new WorkspaceAccessViewModel(store, "/data/workspace.db", _ => { })
+        {
+            Passphrase = "correct horse battery",
+        };
+
+        viewModel.SubmitCommand.Execute(null);
+
+        Assert.Equal(
+            "The workspace upgrade could not be completed. The original remains usable and a recovery point is available at /safe/pre-migration.dotorbit-recovery.",
+            viewModel.ValidationMessage);
+        Assert.Empty(viewModel.Passphrase);
+        Assert.True(viewModel.CanRestoreMigrationRecovery);
+
+        viewModel.RestoreMigrationRecoveryCommand.Execute(null);
+
+        Assert.Equal(1, store.MigrationRestoreCallCount);
+        Assert.False(viewModel.CanRestoreMigrationRecovery);
+        Assert.Equal(
+            "The pre-upgrade workspace was restored. Enter your passphrase to retry the upgrade.",
             viewModel.ValidationMessage);
     }
 
@@ -179,11 +215,16 @@ public sealed class WorkspaceAccessViewModelTests
 
         public int OpenCallCount { get; private set; }
 
+        public int MigrationRestoreCallCount { get; private set; }
+
         public string? LastCategoryName { get; private set; }
 
         public WorkspaceCreationResult CreateResult { get; init; } = WorkspaceCreationResult.Failed();
 
         public WorkspaceOpenResult OpenResult { get; init; } = WorkspaceOpenResult.Failed();
+
+        public MigrationRecoveryRestoreResult MigrationRestoreResult { get; init; } =
+            MigrationRecoveryRestoreResult.Failed();
 
         public bool Exists(string path) => exists;
 
@@ -201,6 +242,15 @@ public sealed class WorkspaceAccessViewModelTests
         {
             OpenCallCount++;
             return OpenResult;
+        }
+
+        public MigrationRecoveryRestoreResult RestoreMigrationRecovery(
+            string workspacePath,
+            WorkspacePassphrase passphrase,
+            string recoveryPointPath)
+        {
+            MigrationRestoreCallCount++;
+            return MigrationRestoreResult;
         }
     }
 

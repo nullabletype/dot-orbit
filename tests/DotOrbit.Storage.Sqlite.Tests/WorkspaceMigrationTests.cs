@@ -1,0 +1,637 @@
+using System.Globalization;
+using System.Text.Json;
+using DotOrbit.Core.Workspaces;
+using DotOrbit.Storage.Sqlite;
+using Microsoft.Data.Sqlite;
+using Xunit;
+
+namespace DotOrbit.Storage.Sqlite.Tests;
+
+public sealed class WorkspaceMigrationTests
+{
+    private const string ValidPassphrase = "correct horse battery";
+
+    [Fact]
+    public void CreatePublishesTheCurrentSchemaWithTheOrderedCategoryIndex()
+    {
+        using var fixture = new MigrationFixture();
+
+        using var session = fixture.CreateCurrentWorkspace();
+
+        Assert.Equal(2, session.SchemaVersion);
+        using var connection = OpenInspectionConnection(fixture.WorkspacePath, ValidPassphrase);
+        Assert.Equal(2L, ExecuteScalar<long>(connection, "PRAGMA user_version;"));
+        Assert.Equal(
+            "index",
+            ExecuteScalar<string>(
+                connection,
+                "SELECT type FROM sqlite_schema WHERE name = 'ix_categories_position';"));
+    }
+
+    [Fact]
+    public void OpenUpgradesTheReleasedSchemaOneFixtureAndPublishesAValidatedRecoveryPoint()
+    {
+        using var fixture = new MigrationFixture();
+        fixture.CreateSchemaOneWorkspace("Personal Admin");
+
+        var result = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase());
+        using var session = result.Session;
+
+        Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
+        Assert.NotNull(session);
+        Assert.Equal(2, session.SchemaVersion);
+        Assert.Equal("Personal Admin", session.FirstCategoryName);
+        var recoveryPath = Assert.Single(
+            Directory.GetFiles(
+                fixture.DirectoryPath,
+                "dot-orbit-pre-migration-v1-*.dotorbit-recovery"));
+        AssertSchemaOneWorkspace(recoveryPath, "Personal Admin");
+
+        using var migrated = OpenInspectionConnection(fixture.WorkspacePath, ValidPassphrase);
+        Assert.Equal(2L, ExecuteScalar<long>(migrated, "PRAGMA user_version;"));
+        Assert.Equal(
+            1L,
+            ExecuteScalar<long>(
+                migrated,
+                "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'index' AND name = 'ix_categories_position';"));
+    }
+
+    [Fact]
+    public void MigrationUsesThePersistedAutomaticRecoveryDirectory()
+    {
+        using var fixture = new MigrationFixture();
+        fixture.CreateSchemaOneWorkspace("Home");
+        fixture.ConfigureRecoveryDirectory();
+
+        var result = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase());
+        using var session = result.Session;
+
+        Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
+        Assert.Single(
+            Directory.GetFiles(
+                fixture.RecoveryDirectoryPath,
+                "dot-orbit-pre-migration-v1-*.dotorbit-recovery"));
+        Assert.Empty(
+            Directory.GetFiles(
+                fixture.DirectoryPath,
+                "dot-orbit-pre-migration-v1-*.dotorbit-recovery"));
+    }
+
+    [Fact]
+    public void OpenCurrentSchemaDoesNotPublishAMigrationRecoveryPoint()
+    {
+        using var fixture = new MigrationFixture();
+        fixture.CreateCurrentWorkspace().Dispose();
+
+        var result = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase());
+        using var session = result.Session;
+
+        Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
+        Assert.Equal(2, session?.SchemaVersion);
+        Assert.Empty(
+            Directory.GetFiles(
+                fixture.DirectoryPath,
+                "dot-orbit-pre-migration-*.dotorbit-recovery"));
+    }
+
+    [Fact]
+    public void UnavailableConfiguredRecoveryDirectoryBlocksMigrationWithoutFallingBack()
+    {
+        using var fixture = new MigrationFixture();
+        fixture.CreateSchemaOneWorkspace("Home");
+        File.WriteAllText(fixture.RecoveryDirectoryPath, "not a directory");
+        fixture.WriteRecoveryConfiguration(fixture.RecoveryDirectoryPath);
+
+        var result = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase());
+
+        Assert.Equal(WorkspaceOpenStatus.MigrationFailed, result.Status);
+        Assert.Null(result.RecoveryPointPath);
+        AssertSchemaOneWorkspace(fixture.WorkspacePath, "Home");
+        Assert.Empty(
+            Directory.GetFiles(
+                fixture.DirectoryPath,
+                "dot-orbit-pre-migration-*.dotorbit-recovery"));
+    }
+
+    [Fact]
+    public void InvalidRecoveryStateDoesNotBlockFallbackMigration()
+    {
+        using var fixture = new MigrationFixture();
+        fixture.CreateSchemaOneWorkspace("Home");
+        File.WriteAllText(fixture.WorkspacePath + ".recovery-state.json", "{not-json");
+
+        var result = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase());
+        using var session = result.Session;
+
+        Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
+        Assert.Equal(2, session?.SchemaVersion);
+        Assert.Single(
+            Directory.GetFiles(
+                fixture.DirectoryPath,
+                "dot-orbit-pre-migration-v1-*.dotorbit-recovery"));
+    }
+
+    [Fact]
+    public void InterruptionAfterRecoveryPublicationLeavesSchemaOneAndTheRecoveryUsable()
+    {
+        using var fixture = new MigrationFixture(
+            (checkpoint, _) =>
+            {
+                if (checkpoint == WorkspaceMigrationCheckpoint.RecoveryPointValidated)
+                {
+                    throw new IOException("Injected interruption after recovery publication.");
+                }
+            });
+        fixture.CreateSchemaOneWorkspace("Home");
+
+        var result = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase());
+
+        Assert.Equal(WorkspaceOpenStatus.MigrationFailed, result.Status);
+        var recoveryPath = Assert.IsType<string>(result.RecoveryPointPath);
+        AssertSchemaOneWorkspace(fixture.WorkspacePath, "Home");
+        AssertSchemaOneWorkspace(recoveryPath, "Home");
+    }
+
+    [Fact]
+    public void FailureBeforeCommitRollsBackAndReturnsTheRecoveryPointForRestoration()
+    {
+        using var fixture = new MigrationFixture(
+            (checkpoint, _) =>
+            {
+                if (checkpoint == WorkspaceMigrationCheckpoint.BeforeCommit)
+                {
+                    throw new IOException("Injected migration interruption.");
+                }
+            });
+        fixture.CreateSchemaOneWorkspace("Home");
+
+        var result = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase());
+
+        Assert.Equal(WorkspaceOpenStatus.MigrationFailed, result.Status);
+        Assert.Null(result.Session);
+        Assert.NotNull(result.RecoveryPointPath);
+        Assert.True(File.Exists(result.RecoveryPointPath));
+        AssertSchemaOneWorkspace(fixture.WorkspacePath, "Home");
+        AssertSchemaOneWorkspace(result.RecoveryPointPath, "Home");
+    }
+
+    [Fact]
+    public void IntegrityValidationFailureRollsBackTheSchemaVersionAndIndex()
+    {
+        using var fixture = new MigrationFixture(
+            integrityCheck: _ => "injected integrity failure");
+        fixture.CreateSchemaOneWorkspace("Home");
+
+        var result = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase());
+
+        Assert.Equal(WorkspaceOpenStatus.MigrationFailed, result.Status);
+        Assert.NotNull(result.RecoveryPointPath);
+        AssertSchemaOneWorkspace(fixture.WorkspacePath, "Home");
+    }
+
+    [Fact]
+    public void PostMigrationReopenRefusesASchemaAdvancedAfterTheExclusiveLockIsReleased()
+    {
+        MigrationFixture fixture = null!;
+        fixture = new MigrationFixture(
+            afterMigration: () => fixture.SetSchemaVersion(3));
+        using (fixture)
+        {
+            fixture.CreateSchemaOneWorkspace("Home");
+
+            var result = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase());
+
+            Assert.Equal(WorkspaceOpenStatus.UnsupportedSchema, result.Status);
+            Assert.Null(result.Session);
+            Assert.NotNull(result.RecoveryPointPath);
+        }
+    }
+
+    [Theory]
+    [InlineData("CREATE UNIQUE INDEX ix_categories_position ON categories(position);")]
+    [InlineData("CREATE TABLE other (position INTEGER NOT NULL); CREATE INDEX ix_categories_position ON other(position);")]
+    [InlineData("CREATE INDEX ix_categories_position ON categories((position + 0));")]
+    public void MalformedSchemaTwoIndexIsRefusedWithoutChangingTheWorkspace(string indexSql)
+    {
+        using var fixture = new MigrationFixture();
+        fixture.CreateSchemaTwoWorkspace(indexSql);
+        var original = File.ReadAllBytes(fixture.WorkspacePath);
+
+        var result = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase());
+
+        Assert.Equal(WorkspaceOpenStatus.InvalidPassphraseOrStore, result.Status);
+        Assert.Null(result.Session);
+        Assert.Equal(original, File.ReadAllBytes(fixture.WorkspacePath));
+    }
+
+    [Fact]
+    public void RecoveryPublicationFailurePreventsTheFirstSchemaChange()
+    {
+        using var fixture = new MigrationFixture(failRecoveryPublication: true);
+        fixture.CreateSchemaOneWorkspace("Home");
+
+        var result = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase());
+
+        Assert.Equal(WorkspaceOpenStatus.MigrationFailed, result.Status);
+        Assert.Null(result.Session);
+        Assert.Null(result.RecoveryPointPath);
+        AssertSchemaOneWorkspace(fixture.WorkspacePath, "Home");
+    }
+
+    [Fact]
+    public void MigrationHoldsAnExclusiveStoreLockUntilValidationCompletes()
+    {
+        SqliteConnection? competing = null;
+        using var fixture = new MigrationFixture(
+            (checkpoint, _) =>
+            {
+                if (checkpoint != WorkspaceMigrationCheckpoint.RecoveryPointValidated)
+                {
+                    return;
+                }
+
+                using var command = competing!.CreateCommand();
+                command.CommandText = "INSERT INTO categories (id, name, position) VALUES ('other', 'Other', 1);";
+                var error = Assert.Throws<SqliteException>(() => command.ExecuteNonQuery());
+                Assert.Equal(5, error.SqliteErrorCode);
+            });
+        fixture.CreateSchemaOneWorkspace("Home");
+        using (competing = OpenInspectionConnection(fixture.WorkspacePath, ValidPassphrase))
+        {
+            using var timeout = competing.CreateCommand();
+            timeout.CommandText = "PRAGMA busy_timeout = 1;";
+            timeout.ExecuteNonQuery();
+
+            var result = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase());
+            using var session = result.Session;
+
+            Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
+            Assert.Equal(2, session?.SchemaVersion);
+        }
+    }
+
+    [Fact]
+    public void NewerSchemaIsRefusedWithoutPublishingRecoveryOrChangingBytes()
+    {
+        using var fixture = new MigrationFixture();
+        fixture.CreateSchemaOneWorkspace("Home", schemaVersion: 3);
+        var original = File.ReadAllBytes(fixture.WorkspacePath);
+
+        var result = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase());
+
+        Assert.Equal(WorkspaceOpenStatus.UnsupportedSchema, result.Status);
+        Assert.Null(result.Session);
+        Assert.Null(result.RecoveryPointPath);
+        Assert.Equal(original, File.ReadAllBytes(fixture.WorkspacePath));
+        Assert.Empty(Directory.GetFiles(fixture.DirectoryPath, "*.dotorbit-recovery"));
+    }
+
+    [Fact]
+    public void RestoreOfASchemaOneRecoveryPointReopensThroughTheSupportedMigration()
+    {
+        using var fixture = new MigrationFixture();
+        using var session = fixture.CreateCurrentWorkspace();
+        Directory.CreateDirectory(fixture.RecoveryDirectoryPath);
+        var schemaOneRecoveryPath = Path.Combine(
+            fixture.RecoveryDirectoryPath,
+            "released-schema-one.dotorbit-recovery");
+        fixture.CreateSchemaOneWorkspace(
+            "Restored category",
+            path: schemaOneRecoveryPath);
+
+        var result = session.Recovery.Restore(
+            schemaOneRecoveryPath,
+            fixture.RecoveryDirectoryPath);
+        using var restored = result.Session;
+
+        Assert.Equal(WorkspaceRestoreStatus.Restored, result.Status);
+        Assert.NotNull(restored);
+        Assert.Equal(2, restored.SchemaVersion);
+        Assert.Equal("Restored category", restored.FirstCategoryName);
+        using var inspection = OpenInspectionConnection(
+            fixture.WorkspacePath,
+            ValidPassphrase);
+        Assert.Equal(2L, ExecuteScalar<long>(inspection, "PRAGMA user_version;"));
+        Assert.Equal(
+            1L,
+            ExecuteScalar<long>(
+                inspection,
+                "SELECT COUNT(*) FROM sqlite_schema WHERE name = 'ix_categories_position';"));
+    }
+
+    [Fact]
+    public void FailedMigrationOffersAnActionableValidatedRestore()
+    {
+        SqliteConnection? competing = null;
+        using var fixture = new MigrationFixture(
+            (checkpoint, _) =>
+            {
+                if (checkpoint == WorkspaceMigrationCheckpoint.BeforeCommit)
+                {
+                    throw new IOException("Injected migration interruption.");
+                }
+
+                if (checkpoint == WorkspaceMigrationCheckpoint.PreRestoreRecoveryValidated)
+                {
+                    using var command = competing!.CreateCommand();
+                    command.CommandText = "UPDATE categories SET name = 'Competing write' WHERE position = 0;";
+                    var error = Assert.Throws<SqliteException>(() => command.ExecuteNonQuery());
+                    Assert.Equal(5, error.SqliteErrorCode);
+                }
+            });
+        fixture.CreateSchemaOneWorkspace("Home");
+        var failed = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase());
+        var recoveryPath = Assert.IsType<string>(failed.RecoveryPointPath);
+        fixture.SetFirstCategory("Changed after failure");
+
+        MigrationRecoveryRestoreResult restored;
+        using (competing = OpenInspectionConnection(fixture.WorkspacePath, ValidPassphrase))
+        {
+            using var timeout = competing.CreateCommand();
+            timeout.CommandText = "PRAGMA busy_timeout = 1;";
+            timeout.ExecuteNonQuery();
+
+            restored = fixture.Store.RestoreMigrationRecovery(
+                fixture.WorkspacePath,
+                UnlockPassphrase(),
+                recoveryPath);
+        }
+
+        Assert.Equal(MigrationRecoveryRestoreStatus.Restored, restored.Status);
+        AssertSchemaOneWorkspace(fixture.WorkspacePath, "Home");
+        var preRestorePath = Assert.Single(
+            Directory.GetFiles(
+                fixture.DirectoryPath,
+                "dot-orbit-pre-restore-v1-*.dotorbit-recovery"));
+        AssertSchemaOneWorkspace(preRestorePath, "Changed after failure");
+    }
+
+    [Fact]
+    public void FailureAfterRestoreApplicationDoesNotClaimTheWorkspaceWasUntouched()
+    {
+        using var fixture = new MigrationFixture(
+            (checkpoint, _) =>
+            {
+                if (checkpoint == WorkspaceMigrationCheckpoint.BeforeCommit)
+                {
+                    throw new IOException("Injected migration interruption.");
+                }
+
+                if (checkpoint == WorkspaceMigrationCheckpoint.RestoreApplied)
+                {
+                    throw new InvalidDataException("Injected post-restore validation failure.");
+                }
+            });
+        fixture.CreateSchemaOneWorkspace("Home");
+        var failed = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase());
+        var recoveryPath = Assert.IsType<string>(failed.RecoveryPointPath);
+        fixture.SetFirstCategory("Changed after failure");
+
+        var restored = fixture.Store.RestoreMigrationRecovery(
+            fixture.WorkspacePath,
+            UnlockPassphrase(),
+            recoveryPath);
+
+        Assert.Equal(MigrationRecoveryRestoreStatus.Failed, restored.Status);
+        AssertSchemaOneWorkspace(fixture.WorkspacePath, "Home");
+    }
+
+    [Fact]
+    public void TamperedMigrationRecoveryIsRejectedWithoutReplacingTheWorkspace()
+    {
+        using var fixture = new MigrationFixture(
+            (checkpoint, _) =>
+            {
+                if (checkpoint == WorkspaceMigrationCheckpoint.BeforeCommit)
+                {
+                    throw new IOException("Injected migration interruption.");
+                }
+            });
+        fixture.CreateSchemaOneWorkspace("Home");
+        var failed = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase());
+        var recoveryPath = Assert.IsType<string>(failed.RecoveryPointPath);
+        var bytes = File.ReadAllBytes(recoveryPath);
+        bytes[Math.Min(128, bytes.Length - 1)] ^= 0x5A;
+        File.WriteAllBytes(recoveryPath, bytes);
+        fixture.SetFirstCategory("Current remains");
+
+        var restored = fixture.Store.RestoreMigrationRecovery(
+            fixture.WorkspacePath,
+            UnlockPassphrase(),
+            recoveryPath);
+
+        Assert.Equal(MigrationRecoveryRestoreStatus.InvalidRecoveryPoint, restored.Status);
+        AssertSchemaOneWorkspace(fixture.WorkspacePath, "Current remains");
+        Assert.Empty(
+            Directory.GetFiles(
+                fixture.DirectoryPath,
+                "dot-orbit-pre-restore-*.dotorbit-recovery"));
+    }
+
+    private static void AssertSchemaOneWorkspace(string path, string expectedCategory)
+    {
+        using var connection = OpenInspectionConnection(path, ValidPassphrase);
+        Assert.Equal(1L, ExecuteScalar<long>(connection, "PRAGMA user_version;"));
+        Assert.Equal(expectedCategory, ExecuteScalar<string>(connection, "SELECT name FROM categories;"));
+        Assert.Equal(
+            0L,
+            ExecuteScalar<long>(
+                connection,
+                "SELECT COUNT(*) FROM sqlite_schema WHERE name = 'ix_categories_position';"));
+        Assert.Equal("ok", ExecuteScalar<string>(connection, "PRAGMA integrity_check;"));
+    }
+
+    private static WorkspacePassphrase UnlockPassphrase() =>
+        Assert.IsType<WorkspacePassphrase>(WorkspacePassphrase.ForUnlock(ValidPassphrase));
+
+    private static T ExecuteScalar<T>(SqliteConnection connection, string sql)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        var value = command.ExecuteScalar();
+        Assert.NotNull(value);
+        return (T)Convert.ChangeType(value, typeof(T), CultureInfo.InvariantCulture);
+    }
+
+    private static SqliteConnection OpenInspectionConnection(
+        string path,
+        string passphrase,
+        SqliteOpenMode mode = SqliteOpenMode.ReadWrite)
+    {
+        var uri = new Uri(path).AbsoluteUri
+            + "?cipher=chacha20&legacy=0&kdf_iter=64007&plaintext_header_size=0&hmac_check=1";
+        var builder = new SqliteConnectionStringBuilder
+        {
+            DataSource = uri,
+            Mode = mode,
+            Pooling = false,
+            Password = passphrase,
+            DefaultTimeout = 1,
+        };
+        var connection = new SqliteConnection(builder.ConnectionString);
+        connection.Open();
+        return connection;
+    }
+
+    private sealed class MigrationFixture : IDisposable
+    {
+        public MigrationFixture(
+            Action<WorkspaceMigrationCheckpoint, SqliteConnection>? checkpoint = null,
+            bool failRecoveryPublication = false,
+            Func<SqliteConnection, string>? integrityCheck = null,
+            Action? afterMigration = null)
+        {
+            DirectoryPath = Path.Combine(
+                Path.GetTempPath(),
+                $"dot-orbit-migration-tests-{Guid.NewGuid():N}");
+            RecoveryDirectoryPath = Path.Combine(DirectoryPath, "recovery");
+            Directory.CreateDirectory(DirectoryPath);
+            var fileOperations = new MigrationFileOperations(failRecoveryPublication);
+            Store = new EncryptedWorkspaceStore(
+                new SystemIdentifierGenerator(),
+                fileOperations,
+                TimeProvider.System,
+                checkpoint,
+                integrityCheck,
+                afterMigration);
+            WorkspacePath = Path.Combine(DirectoryPath, "workspace.db");
+        }
+
+        public string DirectoryPath { get; }
+
+        public string RecoveryDirectoryPath { get; }
+
+        public EncryptedWorkspaceStore Store { get; }
+
+        public string WorkspacePath { get; }
+
+        public IWorkspaceSession CreateCurrentWorkspace()
+        {
+            var passphrase = Assert.IsType<WorkspacePassphrase>(
+                WorkspacePassphrase.Create(ValidPassphrase, ValidPassphrase).Passphrase);
+            var category = Assert.IsType<CategoryName>(CategoryName.Create("Home").CategoryName);
+            var result = Store.Create(WorkspacePath, passphrase, category);
+            Assert.Equal(WorkspaceCreationStatus.Created, result.Status);
+            return Assert.IsAssignableFrom<IWorkspaceSession>(result.Session);
+        }
+
+        public void CreateSchemaOneWorkspace(
+            string category,
+            int schemaVersion = 1,
+            string? path = null)
+        {
+            using var connection = OpenInspectionConnection(
+                path ?? WorkspacePath,
+                ValidPassphrase,
+                SqliteOpenMode.ReadWriteCreate);
+            using var command = connection.CreateCommand();
+            command.CommandText = $"""
+                CREATE TABLE categories (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                    position INTEGER NOT NULL CHECK (position >= 0)
+                );
+                INSERT INTO categories (id, name, position)
+                VALUES ('first-category', $name, 0);
+                PRAGMA user_version = {schemaVersion.ToString(CultureInfo.InvariantCulture)};
+                """;
+            command.Parameters.AddWithValue("$name", category);
+            command.ExecuteNonQuery();
+        }
+
+        public void ConfigureRecoveryDirectory()
+        {
+            Directory.CreateDirectory(RecoveryDirectoryPath);
+            WriteRecoveryConfiguration(RecoveryDirectoryPath);
+        }
+
+        public void CreateSchemaTwoWorkspace(string indexSql)
+        {
+            CreateSchemaOneWorkspace("Home", schemaVersion: 2);
+            using var connection = OpenInspectionConnection(
+                WorkspacePath,
+                ValidPassphrase);
+            using var command = connection.CreateCommand();
+            command.CommandText = indexSql;
+            command.ExecuteNonQuery();
+        }
+
+        public void SetSchemaVersion(int version)
+        {
+            using var connection = OpenInspectionConnection(
+                WorkspacePath,
+                ValidPassphrase);
+            using var command = connection.CreateCommand();
+            command.CommandText = $"PRAGMA user_version = {version.ToString(CultureInfo.InvariantCulture)};";
+            command.ExecuteNonQuery();
+        }
+
+        public void SetFirstCategory(string category)
+        {
+            using var connection = OpenInspectionConnection(
+                WorkspacePath,
+                ValidPassphrase);
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE categories SET name = $name WHERE position = 0;";
+            command.Parameters.AddWithValue("$name", category);
+            Assert.Equal(1, command.ExecuteNonQuery());
+        }
+
+        public void WriteRecoveryConfiguration(string directoryPath)
+        {
+            File.WriteAllText(
+                WorkspacePath + ".recovery-state.json",
+                JsonSerializer.Serialize(
+                    new
+                    {
+                        Version = 1,
+                        DirectoryPath = directoryPath,
+                        PendingChangeUtc = (DateTimeOffset?)null,
+                        ChangeGeneration = 0,
+                        PendingChangeGeneration = (long?)null,
+                        RecoverySetIdentifier = (string?)null,
+                    }));
+        }
+
+        public void Dispose() => Directory.Delete(DirectoryPath, recursive: true);
+    }
+
+    private sealed class MigrationFileOperations(bool failRecoveryPublication)
+        : IWorkspaceFileOperations
+    {
+        private readonly WorkspaceFileOperations _inner = new();
+
+        public string ResolvePath(string path) => _inner.ResolvePath(path);
+        public bool Exists(string path) => _inner.Exists(path);
+        public void EnsureParentDirectory(string path) => _inner.EnsureParentDirectory(path);
+        public void EnsureDirectory(string path) => _inner.EnsureDirectory(path);
+        public string GetCandidatePath(string targetPath, string identifier) =>
+            _inner.GetCandidatePath(targetPath, identifier);
+
+        public void Publish(string candidatePath, string targetPath)
+        {
+            if (failRecoveryPublication
+                && targetPath.Contains("pre-migration", StringComparison.Ordinal))
+            {
+                throw new IOException("Injected recovery publication interruption.");
+            }
+
+            _inner.Publish(candidatePath, targetPath);
+        }
+
+        public void Copy(string sourcePath, string candidatePath) =>
+            _inner.Copy(sourcePath, candidatePath);
+        public void Flush(string path) => _inner.Flush(path);
+        public void Replace(string candidatePath, string targetPath) =>
+            _inner.Replace(candidatePath, targetPath);
+        public void DeleteCandidate(string candidatePath) => _inner.DeleteCandidate(candidatePath);
+        public IReadOnlyList<string> EnumerateFiles(string directoryPath, string searchPattern) =>
+            _inner.EnumerateFiles(directoryPath, searchPattern);
+        public string ReadAllText(string path) => _inner.ReadAllText(path);
+        public void WriteAllText(string path, string contents) =>
+            _inner.WriteAllText(path, contents);
+        public void PublishOrReplace(string candidatePath, string targetPath) =>
+            _inner.PublishOrReplace(candidatePath, targetPath);
+        public void DeleteFile(string path) => _inner.DeleteFile(path);
+    }
+}

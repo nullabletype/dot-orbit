@@ -129,6 +129,18 @@
             TextWrapping="Wrap" />
 
         <Button
+            x:Name="RestoreMigrationRecoveryButton"
+            Margin="0,8,0,0"
+            HorizontalAlignment="Stretch"
+            HorizontalContentAlignment="Center"
+            AutomationProperties.Name="Restore pre-upgrade workspace"
+            Command="{Binding RestoreMigrationRecoveryCommand}"
+            IsVisible="{Binding CanRestoreMigrationRecovery}"
+            TabIndex="4">
+          <TextBlock Text="Restore pre-upgrade workspace" />
+        </Button>
+
+        <Button
             x:Name="SubmitButton"
             Margin="0,8,0,0"
             HorizontalAlignment="Stretch"
@@ -136,7 +148,7 @@
             AutomationProperties.Name="{Binding SubmitActionName}"
             Command="{Binding SubmitCommand}"
             IsDefault="True"
-            TabIndex="4">
+            TabIndex="5">
           <TextBlock Text="{Binding SubmitActionName}" />
         </Button>
       </StackPanel>

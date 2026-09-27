@@ -10,6 +10,11 @@ public interface IWorkspaceStore
         CategoryName firstCategory);
 
     WorkspaceOpenResult Open(string path, WorkspacePassphrase passphrase);
+
+    MigrationRecoveryRestoreResult RestoreMigrationRecovery(
+        string workspacePath,
+        WorkspacePassphrase passphrase,
+        string recoveryPointPath);
 }
 
 public interface IWorkspaceSession : IDisposable
@@ -111,20 +116,27 @@ public enum WorkspaceOpenStatus
     Opened,
     InvalidPassphraseOrStore,
     UnsupportedSchema,
+    MigrationFailed,
     Failed,
 }
 
 public sealed class WorkspaceOpenResult
 {
-    private WorkspaceOpenResult(WorkspaceOpenStatus status, IWorkspaceSession? session)
+    private WorkspaceOpenResult(
+        WorkspaceOpenStatus status,
+        IWorkspaceSession? session,
+        string? recoveryPointPath = null)
     {
         Status = status;
         Session = session;
+        RecoveryPointPath = recoveryPointPath;
     }
 
     public WorkspaceOpenStatus Status { get; }
 
     public IWorkspaceSession? Session { get; }
+
+    public string? RecoveryPointPath { get; }
 
     public static WorkspaceOpenResult Opened(IWorkspaceSession session) =>
         new(WorkspaceOpenStatus.Opened, session);
@@ -132,11 +144,44 @@ public sealed class WorkspaceOpenResult
     public static WorkspaceOpenResult InvalidPassphraseOrStore() =>
         new(WorkspaceOpenStatus.InvalidPassphraseOrStore, null);
 
-    public static WorkspaceOpenResult UnsupportedSchema() =>
-        new(WorkspaceOpenStatus.UnsupportedSchema, null);
+    public static WorkspaceOpenResult UnsupportedSchema(string? recoveryPointPath = null) =>
+        new(WorkspaceOpenStatus.UnsupportedSchema, null, recoveryPointPath);
+
+    public static WorkspaceOpenResult MigrationFailed(string? recoveryPointPath = null) =>
+        new(WorkspaceOpenStatus.MigrationFailed, null, recoveryPointPath);
 
     public static WorkspaceOpenResult Failed() => new(WorkspaceOpenStatus.Failed, null);
 
+}
+
+public enum MigrationRecoveryRestoreStatus
+{
+    Restored,
+    InvalidRecoveryPoint,
+    PreRestoreRecoveryFailed,
+    Failed,
+}
+
+public sealed class MigrationRecoveryRestoreResult
+{
+    private MigrationRecoveryRestoreResult(MigrationRecoveryRestoreStatus status)
+    {
+        Status = status;
+    }
+
+    public MigrationRecoveryRestoreStatus Status { get; }
+
+    public static MigrationRecoveryRestoreResult Restored() =>
+        new(MigrationRecoveryRestoreStatus.Restored);
+
+    public static MigrationRecoveryRestoreResult InvalidRecoveryPoint() =>
+        new(MigrationRecoveryRestoreStatus.InvalidRecoveryPoint);
+
+    public static MigrationRecoveryRestoreResult PreRestoreRecoveryFailed() =>
+        new(MigrationRecoveryRestoreStatus.PreRestoreRecoveryFailed);
+
+    public static MigrationRecoveryRestoreResult Failed() =>
+        new(MigrationRecoveryRestoreStatus.Failed);
 }
 
 public enum RecoveryPointCreationStatus

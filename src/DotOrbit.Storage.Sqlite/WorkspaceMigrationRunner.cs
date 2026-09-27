@@ -1,0 +1,446 @@
+using System.Globalization;
+using System.Text.Json;
+using DotOrbit.Core.Workspaces;
+using Microsoft.Data.Sqlite;
+
+namespace DotOrbit.Storage.Sqlite;
+
+internal enum WorkspaceMigrationCheckpoint
+{
+    RecoveryPointValidated,
+    PreRestoreRecoveryValidated,
+    RestoreApplied,
+    BeforeCommit,
+}
+
+internal readonly record struct WorkspaceMigrationResult(
+    bool Succeeded,
+    string? RecoveryPointPath)
+{
+    public static WorkspaceMigrationResult Success(string? recoveryPointPath) =>
+        new(true, recoveryPointPath);
+
+    public static WorkspaceMigrationResult Failed(string? recoveryPointPath = null) =>
+        new(false, recoveryPointPath);
+}
+
+internal static class WorkspaceMigrationRunner
+{
+    private const string RecoveryPointExtension = ".dotorbit-recovery";
+    private const int RecoveryStateVersion = 1;
+
+    internal static WorkspaceMigrationResult Run(
+        EncryptedWorkspaceStore store,
+        string workspacePath,
+        WorkspacePassphrase passphrase,
+        int inspectedSchemaVersion,
+        IWorkspaceFileOperations fileOperations,
+        TimeProvider timeProvider,
+        Action<WorkspaceMigrationCheckpoint, SqliteConnection>? checkpoint,
+        Func<SqliteConnection, string>? integrityCheck)
+    {
+        string? recoveryPointPath = null;
+        try
+        {
+            using var connection = EncryptedWorkspaceStore.OpenConnection(
+                workspacePath,
+                passphrase,
+                SqliteOpenMode.ReadWrite);
+            EncryptedWorkspaceStore.ConfigureConnection(connection);
+            EnterExclusiveLock(connection);
+            var transactionActive = true;
+            try
+            {
+                var lockedInspection = EncryptedWorkspaceStore.InspectWorkspace(connection);
+                if (lockedInspection.Status == EncryptedWorkspaceStore.WorkspaceInspectionStatus.UnsupportedSchema)
+                {
+                    return WorkspaceMigrationResult.Failed();
+                }
+
+                if (lockedInspection.SchemaVersion == EncryptedWorkspaceStore.CurrentSchemaVersion)
+                {
+                    ExecuteNonQuery(connection, "ROLLBACK;");
+                    transactionActive = false;
+                    return WorkspaceMigrationResult.Success(null);
+                }
+
+                if (lockedInspection.SchemaVersion != inspectedSchemaVersion)
+                {
+                    return WorkspaceMigrationResult.Failed();
+                }
+
+                ExecuteNonQuery(connection, "ROLLBACK;");
+                transactionActive = false;
+                recoveryPointPath = PublishRecoveryPoint(
+                    store,
+                    connection,
+                    passphrase,
+                    lockedInspection.SchemaVersion,
+                    GetPreMigrationRecoveryDirectory(workspacePath, fileOperations),
+                    $"dot-orbit-pre-migration-v{lockedInspection.SchemaVersion}-",
+                    fileOperations,
+                    timeProvider);
+                checkpoint?.Invoke(
+                    WorkspaceMigrationCheckpoint.RecoveryPointValidated,
+                    connection);
+
+                ExecuteNonQuery(connection, "BEGIN EXCLUSIVE;");
+                transactionActive = true;
+                var migrationInspection = EncryptedWorkspaceStore.InspectWorkspace(connection);
+                if (migrationInspection.SchemaVersion != inspectedSchemaVersion
+                    || migrationInspection.Status != EncryptedWorkspaceStore.WorkspaceInspectionStatus.RequiresMigration)
+                {
+                    throw new InvalidDataException();
+                }
+
+                ApplyMigrations(
+                    connection,
+                    lockedInspection.SchemaVersion,
+                    integrityCheck);
+                EncryptedWorkspaceStore.ValidateIntegrity(
+                    connection,
+                    integrityCheck: integrityCheck);
+                EncryptedWorkspaceStore.ValidateWorkspaceShape(
+                    connection,
+                    EncryptedWorkspaceStore.CurrentSchemaVersion);
+                checkpoint?.Invoke(WorkspaceMigrationCheckpoint.BeforeCommit, connection);
+                ExecuteNonQuery(connection, "COMMIT;");
+                transactionActive = false;
+                return WorkspaceMigrationResult.Success(recoveryPointPath);
+            }
+            finally
+            {
+                if (transactionActive)
+                {
+                    TryRollback(connection);
+                }
+            }
+        }
+        catch (SqliteException)
+        {
+            return WorkspaceMigrationResult.Failed(recoveryPointPath);
+        }
+        catch (IOException)
+        {
+            return WorkspaceMigrationResult.Failed(recoveryPointPath);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return WorkspaceMigrationResult.Failed(recoveryPointPath);
+        }
+        catch (InvalidDataException)
+        {
+            return WorkspaceMigrationResult.Failed(recoveryPointPath);
+        }
+    }
+
+    internal static MigrationRecoveryRestoreResult Restore(
+        EncryptedWorkspaceStore store,
+        string workspacePath,
+        WorkspacePassphrase passphrase,
+        string recoveryPointPath,
+        IWorkspaceFileOperations fileOperations,
+        TimeProvider timeProvider,
+        Action<WorkspaceMigrationCheckpoint, SqliteConnection>? checkpoint)
+    {
+        if (!fileOperations.Exists(workspacePath)
+            || !fileOperations.Exists(recoveryPointPath))
+        {
+            return MigrationRecoveryRestoreResult.InvalidRecoveryPoint();
+        }
+
+        var restoreCandidatePath = fileOperations.GetCandidatePath(
+            workspacePath,
+            $"migration-restore-{store.GetIdentifier()}");
+        var replacementStarted = false;
+        try
+        {
+            fileOperations.Copy(recoveryPointPath, restoreCandidatePath);
+            fileOperations.Flush(restoreCandidatePath);
+            var recoveryInspection = InspectRecoveryPoint(
+                restoreCandidatePath,
+                passphrase);
+            if (recoveryInspection.Status
+                    != EncryptedWorkspaceStore.WorkspaceInspectionStatus.RequiresMigration)
+            {
+                return MigrationRecoveryRestoreResult.InvalidRecoveryPoint();
+            }
+
+            var recoveryDirectoryPath = Path.GetDirectoryName(recoveryPointPath)
+                ?? throw new InvalidDataException();
+            using var target = EncryptedWorkspaceStore.OpenConnection(
+                workspacePath,
+                passphrase,
+                SqliteOpenMode.ReadWrite);
+            EncryptedWorkspaceStore.ConfigureConnection(target);
+            EnterExclusiveLock(target);
+            try
+            {
+                var sourceInspection = EncryptedWorkspaceStore.InspectWorkspace(target);
+                ExecuteNonQuery(target, "ROLLBACK;");
+                PublishRecoveryPoint(
+                    store,
+                    target,
+                    passphrase,
+                    sourceInspection.SchemaVersion,
+                    recoveryDirectoryPath,
+                    $"dot-orbit-pre-restore-v{sourceInspection.SchemaVersion}-",
+                    fileOperations,
+                    timeProvider);
+                checkpoint?.Invoke(
+                    WorkspaceMigrationCheckpoint.PreRestoreRecoveryValidated,
+                    target);
+            }
+            catch (SqliteException)
+            {
+                return MigrationRecoveryRestoreResult.PreRestoreRecoveryFailed();
+            }
+            catch (IOException)
+            {
+                return MigrationRecoveryRestoreResult.PreRestoreRecoveryFailed();
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return MigrationRecoveryRestoreResult.PreRestoreRecoveryFailed();
+            }
+            catch (InvalidDataException)
+            {
+                return MigrationRecoveryRestoreResult.PreRestoreRecoveryFailed();
+            }
+
+            using var recoverySource = EncryptedWorkspaceStore.OpenConnection(
+                restoreCandidatePath,
+                passphrase,
+                SqliteOpenMode.ReadOnly);
+            EncryptedWorkspaceStore.ConfigureConnection(recoverySource);
+            replacementStarted = true;
+            recoverySource.BackupDatabase(target);
+            checkpoint?.Invoke(WorkspaceMigrationCheckpoint.RestoreApplied, target);
+            var restoredInspection = EncryptedWorkspaceStore.InspectWorkspace(target);
+            return restoredInspection.Status
+                       == EncryptedWorkspaceStore.WorkspaceInspectionStatus.RequiresMigration
+                   && restoredInspection.SchemaVersion == recoveryInspection.SchemaVersion
+                ? MigrationRecoveryRestoreResult.Restored()
+                : MigrationRecoveryRestoreResult.Failed();
+
+        }
+        catch (SqliteException)
+        {
+            return replacementStarted
+                ? MigrationRecoveryRestoreResult.Failed()
+                : MigrationRecoveryRestoreResult.InvalidRecoveryPoint();
+        }
+        catch (IOException)
+        {
+            return MigrationRecoveryRestoreResult.Failed();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return MigrationRecoveryRestoreResult.Failed();
+        }
+        catch (InvalidDataException)
+        {
+            return replacementStarted
+                ? MigrationRecoveryRestoreResult.Failed()
+                : MigrationRecoveryRestoreResult.InvalidRecoveryPoint();
+        }
+        finally
+        {
+            fileOperations.DeleteCandidate(restoreCandidatePath);
+        }
+    }
+
+    private static void ApplyMigrations(
+        SqliteConnection connection,
+        int startingVersion,
+        Func<SqliteConnection, string>? integrityCheck)
+    {
+        var version = startingVersion;
+        while (version < EncryptedWorkspaceStore.CurrentSchemaVersion)
+        {
+            version = version switch
+            {
+                1 => ApplySchemaOneToTwo(connection),
+                _ => throw new InvalidDataException(),
+            };
+
+            var storedVersion = EncryptedWorkspaceStore.ExecuteScalar<long>(
+                connection,
+                "PRAGMA user_version;");
+            if (storedVersion != version)
+            {
+                throw new InvalidDataException();
+            }
+
+            EncryptedWorkspaceStore.ValidateWorkspaceShape(connection, version);
+            EncryptedWorkspaceStore.ValidateIntegrity(
+                connection,
+                integrityCheck: integrityCheck);
+        }
+    }
+
+    private static int ApplySchemaOneToTwo(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            CREATE INDEX ix_categories_position ON categories(position);
+            PRAGMA user_version = 2;
+            """;
+        command.ExecuteNonQuery();
+        return 2;
+    }
+
+    private static void ExecuteNonQuery(SqliteConnection connection, string sql)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.ExecuteNonQuery();
+    }
+
+    private static void EnterExclusiveLock(SqliteConnection connection)
+    {
+        if (!string.Equals(
+                EncryptedWorkspaceStore.ExecuteScalar<string>(
+                    connection,
+                    "PRAGMA locking_mode = EXCLUSIVE;"),
+                "exclusive",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException();
+        }
+
+        ExecuteNonQuery(connection, "BEGIN EXCLUSIVE;");
+    }
+
+    private static void TryRollback(SqliteConnection connection)
+    {
+        try
+        {
+            ExecuteNonQuery(connection, "ROLLBACK;");
+        }
+        catch (SqliteException)
+        {
+            // Connection disposal still closes any unfinished transaction.
+        }
+    }
+
+    private static string PublishRecoveryPoint(
+        EncryptedWorkspaceStore store,
+        SqliteConnection source,
+        WorkspacePassphrase passphrase,
+        int schemaVersion,
+        string directoryPath,
+        string fileNamePrefix,
+        IWorkspaceFileOperations fileOperations,
+        TimeProvider timeProvider)
+    {
+        directoryPath = fileOperations.ResolvePath(directoryPath);
+        var recoveryPointPath = Path.Combine(
+            directoryPath,
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"{fileNamePrefix}{timeProvider.GetUtcNow():yyyyMMdd'T'HHmmssfffffff'Z'}-{store.GetIdentifier()}{RecoveryPointExtension}"));
+        var candidatePath = Path.Combine(
+            directoryPath,
+            $".{Path.GetFileName(recoveryPointPath)}.creating");
+
+        try
+        {
+            fileOperations.EnsureDirectory(directoryPath);
+            using (var candidate = EncryptedWorkspaceStore.OpenConnection(
+                       candidatePath,
+                       passphrase,
+                       SqliteOpenMode.ReadWriteCreate))
+            {
+                EncryptedWorkspaceStore.ConfigureConnection(candidate);
+                EncryptedWorkspaceStore.AssertEncryptionProfile(candidate);
+                source.BackupDatabase(candidate);
+            }
+
+            fileOperations.Flush(candidatePath);
+            ValidateRecoveryPoint(candidatePath, passphrase, schemaVersion);
+            fileOperations.Publish(candidatePath, recoveryPointPath);
+            ValidateRecoveryPoint(recoveryPointPath, passphrase, schemaVersion);
+            return recoveryPointPath;
+        }
+        finally
+        {
+            fileOperations.DeleteCandidate(candidatePath);
+        }
+    }
+
+    private static void ValidateRecoveryPoint(
+        string path,
+        WorkspacePassphrase passphrase,
+        int expectedSchemaVersion)
+    {
+        var inspection = InspectRecoveryPoint(path, passphrase);
+        if (inspection.Status == EncryptedWorkspaceStore.WorkspaceInspectionStatus.UnsupportedSchema
+            || inspection.SchemaVersion != expectedSchemaVersion)
+        {
+            throw new InvalidDataException();
+        }
+    }
+
+    private static EncryptedWorkspaceStore.WorkspaceInspection InspectRecoveryPoint(
+        string path,
+        WorkspacePassphrase passphrase)
+    {
+        using var connection = EncryptedWorkspaceStore.OpenConnection(
+            path,
+            passphrase,
+            SqliteOpenMode.ReadOnly);
+        EncryptedWorkspaceStore.ConfigureConnection(connection);
+        return EncryptedWorkspaceStore.InspectWorkspace(connection);
+    }
+
+    private static string GetPreMigrationRecoveryDirectory(
+        string workspacePath,
+        IWorkspaceFileOperations fileOperations) =>
+        GetConfiguredRecoveryDirectory(workspacePath, fileOperations)
+        ?? Path.GetDirectoryName(workspacePath)
+        ?? throw new InvalidDataException();
+
+    private static string? GetConfiguredRecoveryDirectory(
+        string workspacePath,
+        IWorkspaceFileOperations fileOperations)
+    {
+        var statePath = workspacePath + ".recovery-state.json";
+        if (!fileOperations.Exists(statePath))
+        {
+            return null;
+        }
+
+        try
+        {
+            var state = JsonSerializer.Deserialize<RecoveryStateDocument>(
+                fileOperations.ReadAllText(statePath));
+            return state is { Version: RecoveryStateVersion }
+                   && !string.IsNullOrWhiteSpace(state.DirectoryPath)
+                ? fileOperations.ResolvePath(state.DirectoryPath)
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+        catch (InvalidDataException)
+        {
+            return null;
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    private sealed record RecoveryStateDocument(int Version, string? DirectoryPath);
+}
