@@ -89,7 +89,7 @@ public sealed class EncryptedWorkspaceRecoveryTests
         using var session = fixture.CreateWorkspace("Before");
         var concreteSession = Assert.IsType<EncryptedWorkspaceStore.WorkspaceSession>(session);
         session.Recovery.ConfigureAutomaticRecoveryDirectory(fixture.RecoveryDirectory);
-        fixture.FileOperations.MaximumPathLength = fixture.RecoveryDirectory.Length + 180;
+        fixture.FileOperations.MaximumPathLength = fixture.RecoveryDirectory.Length + 128;
 
         var result = ChangeFirstCategory(concreteSession.Transactions, "After");
 
@@ -591,7 +591,7 @@ public sealed class EncryptedWorkspaceRecoveryTests
         var manualPath = Assert.IsType<string>(manual.RecoveryPointPath);
         var corruptAutomaticPath = Path.Combine(
             fixture.RecoveryDirectory,
-            $"dot-orbit-auto-recovery-20200101T0000000000000Z-corrupt{EncryptedWorkspaceRecovery.RecoveryPointExtension}");
+            $"dot-orbit-auto-20200101T0000000000000Z-corrupt{EncryptedWorkspaceRecovery.RecoveryPointExtension}");
         File.WriteAllText(corruptAutomaticPath, "not an encrypted database");
 
         for (var hour = 0; hour < 24; hour++)
@@ -1001,7 +1001,7 @@ public sealed class EncryptedWorkspaceRecoveryTests
         System.IO.Directory.Exists(directory)
             ? System.IO.Directory.GetFiles(
                 directory,
-                $"dot-orbit-auto-recovery-*{EncryptedWorkspaceRecovery.RecoveryPointExtension}")
+                $"dot-orbit-auto-*{EncryptedWorkspaceRecovery.RecoveryPointExtension}")
             : [];
 
     private static bool OpensWithCategory(

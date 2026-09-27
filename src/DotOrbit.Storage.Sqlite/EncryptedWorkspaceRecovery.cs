@@ -12,7 +12,7 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
 {
     internal const string RecoveryPointExtension = ".dotorbit-recovery";
 
-    private const string AutomaticRecoveryPrefix = "dot-orbit-auto-recovery-";
+    private const string AutomaticRecoveryPrefix = "dot-orbit-auto-";
     private const string ManualRecoveryPrefix = "dot-orbit-recovery-";
     private const string RecoveryTimestampFormat = "yyyyMMdd'T'HHmmssfffffff'Z'";
     private const int RecoveryTimestampLength = 23;
@@ -135,7 +135,7 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
             return CreateRecoveryPointCore(
                 directoryPath,
                 ManualRecoveryPrefix,
-                useHashedPointIdentifier: false);
+                includePointIdentifier: true);
         }
     }
 
@@ -185,41 +185,36 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
     private RecoveryPointCreationResult CreateRecoveryPointCore(
         string directoryPath,
         string fileNamePrefix,
-        bool useHashedPointIdentifier)
+        bool includePointIdentifier)
     {
         var passphrase = GetPassphrase();
         var directory = _fileOperations.ResolvePath(directoryPath);
-        var pointIdentifier = useHashedPointIdentifier
-            ? HashIdentifier(_store.GetIdentifier())
-            : _store.GetIdentifier();
+        var pointIdentifierSuffix = includePointIdentifier
+            ? $"-{_store.GetIdentifier()}"
+            : string.Empty;
         var recoveryPointPath = Path.Combine(
             directory,
             string.Create(
                 CultureInfo.InvariantCulture,
-                $"{fileNamePrefix}{_timeProvider.GetUtcNow():yyyyMMdd'T'HHmmssfffffff'Z'}-{pointIdentifier}{RecoveryPointExtension}"));
+                $"{fileNamePrefix}{_timeProvider.GetUtcNow():yyyyMMdd'T'HHmmssfffffff'Z'}{pointIdentifierSuffix}{RecoveryPointExtension}"));
         var candidatePath = Path.Combine(
             directory,
             $".{Path.GetFileName(recoveryPointPath)}.creating");
-        var diagnosticPhase = "ensure-directory";
 
         try
         {
             _fileOperations.EnsureDirectory(directory);
-            diagnosticPhase = "open-source";
             using var source = EncryptedWorkspaceStore.OpenConnection(
                 _workspacePath,
                 passphrase,
                 SqliteOpenMode.ReadOnly);
-            diagnosticPhase = "inspect-source";
             EncryptedWorkspaceStore.ConfigureConnection(source);
             var sourceInspection = EncryptedWorkspaceStore.InspectWorkspace(source);
             if (sourceInspection.Status != EncryptedWorkspaceStore.WorkspaceInspectionStatus.Valid)
             {
-                Console.Error.WriteLine("[DEBUG-recovery-create] phase=inspect-source result=invalid");
                 return RecoveryPointCreationResult.Failed();
             }
 
-            diagnosticPhase = "open-candidate";
             using (var candidate = EncryptedWorkspaceStore.OpenConnection(
                        candidatePath,
                        passphrase,
@@ -227,48 +222,34 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
             {
                 EncryptedWorkspaceStore.ConfigureConnection(candidate);
                 EncryptedWorkspaceStore.AssertEncryptionProfile(candidate);
-                diagnosticPhase = "backup";
                 source.BackupDatabase(candidate);
-                diagnosticPhase = "validate-candidate";
                 EncryptedWorkspaceStore.ValidateIntegrity(candidate);
                 EncryptedWorkspaceStore.ValidateWorkspaceShape(candidate);
             }
 
-            diagnosticPhase = "flush";
             _fileOperations.Flush(candidatePath);
-            diagnosticPhase = "reopen-candidate";
             if (Validate(candidatePath, passphrase) != RecoveryValidation.Valid)
             {
-                Console.Error.WriteLine("[DEBUG-recovery-create] phase=reopen-candidate result=invalid");
                 return RecoveryPointCreationResult.Failed();
             }
 
-            diagnosticPhase = "publish";
             _fileOperations.Publish(candidatePath, recoveryPointPath);
             return RecoveryPointCreationResult.Created(recoveryPointPath);
         }
-        catch (SqliteException exception)
+        catch (SqliteException)
         {
-            Console.Error.WriteLine(
-                $"[DEBUG-recovery-create] phase={diagnosticPhase} exception=SqliteException code={exception.SqliteErrorCode} extended={exception.SqliteExtendedErrorCode}");
             return RecoveryPointCreationResult.Failed();
         }
-        catch (IOException exception)
+        catch (IOException)
         {
-            Console.Error.WriteLine(
-                $"[DEBUG-recovery-create] phase={diagnosticPhase} exception={exception.GetType().Name}");
             return RecoveryPointCreationResult.Failed();
         }
         catch (UnauthorizedAccessException)
         {
-            Console.Error.WriteLine(
-                $"[DEBUG-recovery-create] phase={diagnosticPhase} exception=UnauthorizedAccessException");
             return RecoveryPointCreationResult.Failed();
         }
         catch (InvalidDataException)
         {
-            Console.Error.WriteLine(
-                $"[DEBUG-recovery-create] phase={diagnosticPhase} exception=InvalidDataException");
             return RecoveryPointCreationResult.Failed();
         }
         finally
@@ -312,7 +293,7 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
                 var preRestoreRecovery = CreateRecoveryPointCore(
                     preRestoreRecoveryDirectoryPath,
                     ManualRecoveryPrefix,
-                    useHashedPointIdentifier: false);
+                    includePointIdentifier: true);
                 if (preRestoreRecovery.Status != RecoveryPointCreationStatus.Created)
                 {
                     return WorkspaceRestoreResult.PreRestoreRecoveryFailed();
@@ -461,7 +442,7 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
         var creation = CreateRecoveryPointCore(
             directoryPath,
             $"{AutomaticRecoveryPrefix}{recoverySetIdentifier}-{pendingChangeGeneration.Value:D20}-",
-            useHashedPointIdentifier: true);
+            includePointIdentifier: false);
         if (creation.Status != RecoveryPointCreationStatus.Created)
         {
             return AutomaticRecoveryAttempt.Failed;
@@ -711,8 +692,6 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
             + ChangeGenerationLength
             + 1
             + RecoveryTimestampLength
-            + 1
-            + HashedIdentifierLength
             + RecoveryPointExtension.Length;
         if (fileName.Length != expectedLength
             || !fileName.StartsWith(expectedPrefix, StringComparison.Ordinal)
@@ -730,20 +709,15 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
         var timestamp = fileName.AsSpan(
             timestampStart,
             RecoveryTimestampLength);
-        var pointIdentifier = fileName.AsSpan(
-            timestampStart + RecoveryTimestampLength + 1,
-            HashedIdentifierLength);
         createdAtUtc = default;
         changeGeneration = default;
         if (fileName[expectedPrefix.Length + ChangeGenerationLength] == '-'
-            && fileName[timestampStart + RecoveryTimestampLength] == '-'
             && long.TryParse(
                 generation,
                 NumberStyles.None,
                 CultureInfo.InvariantCulture,
                 out var parsedGeneration)
             && parsedGeneration > 0
-            && IsHashedIdentifier(pointIdentifier)
             && DateTimeOffset.TryParseExact(
                 timestamp,
                 RecoveryTimestampFormat,
