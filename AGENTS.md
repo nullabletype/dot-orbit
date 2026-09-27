@@ -7,7 +7,7 @@
 - Inspect the current checkout and relevant domain documents before editing.
 - Distinguish clearly between proposed, implemented, and verified behaviour.
 - Prefer small vertical slices that leave the repository runnable.
-- Do not push, publish, tag, or create releases unless explicitly asked.
+- Follow `docs/development/agent-loop.md` for branch publication and review pull requests. Merge, tag, or create releases only with explicit user authorisation.
 - Use current, supported releases for direct and transitive dependencies, SDKs, runtimes, GitHub Actions, runner images, and packaging tools. Verify upstream support status and applicable security updates when selecting or updating versions. Deprecated, end-of-life, or unmaintained components block acceptance; a successful build or floating version tag is not evidence of support. Preserve reproducibility with explicit pins and lockfiles.
 - Keep builds deterministic, enable nullable reference types and supported analyzers, and treat compiler and analyzer warnings as errors. Suppress a diagnostic only with a narrow, documented justification.
 - Make time and side effects deterministic through `TimeProvider` and narrow adapters for filesystem, identifier generation, and platform operations. Do not hide domain logic behind broad service abstractions.
@@ -54,7 +54,7 @@ If these disagree, stop and surface the conflict rather than silently choosing o
 6. Record evidence against the exact tested commit.
 7. Request independent review when available.
 8. Apply bounded corrections, then return unresolved design questions to the issue.
-9. Leave a resumable handoff if the work is incomplete.
+9. If the work is complete, follow the delivery process; otherwise leave a resumable handoff.
 
 ## Agent skills
 
