@@ -28,7 +28,11 @@ An issue is `ready-for-agent` only when it contains:
 6. Record commands, results, screenshots where relevant, and the tested commit SHA.
 7. Request independent review when available.
 8. Limit correction cycles; if the same unresolved design problem persists, return the issue to specification rather than looping indefinitely.
-9. Merge only verified work and update documentation in the same change when behaviour changes.
+9. When the implementation is complete, verified, and ready for human review:
+   - if the issue changes UI or UX, prepare the local build and wait for the user's local approval before publishing the branch;
+   - otherwise, push the branch and open the review pull request without waiting for another instruction.
+10. After local approval of UI or UX changes, push the branch and open the review pull request without waiting for another instruction.
+11. Merge only verified work with explicit user authorisation, and update documentation in the same change when behaviour changes.
 
 ## Resumable handoff
 
