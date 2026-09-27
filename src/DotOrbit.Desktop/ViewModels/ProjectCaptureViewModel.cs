@@ -233,9 +233,14 @@ public sealed record TaskRowViewModel(string Id, string Title, string CategoryNa
 public sealed class ProjectRowViewModel : INotifyPropertyChanged
 {
     private readonly ProjectCaptureViewModel _owner;
+    private bool _isExpanded = true;
     private string _quickTitle = string.Empty;
     public ProjectRowViewModel(ProjectCaptureViewModel owner, string id)
-    { _owner = owner; Id = id; SelectCommand = new(() => owner.SelectProject(id)); }
+    {
+        _owner = owner;
+        Id = id;
+        SelectCommand = new(() => owner.SelectProject(id));
+    }
     public event PropertyChangedEventHandler? PropertyChanged;
     public string Id { get; }
     public string Title { get; private set; } = string.Empty;
@@ -244,7 +249,20 @@ public sealed class ProjectRowViewModel : INotifyPropertyChanged
     public string ProgressText { get; private set; } = string.Empty;
     public string CategoryName { get; private set; } = string.Empty;
     public string TargetText { get; private set; } = string.Empty;
-    public bool IsExpanded { get; set; } = true;
+    public bool IsExpanded
+    {
+        get => _isExpanded;
+        set
+        {
+            if (_isExpanded == value) return;
+            _isExpanded = value;
+            Notify(nameof(IsExpanded));
+            Notify(nameof(ExpansionGlyph));
+            Notify(nameof(ExpansionAccessibleName));
+        }
+    }
+    public string ExpansionGlyph => IsExpanded ? "⌄" : "›";
+    public string ExpansionAccessibleName => $"{(IsExpanded ? "Collapse" : "Expand")} {Title}";
     public string QuickTitle { get => _quickTitle; set { _quickTitle = value; PropertyChanged?.Invoke(this, new(nameof(QuickTitle))); } }
     public RelayCommand SelectCommand { get; }
     public ObservableCollection<TaskRowViewModel> Tasks { get; } = [];
@@ -266,5 +284,8 @@ public sealed class ProjectRowViewModel : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new(nameof(ProgressText)));
         PropertyChanged?.Invoke(this, new(nameof(CategoryName)));
         PropertyChanged?.Invoke(this, new(nameof(TargetText)));
+        Notify(nameof(ExpansionAccessibleName));
     }
+
+    private void Notify(string name) => PropertyChanged?.Invoke(this, new(name));
 }

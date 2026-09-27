@@ -217,10 +217,15 @@
                     BorderBrush="{StaticResource LineBrush}"
                     BorderThickness="1"
                     CornerRadius="10">
-                  <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" IsExpanded="{Binding IsExpanded}">
-                    <Expander.Header>
-                      <Grid Margin="7,8,12,8" ColumnDefinitions="*,Auto">
+                  <Grid RowDefinitions="Auto,Auto">
+                      <Grid Margin="10,8,12,8" ColumnDefinitions="30,*,Auto">
+                        <ToggleButton
+                            Classes="disclosure"
+                            AutomationProperties.Name="{Binding ExpansionAccessibleName}"
+                            Content="{Binding ExpansionGlyph}"
+                            IsChecked="{Binding IsExpanded, Mode=TwoWay}" />
                         <Button
+                            Grid.Column="1"
                             Classes="project-title"
                             AutomationProperties.Name="{Binding Title}"
                             Click="OnFocusInspector"
@@ -243,7 +248,7 @@
                           </StackPanel>
                         </Button>
                         <TextBlock
-                            Grid.Column="1"
+                            Grid.Column="2"
                             VerticalAlignment="Center"
                             MaxWidth="110"
                             FontSize="12"
@@ -252,8 +257,13 @@
                             TextAlignment="Right"
                             TextWrapping="Wrap" />
                       </Grid>
-                    </Expander.Header>
-                    <Border BorderBrush="{StaticResource LineSoftBrush}" BorderThickness="0,1,0,0" Padding="52,7,10,10">
+                    <Border
+                        Grid.Row="1"
+                        IsVisible="{Binding IsExpanded}"
+                        Background="{StaticResource PanelBrush}"
+                        BorderBrush="{StaticResource LineSoftBrush}"
+                        BorderThickness="0,1,0,0"
+                        Padding="52,7,10,10">
                       <StackPanel Spacing="0">
                         <ItemsControl ItemsSource="{Binding Tasks}">
                           <ItemsControl.ItemTemplate>
@@ -292,7 +302,7 @@
                         </Border>
                       </StackPanel>
                     </Border>
-                  </Expander>
+                  </Grid>
                 </Border>
               </DataTemplate>
             </ItemsControl.ItemTemplate>

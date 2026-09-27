@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Headless;
@@ -34,8 +35,17 @@ public sealed class ProjectCaptureWindowTests
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Target 2026-10-12");
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Home · inherited");
 
+        var quickField = QuickField(window);
+        Activate(window, NamedButton(window, "Collapse Garden"));
+        Assert.False(quickField.IsEffectivelyVisible);
+        Activate(window, NamedButton(window, "Expand Garden"));
+        Assert.True(quickField.IsEffectivelyVisible);
+
         Activate(window, projectButton);
-        Assert.Contains("inspector-title", window.FindControl<TextBox>("DraftTitle")!.Classes);
+        var draftTitle = window.FindControl<TextBox>("DraftTitle")!;
+        Assert.Contains("inspector-title", draftTitle.Classes);
+        var titleBorder = Assert.Single(draftTitle.GetVisualDescendants().OfType<Border>(), border => border.Name == "PART_BorderElement");
+        Assert.Equal(new Thickness(2), titleBorder.BorderThickness);
         Assert.Contains("primary-action", NamedButton(window, "Save").Classes);
         Assert.Contains("view-action", NamedButton(window, "Cancel editing").Classes);
         window.Close();
