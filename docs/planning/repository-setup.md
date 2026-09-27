@@ -26,6 +26,8 @@ Recommended project states:
 
 External pull requests are contributions, not automatic requests for agent work.
 
+The protected `main` merge boundary and its read-only drift audit are documented in [`docs/development/main-branch-protection.md`](../development/main-branch-protection.md). The ruleset is configured in GitHub Settings; the workflow resource and token limits are checked into the repository.
+
 ## Decisions before implementation
 
 Resolve the remaining export, migration, deletion, and contribution-policy questions in [`open-questions.md`](open-questions.md).

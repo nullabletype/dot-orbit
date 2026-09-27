@@ -15,6 +15,10 @@ on:
       - tools/**
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -22,6 +26,7 @@ jobs:
   package-and-smoke:
     name: ${{ matrix.runtime }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
