@@ -44,6 +44,8 @@ public sealed class ProjectCaptureWindowTests
         Activate(window, projectButton);
         var draftTitle = window.FindControl<TextBox>("DraftTitle")!;
         Assert.Contains("inspector-title", draftTitle.Classes);
+        Assert.False(draftTitle.IsFocused);
+        Assert.True(draftTitle.Focus());
         var titleBorder = Assert.Single(draftTitle.GetVisualDescendants().OfType<Border>(), border => border.Name == "PART_BorderElement");
         Assert.Equal(new Thickness(2), titleBorder.BorderThickness);
         Assert.Contains("primary-action", NamedButton(window, "Save").Classes);
@@ -80,7 +82,8 @@ public sealed class ProjectCaptureWindowTests
         Assert.Equal("1", shell.PrimaryNavigation.Single(n => n.Title == "Projects").CountText);
 
         Activate(window, NamedButton(window, "Garden"));
-        Assert.True(title.IsFocused);
+        Assert.False(title.IsFocused);
+        Assert.True(title.Focus());
         title.SelectAll();
         window.KeyTextInput("Renamed garden");
         Assert.Equal("Garden", Assert.Single(work.Read().Projects).Title);

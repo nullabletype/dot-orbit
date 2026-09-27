@@ -257,11 +257,9 @@ public sealed class ProjectRowViewModel : INotifyPropertyChanged
             if (_isExpanded == value) return;
             _isExpanded = value;
             Notify(nameof(IsExpanded));
-            Notify(nameof(ExpansionGlyph));
             Notify(nameof(ExpansionAccessibleName));
         }
     }
-    public string ExpansionGlyph => IsExpanded ? "⌄" : "›";
     public string ExpansionAccessibleName => $"{(IsExpanded ? "Collapse" : "Expand")} {Title}";
     public string QuickTitle { get => _quickTitle; set { _quickTitle = value; PropertyChanged?.Invoke(this, new(nameof(QuickTitle))); } }
     public RelayCommand SelectCommand { get; }
