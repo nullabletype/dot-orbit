@@ -46,12 +46,13 @@
   <Grid ColumnDefinitions="228,*,320" RowDefinitions="64,*">
     <Border
         x:Name="TopBar"
+        IsEnabled="{Binding !Work.NeedsDecision, FallbackValue=True}"
         Grid.Row="0"
         Grid.ColumnSpan="3"
         Background="{StaticResource BackgroundBrush}"
         BorderBrush="{StaticResource LineBrush}"
         BorderThickness="0,0,0,1">
-      <Grid ColumnDefinitions="228,*">
+      <Grid ColumnDefinitions="228,*,Auto">
         <StackPanel
             Grid.Column="0"
             Margin="22,0,0,0"
@@ -73,7 +74,8 @@
         </StackPanel>
         <Button
             x:Name="OpenRecoveryButton"
-            Grid.Column="1"
+            Grid.Column="2"
+            Classes="view-action"
             Margin="0,0,24,0"
             HorizontalAlignment="Right"
             VerticalAlignment="Center"
@@ -89,6 +91,7 @@
     <Border
         Grid.Row="1"
         Grid.Column="0"
+        IsEnabled="{Binding !Work.NeedsDecision, FallbackValue=True}"
         Padding="12,18"
         Background="{StaticResource SidebarBrush}"
         BorderBrush="{StaticResource LineBrush}"
@@ -123,33 +126,47 @@
 
     <Grid
         x:Name="CurrentViewRegion"
+        IsEnabled="{Binding !Work.NeedsDecision, FallbackValue=True}"
         Grid.Row="1"
         Grid.Column="1"
         Margin="32,30,32,60"
         AutomationProperties.LiveSetting="Polite"
         RowDefinitions="Auto,28,*">
-      <StackPanel Grid.Row="0" Spacing="7">
-        <TextBlock
-            x:Name="CurrentViewEyebrowText"
-            Classes="eyebrow"
-            Text="PERSONAL WORKSPACE" />
-        <TextBlock
-            x:Name="CurrentViewTitleText"
-            AutomationProperties.Name="Current view"
-            FontSize="31"
-            FontWeight="Bold"
-            LetterSpacing="-1.2"
-            Text="{Binding ViewTitle}" />
-        <TextBlock
-            x:Name="CurrentViewSubtitleText"
-            FontSize="14"
-            Foreground="{StaticResource MutedTextBrush}"
-            Text="{Binding ViewSubtitle}"
-            TextWrapping="Wrap" />
-      </StackPanel>
+      <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+        <StackPanel Spacing="7">
+          <TextBlock
+              x:Name="CurrentViewEyebrowText"
+              Classes="eyebrow"
+              Text="PERSONAL WORKSPACE" />
+          <TextBlock
+              x:Name="CurrentViewTitleText"
+              AutomationProperties.Name="Current view"
+              FontSize="31"
+              FontWeight="Bold"
+              LetterSpacing="-1.2"
+              Text="{Binding ViewTitle}" />
+          <TextBlock
+              x:Name="CurrentViewSubtitleText"
+              FontSize="14"
+              Foreground="{StaticResource MutedTextBrush}"
+              Text="{Binding ViewSubtitle}"
+              TextWrapping="Wrap" />
+        </StackPanel>
+        <Button
+            x:Name="NewProjectButton"
+            Grid.Column="1"
+            Classes="primary-action"
+            VerticalAlignment="Bottom"
+            AutomationProperties.Name="New project"
+            Click="OnFocusInspector"
+            Command="{Binding Work.NewProjectCommand}"
+            Content="＋ New project"
+            IsVisible="{Binding ShowProjects}" />
+      </Grid>
 
       <Border
           Grid.Row="2"
+          IsVisible="{Binding ShowEmpty}"
           Padding="42"
           VerticalAlignment="Top"
           Background="Transparent"
@@ -177,17 +194,171 @@
               TextWrapping="Wrap" />
         </StackPanel>
       </Border>
+      <ScrollViewer Grid.Row="2" IsVisible="{Binding ShowProjects}">
+        <StackPanel Spacing="10">
+          <Border
+              IsVisible="{Binding Work.HasNoProjects}"
+              Padding="44"
+              Background="Transparent"
+              BorderBrush="{StaticResource LineBrush}"
+              BorderThickness="1"
+              CornerRadius="10">
+            <StackPanel HorizontalAlignment="Center" Spacing="8">
+              <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Text="No projects yet" />
+              <TextBlock MaxWidth="420" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}" LineHeight="21" Text="Create a project when a piece of work needs more than one task." TextAlignment="Center" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+          <ItemsControl ItemsSource="{Binding Work.Projects}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:ProjectRowViewModel">
+                <Border
+                    Margin="0,0,0,10"
+                    Background="{StaticResource PanelBrush}"
+                    BorderBrush="{StaticResource LineBrush}"
+                    BorderThickness="1"
+                    CornerRadius="10">
+                  <Grid RowDefinitions="Auto,Auto">
+                      <Grid Margin="10,8,12,8" ColumnDefinitions="30,*,Auto">
+                        <ToggleButton
+                            Classes="disclosure"
+                            AutomationProperties.Name="{Binding ExpansionAccessibleName}"
+                            IsChecked="{Binding IsExpanded, Mode=TwoWay}">
+                          <Grid Width="12" Height="12">
+                            <Path
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Data="M 1,3 L 6,8 L 11,3"
+                                IsVisible="{Binding IsExpanded}"
+                                Stroke="{Binding $parent[ToggleButton].Foreground}"
+                                StrokeLineCap="Round"
+                                StrokeThickness="1.6" />
+                            <Path
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Data="M 3,1 L 8,6 L 3,11"
+                                IsVisible="{Binding !IsExpanded}"
+                                Stroke="{Binding $parent[ToggleButton].Foreground}"
+                                StrokeLineCap="Round"
+                                StrokeThickness="1.6" />
+                          </Grid>
+                        </ToggleButton>
+                        <Button
+                            Grid.Column="1"
+                            Classes="project-title"
+                            AutomationProperties.Name="{Binding Title}"
+                            Command="{Binding SelectCommand}">
+                          <StackPanel Spacing="5">
+                            <TextBlock FontSize="15" FontWeight="Bold" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                              <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Ellipse Width="7" Height="7" VerticalAlignment="Center" Fill="{StaticResource QuietTextBrush}" />
+                                <TextBlock FontSize="12" Foreground="{StaticResource MutedTextBrush}" Text="{Binding Status}" />
+                              </StackPanel>
+                              <TextBlock FontSize="12" Foreground="{StaticResource QuietTextBrush}" Text="·" />
+                              <TextBlock FontSize="12" Foreground="{StaticResource MutedTextBrush}" Text="{Binding ProgressText}" />
+                              <TextBlock FontSize="12" Foreground="{StaticResource QuietTextBrush}" Text="·" />
+                              <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Ellipse Width="7" Height="7" VerticalAlignment="Center" Fill="{StaticResource QuietTextBrush}" />
+                                <TextBlock MaxWidth="105" FontSize="12" Foreground="{StaticResource MutedTextBrush}" Text="{Binding CategoryName}" TextTrimming="CharacterEllipsis" />
+                              </StackPanel>
+                            </StackPanel>
+                          </StackPanel>
+                        </Button>
+                        <TextBlock
+                            Grid.Column="2"
+                            VerticalAlignment="Center"
+                            MaxWidth="110"
+                            FontSize="12"
+                            Foreground="{StaticResource MutedTextBrush}"
+                            Text="{Binding TargetText}"
+                            TextAlignment="Right"
+                            TextWrapping="Wrap" />
+                      </Grid>
+                    <Border
+                        Grid.Row="1"
+                        IsVisible="{Binding IsExpanded}"
+                        Background="{StaticResource PanelBrush}"
+                        BorderBrush="{StaticResource LineSoftBrush}"
+                        BorderThickness="0,1,0,0"
+                        Padding="52,7,10,10">
+                      <StackPanel Spacing="0">
+                        <ItemsControl ItemsSource="{Binding Tasks}">
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:TaskRowViewModel">
+                              <Border MinHeight="48" BorderBrush="{StaticResource LineSoftBrush}" BorderThickness="0,0,0,1">
+                                <Grid VerticalAlignment="Center">
+                                  <Button
+                                      Classes="task-title"
+                                      AutomationProperties.Name="{Binding Title}"
+                                      Command="{Binding SelectCommand}">
+                                    <StackPanel Spacing="2">
+                                      <TextBlock FontSize="14" Text="{Binding Title}" />
+                                      <TextBlock FontSize="11" Foreground="{StaticResource QuietTextBrush}" Text="{Binding CategoryDisplay}" />
+                                    </StackPanel>
+                                  </Button>
+                                </Grid>
+                              </Border>
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <Border Margin="0,7,0,0" Background="{StaticResource PanelInputBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="8">
+                          <Grid ColumnDefinitions="30,*">
+                            <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{StaticResource AccentBrush}" FontSize="17" Text="＋" />
+                            <TextBox
+                                Grid.Column="1"
+                                Classes="quick-add"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Text="{Binding QuickTitle, Mode=TwoWay}"
+                                PlaceholderText="Quick add task"
+                                AutomationProperties.Name="Quick add task"
+                                AutomationProperties.HelpText="Enter or Tab creates a task. Escape clears the title. Tab on an empty field moves on."
+                                KeyDown="OnQuickAddKeyDown" />
+                          </Grid>
+                        </Border>
+                      </StackPanel>
+                    </Border>
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </ScrollViewer>
+      <ScrollViewer Grid.Row="2" IsVisible="{Binding ShowBacklog}">
+        <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="10" Padding="10,4">
+          <ItemsControl ItemsSource="{Binding Work.Backlog}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:TaskRowViewModel">
+                <Border MinHeight="48" BorderBrush="{StaticResource LineSoftBrush}" BorderThickness="0,0,0,1">
+                  <Grid VerticalAlignment="Center">
+                    <Button Classes="task-title" Command="{Binding SelectCommand}" AutomationProperties.Name="{Binding Title}">
+                      <StackPanel Spacing="3">
+                        <TextBlock Text="{Binding Title}" />
+                        <TextBlock Text="{Binding CategoryDisplay}" Foreground="{StaticResource QuietTextBrush}" FontSize="12" />
+                      </StackPanel>
+                    </Button>
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </Border>
+      </ScrollViewer>
     </Grid>
 
     <Border
         x:Name="InspectorRegion"
+        IsEnabled="{Binding !Work.NeedsDecision, FallbackValue=True}"
         Grid.Row="1"
         Grid.Column="2"
         Padding="22"
         Background="{StaticResource PanelBrush}"
         BorderBrush="{StaticResource LineBrush}"
         BorderThickness="1,0,0,0">
+      <Grid>
       <TextBlock
+          IsVisible="{Binding Work.HasNoInspector, FallbackValue=True}"
           x:Name="InspectorEmptyText"
           HorizontalAlignment="Center"
           VerticalAlignment="Center"
@@ -196,6 +367,116 @@
           LineHeight="19"
           Text="Select a project or task&#x0a;to see its details"
           TextAlignment="Center" />
+      <ScrollViewer IsVisible="{Binding Work.HasInspector}">
+        <StackPanel Spacing="0">
+          <Border
+              HorizontalAlignment="Left"
+              Padding="8,4"
+              Background="{StaticResource PanelRaisedBrush}"
+              BorderBrush="{StaticResource LineBrush}"
+              BorderThickness="1"
+              CornerRadius="12">
+            <TextBlock FontSize="11" Foreground="{StaticResource MutedTextBrush}" Text="{Binding Work.InspectorHeading}" />
+          </Border>
+          <TextBox
+              x:Name="DraftTitle"
+              Classes="inspector-title"
+              Margin="0,9,0,0"
+              Text="{Binding Work.Title, Mode=TwoWay}"
+              AutomationProperties.Name="Title" />
+          <TextBlock
+              Margin="0,2,0,0"
+              IsVisible="{Binding Work.ShowProjectSummary}"
+              Text="{Binding Work.ProjectSummary}"
+              TextWrapping="Wrap"
+              FontSize="12"
+              Foreground="{StaticResource MutedTextBrush}" />
+
+          <Border Margin="0,22,0,0" Padding="0,20,0,0" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0">
+            <StackPanel Spacing="9">
+              <TextBlock Classes="inspector-label" Text="DESCRIPTION · MARKDOWN" />
+              <TextBox
+                  Classes="inspector-field"
+                  Text="{Binding Work.Description, Mode=TwoWay}"
+                  AcceptsReturn="True"
+                  MinHeight="122"
+                  LineHeight="20"
+                  TextWrapping="Wrap"
+                  AutomationProperties.Name="Description, Markdown source" />
+            </StackPanel>
+          </Border>
+
+          <Border Margin="0,22,0,0" Padding="0,20,0,0" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0">
+            <Grid ColumnDefinitions="*,14,*">
+              <StackPanel Spacing="9">
+                <TextBlock Classes="inspector-label" Text="DATE" />
+                <TextBox
+                    Classes="inspector-field"
+                    Text="{Binding Work.Date, Mode=TwoWay}"
+                    PlaceholderText="YYYY-MM-DD"
+                    AutomationProperties.Name="{Binding Work.DateLabel}" />
+              </StackPanel>
+              <StackPanel Grid.Column="2" Spacing="9">
+                <TextBlock Classes="inspector-label" Text="{Binding Work.InspectorMetaLabel}" />
+                <Border MinHeight="38" Padding="10,8" Background="{StaticResource PanelRaisedBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="8">
+                  <TextBlock VerticalAlignment="Center" FontSize="12" Foreground="{StaticResource MutedTextBrush}" Text="{Binding Work.InspectorMetaValue}" TextWrapping="Wrap" />
+                </Border>
+              </StackPanel>
+            </Grid>
+          </Border>
+
+          <Border Margin="0,22,0,0" Padding="0,20,0,0" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0">
+            <StackPanel Spacing="9">
+              <TextBlock Classes="inspector-label" Text="CATEGORY" />
+              <ComboBox
+                  Classes="inspector-field"
+                  ItemsSource="{Binding Work.Categories}"
+                  SelectedItem="{Binding Work.Category, Mode=TwoWay}"
+                  HorizontalAlignment="Stretch"
+                  AutomationProperties.Name="Category">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:CategoryChoice">
+                    <TextBlock Text="{Binding Name}" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <TextBlock Text="{Binding Work.CategoryHint}" FontSize="11" Foreground="{StaticResource QuietTextBrush}" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+
+          <Grid Margin="0,24,0,0" ColumnDefinitions="*,8,*">
+            <Button
+                Classes="primary-action"
+                Content="{Binding Work.SaveLabel}"
+                Command="{Binding Work.SaveCommand}"
+                AutomationProperties.Name="{Binding Work.SaveLabel}" />
+            <Button
+                Grid.Column="2"
+                Classes="view-action"
+                Content="Cancel"
+                Command="{Binding Work.CancelCommand}"
+                Click="OnFocusInspector"
+                AutomationProperties.Name="Cancel editing" />
+          </Grid>
+        </StackPanel>
+      </ScrollViewer>
+      </Grid>
+    </Border>
+    <Border Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Bottom" Padding="12" Background="{StaticResource PanelBrush}" IsVisible="{Binding Work.HasMessage}">
+      <TextBlock Text="{Binding Work.Message}" AutomationProperties.LiveSetting="Polite" TextWrapping="Wrap" />
+    </Border>
+    <Border Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Padding="24" Background="{StaticResource PanelRaisedBrush}" BorderBrush="#414958" BorderThickness="1" CornerRadius="14" BoxShadow="0 14 38 0 #99000000" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding Work.NeedsDecision}">
+      <StackPanel Width="470" Spacing="16" AutomationProperties.LiveSetting="Assertive">
+        <StackPanel Spacing="5">
+          <TextBlock Text="Save your changes before leaving?" FontSize="20" FontWeight="Bold" />
+          <TextBlock Text="Your inspector contains changes that have not been saved." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Spacing="12">
+          <Button x:Name="GuardSave" Classes="primary-action" Content="Save and leave" Command="{Binding Work.SaveAndLeaveCommand}" AutomationProperties.Name="Save changes and leave" />
+          <Button Classes="view-action" Content="Discard and leave" Command="{Binding Work.DiscardAndLeaveCommand}" AutomationProperties.Name="Discard changes and leave" />
+          <Button Classes="view-action" Content="Stay" Command="{Binding Work.StayCommand}" AutomationProperties.Name="Stay and keep editing" Click="OnFocusInspector" />
+        </StackPanel>
+      </StackPanel>
     </Border>
   </Grid>
 </Window>

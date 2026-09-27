@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using DotOrbit.Core.Workspaces;
 using System.Runtime.CompilerServices;
 
 namespace DotOrbit.Desktop.ViewModels;
@@ -7,8 +8,9 @@ public sealed class ShellViewModel : INotifyPropertyChanged
 {
     private NavigationItemViewModel _selectedItem = null!;
 
-    public ShellViewModel()
+    public ShellViewModel(IWorkspaceWork? work = null)
     {
+        Work = work is null ? null : new ProjectCaptureViewModel(work);
         PrimaryNavigation =
         [
             CreateNavigationItem(
@@ -64,6 +66,12 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             countText: null);
 
         Select(PrimaryNavigation[0]);
+        if (Work is not null)
+        {
+            Work.Projects.CollectionChanged += (_, _) => UpdateCounts();
+            Work.Backlog.CollectionChanged += (_, _) => UpdateCounts();
+            UpdateCounts();
+        }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -85,11 +93,20 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             _selectedItem = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(ViewTitle));
+            OnPropertyChanged(nameof(ShowProjects));
+            OnPropertyChanged(nameof(ShowBacklog));
+            OnPropertyChanged(nameof(ShowEmpty));
             OnPropertyChanged(nameof(ViewSubtitle));
             OnPropertyChanged(nameof(EmptyStateHeading));
             OnPropertyChanged(nameof(EmptyStateBody));
         }
     }
+
+    public ProjectCaptureViewModel? Work { get; }
+
+    public bool ShowProjects => Work is not null && ViewTitle == "Projects";
+    public bool ShowBacklog => Work is not null && ViewTitle == "Backlog";
+    public bool ShowEmpty => !ShowProjects && !ShowBacklog;
 
     public string ViewTitle => SelectedItem.Title;
 
@@ -118,6 +135,12 @@ public sealed class ShellViewModel : INotifyPropertyChanged
 
     private void Select(NavigationItemViewModel item)
     {
+        if (Work is null) SelectCore(item);
+        else Work.Navigate(() => SelectCore(item));
+    }
+
+    private void SelectCore(NavigationItemViewModel item)
+    {
         if (_selectedItem is not null)
         {
             _selectedItem.IsSelected = false;
@@ -125,6 +148,12 @@ public sealed class ShellViewModel : INotifyPropertyChanged
 
         item.IsSelected = true;
         SelectedItem = item;
+    }
+
+    private void UpdateCounts()
+    {
+        PrimaryNavigation.Single(n => n.Title == "Projects").CountText = Work!.Projects.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        PrimaryNavigation.Single(n => n.Title == "Backlog").CountText = Work.Backlog.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>

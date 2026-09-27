@@ -81,7 +81,8 @@ public sealed class MainWindowTests
             window.FindControl<TextBlock>("InspectorEmptyText")?.Text);
         Assert.NotNull(window.FindControl<Border>("TopBar"));
         Assert.NotNull(window.FindControl<Border>("InspectorRegion"));
-        Assert.Equal(8, window.GetVisualDescendants().OfType<PathIcon>().Count());
+        Assert.All(window.GetVisualDescendants().OfType<RadioButton>(), button =>
+            Assert.Single(button.GetVisualDescendants().OfType<PathIcon>()));
         Assert.Single(
             window.GetVisualDescendants().OfType<Border>(),
             border => border.Name == "SelectionIndicator" && border.IsVisible);

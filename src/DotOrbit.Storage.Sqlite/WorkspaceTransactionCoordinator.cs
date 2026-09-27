@@ -43,6 +43,20 @@ internal sealed class WorkspaceTransactionCoordinator
         }
     }
 
+    internal T Read<T>(Func<SqliteConnection, SqliteTransaction, T> read)
+    {
+        lock (_gate)
+        {
+            var passphrase = _passphrase ?? throw new ObjectDisposedException(nameof(IWorkspaceSession));
+            using var connection = EncryptedWorkspaceStore.OpenConnection(_workspacePath, passphrase, SqliteOpenMode.ReadOnly);
+            EncryptedWorkspaceStore.ConfigureConnection(connection);
+            using var transaction = connection.BeginTransaction();
+            var result = read(connection, transaction);
+            transaction.Commit();
+            return result;
+        }
+    }
+
     internal void Close()
     {
         lock (_gate)
