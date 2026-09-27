@@ -787,9 +787,9 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
                 SqliteOpenMode.ReadOnly);
             EncryptedWorkspaceStore.ConfigureConnection(connection);
             var inspection = EncryptedWorkspaceStore.InspectWorkspace(connection);
-            return inspection.Status == EncryptedWorkspaceStore.WorkspaceInspectionStatus.Valid
-                ? RecoveryValidation.Valid
-                : RecoveryValidation.UnsupportedSchema;
+            return inspection.Status == EncryptedWorkspaceStore.WorkspaceInspectionStatus.UnsupportedSchema
+                ? RecoveryValidation.UnsupportedSchema
+                : RecoveryValidation.Valid;
         }
         catch (SqliteException)
         {

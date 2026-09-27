@@ -823,7 +823,9 @@ public sealed class EncryptedWorkspaceRecoveryTests
         using var session = fixture.CreateWorkspace("Current");
         var selected = session.Recovery.CreateRecoveryPoint(fixture.RecoveryDirectory);
         var selectedPath = Assert.IsType<string>(selected.RecoveryPointPath);
-        fixture.SetSchemaVersion(selectedPath, 2);
+        fixture.SetSchemaVersion(
+            selectedPath,
+            EncryptedWorkspaceStore.CurrentSchemaVersion + 1);
         var originalHash = Hash(fixture.WorkspacePath);
 
         var result = session.Recovery.Restore(selectedPath, fixture.RecoveryDirectory);

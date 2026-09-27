@@ -13,6 +13,8 @@ public sealed class WorkspaceAccessViewModel : INotifyPropertyChanged
     private string _confirmation = string.Empty;
     private string _firstCategoryName = string.Empty;
     private bool _isPassphraseVisible;
+    private WorkspacePassphrase? _migrationPassphrase;
+    private string? _migrationRecoveryPointPath;
     private string _passphrase = string.Empty;
     private string _validationMessage = string.Empty;
 
@@ -30,6 +32,7 @@ public sealed class WorkspaceAccessViewModel : INotifyPropertyChanged
         _workspaceOpened = workspaceOpened;
         IsCreateMode = !_workspaceStore.Exists(_workspacePath);
         SubmitCommand = new RelayCommand(Submit);
+        RestoreMigrationRecoveryCommand = new RelayCommand(RestoreMigrationRecovery);
         TogglePassphraseVisibilityCommand = new RelayCommand(TogglePassphraseVisibility);
     }
 
@@ -99,12 +102,18 @@ public sealed class WorkspaceAccessViewModel : INotifyPropertyChanged
 
     public bool HasValidationMessage => !string.IsNullOrEmpty(ValidationMessage);
 
+    public bool CanRestoreMigrationRecovery =>
+        _migrationPassphrase is not null && _migrationRecoveryPointPath is not null;
+
+    public ICommand RestoreMigrationRecoveryCommand { get; }
+
     public ICommand SubmitCommand { get; }
 
     public ICommand TogglePassphraseVisibilityCommand { get; }
 
     private void Submit()
     {
+        ClearMigrationRecovery();
         ValidationMessage = string.Empty;
         if (IsCreateMode)
         {
@@ -174,11 +183,58 @@ public sealed class WorkspaceAccessViewModel : INotifyPropertyChanged
             return;
         }
 
-        ValidationMessage = result.Status == WorkspaceOpenStatus.UnsupportedSchema
-            ? "This workspace was created by a newer version of dot-orbit. Update the application to open it."
-            : "The workspace could not be unlocked. Check the passphrase and try again.";
+        if (result.Status == WorkspaceOpenStatus.MigrationFailed
+            && result.RecoveryPointPath is not null)
+        {
+            _migrationPassphrase = passphrase;
+            _migrationRecoveryPointPath = result.RecoveryPointPath;
+            OnPropertyChanged(nameof(CanRestoreMigrationRecovery));
+        }
+
+        ValidationMessage = result.Status switch
+        {
+            WorkspaceOpenStatus.UnsupportedSchema =>
+                "This workspace was created by a newer version of dot-orbit. Update the application to open it.",
+            WorkspaceOpenStatus.MigrationFailed when result.RecoveryPointPath is not null =>
+                $"The workspace upgrade could not be completed. The original remains usable and a recovery point is available at {result.RecoveryPointPath}.",
+            WorkspaceOpenStatus.MigrationFailed =>
+                "The workspace upgrade could not start because a validated recovery point could not be created. The original remains unchanged.",
+            _ => "The workspace could not be unlocked. Check the passphrase and try again.",
+        };
         Passphrase = string.Empty;
         PassphraseFocusRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void RestoreMigrationRecovery()
+    {
+        if (_migrationPassphrase is null || _migrationRecoveryPointPath is null)
+        {
+            return;
+        }
+
+        var result = _workspaceStore.RestoreMigrationRecovery(
+            _workspacePath,
+            _migrationPassphrase,
+            _migrationRecoveryPointPath);
+        ClearMigrationRecovery();
+        ValidationMessage = result.Status switch
+        {
+            MigrationRecoveryRestoreStatus.Restored =>
+                "The pre-upgrade workspace was restored. Enter your passphrase to retry the upgrade.",
+            MigrationRecoveryRestoreStatus.InvalidRecoveryPoint =>
+                "The migration recovery point is no longer valid. The workspace was not replaced.",
+            MigrationRecoveryRestoreStatus.PreRestoreRecoveryFailed =>
+                "The workspace was not replaced because a pre-restore recovery point could not be created.",
+            _ => "The migration recovery point could not be restored. The workspace may still be usable.",
+        };
+        PassphraseFocusRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void ClearMigrationRecovery()
+    {
+        _migrationPassphrase = null;
+        _migrationRecoveryPointPath = null;
+        OnPropertyChanged(nameof(CanRestoreMigrationRecovery));
     }
 
     private void Complete(IWorkspaceSession session)
