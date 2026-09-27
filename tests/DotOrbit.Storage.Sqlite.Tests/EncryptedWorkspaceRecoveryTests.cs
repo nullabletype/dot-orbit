@@ -83,6 +83,22 @@ public sealed class EncryptedWorkspaceRecoveryTests
     }
 
     [Fact]
+    public void AutomaticRecoveryFileNameFitsPortablePathBudget()
+    {
+        using var fixture = new RecoveryFixture();
+        using var session = fixture.CreateWorkspace("Before");
+        var concreteSession = Assert.IsType<EncryptedWorkspaceStore.WorkspaceSession>(session);
+        session.Recovery.ConfigureAutomaticRecoveryDirectory(fixture.RecoveryDirectory);
+        fixture.FileOperations.MaximumPathLength = fixture.RecoveryDirectory.Length + 180;
+
+        var result = ChangeFirstCategory(concreteSession.Transactions, "After");
+
+        Assert.Equal(AutomaticRecoveryAttempt.Created, result);
+        var recoveryPath = Assert.Single(GetAutomaticRecoveryFiles(fixture.RecoveryDirectory));
+        Assert.True(OpensWithCategory(fixture.Store, recoveryPath, "After"));
+    }
+
+    [Fact]
     public void TransactionCoordinatorNotifiesRecoveryOnlyAfterCommit()
     {
         var time = new ManualTimeProvider(
@@ -1137,6 +1153,8 @@ public sealed class EncryptedWorkspaceRecoveryTests
 
         public int? FailStatePublishCall { get; set; }
 
+        public int? MaximumPathLength { get; set; }
+
         public string ResolvePath(string path) => _inner.ResolvePath(path);
 
         public bool Exists(string path) => _inner.Exists(path);
@@ -1188,6 +1206,12 @@ public sealed class EncryptedWorkspaceRecoveryTests
 
         public void Flush(string path)
         {
+            if (MaximumPathLength is { } maximumPathLength
+                && path.Length > maximumPathLength)
+            {
+                throw new PathTooLongException("Injected portable path budget.");
+            }
+
             if (Failure == FailurePoint.Flush)
             {
                 throw new IOException("Injected flush interruption.");

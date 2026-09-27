@@ -17,7 +17,7 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
     private const string RecoveryTimestampFormat = "yyyyMMdd'T'HHmmssfffffff'Z'";
     private const int RecoveryTimestampLength = 23;
     private const int ChangeGenerationLength = 20;
-    private const int HashedIdentifierLength = 64;
+    private const int HashedIdentifierLength = 32;
     private const int RecoveryStateVersion = 1;
     private static readonly TimeSpan AutomaticRecoveryCadence = TimeSpan.FromHours(1);
     private static readonly SearchValues<char> HexCharacters =
@@ -740,8 +740,11 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
         return false;
     }
 
-    private static string HashIdentifier(string identifier) =>
-        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identifier)));
+    private static string HashIdentifier(string identifier)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(identifier));
+        return Convert.ToHexString(hash.AsSpan(0, HashedIdentifierLength / 2));
+    }
 
     private static bool IsHashedIdentifier(string? identifier) =>
         identifier is not null && IsHashedIdentifier(identifier.AsSpan());
