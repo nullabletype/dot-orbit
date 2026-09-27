@@ -200,21 +200,26 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
         var candidatePath = Path.Combine(
             directory,
             $".{Path.GetFileName(recoveryPointPath)}.creating");
+        var diagnosticPhase = "ensure-directory";
 
         try
         {
             _fileOperations.EnsureDirectory(directory);
+            diagnosticPhase = "open-source";
             using var source = EncryptedWorkspaceStore.OpenConnection(
                 _workspacePath,
                 passphrase,
                 SqliteOpenMode.ReadOnly);
+            diagnosticPhase = "inspect-source";
             EncryptedWorkspaceStore.ConfigureConnection(source);
             var sourceInspection = EncryptedWorkspaceStore.InspectWorkspace(source);
             if (sourceInspection.Status != EncryptedWorkspaceStore.WorkspaceInspectionStatus.Valid)
             {
+                Console.Error.WriteLine("[DEBUG-recovery-create] phase=inspect-source result=invalid");
                 return RecoveryPointCreationResult.Failed();
             }
 
+            diagnosticPhase = "open-candidate";
             using (var candidate = EncryptedWorkspaceStore.OpenConnection(
                        candidatePath,
                        passphrase,
@@ -222,34 +227,48 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
             {
                 EncryptedWorkspaceStore.ConfigureConnection(candidate);
                 EncryptedWorkspaceStore.AssertEncryptionProfile(candidate);
+                diagnosticPhase = "backup";
                 source.BackupDatabase(candidate);
+                diagnosticPhase = "validate-candidate";
                 EncryptedWorkspaceStore.ValidateIntegrity(candidate);
                 EncryptedWorkspaceStore.ValidateWorkspaceShape(candidate);
             }
 
+            diagnosticPhase = "flush";
             _fileOperations.Flush(candidatePath);
+            diagnosticPhase = "reopen-candidate";
             if (Validate(candidatePath, passphrase) != RecoveryValidation.Valid)
             {
+                Console.Error.WriteLine("[DEBUG-recovery-create] phase=reopen-candidate result=invalid");
                 return RecoveryPointCreationResult.Failed();
             }
 
+            diagnosticPhase = "publish";
             _fileOperations.Publish(candidatePath, recoveryPointPath);
             return RecoveryPointCreationResult.Created(recoveryPointPath);
         }
-        catch (SqliteException)
+        catch (SqliteException exception)
         {
+            Console.Error.WriteLine(
+                $"[DEBUG-recovery-create] phase={diagnosticPhase} exception=SqliteException code={exception.SqliteErrorCode} extended={exception.SqliteExtendedErrorCode}");
             return RecoveryPointCreationResult.Failed();
         }
-        catch (IOException)
+        catch (IOException exception)
         {
+            Console.Error.WriteLine(
+                $"[DEBUG-recovery-create] phase={diagnosticPhase} exception={exception.GetType().Name}");
             return RecoveryPointCreationResult.Failed();
         }
         catch (UnauthorizedAccessException)
         {
+            Console.Error.WriteLine(
+                $"[DEBUG-recovery-create] phase={diagnosticPhase} exception=UnauthorizedAccessException");
             return RecoveryPointCreationResult.Failed();
         }
         catch (InvalidDataException)
         {
+            Console.Error.WriteLine(
+                $"[DEBUG-recovery-create] phase={diagnosticPhase} exception=InvalidDataException");
             return RecoveryPointCreationResult.Failed();
         }
         finally
