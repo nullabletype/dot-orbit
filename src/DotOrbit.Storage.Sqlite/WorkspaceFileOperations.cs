@@ -20,6 +20,8 @@ internal interface IWorkspaceFileOperations
 
     void Replace(string candidatePath, string targetPath, string rollbackPath);
 
+    IReadOnlyList<string> GetRollbackPaths(string targetPath);
+
     void DeleteCandidate(string candidatePath);
 }
 
@@ -71,6 +73,21 @@ internal sealed class WorkspaceFileOperations : IWorkspaceFileOperations
 
     public void Replace(string candidatePath, string targetPath, string rollbackPath) =>
         File.Replace(candidatePath, targetPath, rollbackPath, ignoreMetadataErrors: true);
+
+    public IReadOnlyList<string> GetRollbackPaths(string targetPath)
+    {
+        var directory = Path.GetDirectoryName(targetPath);
+        if (string.IsNullOrEmpty(directory) || !Directory.Exists(directory))
+        {
+            return [];
+        }
+
+        return Directory.GetFiles(
+                directory,
+                $".{Path.GetFileName(targetPath)}.restore-*.rollback")
+            .OrderByDescending(File.GetLastWriteTimeUtc)
+            .ToArray();
+    }
 
     public void DeleteCandidate(string candidatePath)
     {

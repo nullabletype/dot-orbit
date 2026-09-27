@@ -149,6 +149,21 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
             return WorkspaceOpenResult.InvalidPassphraseOrStore();
         }
 
+        var opened = OpenResolved(fullPath, passphrase);
+        if (opened.Status != WorkspaceOpenStatus.InvalidPassphraseOrStore
+            || !TryRecoverRollback(fullPath, passphrase))
+        {
+            return opened;
+        }
+
+        return OpenResolved(fullPath, passphrase);
+    }
+
+    private WorkspaceOpenResult OpenResolved(
+        string fullPath,
+        WorkspacePassphrase passphrase)
+    {
+
         SqliteConnection? connection = null;
         try
         {
@@ -187,6 +202,72 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         finally
         {
             connection?.Dispose();
+        }
+    }
+
+    internal WorkspaceOpenResult OpenWithoutRollbackRecovery(
+        string path,
+        WorkspacePassphrase passphrase) =>
+        OpenResolved(_fileOperations.ResolvePath(path), passphrase);
+
+    private bool TryRecoverRollback(
+        string workspacePath,
+        WorkspacePassphrase passphrase)
+    {
+        foreach (var rollbackPath in _fileOperations.GetRollbackPaths(workspacePath))
+        {
+            if (!IsValidWorkspace(rollbackPath, passphrase))
+            {
+                continue;
+            }
+
+            var failedPath = _fileOperations.GetCandidatePath(
+                workspacePath,
+                $"failed-{GetIdentifier()}");
+            try
+            {
+                _fileOperations.Replace(rollbackPath, workspacePath, failedPath);
+                _fileOperations.DeleteCandidate(failedPath);
+                return true;
+            }
+            catch (IOException)
+            {
+                if (IsValidWorkspace(workspacePath, passphrase))
+                {
+                    _fileOperations.DeleteCandidate(failedPath);
+                    return true;
+                }
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsValidWorkspace(
+        string path,
+        WorkspacePassphrase passphrase)
+    {
+        try
+        {
+            using var connection = OpenConnection(path, passphrase, SqliteOpenMode.ReadOnly);
+            ConfigureConnection(connection);
+            return InspectWorkspace(connection).Status == WorkspaceInspectionStatus.Valid;
+        }
+        catch (SqliteException)
+        {
+            return false;
+        }
+        catch (InvalidDataException)
+        {
+            return false;
+        }
+        catch (IOException)
+        {
+            return false;
         }
     }
 

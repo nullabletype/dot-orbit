@@ -150,7 +150,7 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
                 return WorkspaceRestoreResult.Failed(ReopenWorkspace(_workspacePath, passphrase));
             }
 
-            var restored = _store.Open(_workspacePath, passphrase);
+            var restored = _store.OpenWithoutRollbackRecovery(_workspacePath, passphrase);
             if (restored.Status == WorkspaceOpenStatus.Opened && restored.Session is not null)
             {
                 _fileOperations.DeleteCandidate(rollbackPath);
@@ -214,11 +214,11 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
         }
         catch (IOException)
         {
-            return WorkspaceRestoreResult.Failed(ReopenWorkspace(rollbackPath, passphrase));
+            return WorkspaceRestoreResult.Failed(ReopenWorkspace(_workspacePath, passphrase));
         }
         catch (UnauthorizedAccessException)
         {
-            return WorkspaceRestoreResult.Failed(ReopenWorkspace(rollbackPath, passphrase));
+            return WorkspaceRestoreResult.Failed(ReopenWorkspace(_workspacePath, passphrase));
         }
     }
 
