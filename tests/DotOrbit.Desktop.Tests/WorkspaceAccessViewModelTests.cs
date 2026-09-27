@@ -210,6 +210,8 @@ public sealed class WorkspaceAccessViewModelTests
 
         public string FirstCategoryName { get; } = firstCategoryName;
 
+        public IWorkspaceRecovery Recovery => throw new NotSupportedException();
+
         public void Dispose()
         {
         }

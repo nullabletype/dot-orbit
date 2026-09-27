@@ -8,9 +8,17 @@ internal interface IWorkspaceFileOperations
 
     void EnsureParentDirectory(string path);
 
+    void EnsureDirectory(string path);
+
     string GetCandidatePath(string targetPath, string identifier);
 
     void Publish(string candidatePath, string targetPath);
+
+    void Copy(string sourcePath, string candidatePath);
+
+    void Flush(string path);
+
+    void Replace(string candidatePath, string targetPath);
 
     void DeleteCandidate(string candidatePath);
 }
@@ -32,6 +40,8 @@ internal sealed class WorkspaceFileOperations : IWorkspaceFileOperations
         Directory.CreateDirectory(directory);
     }
 
+    public void EnsureDirectory(string path) => Directory.CreateDirectory(path);
+
     public string GetCandidatePath(string targetPath, string identifier)
     {
         var directory = Path.GetDirectoryName(targetPath);
@@ -45,6 +55,26 @@ internal sealed class WorkspaceFileOperations : IWorkspaceFileOperations
 
     public void Publish(string candidatePath, string targetPath) =>
         File.Move(candidatePath, targetPath, overwrite: false);
+
+    public void Copy(string sourcePath, string candidatePath) =>
+        File.Copy(sourcePath, candidatePath, overwrite: false);
+
+    public void Flush(string path)
+    {
+        using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.ReadWrite,
+            FileShare.Read);
+        stream.Flush(flushToDisk: true);
+    }
+
+    public void Replace(string candidatePath, string targetPath) =>
+        File.Replace(
+            candidatePath,
+            targetPath,
+            destinationBackupFileName: null,
+            ignoreMetadataErrors: true);
 
     public void DeleteCandidate(string candidatePath)
     {

@@ -132,4 +132,23 @@ public sealed class MainWindowTests
         Assert.Equal(shell.ViewSubtitle, window.FindControl<TextBlock>("CurrentViewSubtitleText")?.Text);
         Assert.Equal(shell.EmptyStateHeading, window.FindControl<TextBlock>("EmptyStateHeadingText")?.Text);
     }
+
+    [AvaloniaFact]
+    public void UnlockedShellExposesKeyboardAccessibleRecoveryAction()
+    {
+        using var session = new RecoveryViewModelTests.StubWorkspaceSession(
+            new RecoveryViewModelTests.StubWorkspaceRecovery());
+        var window = new MainWindow(session);
+        window.Show();
+
+        var recovery = Assert.IsType<Button>(window.FindControl<Button>("OpenRecoveryButton"));
+
+        Assert.True(recovery.IsVisible);
+        Assert.True(recovery.Focusable);
+        Assert.Equal("Open recovery", AutomationProperties.GetName(recovery));
+        Assert.Contains(
+            "portable encrypted recovery points",
+            AutomationProperties.GetHelpText(recovery),
+            StringComparison.OrdinalIgnoreCase);
+    }
 }
