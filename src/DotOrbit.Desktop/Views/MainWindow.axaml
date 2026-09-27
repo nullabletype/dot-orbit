@@ -381,7 +381,7 @@
           <TextBox
               x:Name="DraftTitle"
               Classes="inspector-title"
-              Margin="-7,9,-7,0"
+              Margin="0,9,0,0"
               Text="{Binding Work.Title, Mode=TwoWay}"
               AutomationProperties.Name="Title" />
           <TextBlock

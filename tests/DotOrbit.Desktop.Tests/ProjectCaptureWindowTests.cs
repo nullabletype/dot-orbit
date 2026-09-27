@@ -46,6 +46,7 @@ public sealed class ProjectCaptureWindowTests
         Assert.Contains("inspector-title", draftTitle.Classes);
         Assert.False(draftTitle.IsFocused);
         Assert.True(draftTitle.Focus());
+        Assert.Equal(new Thickness(0, 9, 0, 0), draftTitle.Margin);
         var titleBorder = Assert.Single(draftTitle.GetVisualDescendants().OfType<Border>(), border => border.Name == "PART_BorderElement");
         Assert.Equal(new Thickness(2), titleBorder.BorderThickness);
         Assert.Contains("primary-action", NamedButton(window, "Save").Classes);
