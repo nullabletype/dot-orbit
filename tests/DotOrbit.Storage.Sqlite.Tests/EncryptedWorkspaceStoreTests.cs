@@ -336,11 +336,8 @@ public sealed class EncryptedWorkspaceStoreTests
 
         public void Flush(string path) => _inner.Flush(path);
 
-        public void Replace(string candidatePath, string targetPath, string rollbackPath) =>
-            _inner.Replace(candidatePath, targetPath, rollbackPath);
-
-        public IReadOnlyList<string> GetRollbackPaths(string targetPath) =>
-            _inner.GetRollbackPaths(targetPath);
+        public void Replace(string candidatePath, string targetPath) =>
+            _inner.Replace(candidatePath, targetPath);
 
         public void DeleteCandidate(string candidatePath) => _inner.DeleteCandidate(candidatePath);
     }

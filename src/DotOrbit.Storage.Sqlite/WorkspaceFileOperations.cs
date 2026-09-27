@@ -18,9 +18,7 @@ internal interface IWorkspaceFileOperations
 
     void Flush(string path);
 
-    void Replace(string candidatePath, string targetPath, string rollbackPath);
-
-    IReadOnlyList<string> GetRollbackPaths(string targetPath);
+    void Replace(string candidatePath, string targetPath);
 
     void DeleteCandidate(string candidatePath);
 }
@@ -71,23 +69,12 @@ internal sealed class WorkspaceFileOperations : IWorkspaceFileOperations
         stream.Flush(flushToDisk: true);
     }
 
-    public void Replace(string candidatePath, string targetPath, string rollbackPath) =>
-        File.Replace(candidatePath, targetPath, rollbackPath, ignoreMetadataErrors: true);
-
-    public IReadOnlyList<string> GetRollbackPaths(string targetPath)
-    {
-        var directory = Path.GetDirectoryName(targetPath);
-        if (string.IsNullOrEmpty(directory) || !Directory.Exists(directory))
-        {
-            return [];
-        }
-
-        return Directory.GetFiles(
-                directory,
-                $".{Path.GetFileName(targetPath)}.restore-*.rollback")
-            .OrderByDescending(File.GetLastWriteTimeUtc)
-            .ToArray();
-    }
+    public void Replace(string candidatePath, string targetPath) =>
+        File.Replace(
+            candidatePath,
+            targetPath,
+            destinationBackupFileName: null,
+            ignoreMetadataErrors: true);
 
     public void DeleteCandidate(string candidatePath)
     {

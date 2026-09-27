@@ -109,11 +109,6 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
         var restoreCandidatePath = _fileOperations.GetCandidatePath(
             _workspacePath,
             $"restore-{identifier}");
-        var rollbackPath = Path.Combine(
-            Path.GetDirectoryName(_workspacePath) ?? throw new InvalidDataException(),
-            $".{Path.GetFileName(_workspacePath)}.restore-{identifier}.rollback");
-        var failedRestorePath = restoreCandidatePath + ".failed";
-
         try
         {
             _fileOperations.Copy(sourcePath, restoreCandidatePath);
@@ -139,25 +134,28 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
             _closeWorkspace();
             try
             {
-                _fileOperations.Replace(restoreCandidatePath, _workspacePath, rollbackPath);
+                _fileOperations.Replace(restoreCandidatePath, _workspacePath);
             }
             catch (IOException)
             {
-                return WorkspaceRestoreResult.Failed(ReopenWorkspace(_workspacePath, passphrase));
+                return ResolveReplacementInterruption(
+                    restoreCandidatePath,
+                    passphrase);
             }
             catch (UnauthorizedAccessException)
             {
-                return WorkspaceRestoreResult.Failed(ReopenWorkspace(_workspacePath, passphrase));
+                return ResolveReplacementInterruption(
+                    restoreCandidatePath,
+                    passphrase);
             }
 
-            var restored = _store.OpenWithoutRollbackRecovery(_workspacePath, passphrase);
+            var restored = _store.OpenExistingWorkspace(_workspacePath, passphrase);
             if (restored.Status == WorkspaceOpenStatus.Opened && restored.Session is not null)
             {
-                _fileOperations.DeleteCandidate(rollbackPath);
                 return WorkspaceRestoreResult.Restored(restored.Session);
             }
 
-            return RollBackReplacement(rollbackPath, failedRestorePath, passphrase);
+            return WorkspaceRestoreResult.Failed();
         }
         catch (SqliteException)
         {
@@ -201,25 +199,17 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
         return opened.Status == WorkspaceOpenStatus.Opened ? opened.Session : null;
     }
 
-    private WorkspaceRestoreResult RollBackReplacement(
-        string rollbackPath,
-        string failedRestorePath,
+    private WorkspaceRestoreResult ResolveReplacementInterruption(
+        string restoreCandidatePath,
         WorkspacePassphrase passphrase)
     {
-        try
+        var reopened = ReopenWorkspace(_workspacePath, passphrase);
+        if (!_fileOperations.Exists(restoreCandidatePath) && reopened is not null)
         {
-            _fileOperations.Replace(rollbackPath, _workspacePath, failedRestorePath);
-            _fileOperations.DeleteCandidate(failedRestorePath);
-            return WorkspaceRestoreResult.Failed(ReopenWorkspace(_workspacePath, passphrase));
+            return WorkspaceRestoreResult.Restored(reopened);
         }
-        catch (IOException)
-        {
-            return WorkspaceRestoreResult.Failed(ReopenWorkspace(_workspacePath, passphrase));
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return WorkspaceRestoreResult.Failed(ReopenWorkspace(_workspacePath, passphrase));
-        }
+
+        return WorkspaceRestoreResult.Failed(reopened);
     }
 
     private static RecoveryValidation Validate(
