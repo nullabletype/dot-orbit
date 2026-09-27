@@ -47,8 +47,7 @@ public sealed partial class WorkspaceAccessWindow : Window
 
     private void OpenDefaultShell(IWorkspaceSession session)
     {
-        var mainWindow = new MainWindow();
-        mainWindow.Closed += (_, _) => session.Dispose();
+        var mainWindow = new MainWindow(session);
         if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             desktop.MainWindow = mainWindow;
