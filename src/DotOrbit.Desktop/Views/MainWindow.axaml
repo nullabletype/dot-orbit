@@ -71,6 +71,18 @@
               FontWeight="Bold"
               Text="dot-orbit" />
         </StackPanel>
+        <Button
+            x:Name="OpenRecoveryButton"
+            Grid.Column="1"
+            Margin="0,0,24,0"
+            HorizontalAlignment="Right"
+            VerticalAlignment="Center"
+            AutomationProperties.HelpText="Create or restore portable encrypted recovery points."
+            AutomationProperties.Name="Open recovery"
+            Click="OnOpenRecovery"
+            IsVisible="False">
+          Recovery
+        </Button>
       </Grid>
     </Border>
 
