@@ -80,7 +80,13 @@ public sealed class RecoveryWindowTests
         Assert.True(review.Focus());
         window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
         Assert.True(viewModel.IsRestoreConfirmationVisible);
-        Assert.True(cancel.Focus());
+        Assert.True(cancel.IsFocused);
+        var confirmation = Assert.IsType<Border>(
+            window.FindControl<Border>("RestoreConfirmationPanel"));
+        Assert.Equal("Restore confirmation", AutomationProperties.GetName(confirmation));
+        Assert.Equal(
+            AutomationLiveSetting.Assertive,
+            AutomationProperties.GetLiveSetting(confirmation));
         window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
 
         Assert.Equal(0, recovery.RestoreCallCount);

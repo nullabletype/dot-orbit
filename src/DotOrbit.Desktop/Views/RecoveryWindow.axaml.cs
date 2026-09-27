@@ -38,6 +38,7 @@ public sealed partial class RecoveryWindow : Window
         Opened += OnOpened;
         Closed += OnClosed;
         _viewModel.RestoreCancelled += OnRestoreCancelled;
+        _viewModel.RestoreConfirmationRequested += OnRestoreConfirmationRequested;
     }
 
     private async void OnSelectRecoveryDirectory(object? sender, RoutedEventArgs e) =>
@@ -56,8 +57,12 @@ public sealed partial class RecoveryWindow : Window
         Opened -= OnOpened;
         Closed -= OnClosed;
         _viewModel.RestoreCancelled -= OnRestoreCancelled;
+        _viewModel.RestoreConfirmationRequested -= OnRestoreConfirmationRequested;
     }
 
     private void OnRestoreCancelled(object? sender, EventArgs e) =>
         this.FindControl<Button>("RequestRestoreButton")?.Focus();
+
+    private void OnRestoreConfirmationRequested(object? sender, EventArgs e) =>
+        this.FindControl<Button>("CancelRestoreButton")?.Focus();
 }

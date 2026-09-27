@@ -9,9 +9,9 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
     internal const string RecoveryPointExtension = ".dotorbit-recovery";
 
     private readonly Action _closeWorkspace;
-    private readonly SqliteConnection _connection;
+    private SqliteConnection? _connection;
     private readonly IWorkspaceFileOperations _fileOperations;
-    private readonly WorkspacePassphrase _passphrase;
+    private WorkspacePassphrase? _passphrase;
     private readonly EncryptedWorkspaceStore _store;
     private readonly TimeProvider _timeProvider;
     private readonly string _workspacePath;
@@ -38,6 +38,8 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(directoryPath);
 
+        var connection = GetConnection();
+        var passphrase = GetPassphrase();
         var directory = _fileOperations.ResolvePath(directoryPath);
         var recoveryPointPath = Path.Combine(
             directory,
@@ -53,18 +55,18 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
             _fileOperations.EnsureDirectory(directory);
             using (var candidate = EncryptedWorkspaceStore.OpenConnection(
                        candidatePath,
-                       _passphrase,
+                       passphrase,
                        SqliteOpenMode.ReadWriteCreate))
             {
                 EncryptedWorkspaceStore.ConfigureConnection(candidate);
                 EncryptedWorkspaceStore.AssertEncryptionProfile(candidate);
-                _connection.BackupDatabase(candidate);
+                connection.BackupDatabase(candidate);
                 EncryptedWorkspaceStore.ValidateIntegrity(candidate);
                 EncryptedWorkspaceStore.ValidateWorkspaceShape(candidate);
             }
 
             _fileOperations.Flush(candidatePath);
-            if (Validate(candidatePath) != RecoveryValidation.Valid)
+            if (Validate(candidatePath, passphrase) != RecoveryValidation.Valid)
             {
                 return RecoveryPointCreationResult.Failed();
             }
@@ -102,6 +104,7 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
         ArgumentException.ThrowIfNullOrWhiteSpace(preRestoreRecoveryDirectoryPath);
 
         var sourcePath = _fileOperations.ResolvePath(recoveryPointPath);
+        var passphrase = GetPassphrase();
         var identifier = _store.GetIdentifier();
         var restoreCandidatePath = _fileOperations.GetCandidatePath(
             _workspacePath,
@@ -116,7 +119,7 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
             _fileOperations.Copy(sourcePath, restoreCandidatePath);
             _fileOperations.Flush(restoreCandidatePath);
 
-            var validation = Validate(restoreCandidatePath);
+            var validation = Validate(restoreCandidatePath, passphrase);
             if (validation == RecoveryValidation.UnsupportedSchema)
             {
                 return WorkspaceRestoreResult.UnsupportedSchema();
@@ -140,21 +143,21 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
             }
             catch (IOException)
             {
-                return WorkspaceRestoreResult.Failed(ReopenCurrentWorkspace());
+                return WorkspaceRestoreResult.Failed(ReopenWorkspace(_workspacePath, passphrase));
             }
             catch (UnauthorizedAccessException)
             {
-                return WorkspaceRestoreResult.Failed(ReopenCurrentWorkspace());
+                return WorkspaceRestoreResult.Failed(ReopenWorkspace(_workspacePath, passphrase));
             }
 
-            var restored = _store.Open(_workspacePath, _passphrase);
+            var restored = _store.Open(_workspacePath, passphrase);
             if (restored.Status == WorkspaceOpenStatus.Opened && restored.Session is not null)
             {
                 _fileOperations.DeleteCandidate(rollbackPath);
                 return WorkspaceRestoreResult.Restored(restored.Session);
             }
 
-            return RollBackReplacement(rollbackPath, failedRestorePath);
+            return RollBackReplacement(rollbackPath, failedRestorePath, passphrase);
         }
         catch (SqliteException)
         {
@@ -178,61 +181,62 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
         }
     }
 
-    private IWorkspaceSession? ReopenCurrentWorkspace()
+    internal void Close()
     {
-        var opened = _store.Open(_workspacePath, _passphrase);
+        _connection = null;
+        _passphrase = null;
+    }
+
+    private SqliteConnection GetConnection() =>
+        _connection ?? throw new ObjectDisposedException(nameof(IWorkspaceSession));
+
+    private WorkspacePassphrase GetPassphrase() =>
+        _passphrase ?? throw new ObjectDisposedException(nameof(IWorkspaceSession));
+
+    private IWorkspaceSession? ReopenWorkspace(
+        string path,
+        WorkspacePassphrase passphrase)
+    {
+        var opened = _store.Open(path, passphrase);
         return opened.Status == WorkspaceOpenStatus.Opened ? opened.Session : null;
     }
 
     private WorkspaceRestoreResult RollBackReplacement(
         string rollbackPath,
-        string failedRestorePath)
+        string failedRestorePath,
+        WorkspacePassphrase passphrase)
     {
         try
         {
             _fileOperations.Replace(rollbackPath, _workspacePath, failedRestorePath);
             _fileOperations.DeleteCandidate(failedRestorePath);
-            return WorkspaceRestoreResult.Failed(ReopenCurrentWorkspace());
+            return WorkspaceRestoreResult.Failed(ReopenWorkspace(_workspacePath, passphrase));
         }
         catch (IOException)
         {
-            return WorkspaceRestoreResult.Failed();
+            return WorkspaceRestoreResult.Failed(ReopenWorkspace(rollbackPath, passphrase));
         }
         catch (UnauthorizedAccessException)
         {
-            return WorkspaceRestoreResult.Failed();
+            return WorkspaceRestoreResult.Failed(ReopenWorkspace(rollbackPath, passphrase));
         }
     }
 
-    private RecoveryValidation Validate(string path)
+    private static RecoveryValidation Validate(
+        string path,
+        WorkspacePassphrase passphrase)
     {
         try
         {
             using var connection = EncryptedWorkspaceStore.OpenConnection(
                 path,
-                _passphrase,
+                passphrase,
                 SqliteOpenMode.ReadOnly);
             EncryptedWorkspaceStore.ConfigureConnection(connection);
-            EncryptedWorkspaceStore.AssertEncryptionProfile(connection);
-
-            using var versionCommand = connection.CreateCommand();
-            versionCommand.CommandText = "PRAGMA user_version;";
-            var version = Convert.ToInt64(
-                versionCommand.ExecuteScalar(),
-                CultureInfo.InvariantCulture);
-            if (version > EncryptedWorkspaceStore.CurrentSchemaVersion)
-            {
-                return RecoveryValidation.UnsupportedSchema;
-            }
-
-            if (version != EncryptedWorkspaceStore.CurrentSchemaVersion)
-            {
-                return RecoveryValidation.Invalid;
-            }
-
-            EncryptedWorkspaceStore.ValidateIntegrity(connection);
-            EncryptedWorkspaceStore.ValidateWorkspaceShape(connection);
-            return RecoveryValidation.Valid;
+            var inspection = EncryptedWorkspaceStore.InspectWorkspace(connection);
+            return inspection.Status == EncryptedWorkspaceStore.WorkspaceInspectionStatus.Valid
+                ? RecoveryValidation.Valid
+                : RecoveryValidation.UnsupportedSchema;
         }
         catch (SqliteException)
         {

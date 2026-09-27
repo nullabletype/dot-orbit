@@ -170,7 +170,31 @@ public sealed class EncryptedWorkspaceRecoveryTests
     }
 
     [Fact]
-    public void InterruptedRestoreCopyLeavesCurrentWorkspaceAndSelectedRecoveryUsable()
+    public void InterruptionAfterAtomicPublicationLeavesAValidatedRecoveryPointUsable()
+    {
+        using var fixture = new RecoveryFixture();
+        using var session = fixture.CreateWorkspace("Current");
+        fixture.FileOperations.Failure = FailurePoint.AfterPublish;
+
+        var result = session.Recovery.CreateRecoveryPoint(fixture.RecoveryDirectory);
+
+        Assert.Equal(RecoveryPointCreationStatus.Failed, result.Status);
+        var recoveryPointPath = Assert.Single(GetFiles(fixture.RecoveryDirectory));
+        Assert.EndsWith(
+            EncryptedWorkspaceRecovery.RecoveryPointExtension,
+            recoveryPointPath,
+            StringComparison.Ordinal);
+        var opened = fixture.Store.Open(recoveryPointPath, UnlockPassphrase(ValidPassphrase));
+        using var recoverySession = opened.Session;
+        Assert.Equal(WorkspaceOpenStatus.Opened, opened.Status);
+        Assert.Equal("Current", recoverySession?.FirstCategoryName);
+    }
+
+    [Theory]
+    [InlineData(FailurePoint.Copy)]
+    [InlineData(FailurePoint.PermissionCopy)]
+    public void InterruptedRestoreCopyLeavesCurrentWorkspaceAndSelectedRecoveryUsable(
+        FailurePoint failure)
     {
         using var fixture = new RecoveryFixture();
         using var session = fixture.CreateWorkspace("Current");
@@ -178,7 +202,7 @@ public sealed class EncryptedWorkspaceRecoveryTests
         var selectedPath = Assert.IsType<string>(selected.RecoveryPointPath);
         var selectedHash = Hash(selectedPath);
         var originalHash = Hash(fixture.WorkspacePath);
-        fixture.FileOperations.Failure = FailurePoint.Copy;
+        fixture.FileOperations.Failure = failure;
 
         var result = session.Recovery.Restore(selectedPath, fixture.RecoveryDirectory);
 
@@ -188,8 +212,11 @@ public sealed class EncryptedWorkspaceRecoveryTests
         Assert.Empty(Directory.GetFiles(fixture.Directory, "*.creating"));
     }
 
-    [Fact]
-    public void AtomicReplacementFailureReopensCurrentWorkspaceAndKeepsPreRestoreRecovery()
+    [Theory]
+    [InlineData(FailurePoint.Replace)]
+    [InlineData(FailurePoint.PermissionReplace)]
+    public void AtomicReplacementFailureReopensCurrentWorkspaceAndKeepsPreRestoreRecovery(
+        FailurePoint failure)
     {
         using var fixture = new RecoveryFixture();
         var originalSession = fixture.CreateWorkspace("Selected");
@@ -198,7 +225,7 @@ public sealed class EncryptedWorkspaceRecoveryTests
         fixture.ChangeFirstCategory("Current");
         using var currentSession = fixture.OpenWorkspace();
         var originalHash = Hash(fixture.WorkspacePath);
-        fixture.FileOperations.Failure = FailurePoint.Replace;
+        fixture.FileOperations.Failure = failure;
 
         var result = currentSession.Recovery.Restore(
             Assert.IsType<string>(selected.RecoveryPointPath),
@@ -239,6 +266,44 @@ public sealed class EncryptedWorkspaceRecoveryTests
         Assert.Equal(originalHash, Hash(fixture.WorkspacePath));
         Assert.Empty(Directory.GetFiles(fixture.Directory, "*.failed"));
         Assert.Empty(Directory.GetFiles(fixture.Directory, "*.rollback"));
+    }
+
+    [Fact]
+    public void RollbackPermissionFailureReturnsAUsableSessionForTheKnownValidRollbackFile()
+    {
+        using var fixture = new RecoveryFixture();
+        var originalSession = fixture.CreateWorkspace("Selected");
+        var selected = originalSession.Recovery.CreateRecoveryPoint(fixture.RecoveryDirectory);
+        originalSession.Dispose();
+        fixture.ChangeFirstCategory("Current");
+        using var currentSession = fixture.OpenWorkspace();
+        fixture.FileOperations.Failure = FailurePoint.CorruptAfterReplaceAndFailRollback;
+
+        var result = currentSession.Recovery.Restore(
+            Assert.IsType<string>(selected.RecoveryPointPath),
+            fixture.RecoveryDirectory);
+        using var rollbackSession = result.Session;
+
+        Assert.Equal(WorkspaceRestoreStatus.Failed, result.Status);
+        Assert.NotNull(rollbackSession);
+        Assert.Equal("Current", rollbackSession.FirstCategoryName);
+        Assert.Single(Directory.GetFiles(fixture.Directory, "*.rollback"));
+        Assert.Equal(
+            2,
+            Directory.GetFiles(
+                fixture.RecoveryDirectory,
+                $"*{EncryptedWorkspaceRecovery.RecoveryPointExtension}").Length);
+    }
+
+    [Fact]
+    public void DisposedSessionInvalidatesItsRecoveryCapability()
+    {
+        using var fixture = new RecoveryFixture();
+        var session = fixture.CreateWorkspace("Current");
+        session.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(
+            () => session.Recovery.CreateRecoveryPoint(fixture.RecoveryDirectory));
     }
 
     [Fact]
@@ -284,9 +349,13 @@ public sealed class EncryptedWorkspaceRecoveryTests
         Flush,
         CorruptAfterFlush,
         Publish,
+        AfterPublish,
         Copy,
+        PermissionCopy,
         Replace,
+        PermissionReplace,
         CorruptAfterReplace,
+        CorruptAfterReplaceAndFailRollback,
     }
 
     private sealed class RecoveryFixture : IDisposable
@@ -385,6 +454,8 @@ public sealed class EncryptedWorkspaceRecoveryTests
 
         public FailurePoint Failure { get; set; }
 
+        private int ReplaceCallCount { get; set; }
+
         public string ResolvePath(string path) => _inner.ResolvePath(path);
 
         public bool Exists(string path) => _inner.Exists(path);
@@ -413,6 +484,10 @@ public sealed class EncryptedWorkspaceRecoveryTests
             }
 
             _inner.Publish(candidatePath, targetPath);
+            if (Failure == FailurePoint.AfterPublish)
+            {
+                throw new IOException("Injected interruption after atomic publication.");
+            }
         }
 
         public void Copy(string sourcePath, string candidatePath)
@@ -420,6 +495,11 @@ public sealed class EncryptedWorkspaceRecoveryTests
             if (Failure == FailurePoint.Copy)
             {
                 throw new IOException("Injected copy interruption.");
+            }
+
+            if (Failure == FailurePoint.PermissionCopy)
+            {
+                throw new UnauthorizedAccessException();
             }
 
             _inner.Copy(sourcePath, candidatePath);
@@ -443,16 +523,34 @@ public sealed class EncryptedWorkspaceRecoveryTests
 
         public void Replace(string candidatePath, string targetPath, string rollbackPath)
         {
+            ReplaceCallCount++;
             if (Failure == FailurePoint.Replace)
             {
                 Failure = FailurePoint.None;
                 throw new IOException("Injected replacement interruption.");
             }
 
-            _inner.Replace(candidatePath, targetPath, rollbackPath);
-            if (Failure == FailurePoint.CorruptAfterReplace)
+            if (Failure == FailurePoint.PermissionReplace)
             {
                 Failure = FailurePoint.None;
+                throw new UnauthorizedAccessException();
+            }
+
+            if (Failure == FailurePoint.CorruptAfterReplaceAndFailRollback
+                && ReplaceCallCount > 1)
+            {
+                throw new UnauthorizedAccessException();
+            }
+
+            _inner.Replace(candidatePath, targetPath, rollbackPath);
+            if (Failure is FailurePoint.CorruptAfterReplace
+                or FailurePoint.CorruptAfterReplaceAndFailRollback)
+            {
+                if (Failure == FailurePoint.CorruptAfterReplace)
+                {
+                    Failure = FailurePoint.None;
+                }
+
                 var bytes = File.ReadAllBytes(targetPath);
                 bytes[Math.Min(128, bytes.Length - 1)] ^= 0x5A;
                 File.WriteAllBytes(targetPath, bytes);

@@ -154,30 +154,21 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         {
             connection = OpenConnection(fullPath, passphrase, SqliteOpenMode.ReadOnly);
             ConfigureConnection(connection);
-            AssertEncryptionProfile(connection);
-
-            var schemaVersion = ExecuteScalar<long>(connection, "PRAGMA user_version;");
-            if (schemaVersion > CurrentSchemaVersion)
+            var inspection = InspectWorkspace(connection);
+            if (inspection.Status == WorkspaceInspectionStatus.UnsupportedSchema)
             {
                 connection.Dispose();
                 connection = null;
                 return WorkspaceOpenResult.UnsupportedSchema();
             }
 
-            if (schemaVersion != CurrentSchemaVersion)
-            {
-                throw new InvalidDataException();
-            }
-
-            ValidateIntegrity(connection);
-            var firstCategory = ValidateWorkspaceShape(connection);
             var session = new WorkspaceSession(
                 this,
                 connection,
                 fullPath,
                 passphrase,
-                (int)schemaVersion,
-                firstCategory);
+                inspection.SchemaVersion,
+                inspection.FirstCategoryName);
             connection = null;
             return WorkspaceOpenResult.Opened(session);
         }
@@ -293,6 +284,30 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         return name;
     }
 
+    internal static WorkspaceInspection InspectWorkspace(SqliteConnection connection)
+    {
+        AssertEncryptionProfile(connection);
+        var schemaVersion = ExecuteScalar<long>(connection, "PRAGMA user_version;");
+        if (schemaVersion > CurrentSchemaVersion)
+        {
+            return new WorkspaceInspection(
+                WorkspaceInspectionStatus.UnsupportedSchema,
+                checked((int)schemaVersion),
+                string.Empty);
+        }
+
+        if (schemaVersion != CurrentSchemaVersion)
+        {
+            throw new InvalidDataException();
+        }
+
+        ValidateIntegrity(connection);
+        return new WorkspaceInspection(
+            WorkspaceInspectionStatus.Valid,
+            checked((int)schemaVersion),
+            ValidateWorkspaceShape(connection));
+    }
+
     private static T ExecuteScalar<T>(SqliteConnection connection, string sql)
     {
         using var command = connection.CreateCommand();
@@ -306,9 +321,21 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         return (T)Convert.ChangeType(value, typeof(T), CultureInfo.InvariantCulture);
     }
 
+    internal enum WorkspaceInspectionStatus
+    {
+        Valid,
+        UnsupportedSchema,
+    }
+
+    internal readonly record struct WorkspaceInspection(
+        WorkspaceInspectionStatus Status,
+        int SchemaVersion,
+        string FirstCategoryName);
+
     private sealed class WorkspaceSession : IWorkspaceSession
     {
-        private readonly SqliteConnection _connection;
+        private SqliteConnection? _connection;
+        private readonly EncryptedWorkspaceRecovery _recovery;
         private bool _disposed;
 
         public WorkspaceSession(
@@ -322,7 +349,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
             _connection = connection;
             SchemaVersion = schemaVersion;
             FirstCategoryName = firstCategoryName;
-            Recovery = new EncryptedWorkspaceRecovery(
+            _recovery = new EncryptedWorkspaceRecovery(
                 store,
                 connection,
                 workspacePath,
@@ -336,7 +363,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
 
         public string FirstCategoryName { get; }
 
-        public IWorkspaceRecovery Recovery { get; }
+        public IWorkspaceRecovery Recovery => _recovery;
 
         public void Dispose()
         {
@@ -345,7 +372,9 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
                 return;
             }
 
-            _connection.Dispose();
+            _recovery.Close();
+            _connection?.Dispose();
+            _connection = null;
             _disposed = true;
         }
     }

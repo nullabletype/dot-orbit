@@ -84,6 +84,8 @@
           BorderBrush="{StaticResource AccentBrush}"
           BorderThickness="1"
           CornerRadius="8"
+          AutomationProperties.LiveSetting="Assertive"
+          AutomationProperties.Name="Restore confirmation"
           IsVisible="{Binding IsRestoreConfirmationVisible}">
         <StackPanel Spacing="10">
           <TextBlock FontWeight="SemiBold" Text="Replace the current workspace?" />

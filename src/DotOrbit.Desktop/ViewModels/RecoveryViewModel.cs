@@ -36,6 +36,8 @@ public sealed class RecoveryViewModel : INotifyPropertyChanged
 
     public event EventHandler? RestoreCancelled;
 
+    public event EventHandler? RestoreConfirmationRequested;
+
     public string RecoveryDirectoryPath
     {
         get => _recoveryDirectoryPath;
@@ -148,6 +150,7 @@ public sealed class RecoveryViewModel : INotifyPropertyChanged
 
         StatusMessage = string.Empty;
         IsRestoreConfirmationVisible = true;
+        RestoreConfirmationRequested?.Invoke(this, EventArgs.Empty);
     }
 
     private void CancelRestore()
