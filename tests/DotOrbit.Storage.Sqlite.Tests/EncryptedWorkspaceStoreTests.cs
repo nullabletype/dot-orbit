@@ -340,5 +340,18 @@ public sealed class EncryptedWorkspaceStoreTests
             _inner.Replace(candidatePath, targetPath);
 
         public void DeleteCandidate(string candidatePath) => _inner.DeleteCandidate(candidatePath);
+
+        public IReadOnlyList<string> EnumerateFiles(string directoryPath, string searchPattern) =>
+            _inner.EnumerateFiles(directoryPath, searchPattern);
+
+        public string ReadAllText(string path) => _inner.ReadAllText(path);
+
+        public void WriteAllText(string path, string contents) =>
+            _inner.WriteAllText(path, contents);
+
+        public void PublishOrReplace(string candidatePath, string targetPath) =>
+            _inner.PublishOrReplace(candidatePath, targetPath);
+
+        public void DeleteFile(string path) => _inner.DeleteFile(path);
     }
 }

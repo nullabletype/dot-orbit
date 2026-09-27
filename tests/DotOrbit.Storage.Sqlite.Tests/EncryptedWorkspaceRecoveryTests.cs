@@ -13,6 +13,644 @@ public sealed class EncryptedWorkspaceRecoveryTests
     private const string ValidPassphrase = "correct horse battery";
 
     [Fact]
+    public void AutomaticRecoveryDirectoryPersistsAcrossWorkspaceSessions()
+    {
+        using var fixture = new RecoveryFixture();
+        var session = fixture.CreateWorkspace("Current");
+
+        var configured = session.Recovery.ConfigureAutomaticRecoveryDirectory(
+            fixture.RecoveryDirectory);
+        session.Dispose();
+        using var reopened = fixture.OpenWorkspace();
+
+        Assert.Equal(RecoveryDirectoryConfigurationStatus.Configured, configured.Status);
+        Assert.Equal(
+            Path.GetFullPath(fixture.RecoveryDirectory),
+            reopened.Recovery.AutomaticRecoveryDirectoryPath);
+    }
+
+    [Fact]
+    public void FailedDirectoryConfigurationPreservesThePreviousSelection()
+    {
+        using var fixture = new RecoveryFixture();
+        using var session = fixture.CreateWorkspace("Current");
+        var first = session.Recovery.ConfigureAutomaticRecoveryDirectory(
+            fixture.RecoveryDirectory);
+        fixture.FileOperations.Failure = FailurePoint.StatePublish;
+
+        var failed = session.Recovery.ConfigureAutomaticRecoveryDirectory(
+            Path.Combine(fixture.Directory, "other-recovery"));
+
+        Assert.Equal(RecoveryDirectoryConfigurationStatus.Configured, first.Status);
+        Assert.Equal(RecoveryDirectoryConfigurationStatus.Failed, failed.Status);
+        Assert.Equal(
+            Path.GetFullPath(fixture.RecoveryDirectory),
+            session.Recovery.AutomaticRecoveryDirectoryPath);
+    }
+
+    [Fact]
+    public void CommittedChangesCreateImmediatelyThenCoalesceUntilTheHourlyBoundary()
+    {
+        var time = new ManualTimeProvider(
+            new DateTimeOffset(2026, 9, 27, 10, 0, 0, TimeSpan.Zero));
+        using var fixture = new RecoveryFixture(timeProvider: time);
+        using var session = fixture.CreateWorkspace("Before");
+        var concreteSession = Assert.IsType<EncryptedWorkspaceStore.WorkspaceSession>(session);
+        session.Recovery.ConfigureAutomaticRecoveryDirectory(fixture.RecoveryDirectory);
+
+        var first = ChangeFirstCategory(
+            concreteSession.Transactions,
+            "First committed value");
+        time.Advance(TimeSpan.FromMinutes(30));
+        var second = ChangeFirstCategory(
+            concreteSession.Transactions,
+            "Second committed value");
+        time.Advance(TimeSpan.FromMinutes(29) + TimeSpan.FromSeconds(59));
+
+        Assert.Equal(AutomaticRecoveryAttempt.Created, first);
+        Assert.Equal(AutomaticRecoveryAttempt.Scheduled, second);
+        Assert.Single(GetAutomaticRecoveryFiles(fixture.RecoveryDirectory));
+
+        time.Advance(TimeSpan.FromSeconds(1));
+
+        var automaticPoints = GetAutomaticRecoveryFiles(fixture.RecoveryDirectory);
+        Assert.Equal(2, automaticPoints.Length);
+        var latest = automaticPoints.Order(StringComparer.Ordinal).Last();
+        var opened = fixture.Store.Open(latest, UnlockPassphrase(ValidPassphrase));
+        using var latestSession = opened.Session;
+        Assert.Equal(WorkspaceOpenStatus.Opened, opened.Status);
+        Assert.Equal("Second committed value", latestSession?.FirstCategoryName);
+    }
+
+    [Fact]
+    public void TransactionCoordinatorNotifiesRecoveryOnlyAfterCommit()
+    {
+        var time = new ManualTimeProvider(
+            new DateTimeOffset(2026, 9, 27, 10, 0, 0, TimeSpan.Zero));
+        using var fixture = new RecoveryFixture(timeProvider: time);
+        using var session = fixture.CreateWorkspace("Before");
+        var concreteSession = Assert.IsType<EncryptedWorkspaceStore.WorkspaceSession>(session);
+        session.Recovery.ConfigureAutomaticRecoveryDirectory(fixture.RecoveryDirectory);
+
+        var result = concreteSession.Transactions.Execute(
+            (connection, transaction) =>
+            {
+                using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = "UPDATE categories SET name = 'After commit';";
+                Assert.Equal(1, command.ExecuteNonQuery());
+            });
+
+        Assert.Equal(AutomaticRecoveryAttempt.Created, result);
+        var recoveryPath = Assert.Single(GetAutomaticRecoveryFiles(fixture.RecoveryDirectory));
+        Assert.True(OpensWithCategory(fixture.Store, recoveryPath, "After commit"));
+    }
+
+    [Fact]
+    public void SuccessiveCommitsAtTheSameInstantUseDistinctRecoveryGenerations()
+    {
+        var time = new ManualTimeProvider(
+            new DateTimeOffset(2026, 9, 27, 10, 0, 0, TimeSpan.Zero));
+        using var fixture = new RecoveryFixture(timeProvider: time);
+        using var session = fixture.CreateWorkspace("Before");
+        var concreteSession = Assert.IsType<EncryptedWorkspaceStore.WorkspaceSession>(session);
+        session.Recovery.ConfigureAutomaticRecoveryDirectory(fixture.RecoveryDirectory);
+
+        var first = ChangeFirstCategory(concreteSession.Transactions, "First");
+        var second = ChangeFirstCategory(concreteSession.Transactions, "Second");
+
+        Assert.Equal(AutomaticRecoveryAttempt.Created, first);
+        Assert.Equal(AutomaticRecoveryAttempt.Scheduled, second);
+        Assert.Single(GetAutomaticRecoveryFiles(fixture.RecoveryDirectory));
+
+        time.Advance(TimeSpan.FromHours(1));
+
+        var points = GetAutomaticRecoveryFiles(fixture.RecoveryDirectory);
+        Assert.Equal(2, points.Length);
+        Assert.True(
+            OpensWithCategory(
+                fixture.Store,
+                points.Order(StringComparer.Ordinal).Last(),
+                "Second"));
+    }
+
+    [Fact]
+    public void TransactionFailureRollsBackAndDoesNotScheduleRecovery()
+    {
+        using var fixture = new RecoveryFixture();
+        using var session = fixture.CreateWorkspace("Before");
+        var concreteSession = Assert.IsType<EncryptedWorkspaceStore.WorkspaceSession>(session);
+        session.Recovery.ConfigureAutomaticRecoveryDirectory(fixture.RecoveryDirectory);
+
+        Assert.Throws<InvalidOperationException>(
+            () => concreteSession.Transactions.Execute(
+                (connection, transaction) =>
+                {
+                    using var command = connection.CreateCommand();
+                    command.Transaction = transaction;
+                    command.CommandText = "UPDATE categories SET name = 'Must roll back';";
+                    Assert.Equal(1, command.ExecuteNonQuery());
+                    throw new InvalidOperationException("Injected operation failure.");
+                }));
+
+        Assert.Empty(GetAutomaticRecoveryFiles(fixture.RecoveryDirectory));
+        using var reopened = fixture.OpenWorkspace();
+        Assert.Equal("Before", reopened.FirstCategoryName);
+    }
+
+    [Fact]
+    public void FailedStoredDataChangeDoesNotScheduleRecovery()
+    {
+        var time = new ManualTimeProvider(
+            new DateTimeOffset(2026, 9, 27, 10, 0, 0, TimeSpan.Zero));
+        using var fixture = new RecoveryFixture(timeProvider: time);
+        using var session = fixture.CreateWorkspace("Current");
+        var recovery = Assert.IsType<EncryptedWorkspaceRecovery>(session.Recovery);
+        session.Recovery.ConfigureAutomaticRecoveryDirectory(fixture.RecoveryDirectory);
+
+        var result = recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Failed);
+        time.Advance(TimeSpan.FromHours(2));
+
+        Assert.Equal(AutomaticRecoveryAttempt.Ignored, result);
+        Assert.Empty(GetAutomaticRecoveryFiles(fixture.RecoveryDirectory));
+    }
+
+    [Fact]
+    public void WorkspacesSharingDirectoryAndPassphraseKeepIndependentCadenceAndRetention()
+    {
+        var time = new ManualTimeProvider(
+            new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero));
+        using var first = new RecoveryFixture(timeProvider: time);
+        using var second = new RecoveryFixture(
+            timeProvider: time,
+            recoveryDirectoryPath: first.RecoveryDirectory);
+        using var firstSession = first.CreateWorkspace("First workspace");
+        using var secondSession = second.CreateWorkspace("Second workspace");
+        var firstRecovery = Assert.IsType<EncryptedWorkspaceRecovery>(firstSession.Recovery);
+        var secondRecovery = Assert.IsType<EncryptedWorkspaceRecovery>(secondSession.Recovery);
+        firstSession.Recovery.ConfigureAutomaticRecoveryDirectory(first.RecoveryDirectory);
+        secondSession.Recovery.ConfigureAutomaticRecoveryDirectory(first.RecoveryDirectory);
+
+        Assert.Equal(
+            AutomaticRecoveryAttempt.Created,
+            firstRecovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed));
+        Assert.Equal(
+            AutomaticRecoveryAttempt.Created,
+            secondRecovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed));
+        var secondPoint = Assert.Single(
+            GetAutomaticRecoveryFiles(first.RecoveryDirectory),
+            path => OpensWithCategory(second.Store, path, "Second workspace"));
+
+        for (var hour = 0; hour < 25; hour++)
+        {
+            time.Advance(TimeSpan.FromHours(1));
+            firstRecovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed);
+        }
+
+        Assert.True(File.Exists(secondPoint));
+        Assert.True(OpensWithCategory(second.Store, secondPoint, "Second workspace"));
+    }
+
+    [Fact]
+    public void ClockRollbackLimitsCoalescingDelayToOneHour()
+    {
+        var start = new DateTimeOffset(2026, 9, 27, 10, 0, 0, TimeSpan.Zero);
+        var time = new ManualTimeProvider(start);
+        using var fixture = new RecoveryFixture(timeProvider: time);
+        using var session = fixture.CreateWorkspace("Current");
+        var recovery = Assert.IsType<EncryptedWorkspaceRecovery>(session.Recovery);
+        session.Recovery.ConfigureAutomaticRecoveryDirectory(fixture.RecoveryDirectory);
+        recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed);
+        time.SetUtcNow(start.AddYears(-5));
+
+        var scheduled = recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed);
+        time.Advance(TimeSpan.FromMinutes(59) + TimeSpan.FromSeconds(59));
+        Assert.Single(GetAutomaticRecoveryFiles(fixture.RecoveryDirectory));
+
+        time.Advance(TimeSpan.FromSeconds(1));
+
+        Assert.Equal(AutomaticRecoveryAttempt.Scheduled, scheduled);
+        Assert.Equal(2, GetAutomaticRecoveryFiles(fixture.RecoveryDirectory).Length);
+    }
+
+    [Fact]
+    public void PendingChangeCreatesRecoveryWhenDirectoryIsConfiguredLater()
+    {
+        var time = new ManualTimeProvider(
+            new DateTimeOffset(2026, 9, 27, 10, 0, 0, TimeSpan.Zero));
+        using var fixture = new RecoveryFixture(timeProvider: time);
+        using var session = fixture.CreateWorkspace("Current");
+        var recovery = Assert.IsType<EncryptedWorkspaceRecovery>(session.Recovery);
+
+        var pending = recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed);
+        var configured = session.Recovery.ConfigureAutomaticRecoveryDirectory(
+            fixture.RecoveryDirectory);
+
+        Assert.Equal(AutomaticRecoveryAttempt.NotConfigured, pending);
+        Assert.Equal(RecoveryDirectoryConfigurationStatus.Configured, configured.Status);
+        Assert.Single(GetAutomaticRecoveryFiles(fixture.RecoveryDirectory));
+    }
+
+    [Fact]
+    public void CreationFailureKeepsPendingWorkForTheNextCommittedChange()
+    {
+        var time = new ManualTimeProvider(
+            new DateTimeOffset(2026, 9, 27, 10, 0, 0, TimeSpan.Zero));
+        using var fixture = new RecoveryFixture(timeProvider: time);
+        using var session = fixture.CreateWorkspace("Current");
+        var recovery = Assert.IsType<EncryptedWorkspaceRecovery>(session.Recovery);
+        session.Recovery.ConfigureAutomaticRecoveryDirectory(fixture.RecoveryDirectory);
+        fixture.FileOperations.Failure = FailurePoint.Publish;
+
+        var failed = recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed);
+        fixture.FileOperations.Failure = FailurePoint.None;
+        var retried = recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed);
+
+        Assert.Equal(AutomaticRecoveryAttempt.Failed, failed);
+        Assert.Equal(AutomaticRecoveryAttempt.Created, retried);
+        Assert.Single(GetAutomaticRecoveryFiles(fixture.RecoveryDirectory));
+    }
+
+    [Fact]
+    public void PendingStatePersistenceFailurePreservesGenerationAcrossRestart()
+    {
+        var time = new ManualTimeProvider(
+            new DateTimeOffset(2026, 9, 27, 10, 0, 0, TimeSpan.Zero));
+        using var fixture = new RecoveryFixture(timeProvider: time);
+        var session = fixture.CreateWorkspace("Current");
+        var recovery = Assert.IsType<EncryptedWorkspaceRecovery>(session.Recovery);
+        session.Recovery.ConfigureAutomaticRecoveryDirectory(fixture.RecoveryDirectory);
+
+        Assert.Equal(
+            AutomaticRecoveryAttempt.Created,
+            recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed));
+        time.Advance(TimeSpan.FromMinutes(10));
+        fixture.FileOperations.Failure = FailurePoint.StateWrite;
+
+        var result = recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed);
+
+        Assert.Equal(AutomaticRecoveryAttempt.Created, result);
+        var latestPath = Assert.Single(GetAutomaticRecoveryFiles(fixture.RecoveryDirectory));
+        Assert.Contains("20260927T101000", Path.GetFileName(latestPath), StringComparison.Ordinal);
+        session.Dispose();
+        fixture.FileOperations.Failure = FailurePoint.Enumeration;
+
+        using var reopened = fixture.OpenWorkspace();
+        fixture.FileOperations.Failure = FailurePoint.None;
+        var reopenedRecovery = Assert.IsType<EncryptedWorkspaceRecovery>(reopened.Recovery);
+        Assert.Equal(
+            AutomaticRecoveryAttempt.Scheduled,
+            reopenedRecovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed));
+
+        time.Advance(TimeSpan.FromHours(1));
+
+        Assert.Equal(2, GetAutomaticRecoveryFiles(fixture.RecoveryDirectory).Length);
+    }
+
+    [Fact]
+    public void UnavailableDirectoryAtNextCommitRotatesRecoverySetAndResumes()
+    {
+        var time = new ManualTimeProvider(
+            new DateTimeOffset(2026, 9, 27, 10, 0, 0, TimeSpan.Zero));
+        using var fixture = new RecoveryFixture(timeProvider: time);
+        var session = fixture.CreateWorkspace("Before");
+        var concreteSession = Assert.IsType<EncryptedWorkspaceStore.WorkspaceSession>(session);
+        session.Recovery.ConfigureAutomaticRecoveryDirectory(fixture.RecoveryDirectory);
+
+        Assert.Equal(
+            AutomaticRecoveryAttempt.Created,
+            ChangeFirstCategory(concreteSession.Transactions, "First"));
+        time.Advance(TimeSpan.FromMinutes(10));
+        fixture.FileOperations.Failure = FailurePoint.StateWrite;
+        Assert.Equal(
+            AutomaticRecoveryAttempt.Created,
+            ChangeFirstCategory(concreteSession.Transactions, "Second"));
+        var oldSetPoint = Assert.Single(GetAutomaticRecoveryFiles(fixture.RecoveryDirectory));
+        session.Dispose();
+
+        fixture.FileOperations.Failure = FailurePoint.Enumeration;
+        var reopened = fixture.OpenWorkspace();
+        var reopenedSession = Assert.IsType<EncryptedWorkspaceStore.WorkspaceSession>(reopened);
+        Assert.Equal(
+            AutomaticRecoveryAttempt.Failed,
+            ChangeFirstCategory(reopenedSession.Transactions, "Third"));
+        reopened.Dispose();
+
+        Assert.True(File.Exists(oldSetPoint));
+        Assert.Single(GetAutomaticRecoveryFiles(fixture.RecoveryDirectory));
+
+        fixture.FileOperations.Failure = FailurePoint.None;
+        using var resumed = fixture.OpenWorkspace();
+
+        var allPoints = GetAutomaticRecoveryFiles(fixture.RecoveryDirectory);
+        Assert.Equal(2, allPoints.Length);
+        Assert.True(File.Exists(oldSetPoint));
+        var newSetPoint = Assert.Single(allPoints, path => path != oldSetPoint);
+        Assert.True(OpensWithCategory(fixture.Store, newSetPoint, "Third"));
+    }
+
+    [Fact]
+    public void StateClearFailureDoesNotCreateARedundantPointAfterReopen()
+    {
+        var time = new ManualTimeProvider(
+            new DateTimeOffset(2026, 9, 27, 10, 0, 0, TimeSpan.Zero));
+        using var fixture = new RecoveryFixture(timeProvider: time);
+        fixture.FileOperations.FailStatePublishCall = 3;
+        var session = fixture.CreateWorkspace("Current");
+        var recovery = Assert.IsType<EncryptedWorkspaceRecovery>(session.Recovery);
+        session.Recovery.ConfigureAutomaticRecoveryDirectory(fixture.RecoveryDirectory);
+
+        Assert.Equal(
+            AutomaticRecoveryAttempt.Created,
+            recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed));
+        session.Dispose();
+        using var reopened = fixture.OpenWorkspace();
+        time.Advance(TimeSpan.FromHours(2));
+
+        Assert.Single(GetAutomaticRecoveryFiles(fixture.RecoveryDirectory));
+        Assert.Equal(
+            Path.GetFullPath(fixture.RecoveryDirectory),
+            reopened.Recovery.AutomaticRecoveryDirectoryPath);
+    }
+
+    [Fact]
+    public void RestartAfterClockRollbackClampsPersistedPendingWorkToOneHour()
+    {
+        var originalTime = new DateTimeOffset(2026, 9, 27, 10, 0, 0, TimeSpan.Zero);
+        var time = new ManualTimeProvider(originalTime);
+        using var fixture = new RecoveryFixture(timeProvider: time);
+        var session = fixture.CreateWorkspace("Current");
+        var recovery = Assert.IsType<EncryptedWorkspaceRecovery>(session.Recovery);
+        session.Recovery.ConfigureAutomaticRecoveryDirectory(fixture.RecoveryDirectory);
+        recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed);
+        time.Advance(TimeSpan.FromMinutes(30));
+        recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed);
+        session.Dispose();
+        time.SetUtcNow(originalTime.AddYears(-5));
+
+        using var reopened = fixture.OpenWorkspace();
+        time.Advance(TimeSpan.FromMinutes(59) + TimeSpan.FromSeconds(59));
+        Assert.Single(GetAutomaticRecoveryFiles(fixture.RecoveryDirectory));
+
+        time.Advance(TimeSpan.FromSeconds(1));
+
+        Assert.Equal(2, GetAutomaticRecoveryFiles(fixture.RecoveryDirectory).Length);
+        Assert.NotNull(reopened);
+    }
+
+    [Fact]
+    public async Task SessionDisposalDrainsCommittedTransactionBeforeClosingRecovery()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        using var fixture = new RecoveryFixture();
+        var session = fixture.CreateWorkspace("Before");
+        var concreteSession = Assert.IsType<EncryptedWorkspaceStore.WorkspaceSession>(session);
+        session.Recovery.ConfigureAutomaticRecoveryDirectory(fixture.RecoveryDirectory);
+        using var mutationReady = new SemaphoreSlim(0, 1);
+        using var allowCommit = new SemaphoreSlim(0, 1);
+        var transactionTask = Task.Run(
+            () => concreteSession.Transactions.Execute(
+                (connection, transaction) =>
+                {
+                    using var command = connection.CreateCommand();
+                    command.Transaction = transaction;
+                    command.CommandText = "UPDATE categories SET name = 'After commit';";
+                    Assert.Equal(1, command.ExecuteNonQuery());
+                    mutationReady.Release();
+                    allowCommit.Wait(cancellationToken);
+                }),
+            cancellationToken);
+        Assert.True(await mutationReady.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken));
+        var disposeTask = Task.Run(session.Dispose, cancellationToken);
+
+        try
+        {
+            var firstCompleted = await Task.WhenAny(
+                disposeTask,
+                Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken));
+            Assert.NotSame(disposeTask, firstCompleted);
+        }
+        finally
+        {
+            allowCommit.Release();
+        }
+
+        Assert.Equal(AutomaticRecoveryAttempt.Created, await transactionTask);
+        await disposeTask.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+        var recoveryPath = Assert.Single(GetAutomaticRecoveryFiles(fixture.RecoveryDirectory));
+        Assert.True(OpensWithCategory(fixture.Store, recoveryPath, "After commit"));
+    }
+
+    [Fact]
+    public void DisposingSessionCancelsScheduledAutomaticRecovery()
+    {
+        var time = new ManualTimeProvider(
+            new DateTimeOffset(2026, 9, 27, 10, 0, 0, TimeSpan.Zero));
+        using var fixture = new RecoveryFixture(timeProvider: time);
+        var session = fixture.CreateWorkspace("Current");
+        var recovery = Assert.IsType<EncryptedWorkspaceRecovery>(session.Recovery);
+        session.Recovery.ConfigureAutomaticRecoveryDirectory(fixture.RecoveryDirectory);
+        Assert.Equal(
+            AutomaticRecoveryAttempt.Created,
+            recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed));
+        time.Advance(TimeSpan.FromMinutes(30));
+        Assert.Equal(
+            AutomaticRecoveryAttempt.Scheduled,
+            recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed));
+
+        session.Dispose();
+        time.Advance(TimeSpan.FromHours(1));
+
+        Assert.Single(GetAutomaticRecoveryFiles(fixture.RecoveryDirectory));
+    }
+
+    [Fact]
+    public void ReopeningWorkspaceResumesDurablePendingRecoveryAtTheDueBoundary()
+    {
+        var time = new ManualTimeProvider(
+            new DateTimeOffset(2026, 9, 27, 10, 0, 0, TimeSpan.Zero));
+        using var fixture = new RecoveryFixture(timeProvider: time);
+        var session = fixture.CreateWorkspace("Initial");
+        var recovery = Assert.IsType<EncryptedWorkspaceRecovery>(session.Recovery);
+        session.Recovery.ConfigureAutomaticRecoveryDirectory(fixture.RecoveryDirectory);
+        recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed);
+        time.Advance(TimeSpan.FromMinutes(30));
+        fixture.ChangeFirstCategory("Pending across restart");
+        recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed);
+        session.Dispose();
+
+        using var reopened = fixture.OpenWorkspace();
+        Assert.Equal(
+            Path.GetFullPath(fixture.RecoveryDirectory),
+            reopened.Recovery.AutomaticRecoveryDirectoryPath);
+        Assert.Single(GetAutomaticRecoveryFiles(fixture.RecoveryDirectory));
+
+        time.Advance(TimeSpan.FromMinutes(30));
+
+        var automaticPoints = GetAutomaticRecoveryFiles(fixture.RecoveryDirectory);
+        Assert.Equal(2, automaticPoints.Length);
+        var latest = fixture.Store.Open(
+            automaticPoints.Order(StringComparer.Ordinal).Last(),
+            UnlockPassphrase(ValidPassphrase));
+        using var latestSession = latest.Session;
+        Assert.Equal(WorkspaceOpenStatus.Opened, latest.Status);
+        Assert.Equal("Pending across restart", latestSession?.FirstCategoryName);
+    }
+
+    [Fact]
+    public void CorruptRecoveryStateDoesNotPreventWorkspaceUnlock()
+    {
+        using var fixture = new RecoveryFixture();
+        var session = fixture.CreateWorkspace("Current");
+        session.Recovery.ConfigureAutomaticRecoveryDirectory(fixture.RecoveryDirectory);
+        session.Dispose();
+        File.WriteAllText(fixture.WorkspacePath + ".recovery-state.json", "{not-json");
+
+        var opened = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase(ValidPassphrase));
+        using var reopened = opened.Session;
+
+        Assert.Equal(WorkspaceOpenStatus.Opened, opened.Status);
+        Assert.NotNull(reopened);
+        Assert.Null(reopened.Recovery.AutomaticRecoveryDirectoryPath);
+    }
+
+    [Fact]
+    public void UnavailableRecoveryDirectoryDoesNotPreventWorkspaceUnlockWithPendingWork()
+    {
+        var time = new ManualTimeProvider(
+            new DateTimeOffset(2026, 9, 27, 10, 0, 0, TimeSpan.Zero));
+        using var fixture = new RecoveryFixture(timeProvider: time);
+        var session = fixture.CreateWorkspace("Current");
+        var recovery = Assert.IsType<EncryptedWorkspaceRecovery>(session.Recovery);
+        session.Recovery.ConfigureAutomaticRecoveryDirectory(fixture.RecoveryDirectory);
+        recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed);
+        time.Advance(TimeSpan.FromMinutes(30));
+        recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed);
+        session.Dispose();
+        fixture.FileOperations.Failure = FailurePoint.Enumeration;
+
+        var opened = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase(ValidPassphrase));
+        using var reopened = opened.Session;
+
+        Assert.Equal(WorkspaceOpenStatus.Opened, opened.Status);
+        Assert.NotNull(reopened);
+        Assert.Equal(
+            Path.GetFullPath(fixture.RecoveryDirectory),
+            reopened.Recovery.AutomaticRecoveryDirectoryPath);
+    }
+
+    [Fact]
+    public void AutomaticCreationFailurePreservesTheExistingValidatedPoint()
+    {
+        var time = new ManualTimeProvider(
+            new DateTimeOffset(2026, 9, 27, 10, 0, 0, TimeSpan.Zero));
+        using var fixture = new RecoveryFixture(timeProvider: time);
+        using var session = fixture.CreateWorkspace("Initial");
+        var recovery = Assert.IsType<EncryptedWorkspaceRecovery>(session.Recovery);
+        session.Recovery.ConfigureAutomaticRecoveryDirectory(fixture.RecoveryDirectory);
+        recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed);
+        var existingPath = Assert.Single(GetAutomaticRecoveryFiles(fixture.RecoveryDirectory));
+        var existingHash = Hash(existingPath);
+        time.Advance(TimeSpan.FromHours(1));
+        fixture.ChangeFirstCategory("Later");
+        fixture.FileOperations.Failure = FailurePoint.Publish;
+
+        var failed = recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed);
+
+        Assert.Equal(AutomaticRecoveryAttempt.Failed, failed);
+        Assert.Equal(existingPath, Assert.Single(GetAutomaticRecoveryFiles(fixture.RecoveryDirectory)));
+        Assert.Equal(existingHash, Hash(existingPath));
+    }
+
+    [Fact]
+    public void PruningFailureLeavesExtraValidatedPointsAndManualRecoveryUntouched()
+    {
+        var time = new ManualTimeProvider(
+            new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero));
+        using var fixture = new RecoveryFixture(timeProvider: time);
+        using var session = fixture.CreateWorkspace("Current");
+        var recovery = Assert.IsType<EncryptedWorkspaceRecovery>(session.Recovery);
+        session.Recovery.ConfigureAutomaticRecoveryDirectory(fixture.RecoveryDirectory);
+        var manual = session.Recovery.CreateRecoveryPoint(fixture.RecoveryDirectory);
+        var manualPath = Assert.IsType<string>(manual.RecoveryPointPath);
+        var corruptAutomaticPath = Path.Combine(
+            fixture.RecoveryDirectory,
+            $"dot-orbit-auto-recovery-20200101T0000000000000Z-corrupt{EncryptedWorkspaceRecovery.RecoveryPointExtension}");
+        File.WriteAllText(corruptAutomaticPath, "not an encrypted database");
+
+        for (var hour = 0; hour < 24; hour++)
+        {
+            Assert.Equal(
+                AutomaticRecoveryAttempt.Created,
+                recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed));
+            if (hour == 0)
+            {
+                var automaticName = Path.GetFileName(
+                    Assert.Single(
+                        GetAutomaticRecoveryFiles(fixture.RecoveryDirectory),
+                        path => !string.Equals(
+                            path,
+                            corruptAutomaticPath,
+                            StringComparison.Ordinal)));
+                var lookalikeName = automaticName.Replace(
+                    EncryptedWorkspaceRecovery.RecoveryPointExtension,
+                    $"-lookalike{EncryptedWorkspaceRecovery.RecoveryPointExtension}",
+                    StringComparison.Ordinal);
+                File.Copy(
+                    manualPath,
+                    Path.Combine(fixture.RecoveryDirectory, lookalikeName));
+            }
+
+            time.Advance(TimeSpan.FromHours(1));
+        }
+
+        Assert.Equal(
+            AutomaticRecoveryAttempt.Created,
+            recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed));
+
+        var prunedPoints = GetAutomaticRecoveryFiles(fixture.RecoveryDirectory);
+        Assert.Equal(26, prunedPoints.Length);
+        foreach (var path in prunedPoints)
+        {
+            if (string.Equals(path, corruptAutomaticPath, StringComparison.Ordinal)
+                || path.Contains("-lookalike", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var opened = fixture.Store.Open(path, UnlockPassphrase(ValidPassphrase));
+            using var recoverySession = opened.Session;
+            Assert.Equal(WorkspaceOpenStatus.Opened, opened.Status);
+        }
+
+        time.Advance(TimeSpan.FromHours(1));
+        fixture.FileOperations.Failure = FailurePoint.DeleteAutomatic;
+        Assert.Equal(
+            AutomaticRecoveryAttempt.Created,
+            recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed));
+
+        var automaticPoints = GetAutomaticRecoveryFiles(fixture.RecoveryDirectory);
+        Assert.Equal(27, automaticPoints.Length);
+        Assert.True(File.Exists(manualPath));
+        Assert.True(File.Exists(corruptAutomaticPath));
+        Assert.Contains(
+            automaticPoints,
+            path => path.Contains("-lookalike", StringComparison.Ordinal));
+        foreach (var path in automaticPoints)
+        {
+            if (string.Equals(path, corruptAutomaticPath, StringComparison.Ordinal)
+                || path.Contains("-lookalike", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var opened = fixture.Store.Open(path, UnlockPassphrase(ValidPassphrase));
+            using var recoverySession = opened.Session;
+            Assert.Equal(WorkspaceOpenStatus.Opened, opened.Status);
+        }
+    }
+
+    [Fact]
     public void CreateRecoveryPointPublishesOnlyAValidatedEncryptedDatabase()
     {
         using var fixture = new RecoveryFixture();
@@ -343,6 +981,40 @@ public sealed class EncryptedWorkspaceRecoveryTests
             ? System.IO.Directory.GetFiles(directory)
             : [];
 
+    private static string[] GetAutomaticRecoveryFiles(string directory) =>
+        System.IO.Directory.Exists(directory)
+            ? System.IO.Directory.GetFiles(
+                directory,
+                $"dot-orbit-auto-recovery-*{EncryptedWorkspaceRecovery.RecoveryPointExtension}")
+            : [];
+
+    private static bool OpensWithCategory(
+        EncryptedWorkspaceStore store,
+        string path,
+        string expectedCategory)
+    {
+        var opened = store.Open(path, UnlockPassphrase(ValidPassphrase));
+        using var session = opened.Session;
+        return opened.Status == WorkspaceOpenStatus.Opened
+            && string.Equals(
+                expectedCategory,
+                session?.FirstCategoryName,
+                StringComparison.Ordinal);
+    }
+
+    private static AutomaticRecoveryAttempt ChangeFirstCategory(
+        WorkspaceTransactionCoordinator transactions,
+        string category) =>
+        transactions.Execute(
+            (connection, transaction) =>
+            {
+                using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = "UPDATE categories SET name = $name;";
+                command.Parameters.AddWithValue("$name", category);
+                Assert.Equal(1, command.ExecuteNonQuery());
+            });
+
     public enum FailurePoint
     {
         None,
@@ -356,25 +1028,33 @@ public sealed class EncryptedWorkspaceRecoveryTests
         Replace,
         PermissionReplace,
         ThrowAfterReplacementPublication,
+        StateWrite,
+        StatePublish,
+        DeleteAutomatic,
+        Enumeration,
     }
 
     private sealed class RecoveryFixture : IDisposable
     {
         private readonly string _passphrase;
 
-        public RecoveryFixture(string passphrase = ValidPassphrase)
+        public RecoveryFixture(
+            string passphrase = ValidPassphrase,
+            TimeProvider? timeProvider = null,
+            string? recoveryDirectoryPath = null)
         {
             _passphrase = passphrase;
             Directory = Path.Combine(
                 Path.GetTempPath(),
                 $"dot-orbit-recovery-tests-{Guid.NewGuid():N}");
-            RecoveryDirectory = Path.Combine(Directory, "recovery");
+            RecoveryDirectory = recoveryDirectoryPath ?? Path.Combine(Directory, "recovery");
             WorkspacePath = Path.Combine(Directory, "workspace.db");
             System.IO.Directory.CreateDirectory(Directory);
             FileOperations = new FaultInjectingFileOperations();
             Store = new EncryptedWorkspaceStore(
                 new SystemIdentifierGenerator(),
-                FileOperations);
+                FileOperations,
+                timeProvider);
         }
 
         public string Directory { get; }
@@ -449,10 +1129,13 @@ public sealed class EncryptedWorkspaceRecoveryTests
     private sealed class FaultInjectingFileOperations : IWorkspaceFileOperations
     {
         private readonly WorkspaceFileOperations _inner = new();
+        private int _statePublishCalls;
 
         public Action<string, string>? BeforePublish { get; set; }
 
         public FailurePoint Failure { get; set; }
+
+        public int? FailStatePublishCall { get; set; }
 
         public string ResolvePath(string path) => _inner.ResolvePath(path);
 
@@ -542,5 +1225,44 @@ public sealed class EncryptedWorkspaceRecoveryTests
         }
 
         public void DeleteCandidate(string candidatePath) => _inner.DeleteCandidate(candidatePath);
+
+        public IReadOnlyList<string> EnumerateFiles(string directoryPath, string searchPattern) =>
+            Failure == FailurePoint.Enumeration
+                ? throw new IOException("Injected recovery-directory enumeration failure.")
+                : _inner.EnumerateFiles(directoryPath, searchPattern);
+
+        public string ReadAllText(string path) => _inner.ReadAllText(path);
+
+        public void WriteAllText(string path, string contents)
+        {
+            if (Failure == FailurePoint.StateWrite)
+            {
+                throw new IOException("Injected recovery-state write interruption.");
+            }
+
+            _inner.WriteAllText(path, contents);
+        }
+
+        public void PublishOrReplace(string candidatePath, string targetPath)
+        {
+            _statePublishCalls++;
+            if (Failure == FailurePoint.StatePublish
+                || _statePublishCalls == FailStatePublishCall)
+            {
+                throw new IOException("Injected recovery-state publication interruption.");
+            }
+
+            _inner.PublishOrReplace(candidatePath, targetPath);
+        }
+
+        public void DeleteFile(string path)
+        {
+            if (Failure == FailurePoint.DeleteAutomatic)
+            {
+                throw new IOException("Injected automatic-recovery deletion interruption.");
+            }
+
+            _inner.DeleteFile(path);
+        }
     }
 }

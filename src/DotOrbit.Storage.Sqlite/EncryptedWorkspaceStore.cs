@@ -345,10 +345,12 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         int SchemaVersion,
         string FirstCategoryName);
 
-    private sealed class WorkspaceSession : IWorkspaceSession
+    internal sealed class WorkspaceSession : IWorkspaceSession
     {
         private SqliteConnection? _connection;
+        private readonly object _gate = new();
         private readonly EncryptedWorkspaceRecovery _recovery;
+        private readonly WorkspaceTransactionCoordinator _transactions;
         private bool _disposed;
 
         public WorkspaceSession(
@@ -364,12 +366,17 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
             FirstCategoryName = firstCategoryName;
             _recovery = new EncryptedWorkspaceRecovery(
                 store,
-                connection,
                 workspacePath,
                 passphrase,
                 store._fileOperations,
                 store._timeProvider,
+                _gate,
                 Dispose);
+            _transactions = new WorkspaceTransactionCoordinator(
+                workspacePath,
+                passphrase,
+                _recovery,
+                _gate);
         }
 
         public int SchemaVersion { get; }
@@ -378,17 +385,23 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
 
         public IWorkspaceRecovery Recovery => _recovery;
 
+        internal WorkspaceTransactionCoordinator Transactions => _transactions;
+
         public void Dispose()
         {
-            if (_disposed)
+            lock (_gate)
             {
-                return;
-            }
+                if (_disposed)
+                {
+                    return;
+                }
 
-            _recovery.Close();
-            _connection?.Dispose();
-            _connection = null;
-            _disposed = true;
+                _transactions.Close();
+                _recovery.Close();
+                _connection?.Dispose();
+                _connection = null;
+                _disposed = true;
+            }
         }
     }
 }

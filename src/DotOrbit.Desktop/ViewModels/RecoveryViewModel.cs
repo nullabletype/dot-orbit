@@ -26,6 +26,7 @@ public sealed class RecoveryViewModel : INotifyPropertyChanged
         _recovery = recovery;
         _pathPicker = pathPicker;
         _sessionReplaced = sessionReplaced;
+        _recoveryDirectoryPath = recovery.AutomaticRecoveryDirectoryPath ?? string.Empty;
         CreateRecoveryPointCommand = new RelayCommand(CreateRecoveryPoint);
         RequestRestoreCommand = new RelayCommand(RequestRestore);
         CancelRestoreCommand = new RelayCommand(CancelRestore);
@@ -104,8 +105,17 @@ public sealed class RecoveryViewModel : INotifyPropertyChanged
         var selectedPath = await _pathPicker.SelectRecoveryDirectoryAsync();
         if (!string.IsNullOrWhiteSpace(selectedPath))
         {
-            RecoveryDirectoryPath = selectedPath;
-            StatusMessage = string.Empty;
+            var configuration = _recovery.ConfigureAutomaticRecoveryDirectory(selectedPath);
+            if (configuration.Status == RecoveryDirectoryConfigurationStatus.Configured)
+            {
+                RecoveryDirectoryPath = configuration.DirectoryPath ?? string.Empty;
+                StatusMessage = "Automatic recovery directory saved.";
+            }
+            else
+            {
+                StatusMessage =
+                    "The automatic recovery directory could not be saved. The previous directory is unchanged.";
+            }
         }
     }
 
@@ -167,6 +177,7 @@ public sealed class RecoveryViewModel : INotifyPropertyChanged
         if (result.Session is not null)
         {
             _recovery = result.Session.Recovery;
+            RecoveryDirectoryPath = _recovery.AutomaticRecoveryDirectoryPath ?? string.Empty;
             _sessionReplaced(result.Session);
         }
 
