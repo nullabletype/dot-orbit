@@ -323,11 +323,21 @@ public sealed class EncryptedWorkspaceStoreTests
 
         public void EnsureParentDirectory(string path) => _inner.EnsureParentDirectory(path);
 
+        public void EnsureDirectory(string path) => _inner.EnsureDirectory(path);
+
         public string GetCandidatePath(string targetPath, string identifier) =>
             _inner.GetCandidatePath(targetPath, identifier);
 
         public void Publish(string candidatePath, string targetPath) =>
             throw new IOException("Injected publication failure.");
+
+        public void Copy(string sourcePath, string candidatePath) =>
+            _inner.Copy(sourcePath, candidatePath);
+
+        public void Flush(string path) => _inner.Flush(path);
+
+        public void Replace(string candidatePath, string targetPath, string rollbackPath) =>
+            _inner.Replace(candidatePath, targetPath, rollbackPath);
 
         public void DeleteCandidate(string candidatePath) => _inner.DeleteCandidate(candidatePath);
     }

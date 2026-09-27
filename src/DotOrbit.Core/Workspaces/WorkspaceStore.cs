@@ -17,6 +17,17 @@ public interface IWorkspaceSession : IDisposable
     int SchemaVersion { get; }
 
     string FirstCategoryName { get; }
+
+    IWorkspaceRecovery Recovery { get; }
+}
+
+public interface IWorkspaceRecovery
+{
+    RecoveryPointCreationResult CreateRecoveryPoint(string directoryPath);
+
+    WorkspaceRestoreResult Restore(
+        string recoveryPointPath,
+        string preRestoreRecoveryDirectoryPath);
 }
 
 public interface IIdentifierGenerator
@@ -91,4 +102,76 @@ public sealed class WorkspaceOpenResult
 
     public static WorkspaceOpenResult Failed() => new(WorkspaceOpenStatus.Failed, null);
 
+}
+
+public enum RecoveryPointCreationStatus
+{
+    Created,
+    Failed,
+}
+
+public sealed class RecoveryPointCreationResult
+{
+    private RecoveryPointCreationResult(
+        RecoveryPointCreationStatus status,
+        string? recoveryPointPath)
+    {
+        Status = status;
+        RecoveryPointPath = recoveryPointPath;
+    }
+
+    public RecoveryPointCreationStatus Status { get; }
+
+    public string? RecoveryPointPath { get; }
+
+    public static RecoveryPointCreationResult Created(string recoveryPointPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(recoveryPointPath);
+        return new(RecoveryPointCreationStatus.Created, recoveryPointPath);
+    }
+
+    public static RecoveryPointCreationResult Failed() =>
+        new(RecoveryPointCreationStatus.Failed, null);
+}
+
+public enum WorkspaceRestoreStatus
+{
+    Restored,
+    InvalidRecoveryPoint,
+    UnsupportedSchema,
+    PreRestoreRecoveryFailed,
+    Failed,
+}
+
+public sealed class WorkspaceRestoreResult
+{
+    private WorkspaceRestoreResult(
+        WorkspaceRestoreStatus status,
+        IWorkspaceSession? session)
+    {
+        Status = status;
+        Session = session;
+    }
+
+    public WorkspaceRestoreStatus Status { get; }
+
+    public IWorkspaceSession? Session { get; }
+
+    public static WorkspaceRestoreResult Restored(IWorkspaceSession session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        return new(WorkspaceRestoreStatus.Restored, session);
+    }
+
+    public static WorkspaceRestoreResult InvalidRecoveryPoint() =>
+        new(WorkspaceRestoreStatus.InvalidRecoveryPoint, null);
+
+    public static WorkspaceRestoreResult UnsupportedSchema() =>
+        new(WorkspaceRestoreStatus.UnsupportedSchema, null);
+
+    public static WorkspaceRestoreResult PreRestoreRecoveryFailed() =>
+        new(WorkspaceRestoreStatus.PreRestoreRecoveryFailed, null);
+
+    public static WorkspaceRestoreResult Failed(IWorkspaceSession? session = null) =>
+        new(WorkspaceRestoreStatus.Failed, session);
 }

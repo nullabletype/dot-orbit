@@ -18,25 +18,31 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
     private static bool _initialised;
     private readonly IWorkspaceFileOperations _fileOperations;
     private readonly IIdentifierGenerator _identifierGenerator;
+    private readonly TimeProvider _timeProvider;
 
     public EncryptedWorkspaceStore()
-        : this(new SystemIdentifierGenerator(), new WorkspaceFileOperations())
+        : this(
+            new SystemIdentifierGenerator(),
+            new WorkspaceFileOperations(),
+            TimeProvider.System)
     {
     }
 
     public EncryptedWorkspaceStore(IIdentifierGenerator identifierGenerator)
-        : this(identifierGenerator, new WorkspaceFileOperations())
+        : this(identifierGenerator, new WorkspaceFileOperations(), TimeProvider.System)
     {
     }
 
     internal EncryptedWorkspaceStore(
         IIdentifierGenerator identifierGenerator,
-        IWorkspaceFileOperations fileOperations)
+        IWorkspaceFileOperations fileOperations,
+        TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(identifierGenerator);
         ArgumentNullException.ThrowIfNull(fileOperations);
         _identifierGenerator = identifierGenerator;
         _fileOperations = fileOperations;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         EnsureProviderInitialised();
     }
 
@@ -165,7 +171,13 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
 
             ValidateIntegrity(connection);
             var firstCategory = ValidateWorkspaceShape(connection);
-            var session = new WorkspaceSession(connection, (int)schemaVersion, firstCategory);
+            var session = new WorkspaceSession(
+                this,
+                connection,
+                fullPath,
+                passphrase,
+                (int)schemaVersion,
+                firstCategory);
             connection = null;
             return WorkspaceOpenResult.Opened(session);
         }
@@ -201,7 +213,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         }
     }
 
-    private string GetIdentifier()
+    internal string GetIdentifier()
     {
         var identifier = _identifierGenerator.NewIdentifier();
         return string.IsNullOrWhiteSpace(identifier)
@@ -209,7 +221,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
             : identifier;
     }
 
-    private static SqliteConnection OpenConnection(
+    internal static SqliteConnection OpenConnection(
         string path,
         WorkspacePassphrase passphrase,
         SqliteOpenMode mode) =>
@@ -236,14 +248,14 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
             }
         });
 
-    private static void ConfigureConnection(SqliteConnection connection)
+    internal static void ConfigureConnection(SqliteConnection connection)
     {
         using var command = connection.CreateCommand();
         command.CommandText = "PRAGMA temp_store = MEMORY; PRAGMA memory_security = 1;";
         command.ExecuteNonQuery();
     }
 
-    private static void AssertEncryptionProfile(SqliteConnection connection)
+    internal static void AssertEncryptionProfile(SqliteConnection connection)
     {
         if (!string.Equals(
                 ExecuteScalar<string>(connection, "PRAGMA cipher;"),
@@ -258,7 +270,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         }
     }
 
-    private static void ValidateIntegrity(SqliteConnection connection)
+    internal static void ValidateIntegrity(SqliteConnection connection)
     {
         var result = ExecuteScalar<string>(connection, "PRAGMA integrity_check;");
         if (!string.Equals(result, "ok", StringComparison.Ordinal))
@@ -267,7 +279,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         }
     }
 
-    private static string ValidateWorkspaceShape(SqliteConnection connection)
+    internal static string ValidateWorkspaceShape(SqliteConnection connection)
     {
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT name FROM categories ORDER BY position LIMIT 1;";
@@ -294,15 +306,47 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         return (T)Convert.ChangeType(value, typeof(T), CultureInfo.InvariantCulture);
     }
 
-    private sealed class WorkspaceSession(
-        SqliteConnection connection,
-        int schemaVersion,
-        string firstCategoryName) : IWorkspaceSession
+    private sealed class WorkspaceSession : IWorkspaceSession
     {
-        public int SchemaVersion { get; } = schemaVersion;
+        private readonly SqliteConnection _connection;
+        private bool _disposed;
 
-        public string FirstCategoryName { get; } = firstCategoryName;
+        public WorkspaceSession(
+            EncryptedWorkspaceStore store,
+            SqliteConnection connection,
+            string workspacePath,
+            WorkspacePassphrase passphrase,
+            int schemaVersion,
+            string firstCategoryName)
+        {
+            _connection = connection;
+            SchemaVersion = schemaVersion;
+            FirstCategoryName = firstCategoryName;
+            Recovery = new EncryptedWorkspaceRecovery(
+                store,
+                connection,
+                workspacePath,
+                passphrase,
+                store._fileOperations,
+                store._timeProvider,
+                Dispose);
+        }
 
-        public void Dispose() => connection.Dispose();
+        public int SchemaVersion { get; }
+
+        public string FirstCategoryName { get; }
+
+        public IWorkspaceRecovery Recovery { get; }
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _connection.Dispose();
+            _disposed = true;
+        }
     }
 }
