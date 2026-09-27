@@ -42,6 +42,19 @@ public sealed class WorkspaceWorkTests : IDisposable
 
         using var reopened = _store.Open(WorkspacePath, _passphrase).Session!;
         var snapshot = reopened.Work.Read();
+        Assert.Collection(snapshot.Projects,
+            project => Assert.Equal("Updated", project.Title),
+            project => Assert.Equal("Second", project.Title));
+        Assert.Collection(snapshot.Tasks,
+            task => Assert.Equal("C", task.Title),
+            task => Assert.Equal("B", task.Title),
+            task => Assert.Equal("Edited", task.Title));
+        Assert.Collection(snapshot.Tasks
+            .Where(t => t.ProjectId == snapshot.Projects[0].Id)
+            .OrderBy(t => t.ProjectPosition)
+            .Select(t => t.Title),
+            title => Assert.Equal("Edited", title),
+            title => Assert.Equal("C", title));
         Assert.Equal("Updated", snapshot.Projects[0].Title);
         Assert.Equal("**saved**", snapshot.Projects[0].Description);
         Assert.Equal(new DateOnly(2030, 1, 2), snapshot.Projects[0].TargetDate);
