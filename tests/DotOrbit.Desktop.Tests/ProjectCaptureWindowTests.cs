@@ -15,6 +15,33 @@ namespace DotOrbit.Desktop.Tests;
 public sealed class ProjectCaptureWindowTests
 {
     [AvaloniaFact]
+    public void ProjectsAndInspectorRetainWorkbenchHierarchyAndAccessibleActions()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", new DateOnly(2026, 10, 12));
+        work.CreateTask(project.Id, "Plant bulbs");
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(n => n.Title == "Projects").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+
+        var newProject = NamedButton(window, "New project");
+        Assert.Contains("primary-action", newProject.Classes);
+        var projectButton = NamedButton(window, "Garden");
+        Assert.Contains("project-title", projectButton.Classes);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Not started");
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "0/1 tasks");
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Target 2026-10-12");
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Home · inherited");
+
+        Activate(window, projectButton);
+        Assert.Contains("inspector-title", window.FindControl<TextBox>("DraftTitle")!.Classes);
+        Assert.Contains("primary-action", NamedButton(window, "Save").Classes);
+        Assert.Contains("view-action", NamedButton(window, "Cancel editing").Classes);
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public void ProjectButtonsCreateCancelEditAndResolveFailedNavigationThroughBindings()
     {
         using var session = new RecoveryViewModelTests.StubWorkspaceSession(new RecoveryViewModelTests.StubWorkspaceRecovery());

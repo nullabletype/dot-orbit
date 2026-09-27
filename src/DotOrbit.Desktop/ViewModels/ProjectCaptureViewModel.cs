@@ -46,11 +46,19 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public RelayCommand StayCommand { get; }
     public bool HasInspector { get => _hasInspector; private set { _hasInspector = value; Notify(); Notify(nameof(HasNoInspector)); } }
     public bool HasNoInspector => !HasInspector;
+    public bool HasProjects => Projects.Count > 0;
+    public bool HasNoProjects => !HasProjects;
     public bool NeedsDecision => _pendingNavigation is not null;
     public bool IsDirty => HasInspector && (_creating || _original != Fingerprint());
     public string InspectorHeading => _creating ? "New project" : _editingTask ? "Task details" : "Project details";
     public bool ShowProjectSummary => HasInspector && !_creating && !_editingTask;
     public string ProjectSummary => ShowProjectSummary ? Projects.Single(p => p.Id == _editingId).Summary + " · No completion date" : string.Empty;
+    public string InspectorMetaLabel => _editingTask ? "CATEGORY BEHAVIOUR" : "STATUS";
+    public string InspectorMetaValue => _editingTask
+        ? CategoryHint
+        : ShowProjectSummary
+            ? $"{Projects.Single(p => p.Id == _editingId).Status} · {Projects.Single(p => p.Id == _editingId).ProgressText}"
+            : "Not started · 0/0 tasks";
     public string SaveLabel => _creating ? "Create" : "Save";
     public string DateLabel => _editingTask ? "Due date (YYYY-MM-DD, optional)" : "Target date (YYYY-MM-DD, optional)";
     public string CategoryHint => _editingTask ? (_category?.Id is null ? "Inherited from project" : "Explicit category override") : "Project category";
@@ -59,7 +67,17 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public string Title { get => _title; set { _title = value; Notify(); } }
     public string Description { get => _description; set { _description = value; Notify(); } }
     public string Date { get => _date; set { _date = value; Notify(); } }
-    public CategoryChoice? Category { get => _category; set { _category = value; Notify(); Notify(nameof(CategoryHint)); } }
+    public CategoryChoice? Category
+    {
+        get => _category;
+        set
+        {
+            _category = value;
+            Notify();
+            Notify(nameof(CategoryHint));
+            Notify(nameof(InspectorMetaValue));
+        }
+    }
 
     public void Navigate(Action destination)
     {
@@ -129,6 +147,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         Message = string.Empty;
         Notify(nameof(InspectorHeading)); Notify(nameof(SaveLabel)); Notify(nameof(DateLabel));
         Notify(nameof(ShowProjectSummary)); Notify(nameof(ProjectSummary));
+        Notify(nameof(InspectorMetaLabel)); Notify(nameof(InspectorMetaValue));
     }
 
     public bool Save()
@@ -193,6 +212,9 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         Backlog.Clear();
         foreach (var task in _snapshot.Tasks.OrderBy(t => t.SharedPosition)) Backlog.Add(ToTaskRow(task));
         Notify(nameof(ProjectSummary));
+        Notify(nameof(InspectorMetaValue));
+        Notify(nameof(HasProjects));
+        Notify(nameof(HasNoProjects));
     }
     private TaskRowViewModel ToTaskRow(TaskRecord task)
     {
@@ -203,7 +225,10 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 }
 
 public sealed record CategoryChoice(string? Id, string Name);
-public sealed record TaskRowViewModel(string Id, string Title, string CategoryName, bool IsInherited, RelayCommand SelectCommand);
+public sealed record TaskRowViewModel(string Id, string Title, string CategoryName, bool IsInherited, RelayCommand SelectCommand)
+{
+    public string CategoryDisplay => IsInherited ? $"{CategoryName} · inherited" : $"{CategoryName} · override";
+}
 
 public sealed class ProjectRowViewModel : INotifyPropertyChanged
 {
@@ -215,6 +240,10 @@ public sealed class ProjectRowViewModel : INotifyPropertyChanged
     public string Id { get; }
     public string Title { get; private set; } = string.Empty;
     public string Summary { get; private set; } = string.Empty;
+    public string Status { get; private set; } = string.Empty;
+    public string ProgressText { get; private set; } = string.Empty;
+    public string CategoryName { get; private set; } = string.Empty;
+    public string TargetText { get; private set; } = string.Empty;
     public bool IsExpanded { get; set; } = true;
     public string QuickTitle { get => _quickTitle; set { _quickTitle = value; PropertyChanged?.Invoke(this, new(nameof(QuickTitle))); } }
     public RelayCommand SelectCommand { get; }
@@ -223,9 +252,19 @@ public sealed class ProjectRowViewModel : INotifyPropertyChanged
     public void Refresh(ProjectRecord project, ProjectWorkSummary summary, string category, IEnumerable<TaskRowViewModel> tasks)
     {
         Title = project.Title;
+        Status = summary.Status;
+        ProgressText = $"{summary.CompletedCount}/{summary.TaskCount} tasks";
+        CategoryName = category;
+        TargetText = project.TargetDate is { } date ? $"Target {date:yyyy-MM-dd}" : string.Empty;
         Tasks.Clear();
         foreach (var task in tasks) Tasks.Add(task);
-        Summary = $"{summary.Status} · {summary.CompletedCount} of {summary.TaskCount} Tasks · {category}" + (project.TargetDate is { } date ? $" · Target {date:yyyy-MM-dd}" : string.Empty);
-        PropertyChanged?.Invoke(this, new(nameof(Title))); PropertyChanged?.Invoke(this, new(nameof(Summary)));
+        Summary = $"{summary.Status} · {summary.CompletedCount} of {summary.TaskCount} Tasks · {category}"
+            + (string.IsNullOrEmpty(TargetText) ? string.Empty : $" · {TargetText}");
+        PropertyChanged?.Invoke(this, new(nameof(Title)));
+        PropertyChanged?.Invoke(this, new(nameof(Summary)));
+        PropertyChanged?.Invoke(this, new(nameof(Status)));
+        PropertyChanged?.Invoke(this, new(nameof(ProgressText)));
+        PropertyChanged?.Invoke(this, new(nameof(CategoryName)));
+        PropertyChanged?.Invoke(this, new(nameof(TargetText)));
     }
 }
