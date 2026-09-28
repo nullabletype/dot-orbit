@@ -1,10 +1,14 @@
 using Avalonia;
 using Avalonia.Automation;
+using Avalonia.Automation.Peers;
 using Avalonia.Controls;
+using Avalonia.Controls.Presenters;
+using Avalonia.Controls.Shapes;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Input.Raw;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using DotOrbit.Desktop.ViewModels;
@@ -228,8 +232,264 @@ public sealed class ProjectCaptureWindowTests
         window.Close();
     }
 
+    [AvaloniaFact]
+    public void BacklogRapidEntryRequiresCategoryRetainsItAndImplementsTheKeyboardFlow()
+    {
+        var work = new MemoryWorkspaceWork();
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Backlog").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+        var category = Assert.Single(window.GetVisualDescendants().OfType<ComboBox>(),
+            combo => AutomationProperties.GetName(combo) == "Standalone task category");
+        category.SelectedItem = shell.Work!.BacklogCategories.Single(choice => choice.Id == "home");
+        var field = window.FindControl<TextBox>("BacklogQuickTitle")!;
+
+        Assert.True(field.Focus());
+        window.KeyTextInput("First standalone");
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        window.KeyReleaseQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(field.IsFocused);
+        Assert.Empty(field.Text ?? string.Empty);
+        Assert.Equal("home", shell.Work.BacklogQuickCategory?.Id);
+
+        window.KeyTextInput("Second standalone");
+        window.KeyPressQwerty(PhysicalKey.Tab, RawInputModifiers.None);
+        window.KeyReleaseQwerty(PhysicalKey.Tab, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(field.IsFocused);
+        Assert.Equal(2, work.Read().Tasks.Count);
+
+        window.KeyTextInput("Not submitted");
+        window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+        window.KeyReleaseQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+        Assert.Empty(field.Text ?? string.Empty);
+        window.KeyPressQwerty(PhysicalKey.Tab, RawInputModifiers.None);
+        window.KeyReleaseQwerty(PhysicalKey.Tab, RawInputModifiers.None);
+        Assert.False(field.IsFocused);
+        Assert.Equal(2, work.Read().Tasks.Count);
+        Assert.All(work.Read().Tasks, task => Assert.Null(task.ProjectId));
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void BacklogAccessibleMovePreservesFocusAnnouncesPositionAndPointerDragUsesTheSameOrder()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var movedTask = work.CreateTask(project.Id, "Same");
+        var middleTask = work.CreateTask(project.Id, "Two");
+        var otherSameTitle = work.CreateTask(project.Id, "Same");
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Backlog").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+
+        var reorderMovedTask = ButtonByAutomationId(window, $"backlog-reorder-{movedTask.Id}");
+        Activate(window, reorderMovedTask);
+        var menu = Assert.IsType<MenuFlyout>(reorderMovedTask.Flyout);
+        Assert.True(menu.IsOpen);
+        var menuItems = menu.Items.OfType<MenuItem>().ToArray();
+        Assert.Equal(
+            ["Move Same to top of Backlog", "Move Same up in Backlog", "Move Same down in Backlog", "Move Same to bottom of Backlog"],
+            menuItems.Select(AutomationProperties.GetName));
+        var moveToTop = menuItems.Single(item => item.Header?.ToString() == "Move to top");
+        moveToTop.Command!.Execute(moveToTop.CommandParameter);
+        menu.Hide();
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(ButtonByAutomationId(window, $"backlog-reorder-{movedTask.Id}").IsFocused);
+        Assert.Equal([movedTask.Id, otherSameTitle.Id, middleTask.Id], shell.Work!.Backlog.Select(task => task.Id));
+        Assert.Equal("Moved Same to position 1 of 3 in Backlog.", shell.Work.ReorderAnnouncement);
+
+        var dragOne = ButtonByAutomationId(window, $"backlog-reorder-{movedTask.Id}");
+        var target = NamedButton(window, "Two");
+        var start = CentreInWindow(dragOne, window);
+        var end = CentreInWindow(target, window);
+        window.MouseDown(start, MouseButton.Left, RawInputModifiers.LeftMouseButton);
+        window.MouseMove(end, RawInputModifiers.LeftMouseButton);
+        var targetRow = target.GetVisualAncestors().OfType<Border>().First(border => border.Classes.Contains("backlog-row"));
+        Assert.Contains("drag-target", targetRow.Classes);
+        window.MouseUp(end, MouseButton.Left, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal([otherSameTitle.Id, middleTask.Id, movedTask.Id], shell.Work.Backlog.Select(task => task.Id));
+        Assert.Equal(shell.Work.Backlog.Select(task => task.Id), work.Read().Tasks.Select(task => task.Id));
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void BacklogRowSurfaceSelectsTask()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        work.CreateTask(project.Id, "Plant bulbs");
+        work.CreateTask(project.Id, "Order compost");
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Backlog").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+
+        var rows = window.GetVisualDescendants().OfType<Border>()
+            .Where(border => border.Classes.Contains("backlog-row"))
+            .ToArray();
+        var row = rows.Single(border => border.DataContext is TaskRowViewModel { Title: "Plant bulbs" });
+        var otherRow = rows.Single(border => border.DataContext is TaskRowViewModel { Title: "Order compost" });
+        var point = RowSurfacePoint(row, window);
+        var otherPoint = RowSurfacePoint(otherRow, window);
+        window.MouseDown(otherPoint, MouseButton.Left, RawInputModifiers.LeftMouseButton);
+        window.MouseUp(point, MouseButton.Left, RawInputModifiers.None);
+        Assert.False(shell.Work!.HasInspector);
+        window.MouseDown(point, MouseButton.Left, RawInputModifiers.LeftMouseButton);
+        window.MouseUp(point, MouseButton.Left, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(shell.Work.HasInspector);
+        Assert.Equal("Plant bulbs", shell.Work.Title);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void BacklogHoverHighlightsTheWholeSelectableRowSurface()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        work.CreateTask(project.Id, "Plant bulbs");
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Backlog").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+
+        var row = Assert.Single(window.GetVisualDescendants().OfType<Border>(),
+            border => border.Classes.Contains("backlog-row"));
+        var title = NamedButton(window, "Plant bulbs");
+        window.MouseMove(RowSurfacePoint(row, window), RawInputModifiers.None);
+        Assert.Equal(Color.Parse("#151923"), Assert.IsAssignableFrom<ISolidColorBrush>(row.Background).Color);
+        Assert.True(title.Focus());
+        window.MouseMove(CentreInWindow(title, window), RawInputModifiers.None);
+        Assert.True(title.IsPointerOver);
+        Assert.Equal(Color.Parse("#151923"), Assert.IsAssignableFrom<ISolidColorBrush>(row.Background).Color);
+        Assert.Equal(Colors.Transparent, Assert.IsAssignableFrom<ISolidColorBrush>(title.Background).Color);
+        var presenter = Assert.Single(title.GetVisualDescendants().OfType<ContentPresenter>());
+        Assert.Equal(Colors.Transparent, Assert.IsAssignableFrom<ISolidColorBrush>(presenter.Background).Color);
+        Assert.All(title.GetVisualDescendants().OfType<Border>(), border =>
+        {
+            if (border.Background is ISolidColorBrush background)
+                Assert.Equal(Colors.Transparent, background.Color);
+        });
+        window.MouseMove(new Point(2, 2), RawInputModifiers.None);
+        Assert.Equal(Colors.Transparent, Assert.IsAssignableFrom<ISolidColorBrush>(row.Background).Color);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void BacklogListPanelUsesEqualOuterPadding()
+    {
+        var work = new MemoryWorkspaceWork();
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Backlog").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+
+        var panel = Assert.IsType<Border>(window.FindControl<Border>("BacklogListPanel"));
+
+        Assert.Equal(new Thickness(10), panel.Padding);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void BacklogRowsExposeEffectiveCategoryAndRelationshipAsAccessibleText()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        work.CreateTask(project.Id, "Inherited task");
+        var overridden = work.CreateTask(project.Id, "Overridden task");
+        work.UpdateTask(overridden.Id, overridden.Title, "", "work", null);
+        work.CreateStandaloneTask("Standalone task", "", "work", null);
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Backlog").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+
+        AssertCategoryMetadata("Inherited task", "Home · inherited");
+        AssertCategoryMetadata("Overridden task", "Work · override");
+        AssertCategoryMetadata("Standalone task", "Work · standalone");
+        window.Close();
+
+        void AssertCategoryMetadata(string title, string expected)
+        {
+            var row = Assert.Single(window.GetVisualDescendants().OfType<Border>(),
+                border => border.Classes.Contains("backlog-row") && border.DataContext is TaskRowViewModel task && task.Title == title);
+            var category = Assert.Single(row.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == expected);
+            Assert.True(category.IsEffectivelyVisible);
+            var taskButton = Assert.Single(row.GetVisualDescendants().OfType<Button>(),
+                button => button.Classes.Contains("backlog-task-title"));
+            var peer = ControlAutomationPeer.CreatePeerForElement(taskButton);
+            Assert.Equal(expected, peer.GetItemStatus());
+        }
+    }
+
+    [AvaloniaFact]
+    public void LastBacklogRowHasNoTrailingDivider()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        work.CreateTask(project.Id, "Plant bulbs");
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Backlog").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+
+        var row = Assert.Single(window.GetVisualDescendants().OfType<Border>(),
+            border => border.Classes.Contains("backlog-row"));
+        Assert.Equal(0, row.BorderThickness.Bottom);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void BacklogReorderHandleUsesCentredDotGrid()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var task = work.CreateTask(project.Id, "Plant bulbs");
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Backlog").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+
+        var handle = ButtonByAutomationId(window, $"backlog-reorder-{task.Id}");
+        var dots = Assert.IsType<Grid>(handle.Content);
+        var handleCentre = CentreInWindow(handle, window);
+        var dotsCentre = CentreInWindow(dots, window);
+        Assert.InRange(Math.Abs(handleCentre.X - dotsCentre.X), 0, 0.5);
+        Assert.InRange(Math.Abs(handleCentre.Y - dotsCentre.Y), 0, 0.5);
+        Assert.Equal(6, dots.Children.OfType<Ellipse>().Count());
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void TaskInspectorMetadataLabelFitsItsColumn()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        work.CreateTask(project.Id, "Plant bulbs");
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Backlog").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+        Activate(window, NamedButton(window, "Plant bulbs"));
+
+        var label = Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(),
+            text => text.Text == "CATEGORY BEHAVIOUR");
+        Assert.True(label.Bounds.Width >= label.TextLayout.Width,
+            $"Metadata label width {label.Bounds.Width} clips rendered text width {label.TextLayout.Width}.");
+        window.Close();
+    }
+
     private static Button NamedButton(Window window, string name) => Assert.Single(
         window.GetVisualDescendants().OfType<Button>(), button => AutomationProperties.GetName(button) == name);
+
+    private static Button ButtonByAutomationId(Window window, string id) => Assert.Single(
+        window.GetVisualDescendants().OfType<Button>(), button => AutomationProperties.GetAutomationId(button) == id);
 
     private static void Activate(Window window, Button button)
     {
@@ -240,4 +500,18 @@ public sealed class ProjectCaptureWindowTests
     }
 
     private static TextBox QuickField(Window window) => Assert.Single(window.GetVisualDescendants().OfType<TextBox>(), b => b.Classes.Contains("quick-add"));
+
+    private static Point CentreInWindow(Control control, Window window)
+    {
+        var point = control.TranslatePoint(new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), window);
+        Assert.True(point.HasValue);
+        return point.Value;
+    }
+
+    private static Point RowSurfacePoint(Border row, Window window)
+    {
+        var point = row.TranslatePoint(new Point(row.Bounds.Width - 2, row.Bounds.Height / 2), window);
+        Assert.True(point.HasValue);
+        return point.Value;
+    }
 }

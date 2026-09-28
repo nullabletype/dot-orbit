@@ -141,6 +141,48 @@
     <Style Selector="Button.project-title:focus-visible, Button.task-title:focus-visible">
       <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
     </Style>
+    <Style Selector="Button.drag-handle">
+      <Setter Property="MinWidth" Value="30" />
+      <Setter Property="Height" Value="30" />
+      <Setter Property="Padding" Value="6,3" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+      <Setter Property="FontSize" Value="11" />
+    </Style>
+    <Style Selector="Button.drag-handle:pointerover">
+      <Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" />
+      <Setter Property="BorderBrush" Value="#414958" />
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    </Style>
+    <Style Selector="Button.drag-handle:focus-visible">
+      <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+    </Style>
+    <Style Selector="Border.backlog-row">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{StaticResource LineSoftBrush}" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+    </Style>
+    <Style Selector="Border.backlog-row.last">
+      <Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <Style Selector="Border.backlog-row:pointerover">
+      <Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" />
+    </Style>
+    <Style Selector="Border.backlog-row:pointerover Button.backlog-task-title">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.backlog-task-title:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                     Button.backlog-task-title:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Border.backlog-row.drag-target">
+      <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+      <Setter Property="BorderThickness" Value="0,0,0,2" />
+    </Style>
     <Style Selector="ToggleButton.disclosure">
       <Setter Property="Width" Value="28" />
       <Setter Property="Height" Value="34" />

@@ -5,14 +5,17 @@ public interface IWorkspaceWork
     WorkspaceWorkSnapshot Read();
     ProjectRecord CreateProject(string title, string description, string categoryId, DateOnly? targetDate);
     TaskRecord CreateTask(string projectId, string title);
+    TaskRecord CreateStandaloneTask(string title, string description, string categoryId, DateOnly? dueDate);
     ProjectRecord UpdateProject(string id, string title, string description, string categoryId, DateOnly? targetDate);
-    TaskRecord UpdateTask(string id, string title, string description, string? categoryOverrideId, DateOnly? dueDate);
+    TaskRecord UpdateTask(string id, string title, string description, string? explicitCategoryId, DateOnly? dueDate);
+    SharedTaskOrderChange MoveTaskInSharedOrder(string id, int targetPosition);
 }
 
 public sealed record WorkspaceCategory(string Id, string Name, long Position);
 public sealed record ProjectRecord(string Id, string Title, string Description, string CategoryId, DateOnly? TargetDate, long Position);
-public sealed record TaskRecord(string Id, string ProjectId, string Title, string Description, string? CategoryOverrideId, DateOnly? DueDate, long SharedPosition, long ProjectPosition);
+public sealed record TaskRecord(string Id, string? ProjectId, string Title, string Description, string? ExplicitCategoryId, DateOnly? DueDate, long SharedPosition, long? ProjectPosition);
 public sealed record WorkspaceWorkSnapshot(IReadOnlyList<WorkspaceCategory> Categories, IReadOnlyList<ProjectRecord> Projects, IReadOnlyList<TaskRecord> Tasks);
+public sealed record SharedTaskOrderChange(string TaskId, int Position, int Count);
 
 public sealed class WorkspaceWorkException : Exception
 {

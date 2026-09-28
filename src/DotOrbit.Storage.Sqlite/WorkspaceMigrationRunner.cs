@@ -262,6 +262,7 @@ internal static class WorkspaceMigrationRunner
             {
                 1 => ApplySchemaOneToTwo(connection),
                 2 => ApplySchemaTwoToThree(connection),
+                3 => ApplySchemaThreeToFour(connection),
                 _ => throw new InvalidDataException(),
             };
 
@@ -282,8 +283,24 @@ internal static class WorkspaceMigrationRunner
 
     private static int ApplySchemaTwoToThree(SqliteConnection connection)
     {
-        ExecuteNonQuery(connection, SqliteWorkspaceWork.Schema);
+        ExecuteNonQuery(connection, SqliteWorkspaceWork.SchemaThree);
         return 3;
+    }
+
+    private static int ApplySchemaThreeToFour(SqliteConnection connection)
+    {
+        ExecuteNonQuery(connection, """
+            ALTER TABLE tasks RENAME TO tasks_schema_three;
+            """ + SqliteWorkspaceWork.TaskSchema + """
+            INSERT INTO tasks
+                (id, project_id, title, description, explicit_category_id, due_date, shared_position, project_position)
+            SELECT id, project_id, title, description, category_override_id, due_date,
+                row_number() OVER (ORDER BY shared_position, id) - 1, project_position
+            FROM tasks_schema_three;
+            DROP TABLE tasks_schema_three;
+            PRAGMA user_version = 4;
+            """);
+        return 4;
     }
 
     private static int ApplySchemaOneToTwo(SqliteConnection connection)

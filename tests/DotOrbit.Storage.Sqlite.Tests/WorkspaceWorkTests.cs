@@ -27,7 +27,7 @@ public sealed class WorkspaceWorkTests : IDisposable
             var a = session.Work.CreateTask(first.Id, " A ");
             var b = session.Work.CreateTask(second.Id, "B");
             var c = session.Work.CreateTask(first.Id, "C");
-            Assert.Null(a.CategoryOverrideId);
+            Assert.Null(a.ExplicitCategoryId);
             Assert.Null(a.DueDate);
             Assert.Equal(string.Empty, a.Description);
             Assert.Equal(new[] { first.Id, second.Id }, session.Work.Read().Projects.Select(p => p.Id));
@@ -35,9 +35,10 @@ public sealed class WorkspaceWorkTests : IDisposable
             Assert.Equal(new[] { a.Id, c.Id }, session.Work.Read().Tasks.Where(t => t.ProjectId == first.Id).OrderBy(t => t.ProjectPosition).Select(t => t.Id));
             var updated = session.Work.UpdateProject(first.Id, " Updated ", "**saved**", category.Id, new DateOnly(2030, 1, 2));
             Assert.Equal(first.Position, updated.Position);
+            var beforeTaskUpdate = session.Work.Read().Tasks.Single(existing => existing.Id == a.Id);
             var task = session.Work.UpdateTask(a.Id, " Edited ", "- markdown\n- list", category.Id, new DateOnly(2029, 12, 31));
-            Assert.Equal(a.SharedPosition, task.SharedPosition);
-            Assert.Equal(a.ProjectPosition, task.ProjectPosition);
+            Assert.Equal(beforeTaskUpdate.SharedPosition, task.SharedPosition);
+            Assert.Equal(beforeTaskUpdate.ProjectPosition, task.ProjectPosition);
         }
 
         using var reopened = _store.Open(WorkspacePath, _passphrase).Session!;
@@ -61,10 +62,46 @@ public sealed class WorkspaceWorkTests : IDisposable
         var edited = snapshot.Tasks.Single(t => t.Title == "Edited");
         Assert.Equal("- markdown\n- list", edited.Description);
         Assert.Equal(new DateOnly(2029, 12, 31), edited.DueDate);
-        Assert.Equal(snapshot.Categories[0].Id, edited.CategoryOverrideId);
+        Assert.Equal(snapshot.Categories[0].Id, edited.ExplicitCategoryId);
         reopened.Work.UpdateTask(edited.Id, edited.Title, edited.Description, null, null);
-        Assert.Null(reopened.Work.Read().Tasks.Single(t => t.Id == edited.Id).CategoryOverrideId);
+        Assert.Null(reopened.Work.Read().Tasks.Single(t => t.Id == edited.Id).ExplicitCategoryId);
         Assert.DoesNotContain("markdown", Encoding.UTF8.GetString(File.ReadAllBytes(WorkspacePath)), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void StandaloneCreationAndAtomicSharedReorderPersistAcrossRestart()
+    {
+        using (var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!)
+        {
+            var category = Assert.Single(session.Work.Read().Categories);
+            var project = session.Work.CreateProject("Garden", "", category.Id, null);
+            var first = session.Work.CreateTask(project.Id, "Attached first");
+            var standalone = session.Work.CreateStandaloneTask("Standalone", "**note**", category.Id, new DateOnly(2027, 6, 1));
+            var newest = session.Work.CreateTask(project.Id, "Attached newest");
+            Assert.Equal([newest.Id, standalone.Id, first.Id], session.Work.Read().Tasks.Select(task => task.Id));
+            Assert.Null(standalone.ProjectId);
+            Assert.Null(standalone.ProjectPosition);
+            Assert.Equal(category.Id, standalone.ExplicitCategoryId);
+
+            var moved = session.Work.MoveTaskInSharedOrder(first.Id, 0);
+            Assert.Equal(new SharedTaskOrderChange(first.Id, 1, 3), moved);
+            Assert.Equal([first.Id, newest.Id, standalone.Id], session.Work.Read().Tasks.Select(task => task.Id));
+
+            using var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite);
+            using var trigger = connection.CreateCommand();
+            trigger.CommandText = "CREATE TRIGGER reject_reorder BEFORE UPDATE OF shared_position ON tasks BEGIN SELECT RAISE(ABORT, 'private order'); END;";
+            trigger.ExecuteNonQuery();
+            Assert.Throws<WorkspaceWorkException>(() => session.Work.MoveTaskInSharedOrder(standalone.Id, 0));
+            Assert.Equal([first.Id, newest.Id, standalone.Id], session.Work.Read().Tasks.Select(task => task.Id));
+        }
+
+        using var reopened = _store.Open(WorkspacePath, _passphrase).Session!;
+        var tasks = reopened.Work.Read().Tasks;
+        Assert.Equal(["Attached first", "Attached newest", "Standalone"], tasks.Select(task => task.Title));
+        var restoredStandalone = tasks.Single(task => task.Title == "Standalone");
+        Assert.Null(restoredStandalone.ProjectId);
+        Assert.Equal("**note**", restoredStandalone.Description);
+        Assert.Equal(new DateOnly(2027, 6, 1), restoredStandalone.DueDate);
     }
 
     [Fact]
@@ -76,11 +113,17 @@ public sealed class WorkspaceWorkTests : IDisposable
         Assert.Throws<ArgumentException>(() => session.Work.CreateProject(" ", "", category.Id, null));
         Assert.Throws<ArgumentException>(() => session.Work.CreateProject("Bad", "", "missing", null));
         Assert.Throws<ArgumentException>(() => session.Work.CreateTask("missing", "Bad"));
+        Assert.Throws<ArgumentException>(() => session.Work.CreateStandaloneTask("Bad", "", "missing", null));
         Assert.Throws<ArgumentException>(() => session.Work.UpdateProject(project.Id, "Changed", "", "missing", null));
         var task = session.Work.CreateTask(project.Id, "Original task");
         Assert.Throws<ArgumentException>(() => session.Work.UpdateTask(task.Id, "Changed", "", "missing", null));
+        var standalone = session.Work.CreateStandaloneTask("Standalone", "", category.Id, null);
+        Assert.Throws<ArgumentException>(() => session.Work.UpdateTask(standalone.Id, "Changed", "", null, null));
+        Assert.Throws<ArgumentException>(() => session.Work.MoveTaskInSharedOrder("missing", 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => session.Work.MoveTaskInSharedOrder(task.Id, -1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => session.Work.MoveTaskInSharedOrder(task.Id, 2));
         Assert.Equal(project, Assert.Single(session.Work.Read().Projects));
-        Assert.Equal(task, Assert.Single(session.Work.Read().Tasks));
+        Assert.Equal([standalone.Id, task.Id], session.Work.Read().Tasks.Select(item => item.Id));
     }
 
     [Fact]
@@ -95,7 +138,7 @@ public sealed class WorkspaceWorkTests : IDisposable
         }
         using (var session = _store.Open(WorkspacePath, _passphrase).Session!)
         {
-            Assert.Equal(3, session.SchemaVersion);
+            Assert.Equal(4, session.SchemaVersion);
             Assert.Equal("original", Assert.Single(session.Work.Read().Categories).Id);
             var project = session.Work.CreateProject("Migrated project", "", "original", null);
             session.Work.CreateTask(project.Id, "Migrated task");
@@ -152,7 +195,7 @@ public sealed class WorkspaceWorkTests : IDisposable
     [InlineData(" CHECK(length(trim(title)) > 0)", "")]
     [InlineData("title TEXT", "title INTEGER")]
     [InlineData("description TEXT NOT NULL", "description TEXT")]
-    public void OpenRejectsSchemaThreeWithMissingConstraintsOrChangedTypes(string original, string replacement)
+    public void OpenRejectsSchemaFourWithMissingConstraintsOrChangedTypes(string original, string replacement)
     {
         _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!.Dispose();
         using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))

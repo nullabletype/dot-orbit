@@ -1,4 +1,6 @@
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Automation;
 using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -14,6 +16,9 @@ public sealed partial class MainWindow : Window
 {
     private IWorkspaceSession? _session;
     private bool _closingApproved;
+    private string? _draggedTaskId;
+    private string? _pressedTaskRowId;
+    private Border? _dragTarget;
 
     public MainWindow()
         : this(null)
@@ -24,6 +29,9 @@ public sealed partial class MainWindow : Window
     {
         _session = session;
         AvaloniaXamlLoader.Load(this);
+        AddHandler(PointerPressedEvent, OnTaskDragHandlePointerPressed, RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(PointerMovedEvent, OnTaskDragPointerMoved, RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(PointerReleasedEvent, OnBacklogTaskPointerReleased, RoutingStrategies.Bubble, handledEventsToo: true);
         SetSessionContext();
         var recoveryButton = this.FindControl<Button>("OpenRecoveryButton");
         if (recoveryButton is not null)
@@ -102,6 +110,88 @@ public sealed partial class MainWindow : Window
         project.Submit();
         Dispatcher.UIThread.Post(() => this.GetVisualDescendants().OfType<TextBox>()
             .FirstOrDefault(box => box.Classes.Contains("quick-add") && box.DataContext is ProjectRowViewModel row && row.Id == project.Id)?.Focus());
+    }
+
+    private void OnBacklogQuickAddKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (sender is not TextBox field || DataContext is not ShellViewModel { Work: { } work }) return;
+        if (e.Key == Key.Escape) { work.BacklogQuickTitle = string.Empty; e.Handled = true; return; }
+        if (e.Key is not (Key.Enter or Key.Tab) || string.IsNullOrWhiteSpace(field.Text)) return;
+        work.BacklogQuickTitle = field.Text;
+        e.Handled = true;
+        if (work.SubmitBacklogQuickAdd())
+            Dispatcher.UIThread.Post(() => this.FindControl<TextBox>("BacklogQuickTitle")?.Focus());
+    }
+
+    private void OnTaskDragHandlePointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        _pressedTaskRowId = null;
+        var hit = this.InputHitTest(e.GetPosition(this)) as Control;
+        Button? handle = (hit as Button)?.Classes.Contains("drag-handle") == true
+            ? (Button?)hit
+            : hit?.GetVisualAncestors().OfType<Button>().FirstOrDefault(button => button.Classes.Contains("drag-handle"));
+        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+        if (handle?.DataContext is TaskRowViewModel draggedTask)
+        {
+            _draggedTaskId = draggedTask.Id;
+            return;
+        }
+        if (hit is Button || hit?.GetVisualAncestors().OfType<Button>().Any() == true) return;
+        var row = (hit as Border)?.Classes.Contains("backlog-row") == true
+            ? (Border?)hit
+            : hit?.GetVisualAncestors().OfType<Border>().FirstOrDefault(border => border.Classes.Contains("backlog-row"));
+        if (row?.DataContext is TaskRowViewModel pressedTask) _pressedTaskRowId = pressedTask.Id;
+    }
+
+    private void OnTaskDragPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_draggedTaskId is null) return;
+        var hit = this.InputHitTest(e.GetPosition(this)) as Control;
+        var target = (hit as Border)?.Classes.Contains("backlog-row") == true
+            ? (Border?)hit
+            : hit?.GetVisualAncestors().OfType<Border>().FirstOrDefault(border => border.Classes.Contains("backlog-row"));
+        if (ReferenceEquals(target, _dragTarget)) return;
+        _dragTarget?.Classes.Remove("drag-target");
+        _dragTarget = target;
+        _dragTarget?.Classes.Add("drag-target");
+    }
+
+    private void OnBacklogTaskPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (DataContext is not ShellViewModel { Work: { } work }
+            || e.InitialPressMouseButton != MouseButton.Left) return;
+        if (_draggedTaskId is null)
+        {
+            var pressedTaskRowId = _pressedTaskRowId;
+            _pressedTaskRowId = null;
+            if (pressedTaskRowId is null) return;
+            var hit = this.InputHitTest(e.GetPosition(this)) as Control;
+            if (hit is Button || hit?.GetVisualAncestors().OfType<Button>().Any() == true) return;
+            var row = (hit as Border)?.Classes.Contains("backlog-row") == true
+                ? (Border?)hit
+                : hit?.GetVisualAncestors().OfType<Border>().FirstOrDefault(border => border.Classes.Contains("backlog-row"));
+            if (row?.DataContext is not TaskRowViewModel task || task.Id != pressedTaskRowId) return;
+            task.SelectCommand.Execute(null);
+            e.Handled = true;
+            return;
+        }
+        var target = _dragTarget?.DataContext as TaskRowViewModel;
+        _dragTarget?.Classes.Remove("drag-target");
+        _dragTarget = null;
+        if (target is null) { _draggedTaskId = null; return; }
+        var draggedTaskId = _draggedTaskId;
+        _draggedTaskId = null;
+        work.DragTask(draggedTaskId, target.Id);
+        e.Handled = true;
+    }
+
+    private void OnReorderMenuClosed(object? sender, EventArgs e)
+    {
+        if (sender is not FlyoutBase { Target: Button target }) return;
+        var automationId = AutomationProperties.GetAutomationId(target);
+        Dispatcher.UIThread.Post(() => this.GetVisualDescendants().OfType<Button>()
+            .FirstOrDefault(candidate => AutomationProperties.GetAutomationId(candidate) == automationId)?.Focus(),
+            DispatcherPriority.ApplicationIdle);
     }
 
     private void OnClosed(object? sender, EventArgs e)
