@@ -1,6 +1,6 @@
 # Dependency and runner baseline
 
-Checked: 2026-09-26
+Checked: 2026-09-28
 
 This file records the support check for the runnable desktop shell, encrypted workspace lifecycle, and self-contained release packaging. Package lock files remain the reproducible record of the complete transitive graph.
 
@@ -21,10 +21,12 @@ This file records the support check for the runnable desktop shell, encrypted wo
 
 ## Continuous integration
 
+- Node.js 24.21.0 is pinned for the dependency-free issue-readiness script and its built-in `node:test` suite. It is an LTS release in the supported Node.js 24 line; no npm packages or package manifest are required. Source: [Node.js 24.21.0 release archive](https://nodejs.org/en/download/archive/v24.21.0) and [Node.js release schedule](https://github.com/nodejs/Release#release-schedule).
 - Runner labels are explicit: `ubuntu-24.04`, `windows-2025`, and `macos-26`. These were listed as generally available by the [GitHub runner-images project](https://github.com/actions/runner-images/blob/main/README.md) on the check date.
 - Release packaging uses `macos-26` for Apple Silicon and `macos-26-intel` for Intel. The runner-images catalogue lists those as the current macOS 26 ARM64 and x64 labels respectively.
 - `actions/checkout` is pinned to the full commit SHA for v7.0.1.
 - `actions/setup-dotnet` is pinned to the full commit SHA for v6.0.0 and installs SDK 10.0.401 exactly.
+- `actions/setup-node` v7.0.0 is pinned to commit `820762786026740c76f36085b0efc47a31fe5020` and installs Node.js 24.21.0 exactly. Source: [actions/setup-node v7.0.0](https://github.com/actions/setup-node/releases/tag/v7.0.0).
 - The manual package upload uses `actions/upload-artifact` v7.0.1 pinned to commit `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`. This is the current supported Node 24 release; pull-request runs never execute the upload step.
 - The workflow performs locked restore, formatting verification, Release build, and tests. It uploads no artifacts.
 - The same explicit matrix launches the real Release-built desktop application. Linux uses the `xvfb` package included in the pinned Ubuntu 24.04 runner image; macOS and Windows use their native desktop environments. The smoke runner adds no package or action dependency and uploads no artifacts.
