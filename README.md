@@ -21,7 +21,7 @@ The repository contains the first runnable Avalonia shell and the earlier intera
 - UI prototype: interactive and locally verified for the original six views; it predates the accepted Upcoming-view decision and must be updated before serving as evidence for that view.
 - Application platform: Avalonia UI on .NET, targeting macOS, Linux, and Windows.
 - Local persistence: encrypted workspace creation and unlock are implemented with SQLite3MC; backup and restore remain specified but are not implemented.
-- Production application: the cross-platform navigation shell, first-run passphrase flow, first named Category, and later-launch unlock flow are implemented. Projects and Tasks are not yet implemented.
+- Production application: the cross-platform navigation shell, encrypted workspace access and recovery, Project capture, standalone Task capture, and persisted shared Backlog ordering are implemented. Later product slices remain specified rather than implemented.
 - Licence: MIT.
 
 ## Build and test

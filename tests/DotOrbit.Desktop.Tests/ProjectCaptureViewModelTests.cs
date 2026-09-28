@@ -87,7 +87,7 @@ public sealed class ProjectCaptureViewModelTests
         Assert.Equal("Garden", Assert.Single(work.Read().Projects).Title);
         Assert.Equal(["First", "Second"], Assert.Single(model.Projects).Tasks.Select(t => t.Title));
         Assert.Equal(["Second", "First"], model.Backlog.Select(t => t.Title));
-        Assert.All(work.Read().Tasks, t => { Assert.Null(t.CategoryOverrideId); Assert.Null(t.DueDate); Assert.Empty(t.Description); });
+        Assert.All(work.Read().Tasks, t => { Assert.Null(t.ExplicitCategoryId); Assert.Null(t.DueDate); Assert.Empty(t.Description); });
         Assert.False(model.QuickAdd(project.Id, " \t "));
         Assert.Equal(2, work.Read().Tasks.Count);
     }
@@ -136,12 +136,86 @@ public sealed class ProjectCaptureViewModelTests
         model.Description = "Dig carefully";
         model.Date = "2026-11-01";
         Assert.True(model.Save());
-        Assert.Equal("work", Assert.Single(work.Read().Tasks).CategoryOverrideId);
+        Assert.Equal("work", Assert.Single(work.Read().Tasks).ExplicitCategoryId);
         Assert.Equal(new DateOnly(2026, 11, 1), Assert.Single(work.Read().Tasks).DueDate);
         Assert.Equal("Dig carefully", Assert.Single(work.Read().Tasks).Description);
         model.Category = model.Categories.Single(c => c.Id is null);
         Assert.True(model.Save());
-        Assert.Null(Assert.Single(work.Read().Tasks).CategoryOverrideId);
+        Assert.Null(Assert.Single(work.Read().Tasks).ExplicitCategoryId);
+    }
+
+    [Fact]
+    public void StandaloneTaskDraftRequiresExplicitCategoryAndNeverAppearsUnderAProject()
+    {
+        var work = new MemoryWorkspaceWork();
+        work.CreateProject("Garden", "", "home", null);
+        var model = new ProjectCaptureViewModel(work);
+
+        model.NewTaskCommand.Execute(null);
+        model.Title = "Buy compost";
+        model.Description = "Peat free";
+        model.Date = "2026-10-03";
+        Assert.False(model.Save());
+        Assert.Empty(work.Read().Tasks);
+
+        model.Category = model.Categories.Single(category => category.Id == "work");
+        Assert.True(model.Save());
+
+        var task = Assert.Single(work.Read().Tasks);
+        Assert.Null(task.ProjectId);
+        Assert.Null(task.ProjectPosition);
+        Assert.Equal("work", task.ExplicitCategoryId);
+        Assert.Equal("Peat free", task.Description);
+        Assert.Equal(new DateOnly(2026, 10, 3), task.DueDate);
+        Assert.Empty(Assert.Single(model.Projects).Tasks);
+        Assert.Equal("Work · standalone", Assert.Single(model.Backlog).CategoryDisplay);
+    }
+
+    [Fact]
+    public void BacklogQuickAddRetainsCategoryOnlyUntilTheEntrySessionEnds()
+    {
+        var work = new MemoryWorkspaceWork();
+        var shell = new ShellViewModel(work);
+        var backlog = shell.PrimaryNavigation.Single(item => item.Title == "Backlog");
+        backlog.SelectCommand.Execute(null);
+        var model = shell.Work!;
+        model.BacklogQuickTitle = "Needs category";
+        Assert.False(model.SubmitBacklogQuickAdd());
+        Assert.Equal("Needs category", model.BacklogQuickTitle);
+        Assert.Empty(work.Read().Tasks);
+        model.BacklogQuickCategory = model.BacklogCategories.Single(category => category.Id == "home");
+        model.BacklogQuickTitle = "First";
+        Assert.True(model.SubmitBacklogQuickAdd());
+        model.BacklogQuickTitle = "Second";
+        Assert.True(model.SubmitBacklogQuickAdd());
+        Assert.Equal("home", model.BacklogQuickCategory?.Id);
+        Assert.All(work.Read().Tasks, task => Assert.Equal("home", task.ExplicitCategoryId));
+
+        shell.PrimaryNavigation.Single(item => item.Title == "Projects").SelectCommand.Execute(null);
+        backlog.SelectCommand.Execute(null);
+        Assert.Null(model.BacklogQuickCategory);
+        Assert.Empty(model.BacklogQuickTitle);
+    }
+
+    [Fact]
+    public void AllAccessibleMoveCommandsUseTheSharedOrderAndAnnouncePositionAndScope()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        foreach (var title in new[] { "One", "Two", "Three", "Four" }) work.CreateTask(project.Id, title);
+        var model = new ProjectCaptureViewModel(work);
+        var one = model.Backlog.Single(task => task.Title == "One");
+
+        one.MoveUpCommand.Execute(null);
+        Assert.Equal(["Four", "Three", "One", "Two"], model.Backlog.Select(task => task.Title));
+        one.MoveToTopCommand.Execute(null);
+        Assert.Equal(["One", "Four", "Three", "Two"], model.Backlog.Select(task => task.Title));
+        one.MoveDownCommand.Execute(null);
+        Assert.Equal(["Four", "One", "Three", "Two"], model.Backlog.Select(task => task.Title));
+        one.MoveToBottomCommand.Execute(null);
+        Assert.Equal(["Four", "Three", "Two", "One"], model.Backlog.Select(task => task.Title));
+        Assert.Equal("Moved One to position 4 of 4 in Backlog.", model.ReorderAnnouncement);
+        Assert.Equal(model.Backlog.Select(task => task.Id), work.Read().Tasks.Select(task => task.Id));
     }
 
     [Theory]
@@ -204,7 +278,16 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
     public TaskRecord CreateTask(string projectId, string title)
     {
         Check();
-        var task = new TaskRecord($"task-{_tasks.Count}", projectId, title.Trim(), "", null, null, -_tasks.Count, _tasks.Count(t => t.ProjectId == projectId));
+        ShiftForNewTask();
+        var task = new TaskRecord($"task-{_tasks.Count}", projectId, title.Trim(), "", null, null, 0, _tasks.Count(t => t.ProjectId == projectId));
+        _tasks.Add(task); return task;
+    }
+    public TaskRecord CreateStandaloneTask(string title, string description, string categoryId, DateOnly? dueDate)
+    {
+        Check();
+        if (string.IsNullOrWhiteSpace(categoryId)) throw new ArgumentException("Category required.", nameof(categoryId));
+        ShiftForNewTask();
+        var task = new TaskRecord($"task-{_tasks.Count}", null, title.Trim(), description, categoryId, dueDate, 0, null);
         _tasks.Add(task); return task;
     }
     public ProjectRecord UpdateProject(string id, string title, string description, string categoryId, DateOnly? targetDate)
@@ -213,11 +296,31 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
         int index = _projects.FindIndex(p => p.Id == id);
         return _projects[index] = _projects[index] with { Title = title.Trim(), Description = description, CategoryId = categoryId, TargetDate = targetDate };
     }
-    public TaskRecord UpdateTask(string id, string title, string description, string? categoryOverrideId, DateOnly? dueDate)
+    public TaskRecord UpdateTask(string id, string title, string description, string? explicitCategoryId, DateOnly? dueDate)
     {
         Check();
         int index = _tasks.FindIndex(t => t.Id == id);
-        return _tasks[index] = _tasks[index] with { Title = title.Trim(), Description = description, CategoryOverrideId = categoryOverrideId, DueDate = dueDate };
+        if (_tasks[index].ProjectId is null && explicitCategoryId is null) throw new ArgumentException("Category required.", nameof(explicitCategoryId));
+        return _tasks[index] = _tasks[index] with { Title = title.Trim(), Description = description, ExplicitCategoryId = explicitCategoryId, DueDate = dueDate };
+    }
+    public SharedTaskOrderChange MoveTaskInSharedOrder(string id, int targetPosition)
+    {
+        Check();
+        var ordered = _tasks.OrderBy(task => task.SharedPosition).ToList();
+        if ((uint)targetPosition >= (uint)ordered.Count) throw new ArgumentOutOfRangeException(nameof(targetPosition));
+        var task = ordered.Single(task => task.Id == id);
+        ordered.Remove(task);
+        ordered.Insert(targetPosition, task);
+        for (var index = 0; index < ordered.Count; index++)
+        {
+            var storedIndex = _tasks.FindIndex(candidate => candidate.Id == ordered[index].Id);
+            _tasks[storedIndex] = _tasks[storedIndex] with { SharedPosition = index };
+        }
+        return new(id, targetPosition + 1, ordered.Count);
+    }
+    private void ShiftForNewTask()
+    {
+        for (var index = 0; index < _tasks.Count; index++) _tasks[index] = _tasks[index] with { SharedPosition = _tasks[index].SharedPosition + 1 };
     }
     private void Check() { if (FailWrites) throw new WorkspaceWorkException(); }
 }

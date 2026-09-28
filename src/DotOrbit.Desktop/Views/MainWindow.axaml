@@ -162,6 +162,16 @@
             Command="{Binding Work.NewProjectCommand}"
             Content="＋ New project"
             IsVisible="{Binding ShowProjects}" />
+        <Button
+            x:Name="NewTaskButton"
+            Grid.Column="1"
+            Classes="primary-action"
+            VerticalAlignment="Bottom"
+            AutomationProperties.Name="New standalone task"
+            Click="OnFocusInspector"
+            Command="{Binding Work.NewTaskCommand}"
+            Content="＋ New task"
+            IsVisible="{Binding ShowBacklog}" />
       </Grid>
 
       <Border
@@ -326,24 +336,81 @@
         </StackPanel>
       </ScrollViewer>
       <ScrollViewer Grid.Row="2" IsVisible="{Binding ShowBacklog}">
-        <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="10" Padding="10,4">
-          <ItemsControl ItemsSource="{Binding Work.Backlog}">
+        <StackPanel Spacing="10">
+          <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="10" Padding="10">
+            <Grid ColumnDefinitions="190,10,*">
+              <ComboBox
+                  ItemsSource="{Binding Work.BacklogCategories}"
+                  SelectedItem="{Binding Work.BacklogQuickCategory, Mode=TwoWay}"
+                  PlaceholderText="Choose category"
+                  AutomationProperties.Name="Standalone task category">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:CategoryChoice">
+                    <TextBlock Text="{Binding Name}" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <TextBox
+                  x:Name="BacklogQuickTitle"
+                  Grid.Column="2"
+                  Classes="inspector-field backlog-quick-add"
+                  Text="{Binding Work.BacklogQuickTitle, Mode=TwoWay}"
+                  PlaceholderText="Quick add standalone task"
+                  AutomationProperties.Name="Quick add standalone task"
+                  AutomationProperties.HelpText="Choose a category. Enter or Tab creates a task. Escape clears the title. Tab on an empty field moves on."
+                  KeyDown="OnBacklogQuickAddKeyDown" />
+            </Grid>
+          </Border>
+        <Border x:Name="BacklogListPanel" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="10" Padding="10">
+          <ItemsControl x:Name="BacklogItems" ItemsSource="{Binding Work.Backlog}">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:TaskRowViewModel">
-                <Border MinHeight="48" BorderBrush="{StaticResource LineSoftBrush}" BorderThickness="0,0,0,1">
-                  <Grid VerticalAlignment="Center">
-                    <Button Classes="task-title" Command="{Binding SelectCommand}" AutomationProperties.Name="{Binding Title}">
+                <Border Classes="backlog-row" Classes.last="{Binding IsLast}" MinHeight="54">
+                  <Grid VerticalAlignment="Center" ColumnDefinitions="34,*,Auto">
+                    <Button
+                        Classes="drag-handle"
+                        AutomationProperties.AutomationId="{Binding ReorderAutomationId}"
+                        AutomationProperties.Name="{Binding ReorderAccessibleName}"
+                        AutomationProperties.HelpText="Drag to another Backlog row, or activate for keyboard reorder actions.">
+                      <Button.Content>
+                        <Grid Width="8" Height="12" ColumnDefinitions="*,*" RowDefinitions="*,*,*">
+                          <Ellipse Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
+                          <Ellipse Grid.Column="1" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
+                          <Ellipse Grid.Row="1" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
+                          <Ellipse Grid.Row="1" Grid.Column="1" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
+                          <Ellipse Grid.Row="2" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
+                          <Ellipse Grid.Row="2" Grid.Column="1" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
+                        </Grid>
+                      </Button.Content>
+                      <Button.Flyout>
+                        <MenuFlyout Closed="OnReorderMenuClosed">
+                          <MenuItem Header="Move to top" Command="{Binding MoveToTopCommand}" AutomationProperties.Name="{Binding MoveToTopAccessibleName}" />
+                          <MenuItem Header="Move up" Command="{Binding MoveUpCommand}" AutomationProperties.Name="{Binding MoveUpAccessibleName}" />
+                          <MenuItem Header="Move down" Command="{Binding MoveDownCommand}" AutomationProperties.Name="{Binding MoveDownAccessibleName}" />
+                          <MenuItem Header="Move to bottom" Command="{Binding MoveToBottomCommand}" AutomationProperties.Name="{Binding MoveToBottomAccessibleName}" />
+                        </MenuFlyout>
+                      </Button.Flyout>
+                    </Button>
+                    <Button
+                        Grid.Column="1"
+                        Classes="task-title backlog-task-title"
+                        Command="{Binding SelectCommand}"
+                        AutomationProperties.Name="{Binding Title}"
+                        AutomationProperties.ItemStatus="{Binding CategoryDisplay}">
                       <StackPanel Spacing="3">
                         <TextBlock Text="{Binding Title}" />
                         <TextBlock Text="{Binding CategoryDisplay}" Foreground="{StaticResource QuietTextBrush}" FontSize="12" />
                       </StackPanel>
                     </Button>
+                    <TextBlock Grid.Column="2" Margin="8,0" VerticalAlignment="Center" Foreground="{StaticResource QuietTextBrush}" FontSize="11" Text="{Binding PositionText}" />
                   </Grid>
                 </Border>
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
         </Border>
+        <TextBlock Height="1" Opacity="0" Text="{Binding Work.ReorderAnnouncement}" AutomationProperties.LiveSetting="Polite" />
+        </StackPanel>
       </ScrollViewer>
     </Grid>
 
@@ -407,7 +474,7 @@
           </Border>
 
           <Border Margin="0,22,0,0" Padding="0,20,0,0" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0">
-            <Grid ColumnDefinitions="*,14,*">
+            <Grid ColumnDefinitions="104,14,*">
               <StackPanel Spacing="9">
                 <TextBlock Classes="inspector-label" Text="DATE" />
                 <TextBox

@@ -141,6 +141,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
 
     private void SelectCore(NavigationItemViewModel item)
     {
+        var wasBacklog = _selectedItem is not null && _selectedItem.Title == "Backlog";
         if (_selectedItem is not null)
         {
             _selectedItem.IsSelected = false;
@@ -148,6 +149,12 @@ public sealed class ShellViewModel : INotifyPropertyChanged
 
         item.IsSelected = true;
         SelectedItem = item;
+        var isBacklog = item.Title == "Backlog";
+        if (Work is not null && wasBacklog != isBacklog)
+        {
+            if (isBacklog) Work.BeginBacklogEntrySession();
+            else Work.EndBacklogEntrySession();
+        }
     }
 
     private void UpdateCounts()

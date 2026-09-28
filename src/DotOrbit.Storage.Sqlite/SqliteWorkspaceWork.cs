@@ -8,7 +8,7 @@ internal sealed class SqliteWorkspaceWork(
     EncryptedWorkspaceStore store,
     WorkspaceTransactionCoordinator transactions) : IWorkspaceWork
 {
-    internal const string Schema = """
+    internal const string SchemaThree = """
         CREATE TABLE projects (
             id TEXT NOT NULL PRIMARY KEY,
             title TEXT NOT NULL CHECK(length(trim(title)) > 0),
@@ -31,14 +31,44 @@ internal sealed class SqliteWorkspaceWork(
         PRAGMA user_version = 3;
         """;
 
-    internal static void ValidateShape(SqliteConnection connection, SqliteTransaction? transaction)
+    internal const string ProjectSchema = """
+        CREATE TABLE projects (
+            id TEXT NOT NULL PRIMARY KEY,
+            title TEXT NOT NULL CHECK(length(trim(title)) > 0),
+            description TEXT NOT NULL,
+            category_id TEXT NOT NULL REFERENCES categories(id),
+            target_date TEXT,
+            position INTEGER NOT NULL UNIQUE CHECK(position >= 0)
+        );
+        """;
+
+    internal const string TaskSchema = """
+        CREATE TABLE tasks (
+            id TEXT NOT NULL PRIMARY KEY,
+            project_id TEXT REFERENCES projects(id),
+            title TEXT NOT NULL CHECK(length(trim(title)) > 0),
+            description TEXT NOT NULL,
+            explicit_category_id TEXT REFERENCES categories(id),
+            due_date TEXT,
+            shared_position INTEGER NOT NULL UNIQUE CHECK(shared_position >= 0),
+            project_position INTEGER CHECK(project_position >= 0),
+            CHECK((project_id IS NULL AND explicit_category_id IS NOT NULL AND project_position IS NULL)
+                OR (project_id IS NOT NULL AND project_position IS NOT NULL)),
+            UNIQUE(project_id, project_position)
+        );
+        """;
+
+    internal const string Schema = ProjectSchema + TaskSchema + "PRAGMA user_version = 4;";
+
+    internal static void ValidateShape(SqliteConnection connection, SqliteTransaction? transaction, string? schema = null)
     {
+        schema ??= Schema;
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        // Schema 3 has one canonical definition, shared by creation and migration.
+        // Each released work schema has one canonical definition shared by creation and migration.
         // Checking it also verifies types, nullability, foreign keys, uniqueness and CHECKs;
         // foreign_key_check alone cannot detect missing foreign-key declarations.
-        var definitions = Schema.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        var definitions = schema.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
         ValidateTableDefinition(command, "projects", definitions[0]);
         ValidateTableDefinition(command, "tasks", definitions[1]);
         command.Parameters.Clear();
@@ -104,17 +134,34 @@ internal sealed class SqliteWorkspaceWork(
         Guard(() => transactions.Execute((connection, transaction) =>
         {
             Require(connection, transaction, "projects", projectId);
-            var shared = EncryptedWorkspaceStore.ExecuteScalar<long>(connection,
-                "SELECT COALESCE(MIN(shared_position), 1) - 1 FROM tasks;", transaction);
+            ShiftSharedOrderForNewTask(connection, transaction);
             using var order = connection.CreateCommand();
             order.Transaction = transaction;
             order.CommandText = "SELECT COALESCE(MAX(project_position), -1) + 1 FROM tasks WHERE project_id = $project;";
             order.Parameters.AddWithValue("$project", projectId);
             var position = (long)order.ExecuteScalar()!;
-            result = new TaskRecord(store.GetIdentifier(), projectId, title, string.Empty, null, null, shared, position);
+            result = new TaskRecord(store.GetIdentifier(), projectId, title, string.Empty, null, null, 0, position);
             Execute(connection, transaction,
-                "INSERT INTO tasks VALUES ($id, $project, $title, '', NULL, NULL, $shared, $position);",
-                ("$id", result.Id), ("$project", projectId), ("$title", title), ("$shared", shared), ("$position", position));
+                "INSERT INTO tasks VALUES ($id, $project, $title, '', NULL, NULL, 0, $position);",
+                ("$id", result.Id), ("$project", projectId), ("$title", title), ("$position", position));
+        }));
+        return result!;
+    }
+
+    public TaskRecord CreateStandaloneTask(string title, string description, string categoryId, DateOnly? dueDate)
+    {
+        title = WorkTitle.Normalize(title);
+        ArgumentNullException.ThrowIfNull(description);
+        TaskRecord? result = null;
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            Require(connection, transaction, "categories", categoryId);
+            ShiftSharedOrderForNewTask(connection, transaction);
+            result = new TaskRecord(store.GetIdentifier(), null, title, description, categoryId, dueDate, 0, null);
+            Execute(connection, transaction,
+                "INSERT INTO tasks VALUES ($id, NULL, $title, $description, $category, $date, 0, NULL);",
+                ("$id", result.Id), ("$title", title), ("$description", description),
+                ("$category", categoryId), ("$date", Date(dueDate)));
         }));
         return result!;
     }
@@ -136,7 +183,7 @@ internal sealed class SqliteWorkspaceWork(
         return result!;
     }
 
-    public TaskRecord UpdateTask(string id, string title, string description, string? categoryOverrideId, DateOnly? dueDate)
+    public TaskRecord UpdateTask(string id, string title, string description, string? explicitCategoryId, DateOnly? dueDate)
     {
         title = WorkTitle.Normalize(title);
         ArgumentNullException.ThrowIfNull(description);
@@ -144,11 +191,36 @@ internal sealed class SqliteWorkspaceWork(
         Guard(() => transactions.Execute((connection, transaction) =>
         {
             Require(connection, transaction, "tasks", id);
-            if (categoryOverrideId is not null) Require(connection, transaction, "categories", categoryOverrideId);
+            var existing = ReadSnapshot(connection, transaction).Tasks.Single(task => task.Id == id);
+            if (existing.ProjectId is null && explicitCategoryId is null)
+                throw new ArgumentException("A standalone Task requires an explicit Category.", nameof(explicitCategoryId));
+            if (explicitCategoryId is not null) Require(connection, transaction, "categories", explicitCategoryId);
             Execute(connection, transaction,
-                "UPDATE tasks SET title=$title, description=$description, category_override_id=$category, due_date=$date WHERE id=$id;",
-                ("$id", id), ("$title", title), ("$description", description), ("$category", categoryOverrideId), ("$date", Date(dueDate)));
+                "UPDATE tasks SET title=$title, description=$description, explicit_category_id=$category, due_date=$date WHERE id=$id;",
+                ("$id", id), ("$title", title), ("$description", description), ("$category", explicitCategoryId), ("$date", Date(dueDate)));
             result = ReadSnapshot(connection, transaction).Tasks.Single(task => task.Id == id);
+        }));
+        return result!;
+    }
+
+    public SharedTaskOrderChange MoveTaskInSharedOrder(string id, int targetPosition)
+    {
+        SharedTaskOrderChange? result = null;
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            Require(connection, transaction, "tasks", id);
+            var orderedIds = ReadTaskIdsInSharedOrder(connection, transaction);
+            if ((uint)targetPosition >= (uint)orderedIds.Count)
+                throw new ArgumentOutOfRangeException(nameof(targetPosition));
+            var currentPosition = orderedIds.IndexOf(id);
+            if (currentPosition < 0) throw new ArgumentException("The Task does not exist.", nameof(id));
+            if (currentPosition != targetPosition)
+            {
+                orderedIds.RemoveAt(currentPosition);
+                orderedIds.Insert(targetPosition, id);
+                RewriteSharedOrder(connection, transaction, orderedIds);
+            }
+            result = new(id, targetPosition + 1, orderedIds.Count);
         }));
         return result!;
     }
@@ -166,10 +238,38 @@ internal sealed class SqliteWorkspaceWork(
         command.CommandText = "SELECT id,title,description,category_id,target_date,position FROM projects ORDER BY position,id;";
         using (var reader = command.ExecuteReader())
             while (reader.Read()) projects.Add(new(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), ReadDate(reader, 4), reader.GetInt64(5)));
-        command.CommandText = "SELECT id,project_id,title,description,category_override_id,due_date,shared_position,project_position FROM tasks ORDER BY shared_position,id;";
+        command.CommandText = "SELECT id,project_id,title,description,explicit_category_id,due_date,shared_position,project_position FROM tasks ORDER BY shared_position,id;";
         using (var reader = command.ExecuteReader())
-            while (reader.Read()) tasks.Add(new(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4), ReadDate(reader, 5), reader.GetInt64(6), reader.GetInt64(7)));
+            while (reader.Read()) tasks.Add(new(reader.GetString(0), reader.IsDBNull(1) ? null : reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4), ReadDate(reader, 5), reader.GetInt64(6), reader.IsDBNull(7) ? null : reader.GetInt64(7)));
         return new(categories.AsReadOnly(), projects.AsReadOnly(), tasks.AsReadOnly());
+    }
+
+    private static void ShiftSharedOrderForNewTask(SqliteConnection connection, SqliteTransaction transaction)
+    {
+        var orderedIds = ReadTaskIdsInSharedOrder(connection, transaction);
+        if (orderedIds.Count == 0) return;
+        Execute(connection, transaction, "UPDATE tasks SET shared_position = shared_position + $offset;", ("$offset", orderedIds.Count));
+        for (var position = 0; position < orderedIds.Count; position++)
+            Execute(connection, transaction, "UPDATE tasks SET shared_position=$position WHERE id=$id;", ("$position", position + 1), ("$id", orderedIds[position]));
+    }
+
+    private static List<string> ReadTaskIdsInSharedOrder(SqliteConnection connection, SqliteTransaction transaction)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT id FROM tasks ORDER BY shared_position,id;";
+        using var reader = command.ExecuteReader();
+        var ids = new List<string>();
+        while (reader.Read()) ids.Add(reader.GetString(0));
+        return ids;
+    }
+
+    private static void RewriteSharedOrder(SqliteConnection connection, SqliteTransaction transaction, List<string> orderedIds)
+    {
+        var offset = orderedIds.Count;
+        Execute(connection, transaction, "UPDATE tasks SET shared_position = shared_position + $offset;", ("$offset", offset));
+        for (var position = 0; position < orderedIds.Count; position++)
+            Execute(connection, transaction, "UPDATE tasks SET shared_position=$position WHERE id=$id;", ("$position", position), ("$id", orderedIds[position]));
     }
 
     private static string? Date(DateOnly? date) => date?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);

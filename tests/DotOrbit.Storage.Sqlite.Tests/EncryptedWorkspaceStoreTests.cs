@@ -25,7 +25,7 @@ public sealed class EncryptedWorkspaceStoreTests
 
         Assert.Equal(WorkspaceCreationStatus.Created, result.Status);
         Assert.NotNull(result.Session);
-        Assert.Equal(3, result.Session.SchemaVersion);
+        Assert.Equal(4, result.Session.SchemaVersion);
         Assert.Equal("Personal Admin", result.Session.FirstCategoryName);
 
         var fileBytes = File.ReadAllBytes(fixture.Path);
@@ -38,7 +38,7 @@ public sealed class EncryptedWorkspaceStoreTests
         Assert.Empty(Directory.GetFiles(fixture.Directory, "*.creating*"));
 
         using var inspection = OpenInspectionConnection(fixture.Path, ValidPassphrase, readOnly: true);
-        Assert.Equal(3L, ExecuteScalar<long>(inspection, "PRAGMA user_version;"));
+        Assert.Equal(4L, ExecuteScalar<long>(inspection, "PRAGMA user_version;"));
         Assert.Equal("chacha20", ExecuteScalar<string>(inspection, "PRAGMA cipher;"));
         Assert.Equal(0L, ExecuteScalar<long>(inspection, "PRAGMA legacy;"));
         Assert.Equal(64007L, ExecuteScalar<long>(inspection, "PRAGMA kdf_iter;"));
@@ -64,7 +64,7 @@ public sealed class EncryptedWorkspaceStoreTests
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
         Assert.NotNull(result.Session);
-        Assert.Equal(3, result.Session.SchemaVersion);
+        Assert.Equal(4, result.Session.SchemaVersion);
         Assert.Equal("Home", result.Session.FirstCategoryName);
     }
 
@@ -124,7 +124,7 @@ public sealed class EncryptedWorkspaceStoreTests
         using (var connection = OpenInspectionConnection(fixture.Path, ValidPassphrase, readOnly: false))
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = "PRAGMA user_version = 4;";
+            command.CommandText = "PRAGMA user_version = 5;";
             command.ExecuteNonQuery();
         }
 
