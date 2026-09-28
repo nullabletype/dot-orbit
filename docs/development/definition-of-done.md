@@ -26,7 +26,15 @@ Run the following from the repository root:
 dotnet run --project tools/DotOrbit.Verification/DotOrbit.Verification.csproj -p:RestoreLockedMode=true
 ```
 
-This is the canonical local and continuous-integration gate. It performs locked restore, formatting verification, a deterministic Release build, all tests, the native desktop smoke journey, and both smoke negative controls. Add `-- --evidence --expected-sha <full-commit-sha>` from a clean worktree when recording commit-bound evidence. Evidence mode validates a detached snapshot of that commit, then confirms the source worktree remained clean and on the same commit. Its verification summary contains only the commit, clean or dirty state, operating system, .NET runtime, phase results, and final result; the underlying build and test commands retain their normal console output. Evidence mode refuses dirty worktrees and SHA mismatches.
+This is the canonical application gate. It performs locked restore, formatting verification, a deterministic Release build, all .NET tests, the native desktop smoke journey, and both smoke negative controls. Add `-- --evidence --expected-sha <full-commit-sha>` from a clean worktree when recording commit-bound evidence. Evidence mode validates a detached snapshot of that commit, then confirms the source worktree remained clean and on the same commit. Its verification summary contains only the commit, clean or dirty state, operating system, .NET runtime, phase results, and final result; the underlying build and test commands retain their normal console output. Evidence mode refuses dirty worktrees and SHA mismatches.
+
+Changes to the issue-readiness automation must also run its dependency-free Node test suite:
+
+```sh
+node --test .github/scripts/issue-readiness.test.mjs
+```
+
+The required Build workflow runs this suite on its pinned Node release before the application gate. The issue-readiness workflow also runs it before any dry-run or label transition.
 
 Self-contained Release packaging uses the checked-in command documented in `docs/development/release-packaging.md`. Signing, installers, and release publication remain separate work and are not implied by a validated archive.
 
