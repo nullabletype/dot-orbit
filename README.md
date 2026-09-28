@@ -12,15 +12,15 @@ The repository contains the first runnable Avalonia shell and the earlier intera
 - Read `docs/product/brief.md` for the product boundary.
 - Read `docs/product/requirements.md` for the current behavioural specification.
 - Read `docs/design/ui-specification.md` alongside the prototype.
-- Read `docs/development/agent-loop.md` before turning the specification into issues.
+- Read `docs/agents/issue-tracker.md` for the current issue-readiness contract and `docs/development/agent-loop.md` for delivery.
 - Follow `docs/planning/repository-setup.md` when creating the local and GitHub repositories.
 
 ## Current status
 
-- Product requirements: drafted from the design conversation.
+- Product requirements: maintained in `docs/product/requirements.md`; implementation work is tracked as admitted GitHub issues rather than an embedded candidate list.
 - UI prototype: interactive and locally verified for the original six views; it predates the accepted Upcoming-view decision and must be updated before serving as evidence for that view.
 - Application platform: Avalonia UI on .NET, targeting macOS, Linux, and Windows.
-- Local persistence: encrypted workspace creation and unlock are implemented with SQLite3MC; backup and restore remain specified but are not implemented.
+- Local persistence: encrypted workspace creation, unlock, automatic recovery and retention, manual recovery, and forward-only migration are implemented with SQLite3MC.
 - Production application: the cross-platform navigation shell, encrypted workspace access and recovery, Project capture, standalone Task capture, and persisted shared Backlog ordering are implemented. Later product slices remain specified rather than implemented.
 - Licence: MIT.
 
