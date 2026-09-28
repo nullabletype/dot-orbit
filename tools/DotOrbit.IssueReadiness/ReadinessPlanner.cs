@@ -53,7 +53,7 @@ internal static class ReadinessPlanner
     }
 
     private static bool IsManaged(IssueSnapshot issue) =>
-        IssueSpecificationParser.HasReadinessContractSection(issue.Body)
+        issue.Labels.Contains(ReadinessLabels.ImplementationSlice)
         && ReadinessLabels.Managed.Any(issue.Labels.Contains)
         && !ReadinessLabels.Manual.Any(issue.Labels.Contains);
 
@@ -117,7 +117,7 @@ internal static class ReadinessPlanner
         var deltas = new List<LabelDelta>();
         if (!issue.Labels.Contains(desiredLabel))
         {
-            deltas.Add(new LabelDelta(true, desiredLabel));
+            deltas.Add(new LabelDelta(LabelOperation.Add, desiredLabel));
         }
 
         foreach (var label in ReadinessLabels.Managed)
@@ -125,7 +125,7 @@ internal static class ReadinessPlanner
             if (!string.Equals(label, desiredLabel, StringComparison.Ordinal)
                 && issue.Labels.Contains(label))
             {
-                deltas.Add(new LabelDelta(false, label));
+                deltas.Add(new LabelDelta(LabelOperation.Remove, label));
             }
         }
 

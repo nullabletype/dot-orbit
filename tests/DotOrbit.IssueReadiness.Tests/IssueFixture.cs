@@ -40,6 +40,13 @@ internal static class IssueFixture
         int number,
         string body,
         bool isOpen = true,
+        bool isImplementationSlice = true,
         params string[] labels) =>
-        new(number, body, labels.ToHashSet(StringComparer.Ordinal), isOpen);
+        new(
+            number,
+            body,
+            labels
+                .Concat(isImplementationSlice ? [ReadinessLabels.ImplementationSlice] : [])
+                .ToHashSet(StringComparer.Ordinal),
+            isOpen);
 }

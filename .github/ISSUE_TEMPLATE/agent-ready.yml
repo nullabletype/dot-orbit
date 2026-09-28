@@ -1,8 +1,9 @@
-name: Agent-ready implementation slice
+name: Implementation slice proposal
 description: Propose a bounded implementation slice for maintainer triage and readiness review.
 title: ""
 labels:
   - needs-triage
+  - implementation-slice
 body:
   - type: dropdown
     id: readiness_contract

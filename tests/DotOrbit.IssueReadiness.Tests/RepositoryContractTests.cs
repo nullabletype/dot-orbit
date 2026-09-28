@@ -12,20 +12,10 @@ public sealed class RepositoryContractTests
         var issueForm = Read(".github/ISSUE_TEMPLATE/agent-ready.yml");
 
         Assert.Contains("labels:\n  - needs-triage", issueForm, StringComparison.Ordinal);
+        Assert.Contains("  - implementation-slice", issueForm, StringComparison.Ordinal);
         Assert.DoesNotContain("  - ready-for-agent", issueForm, StringComparison.Ordinal);
         Assert.Contains(IssueSpecificationParser.ContractValue, issueForm, StringComparison.Ordinal);
-        foreach (var heading in new[]
-                 {
-                     "Readiness contract",
-                     "User-visible outcome",
-                     "Acceptance criteria",
-                     "Non-goals",
-                     "Domain and decision context",
-                     "Known constraints",
-                     "Verification",
-                     "Open decisions",
-                     "Blocked by",
-                 })
+        foreach (var heading in IssueSpecificationParser.RequiredHeadings)
         {
             Assert.Contains($"label: {heading}", issueForm, StringComparison.Ordinal);
         }

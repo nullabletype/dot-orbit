@@ -68,7 +68,7 @@ public sealed class GitHubIssueClientTests
         var body = JsonSerializer.Serialize(IssueFixture.Body("- #99"));
         var responseBody =
             "[{\"number\":10,\"body\":" + body
-            + ",\"state\":\"open\",\"labels\":[{\"name\":\"blocked\"}]},"
+            + ",\"state\":\"open\",\"labels\":[{\"name\":\"blocked\"},{\"name\":\"implementation-slice\"}]},"
             + "{\"number\":99,\"body\":\"pull request\",\"state\":\"open\","
             + "\"labels\":[],\"pull_request\":{\"url\":\"ignored\"}}]";
         var handler = new RecordingHandler(Response(responseBody));
@@ -79,7 +79,7 @@ public sealed class GitHubIssueClientTests
         var plan = Assert.Single(ReadinessPlanner.Plan(issues));
 
         Assert.Equal("dependency-not-found:99", plan.Reason);
-        Assert.Equal("needs-triage", Assert.Single(plan.Deltas, delta => delta.Add).Label);
+        Assert.Equal("needs-triage", Assert.Single(plan.Deltas, delta => delta.Operation is LabelOperation.Add).Label);
     }
 
     private static HttpClient CreateHttpClient(HttpMessageHandler handler) => new(handler)

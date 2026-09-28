@@ -19,7 +19,7 @@ public sealed class ReadinessPlannerTests
         Assert.Equal(10, plan.IssueNumber);
         Assert.Equal("dependencies-closed", plan.Reason);
         Assert.Equal(
-            [new LabelDelta(true, "ready-for-agent"), new LabelDelta(false, "blocked")],
+            [new LabelDelta(LabelOperation.Add, "ready-for-agent"), new LabelDelta(LabelOperation.Remove, "blocked")],
             plan.Deltas);
     }
 
@@ -36,7 +36,7 @@ public sealed class ReadinessPlannerTests
 
         Assert.Equal("dependencies-open:2", plan.Reason);
         Assert.Equal(
-            [new LabelDelta(true, "blocked"), new LabelDelta(false, "ready-for-agent")],
+            [new LabelDelta(LabelOperation.Add, "blocked"), new LabelDelta(LabelOperation.Remove, "ready-for-agent")],
             plan.Deltas);
     }
 
@@ -57,8 +57,8 @@ public sealed class ReadinessPlannerTests
 
         var blocked = Assert.Single(ReadinessPlanner.Plan(reopened));
 
-        Assert.Contains(promoted.Deltas, delta => delta.Add && delta.Label == "ready-for-agent");
-        Assert.Contains(blocked.Deltas, delta => delta.Add && delta.Label == "blocked");
+        Assert.Contains(promoted.Deltas, delta => delta.Operation is LabelOperation.Add && delta.Label == "ready-for-agent");
+        Assert.Contains(blocked.Deltas, delta => delta.Operation is LabelOperation.Add && delta.Label == "blocked");
     }
 
     [Fact]
@@ -117,15 +117,36 @@ public sealed class ReadinessPlannerTests
     }
 
     [Fact]
-    public void PlanDoesNotManageLegacyIssueWithoutReadinessContract()
+    public void PlanDoesNotManageLegacyIssueWithoutImplementationSliceLabel()
     {
         var legacyBody = IssueFixture.Body().Replace(
             $"### Readiness contract\n\n{IssueSpecificationParser.ContractValue}\n\n",
             string.Empty,
             StringComparison.Ordinal);
-        var issue = IssueFixture.Issue(10, legacyBody, labels: ["ready-for-agent"]);
+        var issue = IssueFixture.Issue(
+            10,
+            legacyBody,
+            isImplementationSlice: false,
+            labels: ["ready-for-agent"]);
 
         Assert.Empty(ReadinessPlanner.Plan([issue]));
+    }
+
+    [Fact]
+    public void PlanReturnsScopedIssueWithDeletedReadinessContractToNeedsTriage()
+    {
+        var body = IssueFixture.Body().Replace(
+            $"### Readiness contract\n\n{IssueSpecificationParser.ContractValue}\n\n",
+            string.Empty,
+            StringComparison.Ordinal);
+        var issue = IssueFixture.Issue(10, body, labels: ["ready-for-agent"]);
+
+        var plan = Assert.Single(ReadinessPlanner.Plan([issue]));
+
+        Assert.Equal("section-readiness-contract-missing-or-duplicate", plan.Reason);
+        Assert.Equal(
+            [new LabelDelta(LabelOperation.Add, "needs-triage"), new LabelDelta(LabelOperation.Remove, "ready-for-agent")],
+            plan.Deltas);
     }
 
     [Fact]
@@ -140,7 +161,7 @@ public sealed class ReadinessPlannerTests
         var plan = Assert.Single(ReadinessPlanner.Plan([issue]));
 
         Assert.Equal("readiness-contract-unsupported", plan.Reason);
-        Assert.Equal("needs-triage", Assert.Single(plan.Deltas, delta => delta.Add).Label);
+        Assert.Equal("needs-triage", Assert.Single(plan.Deltas, delta => delta.Operation is LabelOperation.Add).Label);
     }
 
     [Fact]
@@ -155,7 +176,7 @@ public sealed class ReadinessPlannerTests
 
         Assert.Equal("open-decisions-unresolved", plan.Reason);
         Assert.Equal(
-            [new LabelDelta(true, "needs-triage"), new LabelDelta(false, "ready-for-agent")],
+            [new LabelDelta(LabelOperation.Add, "needs-triage"), new LabelDelta(LabelOperation.Remove, "ready-for-agent")],
             plan.Deltas);
     }
 
@@ -167,7 +188,7 @@ public sealed class ReadinessPlannerTests
         var plan = Assert.Single(ReadinessPlanner.Plan([issue]));
 
         Assert.Equal("dependency-not-found:404", plan.Reason);
-        Assert.Equal("needs-triage", Assert.Single(plan.Deltas, delta => delta.Add).Label);
+        Assert.Equal("needs-triage", Assert.Single(plan.Deltas, delta => delta.Operation is LabelOperation.Add).Label);
     }
 
     [Fact]

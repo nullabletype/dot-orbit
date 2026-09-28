@@ -26,7 +26,7 @@ internal sealed class ReadinessReconciler(
                 continue;
             }
 
-            foreach (var delta in plan.Deltas.Where(delta => delta.Add))
+            foreach (var delta in plan.Deltas.Where(delta => delta.Operation is LabelOperation.Add))
             {
                 await issueClient.AddLabelAsync(
                     plan.IssueNumber,
@@ -34,7 +34,7 @@ internal sealed class ReadinessReconciler(
                     cancellationToken);
             }
 
-            foreach (var delta in plan.Deltas.Where(delta => !delta.Add))
+            foreach (var delta in plan.Deltas.Where(delta => delta.Operation is LabelOperation.Remove))
             {
                 await issueClient.RemoveLabelAsync(
                     plan.IssueNumber,

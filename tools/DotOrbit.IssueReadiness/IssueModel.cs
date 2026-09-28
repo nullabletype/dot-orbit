@@ -3,6 +3,7 @@ namespace DotOrbit.IssueReadiness;
 internal static class ReadinessLabels
 {
     public const string Blocked = "blocked";
+    public const string ImplementationSlice = "implementation-slice";
     public const string NeedsTriage = "needs-triage";
     public const string ReadyForAgent = "ready-for-agent";
 
@@ -42,9 +43,15 @@ internal sealed record ParseResult(
     public static ParseResult Invalid(string reason) => new(null, reason);
 }
 
-internal sealed record LabelDelta(bool Add, string Label)
+internal enum LabelOperation
 {
-    public override string ToString() => $"{(Add ? '+' : '-')}{Label}";
+    Add,
+    Remove,
+}
+
+internal sealed record LabelDelta(LabelOperation Operation, string Label)
+{
+    public override string ToString() => $"{(Operation is LabelOperation.Add ? '+' : '-')}{Label}";
 }
 
 internal sealed record ReadinessPlan(

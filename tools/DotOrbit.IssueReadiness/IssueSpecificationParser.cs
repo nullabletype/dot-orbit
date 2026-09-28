@@ -7,7 +7,7 @@ internal static partial class IssueSpecificationParser
 {
     public const string ContractValue = "dot-orbit-issue-readiness:v1";
 
-    private static readonly string[] RequiredHeadings =
+    internal static readonly IReadOnlyList<string> RequiredHeadings =
     [
         "Readiness contract",
         "User-visible outcome",
@@ -68,14 +68,6 @@ internal static partial class IssueSpecificationParser
         }
 
         return ParseDependencies(values[0]);
-    }
-
-    public static bool HasReadinessContractSection(string body)
-    {
-        ArgumentNullException.ThrowIfNull(body);
-
-        var sections = ReadSections(body);
-        return sections.ContainsKey("Readiness contract");
     }
 
     private static ParseResult ParseDependencies(string content)

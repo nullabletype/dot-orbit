@@ -9,7 +9,7 @@ Status: active.
 
 ## Readiness contract
 
-New implementation-slice issues begin at `needs-triage`. The issue form emits a `Readiness contract` section whose selected version distinguishes new structured issues from legacy tracker records. A maintainer admits a supported-contract issue to automatic dependency management by replacing `needs-triage` with either `blocked` or `ready-for-agent`. Legacy issues without that section and issues carrying any manual triage label remain under manual control.
+New implementation-slice issues begin with the `implementation-slice` scope label and the manual `needs-triage` state. The issue form also emits a versioned `Readiness contract` section. A maintainer admits a supported-contract issue to automatic dependency management by replacing `needs-triage` with either `blocked` or `ready-for-agent`. Legacy issues without the scope label and issues carrying any manual triage label remain under manual control. Once admitted, removing or corrupting a mandated body section returns the issue to `needs-triage`; deleting body text cannot bypass validation.
 
 A managed issue is fully specified only when each of these exact Markdown sections appears once and contains a nonblank value:
 
