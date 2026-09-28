@@ -12,4 +12,6 @@ The proposed label mapping uses the standard names:
 
 These labels describe workflow state, not type or severity. Add separate `bug`, `feature`, `docs`, and severity labels if useful.
 
-`blocked` is a dependency-state label rather than a triage role. It marks a fully specified issue that cannot start until every issue listed under `Blocked by` is complete. Once those dependencies are complete, remove `blocked` and apply `ready-for-agent`.
+`blocked` is a dependency-state label rather than a triage role. The authoritative readiness, dependency, and transition contract is in [`issue-tracker.md`](issue-tracker.md).
+
+`implementation-slice` is an automation-scope label applied by the structured implementation-slice form. The readiness workflow ignores legacy and unrelated issues without it.

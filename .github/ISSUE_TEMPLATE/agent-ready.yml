@@ -1,9 +1,19 @@
-name: Agent-ready implementation slice
-description: A bounded vertical slice that can be implemented without missing product decisions.
+name: Implementation slice proposal
+description: Propose a bounded implementation slice for maintainer triage and readiness review.
 title: ""
 labels:
-  - ready-for-agent
+  - needs-triage
+  - implementation-slice
 body:
+  - type: dropdown
+    id: readiness_contract
+    attributes:
+      label: Readiness contract
+      description: This version marker admits the submitted form to readiness automation after maintainer review.
+      options:
+        - dot-orbit-issue-readiness:v1
+    validations:
+      required: true
   - type: textarea
     id: outcome
     attributes:
@@ -35,6 +45,13 @@ body:
     validations:
       required: true
   - type: textarea
+    id: constraints
+    attributes:
+      label: Known constraints
+      description: Record relevant technical, security, support, delivery, and sequencing constraints, or write "None".
+    validations:
+      required: true
+  - type: textarea
     id: verification
     attributes:
       label: Verification
@@ -46,9 +63,18 @@ body:
     validations:
       required: true
   - type: textarea
-    id: dependencies
+    id: decisions
     attributes:
-      label: Dependencies and blockers
-      description: Link issues or write "None".
+      label: Open decisions
+      description: Record any decision that could materially change implementation, or write exactly "None".
+    validations:
+      required: true
+  - type: textarea
+    id: blocked_by
+    attributes:
+      label: Blocked by
+      description: Write exactly "None" or one local issue per line as "- #123". References elsewhere are not dependencies.
+      placeholder: |
+        None
     validations:
       required: true

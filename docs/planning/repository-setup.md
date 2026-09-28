@@ -28,6 +28,6 @@ External pull requests are contributions, not automatic requests for agent work.
 
 The protected `main` merge boundary and its read-only drift audit are documented in [`docs/development/main-branch-protection.md`](../development/main-branch-protection.md). The ruleset is configured in GitHub Settings; the workflow resource and token limits are checked into the repository.
 
-## Decisions before implementation
+## Issue admission and automation
 
-Resolve the remaining export, migration, deletion, and contribution-policy questions in [`open-questions.md`](open-questions.md).
+Use the implementation-slice issue form for proposed work. It starts at `needs-triage`; maintainers apply `blocked` or `ready-for-agent` only after checking the canonical readiness contract in [`docs/agents/issue-tracker.md`](../agents/issue-tracker.md). The issue-readiness workflow then maintains dependency state. Use its manual dispatch for a read-only preview before relying on new transition behaviour.
