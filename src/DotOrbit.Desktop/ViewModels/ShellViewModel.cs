@@ -8,9 +8,9 @@ public sealed class ShellViewModel : INotifyPropertyChanged
 {
     private NavigationItemViewModel _selectedItem = null!;
 
-    public ShellViewModel(IWorkspaceWork? work = null)
+    public ShellViewModel(IWorkspaceWork? work = null, TimeProvider? timeProvider = null)
     {
-        Work = work is null ? null : new ProjectCaptureViewModel(work);
+        Work = work is null ? null : new ProjectCaptureViewModel(work, timeProvider);
         PrimaryNavigation =
         [
             CreateNavigationItem(
@@ -46,7 +46,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             CreateNavigationItem(
                 "Completed",
                 "M9,16.17L4.83,12L3.41,13.41L9,19L21,7L19.59,5.59L9,16.17",
-                "Completed work grouped by its captured completion date.",
+                "Completed tasks grouped by captured day for three days, then by calendar week.",
                 "No completed tasks yet",
                 "Recently completed work will be grouped by completion date here."),
             CreateNavigationItem(
@@ -70,6 +70,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         {
             Work.Projects.CollectionChanged += (_, _) => UpdateCounts();
             Work.Backlog.CollectionChanged += (_, _) => UpdateCounts();
+            Work.Completed.CollectionChanged += (_, _) => UpdateCounts();
             UpdateCounts();
         }
     }
@@ -95,6 +96,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(ViewTitle));
             OnPropertyChanged(nameof(ShowProjects));
             OnPropertyChanged(nameof(ShowBacklog));
+            OnPropertyChanged(nameof(ShowCompleted));
             OnPropertyChanged(nameof(ShowEmpty));
             OnPropertyChanged(nameof(ViewSubtitle));
             OnPropertyChanged(nameof(EmptyStateHeading));
@@ -106,7 +108,8 @@ public sealed class ShellViewModel : INotifyPropertyChanged
 
     public bool ShowProjects => Work is not null && ViewTitle == "Projects";
     public bool ShowBacklog => Work is not null && ViewTitle == "Backlog";
-    public bool ShowEmpty => !ShowProjects && !ShowBacklog;
+    public bool ShowCompleted => Work is not null && ViewTitle == "Completed";
+    public bool ShowEmpty => !ShowProjects && !ShowBacklog && !ShowCompleted;
 
     public string ViewTitle => SelectedItem.Title;
 
@@ -142,6 +145,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     private void SelectCore(NavigationItemViewModel item)
     {
         var wasBacklog = _selectedItem is not null && _selectedItem.Title == "Backlog";
+        var wasCompleted = _selectedItem is not null && _selectedItem.Title == "Completed";
         if (_selectedItem is not null)
         {
             _selectedItem.IsSelected = false;
@@ -150,17 +154,21 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         item.IsSelected = true;
         SelectedItem = item;
         var isBacklog = item.Title == "Backlog";
+        var isCompleted = item.Title == "Completed";
         if (Work is not null && wasBacklog != isBacklog)
         {
             if (isBacklog) Work.BeginBacklogEntrySession();
             else Work.EndBacklogEntrySession();
         }
+        Work?.SetBacklogActive(isBacklog);
+        if (Work is not null && wasCompleted != isCompleted) Work.SetCompletedActive(isCompleted);
     }
 
     private void UpdateCounts()
     {
         PrimaryNavigation.Single(n => n.Title == "Projects").CountText = Work!.Projects.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
         PrimaryNavigation.Single(n => n.Title == "Backlog").CountText = Work.Backlog.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        PrimaryNavigation.Single(n => n.Title == "Completed").CountText = Work.Completed.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>

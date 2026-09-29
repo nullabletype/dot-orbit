@@ -1,11 +1,12 @@
 namespace DotOrbit.Storage.Sqlite.Tests;
 
-internal sealed class ManualTimeProvider(DateTimeOffset start) : TimeProvider
+internal sealed class ManualTimeProvider(DateTimeOffset start, TimeZoneInfo? localTimeZone = null) : TimeProvider
 {
     private readonly List<ManualTimer> _timers = [];
     private DateTimeOffset _utcNow = start;
 
     public override DateTimeOffset GetUtcNow() => _utcNow;
+    public override TimeZoneInfo LocalTimeZone { get; } = localTimeZone ?? TimeZoneInfo.Utc;
 
     public override ITimer CreateTimer(
         TimerCallback callback,

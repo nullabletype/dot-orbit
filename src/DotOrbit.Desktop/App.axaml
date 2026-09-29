@@ -134,9 +134,14 @@
       <Setter Property="HorizontalContentAlignment" Value="Left" />
       <Setter Property="Padding" Value="6,5" />
     </Style>
-    <Style Selector="Button.project-title:pointerover, Button.task-title:pointerover">
-      <Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" />
-      <Setter Property="BorderBrush" Value="#3A4251" />
+    <Style Selector="Button.row-title:pointerover, Button.row-title:pressed">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.row-title:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                     Button.row-title:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
     </Style>
     <Style Selector="Button.project-title:focus-visible, Button.task-title:focus-visible">
       <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
@@ -160,28 +165,115 @@
     <Style Selector="Button.drag-handle:focus-visible">
       <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
     </Style>
-    <Style Selector="Border.backlog-row">
+    <Style Selector="ToggleButton.completion-toggle">
+      <Setter Property="Width" Value="30" />
+      <Setter Property="Height" Value="30" />
+      <Setter Property="Padding" Value="0" />
       <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{StaticResource MutedTextBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Foreground" Value="Transparent" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Grid Background="Transparent">
+            <Border
+                x:Name="CompletionBox"
+                Width="22"
+                Height="22"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Background="{TemplateBinding Background}"
+                BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="{TemplateBinding BorderThickness}"
+                CornerRadius="{TemplateBinding CornerRadius}">
+              <Path
+                  x:Name="CompletionTick"
+                  Width="12"
+                  Height="11"
+                  HorizontalAlignment="Center"
+                  VerticalAlignment="Center"
+                  Data="M 2,6 L 5,9 L 11,2"
+                  IsVisible="{TemplateBinding IsChecked}"
+                  Stroke="{TemplateBinding Foreground}"
+                  StrokeLineCap="Round"
+                  StrokeJoin="Round"
+                  StrokeThickness="1.8" />
+            </Border>
+          </Grid>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="ToggleButton.completion-toggle:pointerover">
+      <Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource TextBrush}" />
+    </Style>
+    <Style Selector="ToggleButton.completion-toggle:checked">
+      <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+      <Setter Property="Foreground" Value="{StaticResource BackgroundBrush}" />
+    </Style>
+    <Style Selector="ToggleButton.completion-toggle:checked:pointerover">
+      <Setter Property="Background" Value="#C93678" />
+      <Setter Property="BorderBrush" Value="#C93678" />
+      <Setter Property="Foreground" Value="{StaticResource BackgroundBrush}" />
+    </Style>
+    <Style Selector="ToggleButton.completion-toggle:focus /template/ Border#CompletionBox,
+                     ToggleButton.completion-toggle:focus-visible /template/ Border#CompletionBox">
+      <Setter Property="BoxShadow" Value="0 0 0 2 #FFFF4FA3" />
+    </Style>
+    <Style Selector="ToggleButton.completion-toggle:checked:focus /template/ Border#CompletionBox,
+                     ToggleButton.completion-toggle:checked:focus-visible /template/ Border#CompletionBox,
+                     ToggleButton.completion-toggle:checked:pointerover:focus /template/ Border#CompletionBox,
+                     ToggleButton.completion-toggle:checked:pointerover:focus-visible /template/ Border#CompletionBox">
+      <Setter Property="BoxShadow" Value="0 0 0 2 #FFF2F4F7" />
+    </Style>
+    <Style Selector="Border.interactive-row">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Border.interactive-row:pointerover">
+      <Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" />
+    </Style>
+    <Style Selector="Border.separated-row">
       <Setter Property="BorderBrush" Value="{StaticResource LineSoftBrush}" />
       <Setter Property="BorderThickness" Value="0,0,0,1" />
     </Style>
-    <Style Selector="Border.backlog-row.last">
+    <Style Selector="Border.separated-row.last">
       <Setter Property="BorderThickness" Value="0" />
     </Style>
-    <Style Selector="Border.backlog-row:pointerover">
-      <Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" />
+    <Style Selector="Border.project-row">
+      <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
     </Style>
-    <Style Selector="Border.backlog-row:pointerover Button.backlog-task-title">
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="BorderBrush" Value="Transparent" />
+    <Style Selector="Border.project-header-row">
+      <Setter Property="CornerRadius" Value="9" />
     </Style>
-    <Style Selector="Button.backlog-task-title:pointerover /template/ ContentPresenter#PART_ContentPresenter,
-                     Button.backlog-task-title:pressed /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Background" Value="Transparent" />
+    <Style Selector="Border.project-header-row.expanded">
+      <Setter Property="CornerRadius" Value="9,9,0,0" />
     </Style>
-    <Style Selector="Border.backlog-row.drag-target">
+    <Style Selector="Border.reorder-target.drag-target">
       <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
       <Setter Property="BorderThickness" Value="0,0,0,2" />
+    </Style>
+    <Style Selector="TextBlock.project-status.not-started">
+      <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+    </Style>
+    <Style Selector="TextBlock.project-status.in-progress">
+      <Setter Property="Foreground" Value="{StaticResource AmberBrush}" />
+    </Style>
+    <Style Selector="TextBlock.project-status.complete">
+      <Setter Property="Foreground" Value="{StaticResource SuccessBrush}" />
+    </Style>
+    <Style Selector="Ellipse.project-status.not-started">
+      <Setter Property="Fill" Value="{StaticResource QuietTextBrush}" />
+    </Style>
+    <Style Selector="Ellipse.project-status.in-progress">
+      <Setter Property="Fill" Value="{StaticResource AmberBrush}" />
+    </Style>
+    <Style Selector="Ellipse.project-status.complete">
+      <Setter Property="Fill" Value="{StaticResource SuccessBrush}" />
     </Style>
     <Style Selector="ToggleButton.disclosure">
       <Setter Property="Width" Value="28" />
@@ -200,7 +292,22 @@
       <Setter Property="BorderBrush" Value="#414958" />
       <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
     </Style>
-    <Style Selector="ToggleButton.disclosure:focus-visible">
+    <Style Selector="ToggleButton.disclosure:checked,
+                     ToggleButton.disclosure:checked:pointerover">
+      <Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" />
+      <Setter Property="BorderBrush" Value="#414958" />
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    </Style>
+    <Style Selector="ToggleButton.disclosure:focus,
+                     ToggleButton.disclosure:focus-visible">
+      <Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    </Style>
+    <Style Selector="ToggleButton.disclosure:checked:focus,
+                     ToggleButton.disclosure:checked:focus-visible,
+                     ToggleButton.disclosure:checked:pointerover:focus,
+                     ToggleButton.disclosure:checked:pointerover:focus-visible">
       <Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" />
       <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
       <Setter Property="Foreground" Value="{StaticResource TextBrush}" />

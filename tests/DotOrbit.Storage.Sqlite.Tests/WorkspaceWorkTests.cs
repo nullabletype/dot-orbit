@@ -105,6 +105,132 @@ public sealed class WorkspaceWorkTests : IDisposable
     }
 
     [Fact]
+    public void SharedReorderMovesOnlyIncompleteTasksAndPreservesCompletedSlots()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        var project = session.Work.CreateProject("Garden", "", category.Id, null);
+        var a = session.Work.CreateTask(project.Id, "A");
+        var b = session.Work.CreateTask(project.Id, "B");
+        var c = session.Work.CreateTask(project.Id, "C");
+        var d = session.Work.CreateTask(project.Id, "D");
+        var e = session.Work.CreateTask(project.Id, "E");
+        var f = session.Work.CreateTask(project.Id, "F");
+        session.Work.CompleteTask(e.Id);
+        session.Work.CompleteTask(c.Id);
+
+        Assert.Equal(new SharedTaskOrderChange(f.Id, 2, 4), session.Work.MoveTaskInSharedOrder(f.Id, 1));
+        Assert.Equal([d.Id, e.Id, f.Id, c.Id, b.Id, a.Id], session.Work.Read().Tasks.Select(task => task.Id));
+        Assert.Equal(new SharedTaskOrderChange(d.Id, 4, 4), session.Work.MoveTaskInSharedOrder(d.Id, 3));
+        Assert.Equal([f.Id, e.Id, b.Id, c.Id, a.Id, d.Id], session.Work.Read().Tasks.Select(task => task.Id));
+        Assert.Equal(new SharedTaskOrderChange(d.Id, 1, 4), session.Work.MoveTaskInSharedOrder(d.Id, 0));
+        Assert.Equal([d.Id, e.Id, f.Id, c.Id, b.Id, a.Id], session.Work.Read().Tasks.Select(task => task.Id));
+        Assert.Equal([e.Id, c.Id], session.Work.Read().Tasks.Where(task => task.IsComplete).Select(task => task.Id));
+        Assert.Throws<ArgumentException>(() => session.Work.MoveTaskInSharedOrder(e.Id, 0));
+    }
+
+    [Fact]
+    public void CompleteReopenAndRecompleteAtomicallyReplaceCapturedValuesAcrossTimeZones()
+    {
+        var east = TimeZoneInfo.CreateCustomTimeZone("UTC+14", TimeSpan.FromHours(14), "UTC+14", "UTC+14");
+        var time = new ManualTimeProvider(new DateTimeOffset(2026, 9, 29, 11, 30, 0, TimeSpan.Zero), east);
+        var store = new EncryptedWorkspaceStore(new SystemIdentifierGenerator(), new WorkspaceFileOperations(), time);
+        using (var session = store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!)
+        {
+            var project = session.Work.CreateProject("Garden", "", session.Work.Read().Categories[0].Id, null);
+            var task = session.Work.CreateTask(project.Id, "Dig");
+            var completed = session.Work.CompleteTask(task.Id);
+            Assert.Equal(time.GetUtcNow(), completed.CompletedAt);
+            Assert.Equal(new DateOnly(2026, 9, 30), completed.CompletionDate);
+
+            var reopened = session.Work.ReopenTask(task.Id);
+            Assert.Null(reopened.CompletedAt);
+            Assert.Null(reopened.CompletionDate);
+
+            time.SetUtcNow(new DateTimeOffset(2026, 10, 1, 1, 15, 0, TimeSpan.Zero));
+            var recompleted = session.Work.CompleteTask(task.Id);
+            Assert.Equal(time.GetUtcNow(), recompleted.CompletedAt);
+            Assert.Equal(new DateOnly(2026, 10, 1), recompleted.CompletionDate);
+        }
+
+        var west = TimeZoneInfo.CreateCustomTimeZone("UTC-12", TimeSpan.FromHours(-12), "UTC-12", "UTC-12");
+        var reopenedStore = new EncryptedWorkspaceStore(new SystemIdentifierGenerator(), new WorkspaceFileOperations(), new ManualTimeProvider(time.GetUtcNow(), west));
+        using var reopenedSession = reopenedStore.Open(WorkspacePath, _passphrase).Session!;
+        var persisted = Assert.Single(reopenedSession.Work.Read().Tasks);
+        Assert.Equal(new DateOnly(2026, 10, 1), persisted.CompletionDate);
+        Assert.Equal(time.GetUtcNow(), persisted.CompletedAt);
+    }
+
+    [Fact]
+    public void CompletionFailureRollsBackBothCapturedFieldsWithoutExposingPrivateDatabaseDetails()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var project = session.Work.CreateProject("Garden", "", session.Work.Read().Categories[0].Id, null);
+        var task = session.Work.CreateTask(project.Id, "Private task");
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "CREATE TRIGGER reject_completion BEFORE UPDATE OF completion_date ON tasks BEGIN SELECT RAISE(ABORT, 'private completion'); END;";
+            command.ExecuteNonQuery();
+        }
+
+        var error = Assert.Throws<WorkspaceWorkException>(() => session.Work.CompleteTask(task.Id));
+        Assert.Equal("The workspace operation could not be completed.", error.Message);
+        var unchanged = Assert.Single(session.Work.Read().Tasks);
+        Assert.Null(unchanged.CompletedAt);
+        Assert.Null(unchanged.CompletionDate);
+
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "DROP TRIGGER reject_completion;";
+            command.ExecuteNonQuery();
+        }
+        var completed = session.Work.CompleteTask(task.Id);
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "CREATE TRIGGER reject_reopen BEFORE UPDATE OF completion_instant ON tasks BEGIN SELECT RAISE(ABORT, 'private reopen'); END;";
+            command.ExecuteNonQuery();
+        }
+        Assert.Throws<WorkspaceWorkException>(() => session.Work.ReopenTask(task.Id));
+        var stillCompleted = Assert.Single(session.Work.Read().Tasks);
+        Assert.Equal(completed.CompletedAt, stillCompleted.CompletedAt);
+        Assert.Equal(completed.CompletionDate, stillCompleted.CompletionDate);
+    }
+
+    [Fact]
+    public void ProjectAndPerProjectTaskOrdersPersistIndependentlyAndRollBackOnFailure()
+    {
+        using (var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!)
+        {
+            var category = session.Work.Read().Categories[0];
+            var firstProject = session.Work.CreateProject("First", "", category.Id, null);
+            var secondProject = session.Work.CreateProject("Second", "", category.Id, null);
+            var firstTask = session.Work.CreateTask(firstProject.Id, "First task");
+            var secondTask = session.Work.CreateTask(firstProject.Id, "Second task");
+            var otherTask = session.Work.CreateTask(secondProject.Id, "Other task");
+
+            Assert.Equal(new ProjectOrderChange(secondProject.Id, 1, 2), session.Work.MoveProject(secondProject.Id, 0));
+            Assert.Equal(new ProjectTaskOrderChange(firstProject.Id, secondTask.Id, 1, 2), session.Work.MoveTaskInProject(firstProject.Id, secondTask.Id, 0));
+            Assert.Equal([secondProject.Id, firstProject.Id], session.Work.Read().Projects.Select(project => project.Id));
+            Assert.Equal([secondTask.Id, firstTask.Id], session.Work.Read().Tasks.Where(task => task.ProjectId == firstProject.Id).OrderBy(task => task.ProjectPosition).Select(task => task.Id));
+            Assert.Equal(0, session.Work.Read().Tasks.Single(task => task.Id == otherTask.Id).ProjectPosition);
+
+            using var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite);
+            using var trigger = connection.CreateCommand();
+            trigger.CommandText = "CREATE TRIGGER reject_project_order BEFORE UPDATE OF position ON projects BEGIN SELECT RAISE(ABORT, 'private order'); END;";
+            trigger.ExecuteNonQuery();
+            Assert.Throws<WorkspaceWorkException>(() => session.Work.MoveProject(firstProject.Id, 0));
+            Assert.Equal([secondProject.Id, firstProject.Id], session.Work.Read().Projects.Select(project => project.Id));
+        }
+
+        using var reopened = _store.Open(WorkspacePath, _passphrase).Session!;
+        Assert.Equal(["Second", "First"], reopened.Work.Read().Projects.Select(project => project.Title));
+        Assert.Equal(["Second task", "First task"], reopened.Work.Read().Tasks.Where(task => task.ProjectId == reopened.Work.Read().Projects[1].Id).OrderBy(task => task.ProjectPosition).Select(task => task.Title));
+    }
+
+    [Fact]
     public void InvalidReferencesAndBlankTitlesNeverChangeStoredWork()
     {
         using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
@@ -119,9 +245,15 @@ public sealed class WorkspaceWorkTests : IDisposable
         Assert.Throws<ArgumentException>(() => session.Work.UpdateTask(task.Id, "Changed", "", "missing", null));
         var standalone = session.Work.CreateStandaloneTask("Standalone", "", category.Id, null);
         Assert.Throws<ArgumentException>(() => session.Work.UpdateTask(standalone.Id, "Changed", "", null, null));
+        Assert.Throws<ArgumentException>(() => session.Work.CompleteTask("missing"));
+        Assert.Throws<ArgumentException>(() => session.Work.ReopenTask("missing"));
         Assert.Throws<ArgumentException>(() => session.Work.MoveTaskInSharedOrder("missing", 0));
         Assert.Throws<ArgumentOutOfRangeException>(() => session.Work.MoveTaskInSharedOrder(task.Id, -1));
         Assert.Throws<ArgumentOutOfRangeException>(() => session.Work.MoveTaskInSharedOrder(task.Id, 2));
+        Assert.Throws<ArgumentException>(() => session.Work.MoveProject("missing", 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => session.Work.MoveProject(project.Id, 1));
+        Assert.Throws<ArgumentException>(() => session.Work.MoveTaskInProject(project.Id, standalone.Id, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => session.Work.MoveTaskInProject(project.Id, task.Id, 1));
         Assert.Equal(project, Assert.Single(session.Work.Read().Projects));
         Assert.Equal([standalone.Id, task.Id], session.Work.Read().Tasks.Select(item => item.Id));
     }
@@ -138,7 +270,7 @@ public sealed class WorkspaceWorkTests : IDisposable
         }
         using (var session = _store.Open(WorkspacePath, _passphrase).Session!)
         {
-            Assert.Equal(4, session.SchemaVersion);
+            Assert.Equal(5, session.SchemaVersion);
             Assert.Equal("original", Assert.Single(session.Work.Read().Categories).Id);
             var project = session.Work.CreateProject("Migrated project", "", "original", null);
             session.Work.CreateTask(project.Id, "Migrated task");
@@ -195,7 +327,9 @@ public sealed class WorkspaceWorkTests : IDisposable
     [InlineData(" CHECK(length(trim(title)) > 0)", "")]
     [InlineData("title TEXT", "title INTEGER")]
     [InlineData("description TEXT NOT NULL", "description TEXT")]
-    public void OpenRejectsSchemaFourWithMissingConstraintsOrChangedTypes(string original, string replacement)
+    [InlineData("completion_instant TEXT", "completion_instant INTEGER")]
+    [InlineData("CHECK((completion_instant IS NULL AND completion_date IS NULL)", "CHECK((completion_instant IS NULL OR completion_date IS NULL)")]
+    public void OpenRejectsSchemaFiveWithMissingConstraintsOrChangedTypes(string original, string replacement)
     {
         _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!.Dispose();
         using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
@@ -241,6 +375,27 @@ public sealed class WorkspaceWorkTests : IDisposable
         Assert.Equal(WorkspaceOpenStatus.InvalidPassphraseOrStore, result.Status);
         Assert.Null(result.Session);
         Assert.Equal(before, File.ReadAllBytes(WorkspacePath));
+    }
+
+    [Theory]
+    [InlineData("invalid-instant", "2026-09-29")]
+    [InlineData("2026-09-29T12:00:00.0000000+00:00", "2026-02-29")]
+    public void InvalidPersistedCompletionPairIsRejectedOnOpenAndRead(string instant, string date)
+    {
+        var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var project = session.Work.CreateProject("Project", "", session.Work.Read().Categories[0].Id, null);
+        session.Work.CreateTask(project.Id, "Task");
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE tasks SET completion_instant=$instant, completion_date=$date;";
+            command.Parameters.AddWithValue("$instant", instant);
+            command.Parameters.AddWithValue("$date", date);
+            command.ExecuteNonQuery();
+        }
+        Assert.Throws<WorkspaceWorkException>(() => session.Work.Read());
+        session.Dispose();
+        Assert.Equal(WorkspaceOpenStatus.InvalidPassphraseOrStore, _store.Open(WorkspacePath, _passphrase).Status);
     }
 
     public void Dispose()

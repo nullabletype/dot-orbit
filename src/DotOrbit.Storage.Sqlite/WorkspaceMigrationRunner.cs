@@ -263,6 +263,7 @@ internal static class WorkspaceMigrationRunner
                 1 => ApplySchemaOneToTwo(connection),
                 2 => ApplySchemaTwoToThree(connection),
                 3 => ApplySchemaThreeToFour(connection),
+                4 => ApplySchemaFourToFive(connection),
                 _ => throw new InvalidDataException(),
             };
 
@@ -291,7 +292,7 @@ internal static class WorkspaceMigrationRunner
     {
         ExecuteNonQuery(connection, """
             ALTER TABLE tasks RENAME TO tasks_schema_three;
-            """ + SqliteWorkspaceWork.TaskSchema + """
+            """ + SqliteWorkspaceWork.TaskSchemaFour + """
             INSERT INTO tasks
                 (id, project_id, title, description, explicit_category_id, due_date, shared_position, project_position)
             SELECT id, project_id, title, description, category_override_id, due_date,
@@ -301,6 +302,23 @@ internal static class WorkspaceMigrationRunner
             PRAGMA user_version = 4;
             """);
         return 4;
+    }
+
+    private static int ApplySchemaFourToFive(SqliteConnection connection)
+    {
+        ExecuteNonQuery(connection, """
+            ALTER TABLE tasks RENAME TO tasks_schema_four;
+            """ + SqliteWorkspaceWork.TaskSchema + """
+            INSERT INTO tasks
+                (id, project_id, title, description, explicit_category_id, due_date,
+                 shared_position, project_position, completion_instant, completion_date)
+            SELECT id, project_id, title, description, explicit_category_id, due_date,
+                shared_position, project_position, NULL, NULL
+            FROM tasks_schema_four;
+            DROP TABLE tasks_schema_four;
+            PRAGMA user_version = 5;
+            """);
+        return 5;
     }
 
     private static int ApplySchemaOneToTwo(SqliteConnection connection)
