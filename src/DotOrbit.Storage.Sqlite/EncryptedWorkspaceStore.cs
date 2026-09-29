@@ -6,7 +6,7 @@ namespace DotOrbit.Storage.Sqlite;
 
 public sealed class EncryptedWorkspaceStore : IWorkspaceStore
 {
-    public const int CurrentSchemaVersion = 4;
+    public const int CurrentSchemaVersion = 5;
 
     internal const string CipherName = "chacha20";
     internal const int KdfIterations = 64007;
@@ -388,7 +388,11 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         {
             SqliteWorkspaceWork.ValidateShape(connection, transaction, SqliteWorkspaceWork.SchemaThree);
         }
-        else if (schemaVersion >= 4)
+        else if (schemaVersion == 4)
+        {
+            SqliteWorkspaceWork.ValidateShape(connection, transaction, SqliteWorkspaceWork.SchemaFour);
+        }
+        else if (schemaVersion >= 5)
         {
             SqliteWorkspaceWork.ValidateShape(connection, transaction);
         }
@@ -537,7 +541,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
                 passphrase,
                 _recovery,
                 _gate);
-            Work = new SqliteWorkspaceWork(store, _transactions);
+            Work = new SqliteWorkspaceWork(store, _transactions, store._timeProvider);
         }
 
         public int SchemaVersion { get; }

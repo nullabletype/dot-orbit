@@ -9,6 +9,7 @@ namespace DotOrbit.Desktop.ViewModels;
 public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 {
     private readonly IWorkspaceWork _work;
+    private readonly TimeProvider _timeProvider;
     private readonly Dictionary<string, TaskRowViewModel> _taskRows = new(StringComparer.Ordinal);
     private WorkspaceWorkSnapshot _snapshot = new([], [], []);
     private Action? _pendingNavigation;
@@ -19,6 +20,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private string _title = string.Empty;
     private string _description = string.Empty;
     private string _date = string.Empty;
+    private DateTime? _selectedDate;
     private CategoryChoice? _category;
     private (string Title, string Description, string Date, string? CategoryId) _original;
     private string _message = string.Empty;
@@ -26,10 +28,17 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private string _backlogQuickTitle = string.Empty;
     private CategoryChoice? _backlogQuickCategory;
     private string _reorderAnnouncement = string.Empty;
+    private bool _backlogActive;
+    private bool _completedActive;
+    private string _completionFocusAutomationId = string.Empty;
+    private string _reorderFocusAutomationId = string.Empty;
+    private DateOnly _presentationDate;
+    private string _presentationTimeZoneId = string.Empty;
 
-    public ProjectCaptureViewModel(IWorkspaceWork work)
+    public ProjectCaptureViewModel(IWorkspaceWork work, TimeProvider? timeProvider = null)
     {
         _work = work;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         NewProjectCommand = new(() => Navigate(BeginProject));
         NewTaskCommand = new(() => Navigate(BeginStandaloneTask));
         SaveCommand = new(() => Save());
@@ -37,12 +46,15 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         SaveAndLeaveCommand = new(() => { if (Save()) Leave(); });
         DiscardAndLeaveCommand = new(() => { Cancel(); Leave(); });
         StayCommand = new(() => { _pendingNavigation = null; Notify(nameof(NeedsDecision)); });
+        CapturePresentationClock();
         Reload();
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public ObservableCollection<ProjectRowViewModel> Projects { get; } = [];
     public ObservableCollection<TaskRowViewModel> Backlog { get; } = [];
+    public ObservableCollection<TaskRowViewModel> Completed { get; } = [];
+    public ObservableCollection<CompletedTaskGroupViewModel> CompletedGroups { get; } = [];
     public ObservableCollection<CategoryChoice> Categories { get; } = [];
     public ObservableCollection<CategoryChoice> BacklogCategories { get; } = [];
     public RelayCommand NewProjectCommand { get; }
@@ -56,11 +68,26 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public bool HasNoInspector => !HasInspector;
     public bool HasProjects => Projects.Count > 0;
     public bool HasNoProjects => !HasProjects;
+    public bool HasCompleted => Completed.Count > 0;
+    public bool HasNoCompleted => !HasCompleted;
     public bool NeedsDecision => _pendingNavigation is not null;
     public bool IsDirty => HasInspector && (_creating || _original != Fingerprint());
     public string InspectorHeading => _creating ? (_editingTask ? "New task" : "New project") : _editingTask ? "Task details" : "Project details";
     public bool ShowProjectSummary => HasInspector && !_creating && !_editingTask;
-    public string ProjectSummary => ShowProjectSummary ? Projects.Single(p => p.Id == _editingId).Summary + " · No completion date" : string.Empty;
+    public string ProjectSummary => ShowProjectSummary
+        ? Projects.Single(p => p.Id == _editingId).Summary
+            + (string.IsNullOrEmpty(Projects.Single(p => p.Id == _editingId).CompletionDateText)
+                ? " · No completion date"
+                : $" · {Projects.Single(p => p.Id == _editingId).CompletionDateText}")
+        : string.Empty;
+    public bool ShowTaskCompletionDate => HasInspector && !_creating && _editingTask
+        && _snapshot.Tasks.Single(task => task.Id == _editingId).CompletionDate is not null;
+    public string TaskCompletionDateText => ShowTaskCompletionDate
+        ? $"Completed {WorkDatePresentation.Relative(_snapshot.Tasks.Single(task => task.Id == _editingId).CompletionDate, Today)}"
+        : string.Empty;
+    public string TaskCompletionDateAccessibleText => ShowTaskCompletionDate
+        ? WorkDatePresentation.Accessible(_snapshot.Tasks.Single(task => task.Id == _editingId).CompletionDate, "Completed")
+        : string.Empty;
     public string InspectorMetaLabel => _editingTask ? "CATEGORY BEHAVIOUR" : "STATUS";
     public string InspectorMetaValue => _editingTask
         ? CategoryHint
@@ -78,10 +105,54 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public string Message { get => _message; private set { _message = value; Notify(); Notify(nameof(HasMessage)); } }
     public string Title { get => _title; set { _title = value; Notify(); } }
     public string Description { get => _description; set { _description = value; Notify(); } }
-    public string Date { get => _date; set { _date = value; Notify(); } }
+    public string Date
+    {
+        get => _date;
+        set
+        {
+            if (string.Equals(_date, value, StringComparison.Ordinal)) return;
+            _date = value;
+            Notify();
+            if (DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+            {
+                var selected = parsed.ToDateTime(TimeOnly.MinValue);
+                if (_selectedDate != selected)
+                {
+                    _selectedDate = selected;
+                    Notify(nameof(SelectedDate));
+                }
+            }
+            else if (string.IsNullOrEmpty(value) && _selectedDate is not null)
+            {
+                _selectedDate = null;
+                Notify(nameof(SelectedDate));
+            }
+        }
+    }
+    public DateTime? SelectedDate
+    {
+        get => _selectedDate;
+        set
+        {
+            if (_selectedDate == value) return;
+            _selectedDate = value;
+            Notify();
+            var text = value is null
+                ? string.Empty
+                : DateOnly.FromDateTime(value.Value).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            if (!string.Equals(_date, text, StringComparison.Ordinal))
+            {
+                _date = text;
+                Notify(nameof(Date));
+            }
+        }
+    }
     public string BacklogQuickTitle { get => _backlogQuickTitle; set { _backlogQuickTitle = value; Notify(); } }
     public CategoryChoice? BacklogQuickCategory { get => _backlogQuickCategory; set { _backlogQuickCategory = value; Notify(); } }
     public string ReorderAnnouncement { get => _reorderAnnouncement; private set { _reorderAnnouncement = value; Notify(); } }
+    public string CompletionFocusAutomationId { get => _completionFocusAutomationId; private set { _completionFocusAutomationId = value; Notify(); } }
+    public string ReorderFocusAutomationId { get => _reorderFocusAutomationId; private set { _reorderFocusAutomationId = value; Notify(); } }
+    internal DateOnly Today => DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime);
     private bool IsStandaloneTaskDraft => _editingTask && (_creatingStandaloneTask
         || (_editingId is not null && _snapshot.Tasks.Single(task => task.Id == _editingId).ProjectId is null));
     public CategoryChoice? Category
@@ -112,6 +183,24 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
     public void SelectProject(string id) => Navigate(() => LoadProject(id));
     public void SelectTask(string id) => Navigate(() => LoadTask(id));
+    public void SetBacklogActive(bool active) => _backlogActive = active;
+    public void SetCompletedActive(bool active) => _completedActive = active;
+
+    public bool RefreshDatePresentation()
+    {
+        var today = Today;
+        var timeZoneId = _timeProvider.LocalTimeZone.Id;
+        if (today == _presentationDate && string.Equals(timeZoneId, _presentationTimeZoneId, StringComparison.Ordinal)) return false;
+        CapturePresentationClock();
+        Reload();
+        return true;
+    }
+
+    private void CapturePresentationClock()
+    {
+        _presentationDate = Today;
+        _presentationTimeZoneId = _timeProvider.LocalTimeZone.Id;
+    }
 
     public bool QuickAdd(string projectId, string title)
     {
@@ -151,6 +240,16 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     {
         var targetPosition = Backlog.IndexOf(Backlog.Single(task => task.Id == targetTaskId));
         return MoveTask(taskId, targetPosition);
+    }
+
+    public bool DragProject(string projectId, string targetProjectId) =>
+        MoveProject(projectId, Projects.IndexOf(Projects.Single(project => project.Id == targetProjectId)));
+
+    public bool DragProjectTask(string projectId, string taskId, string targetTaskId)
+    {
+        var project = Projects.Single(item => item.Id == projectId);
+        var target = project.Tasks.SingleOrDefault(task => task.Id == targetTaskId);
+        return target is not null && MoveProjectTask(projectId, taskId, project.Tasks.IndexOf(target));
     }
 
     private void BeginProject()
@@ -210,6 +309,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         Message = string.Empty;
         Notify(nameof(InspectorHeading)); Notify(nameof(SaveLabel)); Notify(nameof(DateLabel));
         Notify(nameof(ShowProjectSummary)); Notify(nameof(ProjectSummary));
+        Notify(nameof(ShowTaskCompletionDate)); Notify(nameof(TaskCompletionDateText)); Notify(nameof(TaskCompletionDateAccessibleText));
         Notify(nameof(InspectorMetaLabel)); Notify(nameof(InspectorMetaValue));
     }
 
@@ -271,19 +371,30 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             _taskRows.Remove(removedId);
         var existing = Projects.ToDictionary(p => p.Id, StringComparer.Ordinal);
         Projects.Clear();
-        foreach (var project in _snapshot.Projects)
+        for (var projectIndex = 0; projectIndex < _snapshot.Projects.Count; projectIndex++)
         {
+            var project = _snapshot.Projects[projectIndex];
             var row = existing.GetValueOrDefault(project.Id) ?? new ProjectRowViewModel(this, project.Id);
             row.Refresh(project, ProjectWorkSummary.From(_snapshot, project.Id), CategoryName(project.CategoryId), _snapshot.Tasks.Where(t => t.ProjectId == project.Id).OrderBy(t => t.ProjectPosition).Select(ToTaskRow));
+            row.SetPosition(projectIndex + 1, _snapshot.Projects.Count);
             Projects.Add(row);
         }
-        var desiredBacklog = _snapshot.Tasks.OrderBy(t => t.SharedPosition).Select(ToTaskRow).ToArray();
+        var desiredBacklog = _snapshot.Tasks.Where(task => !task.IsComplete).OrderBy(t => t.SharedPosition).Select(ToTaskRow).ToArray();
         SynchroniseBacklog(desiredBacklog);
         for (var index = 0; index < Backlog.Count; index++) Backlog[index].SetPosition(index + 1, Backlog.Count);
+        var desiredCompleted = _snapshot.Tasks.Where(task => task.IsComplete)
+            .OrderByDescending(task => task.CompletedAt).ThenBy(task => task.SharedPosition).Select(ToTaskRow).ToArray();
+        Synchronise(Completed, desiredCompleted);
+        RefreshCompletedGroups();
         Notify(nameof(ProjectSummary));
         Notify(nameof(InspectorMetaValue));
+        Notify(nameof(ShowTaskCompletionDate));
+        Notify(nameof(TaskCompletionDateText));
+        Notify(nameof(TaskCompletionDateAccessibleText));
         Notify(nameof(HasProjects));
         Notify(nameof(HasNoProjects));
+        Notify(nameof(HasCompleted));
+        Notify(nameof(HasNoCompleted));
     }
     private TaskRowViewModel ToTaskRow(TaskRecord task)
     {
@@ -295,7 +406,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             row = new(this, task.Id);
             _taskRows.Add(task.Id, row);
         }
-        row.Refresh(task.Title, CategoryName(categoryId), task.ProjectId is null ? "standalone" : inherited ? "inherited" : "override");
+        row.Refresh(task, CategoryName(categoryId), task.ProjectId is null ? "standalone" : inherited ? "inherited" : "override", Today);
         return row;
     }
 
@@ -307,16 +418,48 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         BacklogQuickCategory = BacklogCategories.FirstOrDefault(category => category.Id == selectedId);
     }
 
-    private void SynchroniseBacklog(TaskRowViewModel[] desired)
+    private void SynchroniseBacklog(TaskRowViewModel[] desired) => Synchronise(Backlog, desired);
+
+    private static void Synchronise(ObservableCollection<TaskRowViewModel> collection, TaskRowViewModel[] desired)
     {
-        for (var index = Backlog.Count - 1; index >= 0; index--)
-            if (!desired.Contains(Backlog[index])) Backlog.RemoveAt(index);
+        for (var index = collection.Count - 1; index >= 0; index--)
+            if (!desired.Contains(collection[index])) collection.RemoveAt(index);
         for (var index = 0; index < desired.Length; index++)
         {
-            var current = Backlog.IndexOf(desired[index]);
-            if (current < 0) Backlog.Insert(index, desired[index]);
-            else if (current != index) Backlog.Move(current, index);
+            var current = collection.IndexOf(desired[index]);
+            if (current < 0) collection.Insert(index, desired[index]);
+            else if (current != index) collection.Move(current, index);
         }
+    }
+
+    private void RefreshCompletedGroups()
+    {
+        CompletedGroups.Clear();
+        foreach (var group in Completed.GroupBy(row => CompletedGroupFor(
+                     _snapshot.Tasks.Single(task => task.Id == row.Id).CompletionDate!.Value))
+                 .OrderByDescending(group => group.Key.Start))
+            CompletedGroups.Add(new(group.Key.Heading, group.ToArray()));
+    }
+
+    private (DateOnly Start, string Heading) CompletedGroupFor(DateOnly completionDate)
+    {
+        var age = Today.DayNumber - completionDate.DayNumber;
+        if (age < 0)
+            return (completionDate, completionDate.ToString("dddd, d MMMM yyyy", CultureInfo.InvariantCulture));
+        if (age is >= 0 and <= 2)
+        {
+            var heading = age switch
+            {
+                0 => "Today",
+                1 => "Yesterday",
+                _ => completionDate.ToString("dddd, d MMMM yyyy", CultureInfo.InvariantCulture),
+            };
+            return (completionDate, heading);
+        }
+
+        var daysSinceMonday = ((int)completionDate.DayOfWeek + 6) % 7;
+        var weekStart = completionDate.AddDays(-daysSinceMonday);
+        return (weekStart, $"Week of {weekStart.ToString("d MMM yyyy", CultureInfo.InvariantCulture)}");
     }
 
     private bool MoveTask(string taskId, int targetPosition)
@@ -346,10 +489,92 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     internal void MoveDown(string taskId) => MoveTask(taskId, Backlog.IndexOf(Backlog.Single(task => task.Id == taskId)) + 1);
     internal void MoveToTop(string taskId) => MoveTask(taskId, 0);
     internal void MoveToBottom(string taskId) => MoveTask(taskId, Backlog.Count - 1);
+    internal void ToggleCompletion(string taskId)
+    {
+        var task = _snapshot.Tasks.Single(item => item.Id == taskId);
+        Action action = () => ApplyCompletion(taskId, !task.IsComplete);
+        var removesDraftFromCurrentView = (!task.IsComplete && _backlogActive) || (task.IsComplete && _completedActive);
+        if (removesDraftFromCurrentView && IsDirty && _editingTask && _editingId == taskId)
+        {
+            _pendingNavigation = action;
+            Notify(nameof(NeedsDecision));
+            return;
+        }
+        action();
+    }
+
+    private void ApplyCompletion(string taskId, bool complete)
+    {
+        var backlogIndex = Backlog.IndexOf(Backlog.FirstOrDefault(row => row.Id == taskId)!);
+        var completedIndex = Completed.IndexOf(Completed.FirstOrDefault(row => row.Id == taskId)!);
+        if (!Attempt(() =>
+            {
+                if (complete) _work.CompleteTask(taskId); else _work.ReopenTask(taskId);
+                Reload();
+                if (complete && _backlogActive)
+                {
+                    CompletionFocusAutomationId = Backlog.Count == 0
+                        ? "backlog-quick-title"
+                        : Backlog[Math.Min(Math.Max(backlogIndex, 0), Backlog.Count - 1)].CompletionAutomationId;
+                }
+                else if (!complete && _completedActive)
+                {
+                    CompletionFocusAutomationId = Completed.Count == 0
+                        ? "navigation-completed"
+                        : Completed[Math.Min(Math.Max(completedIndex, 0), Completed.Count - 1)].CompletionAutomationId;
+                }
+                else
+                {
+                    CompletionFocusAutomationId = $"task-completion-{taskId}";
+                }
+                Message = complete ? "Task completed." : "Task reopened.";
+            }, complete ? "Could not complete the Task." : "Could not reopen the Task.")) return;
+    }
+
+    internal bool MoveProject(string projectId, int targetPosition)
+    {
+        if (Projects.Count == 0) return false;
+        targetPosition = Math.Clamp(targetPosition, 0, Projects.Count - 1);
+        if (!Attempt(() =>
+            {
+                var change = _work.MoveProject(projectId, targetPosition);
+                Reload();
+                var project = Projects.Single(row => row.Id == projectId);
+                ReorderAnnouncement = $"Moved {project.Title} to position {change.Position} of {change.Count} in Projects.";
+                Message = ReorderAnnouncement;
+                ReorderFocusAutomationId = project.ReorderAutomationId;
+            }, "Could not reorder the Project.")) return false;
+        return true;
+    }
+
+    internal bool MoveProjectTask(string projectId, string taskId, int targetPosition)
+    {
+        var count = Projects.Single(project => project.Id == projectId).Tasks.Count;
+        if (count == 0) return false;
+        targetPosition = Math.Clamp(targetPosition, 0, count - 1);
+        if (!Attempt(() =>
+            {
+                var change = _work.MoveTaskInProject(projectId, taskId, targetPosition);
+                Reload();
+                var task = _taskRows[taskId];
+                ReorderAnnouncement = $"Moved {task.Title} to position {change.Position} of {change.Count} in project {Projects.Single(project => project.Id == projectId).Title}.";
+                Message = ReorderAnnouncement;
+                ReorderFocusAutomationId = task.ProjectReorderAutomationId;
+            }, "Could not reorder the Project Task.")) return false;
+        return true;
+    }
     private void Notify([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new(name));
 }
 
 public sealed record CategoryChoice(string? Id, string Name);
+public sealed record CompletedTaskGroupViewModel(string Heading, IReadOnlyList<TaskRowViewModel> Tasks)
+{
+    public IReadOnlyList<CompletedTaskRowViewModel> Rows { get; } = Tasks
+        .Select((task, index) => new CompletedTaskRowViewModel(task, index == Tasks.Count - 1))
+        .ToArray();
+}
+
+public sealed record CompletedTaskRowViewModel(TaskRowViewModel Task, bool IsLast);
 public sealed class TaskRowViewModel : INotifyPropertyChanged
 {
     private readonly ProjectCaptureViewModel _owner;
@@ -358,6 +583,13 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
     private string _categoryDisplay = string.Empty;
     private int _position;
     private int _count;
+    private bool _isComplete;
+    private string? _projectId;
+    private string _dateText = string.Empty;
+    private string _dateAccessibleText = string.Empty;
+    private string _completionDateText = string.Empty;
+    private int _projectPosition;
+    private int _projectCount;
 
     public TaskRowViewModel(ProjectCaptureViewModel owner, string id)
     {
@@ -368,10 +600,16 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
         MoveDownCommand = new(() => owner.MoveDown(id));
         MoveToTopCommand = new(() => owner.MoveToTop(id));
         MoveToBottomCommand = new(() => owner.MoveToBottom(id));
+        ToggleCompletionCommand = new(() => owner.ToggleCompletion(id));
+        MoveProjectTaskUpCommand = new(() => MoveInProject(_projectPosition - 1));
+        MoveProjectTaskDownCommand = new(() => MoveInProject(_projectPosition + 1));
+        MoveProjectTaskToTopCommand = new(() => MoveInProject(0));
+        MoveProjectTaskToBottomCommand = new(() => MoveInProject(_projectCount - 1));
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public string Id { get; }
+    public string? ProjectId => _projectId;
     public string Title => _title;
     public string CategoryName => _categoryName;
     public string CategoryDisplay => _categoryDisplay;
@@ -379,6 +617,19 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
     public bool IsLast => _position == _count;
     public string ReorderAccessibleName => $"Reorder {Title} in Backlog";
     public string ReorderAutomationId => $"backlog-reorder-{Id}";
+    public string CompletionAutomationId => $"task-completion-{Id}";
+    public string CompletionAccessibleName => $"{(IsComplete ? "Reopen" : "Complete")} {Title}";
+    public bool IsComplete => _isComplete;
+    public string DateText => _dateText;
+    public string DateAccessibleText => _dateAccessibleText;
+    public string CompletionDateText => _completionDateText;
+    public string ProjectReorderAccessibleName => $"Reorder {Title} in project";
+    public string ProjectReorderAutomationId => $"project-task-reorder-{Id}";
+    public bool IsProjectLast => _projectCount > 0 && _projectPosition == _projectCount - 1;
+    public string MoveProjectTaskUpAccessibleName => $"Move {Title} up in project";
+    public string MoveProjectTaskDownAccessibleName => $"Move {Title} down in project";
+    public string MoveProjectTaskToTopAccessibleName => $"Move {Title} to top of project";
+    public string MoveProjectTaskToBottomAccessibleName => $"Move {Title} to bottom of project";
     public string MoveUpAccessibleName => $"Move {Title} up in Backlog";
     public string MoveDownAccessibleName => $"Move {Title} down in Backlog";
     public string MoveToTopAccessibleName => $"Move {Title} to top of Backlog";
@@ -388,12 +639,22 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
     public RelayCommand MoveDownCommand { get; }
     public RelayCommand MoveToTopCommand { get; }
     public RelayCommand MoveToBottomCommand { get; }
+    public RelayCommand ToggleCompletionCommand { get; }
+    public RelayCommand MoveProjectTaskUpCommand { get; }
+    public RelayCommand MoveProjectTaskDownCommand { get; }
+    public RelayCommand MoveProjectTaskToTopCommand { get; }
+    public RelayCommand MoveProjectTaskToBottomCommand { get; }
 
-    public void Refresh(string title, string categoryName, string categoryBehaviour)
+    public void Refresh(TaskRecord task, string categoryName, string categoryBehaviour, DateOnly today)
     {
-        _title = title;
+        _title = task.Title;
         _categoryName = categoryName;
         _categoryDisplay = $"{categoryName} · {categoryBehaviour}";
+        _projectId = task.ProjectId;
+        _isComplete = task.IsComplete;
+        _dateText = WorkDatePresentation.Relative(task.DueDate, today);
+        _dateAccessibleText = WorkDatePresentation.Accessible(task.DueDate, "Due");
+        _completionDateText = task.CompletionDate is { } completionDate ? $"Completed {completionDate:d MMM yyyy}" : string.Empty;
         Notify(nameof(Title));
         Notify(nameof(CategoryName));
         Notify(nameof(CategoryDisplay));
@@ -402,6 +663,28 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
         Notify(nameof(MoveDownAccessibleName));
         Notify(nameof(MoveToTopAccessibleName));
         Notify(nameof(MoveToBottomAccessibleName));
+        Notify(nameof(CompletionAccessibleName));
+        Notify(nameof(IsComplete));
+        Notify(nameof(DateText));
+        Notify(nameof(DateAccessibleText));
+        Notify(nameof(CompletionDateText));
+        Notify(nameof(ProjectReorderAccessibleName));
+        Notify(nameof(MoveProjectTaskUpAccessibleName));
+        Notify(nameof(MoveProjectTaskDownAccessibleName));
+        Notify(nameof(MoveProjectTaskToTopAccessibleName));
+        Notify(nameof(MoveProjectTaskToBottomAccessibleName));
+    }
+
+    public void SetProjectPosition(int position, int count)
+    {
+        _projectPosition = position - 1;
+        _projectCount = count;
+        Notify(nameof(IsProjectLast));
+    }
+
+    private void MoveInProject(int targetPosition)
+    {
+        if (_projectId is not null) _owner.MoveProjectTask(_projectId, Id, targetPosition);
     }
 
     public void SetPosition(int position, int count)
@@ -420,11 +703,17 @@ public sealed class ProjectRowViewModel : INotifyPropertyChanged
     private readonly ProjectCaptureViewModel _owner;
     private bool _isExpanded = true;
     private string _quickTitle = string.Empty;
+    private int _position;
+    private int _count;
     public ProjectRowViewModel(ProjectCaptureViewModel owner, string id)
     {
         _owner = owner;
         Id = id;
         SelectCommand = new(() => owner.SelectProject(id));
+        MoveUpCommand = new(() => owner.MoveProject(id, _position - 2));
+        MoveDownCommand = new(() => owner.MoveProject(id, _position));
+        MoveToTopCommand = new(() => owner.MoveProject(id, 0));
+        MoveToBottomCommand = new(() => owner.MoveProject(id, _count - 1));
     }
     public event PropertyChangedEventHandler? PropertyChanged;
     public string Id { get; }
@@ -434,6 +723,20 @@ public sealed class ProjectRowViewModel : INotifyPropertyChanged
     public string ProgressText { get; private set; } = string.Empty;
     public string CategoryName { get; private set; } = string.Empty;
     public string TargetText { get; private set; } = string.Empty;
+    public string TargetAccessibleText { get; private set; } = string.Empty;
+    public bool IsOverdue { get; private set; }
+    public bool IsNotStarted => Status == "Not started";
+    public bool IsInProgress => Status == "In progress";
+    public bool IsComplete => Status == "Complete";
+    public string OverdueText => IsOverdue ? "Overdue" : string.Empty;
+    public string CompletionDateText { get; private set; } = string.Empty;
+    public bool HasCompletionDate => !string.IsNullOrEmpty(CompletionDateText);
+    public string ReorderAccessibleName => $"Reorder {Title} in Projects";
+    public string ReorderAutomationId => $"project-reorder-{Id}";
+    public string MoveUpAccessibleName => $"Move {Title} up in Projects";
+    public string MoveDownAccessibleName => $"Move {Title} down in Projects";
+    public string MoveToTopAccessibleName => $"Move {Title} to top of Projects";
+    public string MoveToBottomAccessibleName => $"Move {Title} to bottom of Projects";
     public bool IsExpanded
     {
         get => _isExpanded;
@@ -448,6 +751,10 @@ public sealed class ProjectRowViewModel : INotifyPropertyChanged
     public string ExpansionAccessibleName => $"{(IsExpanded ? "Collapse" : "Expand")} {Title}";
     public string QuickTitle { get => _quickTitle; set { _quickTitle = value; PropertyChanged?.Invoke(this, new(nameof(QuickTitle))); } }
     public RelayCommand SelectCommand { get; }
+    public RelayCommand MoveUpCommand { get; }
+    public RelayCommand MoveDownCommand { get; }
+    public RelayCommand MoveToTopCommand { get; }
+    public RelayCommand MoveToBottomCommand { get; }
     public ObservableCollection<TaskRowViewModel> Tasks { get; } = [];
     public bool Submit() { if (!_owner.QuickAdd(Id, QuickTitle)) return false; QuickTitle = string.Empty; return true; }
     public void Refresh(ProjectRecord project, ProjectWorkSummary summary, string category, IEnumerable<TaskRowViewModel> tasks)
@@ -456,18 +763,41 @@ public sealed class ProjectRowViewModel : INotifyPropertyChanged
         Status = summary.Status;
         ProgressText = $"{summary.CompletedCount}/{summary.TaskCount} tasks";
         CategoryName = category;
-        TargetText = project.TargetDate is { } date ? $"Target {date:yyyy-MM-dd}" : string.Empty;
+        TargetText = WorkDatePresentation.Relative(project.TargetDate, _owner.Today);
+        TargetAccessibleText = WorkDatePresentation.Accessible(project.TargetDate, "Target");
+        IsOverdue = WorkDatePresentation.IsOverdue(project, summary, _owner.Today);
+        CompletionDateText = summary.CompletionDate is { } completionDate ? $"Completed {completionDate:d MMM yyyy}" : string.Empty;
         Tasks.Clear();
         foreach (var task in tasks) Tasks.Add(task);
+        for (var index = 0; index < Tasks.Count; index++) Tasks[index].SetProjectPosition(index + 1, Tasks.Count);
         Summary = $"{summary.Status} · {summary.CompletedCount} of {summary.TaskCount} Tasks · {category}"
             + (string.IsNullOrEmpty(TargetText) ? string.Empty : $" · {TargetText}");
         PropertyChanged?.Invoke(this, new(nameof(Title)));
         PropertyChanged?.Invoke(this, new(nameof(Summary)));
         PropertyChanged?.Invoke(this, new(nameof(Status)));
+        PropertyChanged?.Invoke(this, new(nameof(IsNotStarted)));
+        PropertyChanged?.Invoke(this, new(nameof(IsInProgress)));
+        PropertyChanged?.Invoke(this, new(nameof(IsComplete)));
         PropertyChanged?.Invoke(this, new(nameof(ProgressText)));
         PropertyChanged?.Invoke(this, new(nameof(CategoryName)));
         PropertyChanged?.Invoke(this, new(nameof(TargetText)));
+        PropertyChanged?.Invoke(this, new(nameof(TargetAccessibleText)));
+        PropertyChanged?.Invoke(this, new(nameof(IsOverdue)));
+        PropertyChanged?.Invoke(this, new(nameof(OverdueText)));
+        PropertyChanged?.Invoke(this, new(nameof(CompletionDateText)));
+        PropertyChanged?.Invoke(this, new(nameof(HasCompletionDate)));
+        PropertyChanged?.Invoke(this, new(nameof(ReorderAccessibleName)));
+        PropertyChanged?.Invoke(this, new(nameof(MoveUpAccessibleName)));
+        PropertyChanged?.Invoke(this, new(nameof(MoveDownAccessibleName)));
+        PropertyChanged?.Invoke(this, new(nameof(MoveToTopAccessibleName)));
+        PropertyChanged?.Invoke(this, new(nameof(MoveToBottomAccessibleName)));
         Notify(nameof(ExpansionAccessibleName));
+    }
+
+    public void SetPosition(int position, int count)
+    {
+        _position = position;
+        _count = count;
     }
 
     private void Notify(string name) => PropertyChanged?.Invoke(this, new(name));

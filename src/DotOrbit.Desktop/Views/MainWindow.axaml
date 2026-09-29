@@ -222,14 +222,39 @@
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:ProjectRowViewModel">
                 <Border
+                    Classes="project-row reorder-target"
                     Margin="0,0,0,10"
                     Background="{StaticResource PanelBrush}"
-                    BorderBrush="{StaticResource LineBrush}"
-                    BorderThickness="1"
                     CornerRadius="10">
                   <Grid RowDefinitions="Auto,Auto">
-                      <Grid Margin="10,8,12,8" ColumnDefinitions="30,*,Auto">
+                    <Border Classes="interactive-row project-header-row" Classes.expanded="{Binding IsExpanded}" Padding="10,8,12,8">
+                      <Grid ColumnDefinitions="30,30,*,Auto">
+                        <Button
+                            Classes="drag-handle project-drag-handle"
+                            AutomationProperties.AutomationId="{Binding ReorderAutomationId}"
+                            AutomationProperties.Name="{Binding ReorderAccessibleName}"
+                            AutomationProperties.HelpText="Drag to another Project, or activate for keyboard reorder actions.">
+                          <Button.Content>
+                            <Grid Width="8" Height="12" ColumnDefinitions="*,*" RowDefinitions="*,*,*">
+                              <Ellipse Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
+                              <Ellipse Grid.Column="1" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
+                              <Ellipse Grid.Row="1" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
+                              <Ellipse Grid.Row="1" Grid.Column="1" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
+                              <Ellipse Grid.Row="2" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
+                              <Ellipse Grid.Row="2" Grid.Column="1" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
+                            </Grid>
+                          </Button.Content>
+                          <Button.Flyout>
+                            <MenuFlyout Closed="OnReorderMenuClosed">
+                              <MenuItem Header="Move to top" Command="{Binding MoveToTopCommand}" AutomationProperties.Name="{Binding MoveToTopAccessibleName}" />
+                              <MenuItem Header="Move up" Command="{Binding MoveUpCommand}" AutomationProperties.Name="{Binding MoveUpAccessibleName}" />
+                              <MenuItem Header="Move down" Command="{Binding MoveDownCommand}" AutomationProperties.Name="{Binding MoveDownAccessibleName}" />
+                              <MenuItem Header="Move to bottom" Command="{Binding MoveToBottomCommand}" AutomationProperties.Name="{Binding MoveToBottomAccessibleName}" />
+                            </MenuFlyout>
+                          </Button.Flyout>
+                        </Button>
                         <ToggleButton
+                            Grid.Column="1"
                             Classes="disclosure"
                             AutomationProperties.Name="{Binding ExpansionAccessibleName}"
                             IsChecked="{Binding IsExpanded, Mode=TwoWay}">
@@ -253,16 +278,16 @@
                           </Grid>
                         </ToggleButton>
                         <Button
-                            Grid.Column="1"
-                            Classes="project-title"
+                            Grid.Column="2"
+                            Classes="project-title row-title"
                             AutomationProperties.Name="{Binding Title}"
                             Command="{Binding SelectCommand}">
                           <StackPanel Spacing="5">
                             <TextBlock FontSize="15" FontWeight="Bold" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
                               <StackPanel Orientation="Horizontal" Spacing="6">
-                                <Ellipse Width="7" Height="7" VerticalAlignment="Center" Fill="{StaticResource QuietTextBrush}" />
-                                <TextBlock FontSize="12" Foreground="{StaticResource MutedTextBrush}" Text="{Binding Status}" />
+                                <Ellipse Classes="project-status" Classes.not-started="{Binding IsNotStarted}" Classes.in-progress="{Binding IsInProgress}" Classes.complete="{Binding IsComplete}" Width="7" Height="7" VerticalAlignment="Center" />
+                                <TextBlock Classes="project-status" Classes.not-started="{Binding IsNotStarted}" Classes.in-progress="{Binding IsInProgress}" Classes.complete="{Binding IsComplete}" FontSize="12" Text="{Binding Status}" />
                               </StackPanel>
                               <TextBlock FontSize="12" Foreground="{StaticResource QuietTextBrush}" Text="·" />
                               <TextBlock FontSize="12" Foreground="{StaticResource MutedTextBrush}" Text="{Binding ProgressText}" />
@@ -274,16 +299,17 @@
                             </StackPanel>
                           </StackPanel>
                         </Button>
-                        <TextBlock
-                            Grid.Column="2"
-                            VerticalAlignment="Center"
-                            MaxWidth="110"
-                            FontSize="12"
-                            Foreground="{StaticResource MutedTextBrush}"
-                            Text="{Binding TargetText}"
-                            TextAlignment="Right"
-                            TextWrapping="Wrap" />
+                        <StackPanel Grid.Column="3" VerticalAlignment="Center" Spacing="2">
+                          <TextBlock MaxWidth="110" FontSize="12" Foreground="{StaticResource MutedTextBrush}"
+                              Text="{Binding TargetText}" TextAlignment="Right" TextWrapping="Wrap"
+                              AutomationProperties.Name="{Binding TargetAccessibleText}" />
+                          <TextBlock IsVisible="{Binding IsOverdue}" Foreground="{StaticResource AmberBrush}"
+                              FontSize="11" FontWeight="Bold" Text="⚠ Overdue" AutomationProperties.Name="Overdue" />
+                          <TextBlock IsVisible="{Binding HasCompletionDate}"
+                              FontSize="11" Foreground="{StaticResource SuccessBrush}" Text="{Binding CompletionDateText}" />
+                        </StackPanel>
                       </Grid>
+                    </Border>
                     <Border
                         Grid.Row="1"
                         IsVisible="{Binding IsExpanded}"
@@ -295,17 +321,47 @@
                         <ItemsControl ItemsSource="{Binding Tasks}">
                           <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:TaskRowViewModel">
-                              <Border MinHeight="48" BorderBrush="{StaticResource LineSoftBrush}" BorderThickness="0,0,0,1">
-                                <Grid VerticalAlignment="Center">
+                              <Border Classes="interactive-row separated-row reorder-target project-task-row" Classes.last="{Binding IsProjectLast}" MinHeight="48">
+                                <Grid VerticalAlignment="Center" ColumnDefinitions="30,34,*,Auto">
+                                  <Button Classes="drag-handle project-task-drag-handle" AutomationProperties.AutomationId="{Binding ProjectReorderAutomationId}"
+                                      AutomationProperties.Name="{Binding ProjectReorderAccessibleName}"
+                                      AutomationProperties.HelpText="Drag within this Project, or activate for keyboard reorder actions.">
+                                    <Button.Content>
+                                      <Grid Width="8" Height="12" ColumnDefinitions="*,*" RowDefinitions="*,*,*">
+                                        <Ellipse Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
+                                        <Ellipse Grid.Column="1" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
+                                        <Ellipse Grid.Row="1" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
+                                        <Ellipse Grid.Row="1" Grid.Column="1" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
+                                        <Ellipse Grid.Row="2" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
+                                        <Ellipse Grid.Row="2" Grid.Column="1" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
+                                      </Grid>
+                                    </Button.Content>
+                                    <Button.Flyout>
+                                      <MenuFlyout Closed="OnReorderMenuClosed">
+                                        <MenuItem Header="Move to top" Command="{Binding MoveProjectTaskToTopCommand}" AutomationProperties.Name="{Binding MoveProjectTaskToTopAccessibleName}" />
+                                        <MenuItem Header="Move up" Command="{Binding MoveProjectTaskUpCommand}" AutomationProperties.Name="{Binding MoveProjectTaskUpAccessibleName}" />
+                                        <MenuItem Header="Move down" Command="{Binding MoveProjectTaskDownCommand}" AutomationProperties.Name="{Binding MoveProjectTaskDownAccessibleName}" />
+                                        <MenuItem Header="Move to bottom" Command="{Binding MoveProjectTaskToBottomCommand}" AutomationProperties.Name="{Binding MoveProjectTaskToBottomAccessibleName}" />
+                                      </MenuFlyout>
+                                    </Button.Flyout>
+                                  </Button>
+                                  <ToggleButton Grid.Column="1" Classes="completion-toggle"
+                                      IsChecked="{Binding IsComplete, Mode=OneWay}" Command="{Binding ToggleCompletionCommand}"
+                                      AutomationProperties.AutomationId="{Binding CompletionAutomationId}"
+                                      AutomationProperties.Name="{Binding CompletionAccessibleName}" />
                                   <Button
-                                      Classes="task-title"
+                                      Grid.Column="2"
+                                      Classes="task-title project-task-title row-title"
                                       AutomationProperties.Name="{Binding Title}"
                                       Command="{Binding SelectCommand}">
                                     <StackPanel Spacing="2">
                                       <TextBlock FontSize="14" Text="{Binding Title}" />
                                       <TextBlock FontSize="11" Foreground="{StaticResource QuietTextBrush}" Text="{Binding CategoryDisplay}" />
+                                      <TextBlock FontSize="11" Foreground="{StaticResource SuccessBrush}" Text="{Binding CompletionDateText}" />
                                     </StackPanel>
                                   </Button>
+                                  <TextBlock Grid.Column="3" Margin="8,0" VerticalAlignment="Center" Foreground="{StaticResource MutedTextBrush}"
+                                      Text="{Binding DateText}" AutomationProperties.Name="{Binding DateAccessibleText}" />
                                 </Grid>
                               </Border>
                             </DataTemplate>
@@ -357,6 +413,7 @@
                   Text="{Binding Work.BacklogQuickTitle, Mode=TwoWay}"
                   PlaceholderText="Quick add standalone task"
                   AutomationProperties.Name="Quick add standalone task"
+                  AutomationProperties.AutomationId="backlog-quick-title"
                   AutomationProperties.HelpText="Choose a category. Enter or Tab creates a task. Escape clears the title. Tab on an empty field moves on."
                   KeyDown="OnBacklogQuickAddKeyDown" />
             </Grid>
@@ -365,10 +422,10 @@
           <ItemsControl x:Name="BacklogItems" ItemsSource="{Binding Work.Backlog}">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:TaskRowViewModel">
-                <Border Classes="backlog-row" Classes.last="{Binding IsLast}" MinHeight="54">
-                  <Grid VerticalAlignment="Center" ColumnDefinitions="34,*,Auto">
+                <Border Classes="interactive-row separated-row reorder-target backlog-row" Classes.last="{Binding IsLast}" MinHeight="54">
+                  <Grid VerticalAlignment="Center" ColumnDefinitions="34,34,*,Auto">
                     <Button
-                        Classes="drag-handle"
+                        Classes="drag-handle backlog-drag-handle"
                         AutomationProperties.AutomationId="{Binding ReorderAutomationId}"
                         AutomationProperties.Name="{Binding ReorderAccessibleName}"
                         AutomationProperties.HelpText="Drag to another Backlog row, or activate for keyboard reorder actions.">
@@ -391,18 +448,26 @@
                         </MenuFlyout>
                       </Button.Flyout>
                     </Button>
+                    <ToggleButton Grid.Column="1" Classes="completion-toggle"
+                        IsChecked="{Binding IsComplete, Mode=OneWay}" Command="{Binding ToggleCompletionCommand}"
+                        AutomationProperties.AutomationId="{Binding CompletionAutomationId}"
+                        AutomationProperties.Name="{Binding CompletionAccessibleName}" />
                     <Button
-                        Grid.Column="1"
-                        Classes="task-title backlog-task-title"
+                        Grid.Column="2"
+                        Classes="task-title backlog-task-title row-title"
                         Command="{Binding SelectCommand}"
                         AutomationProperties.Name="{Binding Title}"
                         AutomationProperties.ItemStatus="{Binding CategoryDisplay}">
                       <StackPanel Spacing="3">
                         <TextBlock Text="{Binding Title}" />
-                        <TextBlock Text="{Binding CategoryDisplay}" Foreground="{StaticResource QuietTextBrush}" FontSize="12" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                          <TextBlock Text="{Binding CategoryDisplay}" Foreground="{StaticResource QuietTextBrush}" FontSize="12" />
+                          <TextBlock Text="{Binding DateText}" Foreground="{StaticResource MutedTextBrush}" FontSize="12"
+                              AutomationProperties.Name="{Binding DateAccessibleText}" />
+                        </StackPanel>
                       </StackPanel>
                     </Button>
-                    <TextBlock Grid.Column="2" Margin="8,0" VerticalAlignment="Center" Foreground="{StaticResource QuietTextBrush}" FontSize="11" Text="{Binding PositionText}" />
+                    <TextBlock Grid.Column="3" Margin="8,0" VerticalAlignment="Center" Foreground="{StaticResource QuietTextBrush}" FontSize="11" Text="{Binding PositionText}" />
                   </Grid>
                 </Border>
               </DataTemplate>
@@ -410,6 +475,59 @@
           </ItemsControl>
         </Border>
         <TextBlock Height="1" Opacity="0" Text="{Binding Work.ReorderAnnouncement}" AutomationProperties.LiveSetting="Polite" />
+        </StackPanel>
+      </ScrollViewer>
+      <ScrollViewer Grid.Row="2" IsVisible="{Binding ShowCompleted}">
+        <StackPanel Spacing="10">
+          <Border IsVisible="{Binding Work.HasNoCompleted}" Padding="44" Background="Transparent"
+              BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="10">
+            <StackPanel HorizontalAlignment="Center" Spacing="8">
+              <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Text="No completed tasks yet" />
+              <TextBlock MaxWidth="420" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}"
+                  Text="Tasks you complete will appear here so they can be reviewed or reopened."
+                  TextAlignment="Center" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+          <Border x:Name="CompletedListPanel" IsVisible="{Binding Work.HasCompleted}" Background="{StaticResource PanelBrush}"
+              BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="10" Padding="10">
+            <ItemsControl ItemsSource="{Binding Work.CompletedGroups}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <StackPanel Spacing="12" />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:CompletedTaskGroupViewModel">
+                  <StackPanel Spacing="4">
+                    <TextBlock Classes="eyebrow" Margin="6,4" Text="{Binding Heading}" />
+                    <ItemsControl ItemsSource="{Binding Rows}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:CompletedTaskRowViewModel">
+                          <Border Classes="interactive-row separated-row completed-row" Classes.last="{Binding IsLast}" MinHeight="54">
+                            <Grid VerticalAlignment="Center" ColumnDefinitions="34,*,Auto">
+                              <ToggleButton Classes="completion-toggle"
+                                  IsChecked="{Binding Task.IsComplete, Mode=OneWay}" Command="{Binding Task.ToggleCompletionCommand}"
+                                  AutomationProperties.AutomationId="{Binding Task.CompletionAutomationId}"
+                                  AutomationProperties.Name="{Binding Task.CompletionAccessibleName}" />
+                              <Button Grid.Column="1" Classes="task-title row-title" Command="{Binding Task.SelectCommand}"
+                                  AutomationProperties.Name="{Binding Task.Title}" AutomationProperties.ItemStatus="{Binding Task.CategoryDisplay}">
+                                <StackPanel Spacing="3">
+                                  <TextBlock Text="{Binding Task.Title}" />
+                                  <TextBlock Text="{Binding Task.CategoryDisplay}" Foreground="{StaticResource QuietTextBrush}" FontSize="12" />
+                                </StackPanel>
+                              </Button>
+                              <TextBlock Grid.Column="2" Margin="8,0" VerticalAlignment="Center"
+                                  Foreground="{StaticResource SuccessBrush}" FontSize="12" Text="{Binding Task.CompletionDateText}" />
+                            </Grid>
+                          </Border>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </Border>
         </StackPanel>
       </ScrollViewer>
     </Grid>
@@ -477,8 +595,11 @@
             <Grid ColumnDefinitions="104,14,*">
               <StackPanel Spacing="9">
                 <TextBlock Classes="inspector-label" Text="DATE" />
-                <TextBox
+                <CalendarDatePicker
                     Classes="inspector-field"
+                    SelectedDateFormat="Custom"
+                    CustomDateFormatString="yyyy-MM-dd"
+                    SelectedDate="{Binding Work.SelectedDate, Mode=TwoWay}"
                     Text="{Binding Work.Date, Mode=TwoWay}"
                     PlaceholderText="YYYY-MM-DD"
                     AutomationProperties.Name="{Binding Work.DateLabel}" />
@@ -490,6 +611,14 @@
                 </Border>
               </StackPanel>
             </Grid>
+          </Border>
+
+          <Border Margin="0,12,0,0" Padding="10,8" Background="{StaticResource PanelRaisedBrush}"
+              BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="8"
+              IsVisible="{Binding Work.ShowTaskCompletionDate}">
+            <TextBlock Text="{Binding Work.TaskCompletionDateText}"
+                AutomationProperties.Name="{Binding Work.TaskCompletionDateAccessibleText}"
+                Foreground="{StaticResource SuccessBrush}" />
           </Border>
 
           <Border Margin="0,22,0,0" Padding="0,20,0,0" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0">

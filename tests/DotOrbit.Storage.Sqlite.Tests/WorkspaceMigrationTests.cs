@@ -18,9 +18,9 @@ public sealed class WorkspaceMigrationTests
 
         using var session = fixture.CreateCurrentWorkspace();
 
-        Assert.Equal(4, session.SchemaVersion);
+        Assert.Equal(5, session.SchemaVersion);
         using var connection = OpenInspectionConnection(fixture.WorkspacePath, ValidPassphrase);
-        Assert.Equal(4L, ExecuteScalar<long>(connection, "PRAGMA user_version;"));
+        Assert.Equal(5L, ExecuteScalar<long>(connection, "PRAGMA user_version;"));
         Assert.Equal(
             "index",
             ExecuteScalar<string>(
@@ -39,7 +39,7 @@ public sealed class WorkspaceMigrationTests
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
         Assert.NotNull(session);
-        Assert.Equal(4, session.SchemaVersion);
+        Assert.Equal(5, session.SchemaVersion);
         Assert.Equal("Personal Admin", session.FirstCategoryName);
         var recoveryPath = Assert.Single(
             Directory.GetFiles(
@@ -48,7 +48,7 @@ public sealed class WorkspaceMigrationTests
         AssertSchemaOneWorkspace(recoveryPath, "Personal Admin");
 
         using var migrated = OpenInspectionConnection(fixture.WorkspacePath, ValidPassphrase);
-        Assert.Equal(4L, ExecuteScalar<long>(migrated, "PRAGMA user_version;"));
+        Assert.Equal(5L, ExecuteScalar<long>(migrated, "PRAGMA user_version;"));
         Assert.Equal(
             1L,
             ExecuteScalar<long>(
@@ -66,7 +66,7 @@ public sealed class WorkspaceMigrationTests
         using var session = result.Session;
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
-        Assert.Equal(4, session?.SchemaVersion);
+        Assert.Equal(5, session?.SchemaVersion);
         var snapshot = session!.Work.Read();
         Assert.Equal(["First", "Second"], snapshot.Tasks.Select(task => task.Title));
         Assert.All(snapshot.Tasks, task => Assert.Equal("project", task.ProjectId));
@@ -75,6 +75,40 @@ public sealed class WorkspaceMigrationTests
             Directory.GetFiles(
                 fixture.DirectoryPath,
                 "dot-orbit-pre-migration-v3-*.dotorbit-recovery"));
+    }
+
+    [Fact]
+    public void OpenUpgradesReleasedSchemaFourWorkAsIncompleteWithoutChangingAnyOrder()
+    {
+        using var fixture = new MigrationFixture();
+        fixture.CreateSchemaFourWorkspaceWithOrderedWork();
+
+        var result = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase());
+        using var session = result.Session;
+
+        Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
+        Assert.Equal(5, session?.SchemaVersion);
+        var snapshot = session!.Work.Read();
+        Assert.Equal(["project-two", "project-one"], snapshot.Projects.Select(project => project.Id));
+        Assert.Equal([0L, 1L], snapshot.Projects.Select(project => project.Position));
+        Assert.Equal(
+            ["one-second", "standalone", "two-first", "one-first", "two-second"],
+            snapshot.Tasks.Select(task => task.Id));
+        Assert.Equal([0L, 1L, 2L, 3L, 4L], snapshot.Tasks.Select(task => task.SharedPosition));
+        Assert.Equal(["one-first", "one-second"], snapshot.Tasks.Where(task => task.ProjectId == "project-one")
+            .OrderBy(task => task.ProjectPosition).Select(task => task.Id));
+        Assert.Equal(["two-first", "two-second"], snapshot.Tasks.Where(task => task.ProjectId == "project-two")
+            .OrderBy(task => task.ProjectPosition).Select(task => task.Id));
+        var standalone = snapshot.Tasks.Single(task => task.Id == "standalone");
+        Assert.Null(standalone.ProjectId);
+        Assert.Null(standalone.ProjectPosition);
+        Assert.Equal("category", standalone.ExplicitCategoryId);
+        Assert.All(snapshot.Tasks, task =>
+        {
+            Assert.Null(task.CompletedAt);
+            Assert.Null(task.CompletionDate);
+        });
+        Assert.Single(Directory.GetFiles(fixture.DirectoryPath, "dot-orbit-pre-migration-v4-*.dotorbit-recovery"));
     }
 
     [Fact]
@@ -108,7 +142,7 @@ public sealed class WorkspaceMigrationTests
         using var session = result.Session;
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
-        Assert.Equal(4, session?.SchemaVersion);
+        Assert.Equal(5, session?.SchemaVersion);
         Assert.Empty(
             Directory.GetFiles(
                 fixture.DirectoryPath,
@@ -145,7 +179,7 @@ public sealed class WorkspaceMigrationTests
         using var session = result.Session;
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
-        Assert.Equal(4, session?.SchemaVersion);
+        Assert.Equal(5, session?.SchemaVersion);
         Assert.Single(
             Directory.GetFiles(
                 fixture.DirectoryPath,
@@ -215,7 +249,7 @@ public sealed class WorkspaceMigrationTests
     {
         MigrationFixture fixture = null!;
         fixture = new MigrationFixture(
-            afterMigration: () => fixture.SetSchemaVersion(5));
+            afterMigration: () => fixture.SetSchemaVersion(6));
         using (fixture)
         {
             fixture.CreateSchemaOneWorkspace("Home");
@@ -287,7 +321,7 @@ public sealed class WorkspaceMigrationTests
             using var session = result.Session;
 
             Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
-            Assert.Equal(4, session?.SchemaVersion);
+            Assert.Equal(5, session?.SchemaVersion);
         }
     }
 
@@ -295,7 +329,7 @@ public sealed class WorkspaceMigrationTests
     public void NewerSchemaIsRefusedWithoutPublishingRecoveryOrChangingBytes()
     {
         using var fixture = new MigrationFixture();
-        fixture.CreateSchemaOneWorkspace("Home", schemaVersion: 5);
+        fixture.CreateSchemaOneWorkspace("Home", schemaVersion: 6);
         var original = File.ReadAllBytes(fixture.WorkspacePath);
 
         var result = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase());
@@ -327,12 +361,12 @@ public sealed class WorkspaceMigrationTests
 
         Assert.Equal(WorkspaceRestoreStatus.Restored, result.Status);
         Assert.NotNull(restored);
-        Assert.Equal(4, restored.SchemaVersion);
+        Assert.Equal(5, restored.SchemaVersion);
         Assert.Equal("Restored category", restored.FirstCategoryName);
         using var inspection = OpenInspectionConnection(
             fixture.WorkspacePath,
             ValidPassphrase);
-        Assert.Equal(4L, ExecuteScalar<long>(inspection, "PRAGMA user_version;"));
+        Assert.Equal(5L, ExecuteScalar<long>(inspection, "PRAGMA user_version;"));
         Assert.Equal(
             1L,
             ExecuteScalar<long>(
@@ -596,6 +630,30 @@ public sealed class WorkspaceMigrationTests
                 INSERT INTO projects VALUES ('project', 'Garden', '', 'category', NULL, 0);
                 INSERT INTO tasks VALUES ('second', 'project', 'Second', '', NULL, NULL, -1, 1);
                 INSERT INTO tasks VALUES ('first', 'project', 'First', '', NULL, NULL, -2, 0);
+                """;
+            command.ExecuteNonQuery();
+        }
+
+        public void CreateSchemaFourWorkspaceWithOrderedWork()
+        {
+            using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase, SqliteOpenMode.ReadWriteCreate);
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                CREATE TABLE categories (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                    position INTEGER NOT NULL CHECK (position >= 0)
+                );
+                CREATE INDEX ix_categories_position ON categories(position);
+                INSERT INTO categories VALUES ('category', 'Home', 0);
+                """ + SqliteWorkspaceWork.SchemaFour + """
+                INSERT INTO projects VALUES ('project-two', 'Second project', '', 'category', NULL, 0);
+                INSERT INTO projects VALUES ('project-one', 'First project', '', 'category', NULL, 1);
+                INSERT INTO tasks VALUES ('one-second', 'project-one', 'One second', '', NULL, NULL, 0, 1);
+                INSERT INTO tasks VALUES ('standalone', NULL, 'Standalone', '', 'category', NULL, 1, NULL);
+                INSERT INTO tasks VALUES ('two-first', 'project-two', 'Two first', '', NULL, NULL, 2, 0);
+                INSERT INTO tasks VALUES ('one-first', 'project-one', 'One first', '', NULL, NULL, 3, 0);
+                INSERT INTO tasks VALUES ('two-second', 'project-two', 'Two second', '', NULL, NULL, 4, 1);
                 """;
             command.ExecuteNonQuery();
         }

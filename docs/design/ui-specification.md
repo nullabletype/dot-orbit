@@ -50,6 +50,18 @@ Bin is a secondary utility item at the bottom of the sidebar, visually separated
 - Every reorderable item exposes Move up, Move down, Move to top, and Move to bottom through an accessible action menu scoped to the current list.
 - Optional shortcuts such as Alt+Up and Alt+Down may accelerate reordering, but the action menu remains available and the new position is announced to assistive technology.
 
+## List-row interaction contract
+
+Current list surfaces compose the same semantic row states rather than defining surface-specific hover and reorder treatments:
+
+- The interactive row owns the full-width raised-charcoal hover surface, including while the pointer is over its completion control, handle, disclosure, title, metadata, or date. A Project header owns this surface independently of its expanded child region.
+- A nested row-title action stays transparent and borderless on hover and press; keyboard focus keeps the visible pink focus border.
+- A separated row uses the soft bottom rule only between peer rows. The final row in each independent list or Completed day/week group has no bottom rule.
+- A reorder target uses the pink bottom insertion rule. Invalid cross-scope targets show no rule, and drop, cancellation, or capture loss clears it.
+- Completion controls, disclosure controls, and six-dot reorder handles reuse their shared geometry and state styles across every row surface.
+
+Use the composable `interactive-row`, `row-title`, `separated-row`, `last`, and `reorder-target` classes for these states. Headless interaction tests must exercise the shared row contract when adding or changing a list surface.
+
 ## Inspector
 
 - Opens on row selection and keeps list context visible.
