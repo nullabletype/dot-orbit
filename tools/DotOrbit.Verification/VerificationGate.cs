@@ -5,6 +5,7 @@ using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace DotOrbit.Verification;
@@ -225,7 +226,9 @@ internal sealed class VerificationGate(
 
     private static IEnumerable<VerificationPhase> CreatePhases(string workingDirectory)
     {
-        yield return Positive("restore", workingDirectory, "dotnet", "restore", "DotOrbit.slnx", "--locked-mode");
+        yield return Positive("restore", workingDirectory, "dotnet", "restore", "DotOrbit.slnx", "--locked-mode", "--configfile", "NuGet.Config");
+        yield return PackageAudit("vulnerability-audit", workingDirectory, "--vulnerable");
+        yield return PackageAudit("deprecation-audit", workingDirectory, "--deprecated");
         yield return Positive("format", workingDirectory, "dotnet", "format", "DotOrbit.slnx", "--no-restore", "--verify-no-changes");
         yield return Positive("build", workingDirectory, "dotnet", "build", "DotOrbit.slnx", "--configuration", "Release", "--no-restore");
         yield return Positive("tests", workingDirectory, "dotnet", "test", "--solution", "DotOrbit.slnx", "--configuration", "Release", "--no-build");
@@ -243,6 +246,83 @@ internal sealed class VerificationGate(
             name,
             new ProcessRequest(fileName, arguments, WorkingDirectory: workingDirectory),
             result => !result.TimedOut && result.ExitCode == 0);
+
+    private static VerificationPhase PackageAudit(string name, string workingDirectory, string auditOption) =>
+        new(
+            name,
+            new ProcessRequest(
+                "dotnet",
+                [
+                    "package", "list", "--project", "DotOrbit.slnx", auditOption, "--include-transitive",
+                    "--no-restore", "--config", "NuGet.Config", "--format", "json", "--output-version", "1",
+                ],
+                WorkingDirectory: workingDirectory),
+            result => PackageAuditPassed(result, auditOption));
+
+    internal static bool PackageAuditPassed(ProcessResult result, string auditOption)
+    {
+        if (result.TimedOut || result.ExitCode != 0) return false;
+
+        try
+        {
+            using var report = JsonDocument.Parse(result.StandardOutput);
+            var root = report.RootElement;
+            if (root.GetProperty("version").GetInt32() != 1
+                || root.GetProperty("parameters").GetString() != $"{auditOption} --include-transitive")
+            {
+                return false;
+            }
+
+            if (root.TryGetProperty("problems", out var problems)
+                && (problems.ValueKind != JsonValueKind.Array || problems.GetArrayLength() > 0))
+            {
+                return false;
+            }
+
+            var sources = root.GetProperty("sources");
+            if (sources.GetArrayLength() != 1
+                || sources[0].GetString() != "https://api.nuget.org/v3/index.json")
+            {
+                return false;
+            }
+
+            var projects = root.GetProperty("projects");
+            if (projects.GetArrayLength() == 0) return false;
+            foreach (var project in projects.EnumerateArray())
+            {
+                if (string.IsNullOrWhiteSpace(project.GetProperty("path").GetString())) return false;
+                if (!project.TryGetProperty("frameworks", out var frameworks))
+                {
+                    if (auditOption == "--vulnerable") return false;
+                    continue;
+                }
+                if (frameworks.ValueKind != JsonValueKind.Array || frameworks.GetArrayLength() == 0) return false;
+                foreach (var framework in frameworks.EnumerateArray())
+                {
+                    if (!framework.TryGetProperty("topLevelPackages", out var topLevelPackages)
+                        || topLevelPackages.ValueKind != JsonValueKind.Array)
+                    {
+                        return false;
+                    }
+                    foreach (var property in framework.EnumerateObject())
+                    {
+                        if (property.Name.EndsWith("Packages", StringComparison.Ordinal)
+                            && (property.Value.ValueKind != JsonValueKind.Array
+                                || property.Value.GetArrayLength() > 0))
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
+
+            return true;
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException or KeyNotFoundException)
+        {
+            return false;
+        }
+    }
 
     private static VerificationPhase Smoke(
         string name,

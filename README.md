@@ -32,7 +32,7 @@ The repository pins .NET SDK 10.0.401 in `global.json`. From the repository root
 dotnet run --project tools/DotOrbit.Verification/DotOrbit.Verification.csproj -p:RestoreLockedMode=true
 ```
 
-It performs locked restore, formatting verification, a deterministic Release build, all .NET tests, the native desktop smoke journey, and both smoke negative controls. Add `-- --evidence --expected-sha <full-commit-sha>` to validate a detached snapshot of an exact clean commit. The same entry point runs on pinned Ubuntu, Windows, and macOS GitHub-hosted runners. Changes to issue-readiness automation also run `node --test .github/scripts/issue-readiness.test.mjs`; CI runs that suite on the pinned Node release. See `docs/development/dependency-baseline.md` for the checked dependency and runner baseline.
+It performs locked restore through the checked-in NuGet source policy, direct and transitive vulnerability and deprecation audits, formatting verification, a deterministic Release build, all .NET tests, the native desktop smoke journey, and both smoke negative controls. Add `-- --evidence --expected-sha <full-commit-sha>` to validate a detached snapshot of an exact clean commit. The same entry point runs on pinned Ubuntu, Windows, and macOS GitHub-hosted runners. Changes to issue-readiness automation also run `node --test .github/scripts/issue-readiness.test.mjs`; CI runs that suite on the pinned Node release. See `docs/development/dependency-baseline.md` for the checked dependency and runner baseline.
 
 ## Licence
 
