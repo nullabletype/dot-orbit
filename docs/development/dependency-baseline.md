@@ -1,6 +1,8 @@
 # Dependency and runner baseline
 
-Checked: 2026-09-28
+Checked: 2026-09-29
+
+Review by: 2026-10-29
 
 This file records the support check for the runnable desktop shell, encrypted workspace lifecycle, and self-contained release packaging. Package lock files remain the reproducible record of the complete transitive graph.
 
@@ -16,8 +18,8 @@ This file records the support check for the runnable desktop shell, encrypted wo
 - `Microsoft.Data.Sqlite.Core` is pinned to 10.0.12, the current stable .NET 10 servicing release. The `.Core` package is required so the application can supply one SQLite native bundle rather than pulling in the default SQLitePCLRaw bundle. Source: [Microsoft.Data.Sqlite.Core 10.0.12](https://www.nuget.org/packages/Microsoft.Data.Sqlite.Core/10.0.12).
 - `SQLite3MC.PCLRaw.bundle` is pinned to 2.4.0, the current maintained NuGet release, published in July 2026 with SQLite3 Multiple Ciphers 2.4.0 based on SQLite 3.53.4. It is MIT licensed and supplies the native sqleet ChaCha20-Poly1305 implementation for the supported desktop runtimes. Source: [SQLite3MC.PCLRaw.bundle 2.4.0](https://www.nuget.org/packages/SQLite3MC.PCLRaw.bundle/2.4.0) and [SQLite3 Multiple Ciphers sqleet parameters](https://utelle.github.io/SQLite3MultipleCiphers/docs/ciphers/cipher_chacha20/).
 - The upstream SQLite3 Multiple Ciphers source project has since tagged 2.5.1 while the current .NET native bundle remains 2.4.0; both use SQLite 3.53.4. The application depends on the maintained .NET bundle and must re-evaluate this gap when a later bundle is published or the native changes affect a supported runtime. Source: [SQLite3 Multiple Ciphers 2.5.1](https://github.com/utelle/SQLite3MultipleCiphers/releases/tag/v2.5.1).
-- Central package management and per-project `packages.lock.json` files pin the complete graph. NuGet audit is enabled for all dependencies and vulnerability severities fail the build.
-- The complete locked graph was checked with `dotnet package list --vulnerable --include-transitive` and `--deprecated --include-transitive`; NuGet reported no known vulnerable or deprecated direct or transitive packages on 2026-09-26. Transitive packages inherit their support boundary from the current Avalonia and xUnit release lines and must be rechecked with those direct dependencies.
+- Central package management and per-project `packages.lock.json` files pin the complete graph. Root `NuGet.Config` clears inherited package and audit sources, permits only NuGet.org, and maps all packages to that source. NuGet audit is enabled for all dependencies and vulnerability severities fail the build.
+- The repository gate parses the JSON reports from `dotnet package list --project DotOrbit.slnx --vulnerable --include-transitive` and the separate `--deprecated` query after locked restore. A command failure, invalid report, vulnerability, or deprecation fails the gate. NuGet reported no known vulnerable or deprecated direct or transitive packages on 2026-09-29. Transitive packages inherit their support boundary from the current Avalonia and xUnit release lines and must be rechecked with those direct dependencies.
 
 ## Continuous integration
 
@@ -28,6 +30,7 @@ This file records the support check for the runnable desktop shell, encrypted wo
 - `actions/setup-dotnet` is pinned to the full commit SHA for v6.0.0 and installs SDK 10.0.401 exactly.
 - `actions/setup-node` v7.0.0 is pinned to commit `820762786026740c76f36085b0efc47a31fe5020` and installs Node.js 24.21.0 exactly. Source: [actions/setup-node v7.0.0](https://github.com/actions/setup-node/releases/tag/v7.0.0).
 - The manual package upload uses `actions/upload-artifact` v7.0.1 pinned to commit `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`. This is the current supported Node 24 release; pull-request runs never execute the upload step.
+- CodeQL uses the current v4.38.2 action pinned to commit `2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2` and analyzes C# on pull requests, pushes to `main`, manual dispatch, and the weekly security schedule. Source: [CodeQL Action v4.38.2](https://github.com/github/codeql-action/releases/tag/v4.38.2).
 - The workflow performs locked restore, formatting verification, Release build, and tests. It uploads no artifacts.
 - The same explicit matrix launches the real Release-built desktop application. Linux uses the `xvfb` package included in the pinned Ubuntu 24.04 runner image; macOS and Windows use their native desktop environments. The smoke runner adds no package or action dependency and uploads no artifacts.
 - The native journey locates standard Avalonia controls by their automation IDs and checks their built-in automation peers before routing keyboard input. Avalonia exposes those peers through UI Automation on Windows, NSAccessibility on macOS, and AT-SPI2 on Linux. Source: [Avalonia accessibility](https://docs.avaloniaui.net/docs/app-development/accessibility) and the [Ubuntu 24.04 runner software inventory](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md).
@@ -40,4 +43,8 @@ This file records the support check for the runnable desktop shell, encrypted wo
 
 ## Review trigger
 
-Recheck this baseline when changing any dependency, SDK, runner image, GitHub Action, target framework, or packaging tool, and before a supported release.
+Recheck this baseline when changing any dependency, SDK, runtime, runner image, GitHub Action, target framework, or packaging tool, before a supported release, and no later than the `Review by` date. The weekly security workflow compares current official .NET, Node, NuGet, GitHub Action, and runner-image catalogues with the recorded pins and fails on a change; the packaging tool is supplied by the same pinned .NET SDK. It also fails after the review date rather than silently treating old evidence as current. A version change is a review signal, not an instruction to upgrade.
+
+When a vulnerability, deprecation, or support change is found, block the pull request or scheduled check. Record the affected direct or transitive component, dated upstream advisory or lifecycle evidence, and the supported replacement. Update the central pin and every affected lock file together, then rerun locked restore, the repository gate, CodeQL, and the supported operating-system matrix. A clean vulnerability query is not evidence that an upstream component remains maintained.
+
+Secret scanning and push protection were verified enabled through the read-only repository API on 2026-09-29. Recheck with `gh api repos/nullabletype/dot-orbit --jq '.security_and_analysis | {secret_scanning, secret_scanning_push_protection}'`; do not place an administrative token in a workflow merely to automate this read.

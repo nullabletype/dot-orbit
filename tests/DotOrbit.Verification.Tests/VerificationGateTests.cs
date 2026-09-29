@@ -34,7 +34,7 @@ public sealed class VerificationGateTests
 
         Assert.Equal(0, result);
         Assert.Equal(
-            ["restore", "format", "build", "test", "native-smoke", "native-smoke-failure=startup", "native-smoke-failure=navigation"],
+            ["restore", "vulnerability-audit", "deprecation-audit", "format", "build", "test", "native-smoke", "native-smoke-failure=startup", "native-smoke-failure=navigation"],
             runner.Requests.Select(RequestIdentity));
         Assert.All(runner.Requests, request => Assert.Equal("/snapshot", request.WorkingDirectory));
         Assert.Contains($"verify: result=verified commit={Commit}", output.Messages);
@@ -92,10 +92,12 @@ public sealed class VerificationGateTests
 
     [Theory]
     [InlineData("restore", 1)]
-    [InlineData("format", 2)]
-    [InlineData("build", 3)]
-    [InlineData("test", 4)]
-    [InlineData("native-smoke", 5)]
+    [InlineData("vulnerability-audit", 2)]
+    [InlineData("deprecation-audit", 3)]
+    [InlineData("format", 4)]
+    [InlineData("build", 5)]
+    [InlineData("test", 6)]
+    [InlineData("native-smoke", 7)]
     public async Task PositivePhaseFailureStopsTheGate(string failingIdentity, int expectedRequestCount)
     {
         var runner = FakeProcessRunner.Successful(failingIdentity, new ProcessResult(31, "", ""));
@@ -140,6 +142,28 @@ public sealed class VerificationGateTests
     }
 
     [Fact]
+    public void PackageAuditRequiresValidJsonWithNoReportedPackages()
+    {
+        const string clean = """{"version":1,"parameters":"--vulnerable --include-transitive","sources":["https://api.nuget.org/v3/index.json"],"projects":[{"path":"clean.csproj","frameworks":[{"framework":"net10.0","topLevelPackages":[],"transitivePackages":[]}]}]}""";
+        const string finding = """{"version":1,"parameters":"--vulnerable --include-transitive","sources":["https://api.nuget.org/v3/index.json"],"projects":[{"path":"affected.csproj","frameworks":[{"framework":"net10.0","topLevelPackages":[{"id":"Affected.Package"}]}]}]}""";
+
+        Assert.True(VerificationGate.PackageAuditPassed(new ProcessResult(0, clean, ""), "--vulnerable"));
+        Assert.False(VerificationGate.PackageAuditPassed(new ProcessResult(0, finding, ""), "--vulnerable"));
+        Assert.False(VerificationGate.PackageAuditPassed(new ProcessResult(0, "{\"projects\":[]}", ""), "--vulnerable"));
+        Assert.False(VerificationGate.PackageAuditPassed(
+            new ProcessResult(0, "{\"version\":1,\"parameters\":\"--vulnerable --include-transitive\",\"sources\":[\"https://api.nuget.org/v3/index.json\"],\"projects\":[{\"path\":\"incomplete.csproj\"}]}", ""),
+            "--vulnerable"));
+        Assert.False(VerificationGate.PackageAuditPassed(
+            new ProcessResult(0, "{\"version\":1,\"parameters\":\"--vulnerable --include-transitive\",\"sources\":[\"https://api.nuget.org/v3/index.json\"],\"problems\":[\"audit failed\"],\"projects\":[{\"path\":\"clean.csproj\",\"frameworks\":[{\"topLevelPackages\":[]}]}]}", ""),
+            "--vulnerable"));
+        Assert.False(VerificationGate.PackageAuditPassed(
+            new ProcessResult(0, "{\"version\":1,\"parameters\":\"--vulnerable --include-transitive\",\"sources\":[\"https://api.nuget.org/v3/index.json\"],\"projects\":[{\"path\":\"malformed.csproj\",\"frameworks\":[{\"topLevelPackages\":[],\"transitivePackages\":\"invalid\"}]}]}", ""),
+            "--vulnerable"));
+        Assert.False(VerificationGate.PackageAuditPassed(new ProcessResult(0, "not json", ""), "--vulnerable"));
+        Assert.False(VerificationGate.PackageAuditPassed(new ProcessResult(1, clean, ""), "--vulnerable"));
+    }
+
+    [Fact]
     public async Task EvidenceRunAttemptsSnapshotCleanupWhenAPhaseThrows()
     {
         var repository = new FakeRepositoryInspector(new RepositoryState(Commit, true));
@@ -156,7 +180,11 @@ public sealed class VerificationGateTests
     }
 
     private static string RequestIdentity(ProcessRequest request) =>
-        request.Arguments.First(argument =>
+        request.Arguments.Contains("--vulnerable", StringComparer.Ordinal)
+            ? "vulnerability-audit"
+            : request.Arguments.Contains("--deprecated", StringComparer.Ordinal)
+                ? "deprecation-audit"
+                : request.Arguments.First(argument =>
             argument is "restore" or "format" or "build" or "test"
             || argument.StartsWith("--native-smoke", StringComparison.Ordinal))
         .TrimStart('-');
@@ -222,6 +250,13 @@ public sealed class VerificationGateTests
 
             return Task.FromResult(identity switch
             {
+                "vulnerability-audit" or "deprecation-audit" =>
+                    new ProcessResult(
+                        0,
+                        identity == "vulnerability-audit"
+                            ? "{\"version\":1,\"parameters\":\"--vulnerable --include-transitive\",\"sources\":[\"https://api.nuget.org/v3/index.json\"],\"projects\":[{\"path\":\"clean.csproj\",\"frameworks\":[{\"topLevelPackages\":[]}]}]}"
+                            : "{\"version\":1,\"parameters\":\"--deprecated --include-transitive\",\"sources\":[\"https://api.nuget.org/v3/index.json\"],\"projects\":[{\"path\":\"clean.csproj\"}]}",
+                        ""),
                 "native-smoke-failure=startup" => new ProcessResult(20, "native-smoke: phase=startup result=failed code=20", ""),
                 "native-smoke-failure=navigation" => new ProcessResult(21, "native-smoke: phase=navigation-assertion result=failed code=21", ""),
                 "native-smoke" => new ProcessResult(0, "native-smoke: phase=complete result=passed shutdown=requested", ""),
