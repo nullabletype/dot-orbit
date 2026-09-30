@@ -15,12 +15,12 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private Action? _pendingNavigation;
     private string? _editingId;
     private bool _editingTask;
+    private bool _editingCategory;
     private bool _creating;
     private bool _creatingStandaloneTask;
     private string _title = string.Empty;
     private string _description = string.Empty;
     private string _date = string.Empty;
-    private DateTime? _selectedDate;
     private CategoryChoice? _category;
     private (string Title, string Description, string Date, string? CategoryId) _original;
     private string _message = string.Empty;
@@ -34,6 +34,16 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private string _reorderFocusAutomationId = string.Empty;
     private DateOnly _presentationDate;
     private string _presentationTimeZoneId = string.Empty;
+    private string _categoryNameValidationMessage = string.Empty;
+    private string _dateValidationMessage = string.Empty;
+    private string? _pendingCategoryDeleteId;
+    private CategoryChoice? _categoryReplacement;
+    private TaskContextChoice? _taskContextTarget;
+    private string? _pendingAttachmentTaskId;
+    private string? _pendingAttachmentProjectId;
+    private bool _pendingNavigationClosesInspector = true;
+    private string _dialogReturnFocusAutomationId = string.Empty;
+    private bool _loadingDraft;
 
     public ProjectCaptureViewModel(IWorkspaceWork work, TimeProvider? timeProvider = null)
     {
@@ -41,11 +51,28 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         _timeProvider = timeProvider ?? TimeProvider.System;
         NewProjectCommand = new(() => Navigate(BeginProject));
         NewTaskCommand = new(() => Navigate(BeginStandaloneTask));
+        NewCategoryCommand = new(() => Navigate(BeginCategory));
+        DeleteCategoryCommand = new(() =>
+        {
+            if (_editingCategory && !_creating && _editingId is not null) BeginCategoryDeletion(_editingId);
+        });
+        ConfirmDeleteCategoryCommand = new(ConfirmDeleteCategory);
+        CancelDeleteCategoryCommand = new(CancelDeleteCategory);
+        ChangeTaskContextCommand = new(RequestTaskContextChange);
+        PreserveTaskCategoryCommand = new(() => CompletePendingAttachment(TaskAttachmentCategoryChoice.PreserveEffectiveCategory));
+        AdoptProjectCategoryCommand = new(() => CompletePendingAttachment(TaskAttachmentCategoryChoice.AdoptProjectCategory));
+        CancelAttachmentCommand = new(CancelPendingAttachment);
         SaveCommand = new(() => Save());
         CancelCommand = new(Cancel);
         SaveAndLeaveCommand = new(() => { if (Save()) Leave(); });
         DiscardAndLeaveCommand = new(() => { Cancel(); Leave(); });
-        StayCommand = new(() => { _pendingNavigation = null; Notify(nameof(NeedsDecision)); });
+        StayCommand = new(() =>
+        {
+            _pendingNavigation = null;
+            _pendingNavigationClosesInspector = true;
+            Notify(nameof(NeedsDecision));
+            Notify(nameof(HasBlockingDialog));
+        });
         CapturePresentationClock();
         Reload();
     }
@@ -57,30 +84,65 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public ObservableCollection<CompletedTaskGroupViewModel> CompletedGroups { get; } = [];
     public ObservableCollection<CategoryChoice> Categories { get; } = [];
     public ObservableCollection<CategoryChoice> BacklogCategories { get; } = [];
+    public ObservableCollection<CategoryGroupViewModel> CategoryGroups { get; } = [];
+    public ObservableCollection<CategoryChoice> CategoryReplacementChoices { get; } = [];
+    public ObservableCollection<TaskContextChoice> TaskContextChoices { get; } = [];
     public RelayCommand NewProjectCommand { get; }
     public RelayCommand NewTaskCommand { get; }
+    public RelayCommand NewCategoryCommand { get; }
+    public RelayCommand DeleteCategoryCommand { get; }
+    public RelayCommand ConfirmDeleteCategoryCommand { get; }
+    public RelayCommand CancelDeleteCategoryCommand { get; }
+    public RelayCommand ChangeTaskContextCommand { get; }
+    public RelayCommand PreserveTaskCategoryCommand { get; }
+    public RelayCommand AdoptProjectCategoryCommand { get; }
+    public RelayCommand CancelAttachmentCommand { get; }
     public RelayCommand SaveCommand { get; }
     public RelayCommand CancelCommand { get; }
     public RelayCommand SaveAndLeaveCommand { get; }
     public RelayCommand DiscardAndLeaveCommand { get; }
     public RelayCommand StayCommand { get; }
-    public bool HasInspector { get => _hasInspector; private set { _hasInspector = value; Notify(); Notify(nameof(HasNoInspector)); } }
+    public bool HasInspector
+    {
+        get => _hasInspector;
+        private set
+        {
+            _hasInspector = value;
+            Notify();
+            Notify(nameof(HasNoInspector));
+            Notify(nameof(ShowTaskContext));
+            Notify(nameof(CanChangeTaskContext));
+            Notify(nameof(TaskContextActionLabel));
+            Notify(nameof(ShowWorkInspector));
+            Notify(nameof(ShowCategoryInspector));
+            Notify(nameof(ShowCategoryDelete));
+        }
+    }
     public bool HasNoInspector => !HasInspector;
     public bool HasProjects => Projects.Count > 0;
     public bool HasNoProjects => !HasProjects;
     public bool HasCompleted => Completed.Count > 0;
     public bool HasNoCompleted => !HasCompleted;
     public bool NeedsDecision => _pendingNavigation is not null;
-    public bool IsDirty => HasInspector && (_creating || _original != Fingerprint());
-    public string InspectorHeading => _creating ? (_editingTask ? "New task" : "New project") : _editingTask ? "Task details" : "Project details";
-    public bool ShowProjectSummary => HasInspector && !_creating && !_editingTask;
+    public bool NeedsCategoryReplacement => _pendingCategoryDeleteId is not null;
+    public bool NeedsAttachmentChoice => _pendingAttachmentTaskId is not null;
+    public bool HasBlockingDialog => NeedsDecision || NeedsCategoryReplacement || NeedsAttachmentChoice;
+    public bool IsDirty => HasInspector && _original != Fingerprint();
+    public bool ShowWorkInspector => HasInspector && !_editingCategory;
+    public bool ShowCategoryInspector => HasInspector && _editingCategory;
+    public bool ShowCategoryDelete => ShowCategoryInspector && !_creating;
+    public string InspectorHeading => _editingCategory
+        ? (_creating ? "New category" : "Category details")
+        : _creating ? (_editingTask ? "New task" : "New project") : _editingTask ? "Task details" : "Project details";
+    public string TitleAutomationName => _editingCategory ? "Category name" : "Title";
+    public bool ShowProjectSummary => HasInspector && !_editingCategory && !_creating && !_editingTask;
     public string ProjectSummary => ShowProjectSummary
         ? Projects.Single(p => p.Id == _editingId).Summary
             + (string.IsNullOrEmpty(Projects.Single(p => p.Id == _editingId).CompletionDateText)
                 ? " · No completion date"
                 : $" · {Projects.Single(p => p.Id == _editingId).CompletionDateText}")
         : string.Empty;
-    public bool ShowTaskCompletionDate => HasInspector && !_creating && _editingTask
+    public bool ShowTaskCompletionDate => HasInspector && !_editingCategory && !_creating && _editingTask
         && _snapshot.Tasks.Single(task => task.Id == _editingId).CompletionDate is not null;
     public string TaskCompletionDateText => ShowTaskCompletionDate
         ? $"Completed {WorkDatePresentation.Relative(_snapshot.Tasks.Single(task => task.Id == _editingId).CompletionDate, Today)}"
@@ -103,55 +165,89 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         : "Project category";
     public bool HasMessage => !string.IsNullOrEmpty(Message);
     public string Message { get => _message; private set { _message = value; Notify(); Notify(nameof(HasMessage)); } }
-    public string Title { get => _title; set { _title = value; Notify(); } }
-    public string Description { get => _description; set { _description = value; Notify(); } }
+    public string Title
+    {
+        get => _title;
+        set
+        {
+            if (_loadingDraft) { _title = value; return; }
+            _title = value;
+            if (_editingCategory) CategoryNameValidationMessage = string.Empty;
+            Notify();
+        }
+    }
+    public string Description { get => _description; set { if (_loadingDraft) { _description = value; return; } _description = value; Notify(); } }
     public string Date
     {
         get => _date;
         set
         {
+            if (_loadingDraft) { _date = value; return; }
             if (string.Equals(_date, value, StringComparison.Ordinal)) return;
             _date = value;
+            DateValidationMessage = string.Empty;
             Notify();
-            if (DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
-            {
-                var selected = parsed.ToDateTime(TimeOnly.MinValue);
-                if (_selectedDate != selected)
-                {
-                    _selectedDate = selected;
-                    Notify(nameof(SelectedDate));
-                }
-            }
-            else if (string.IsNullOrEmpty(value) && _selectedDate is not null)
-            {
-                _selectedDate = null;
-                Notify(nameof(SelectedDate));
-            }
-        }
-    }
-    public DateTime? SelectedDate
-    {
-        get => _selectedDate;
-        set
-        {
-            if (_selectedDate == value) return;
-            _selectedDate = value;
-            Notify();
-            var text = value is null
-                ? string.Empty
-                : DateOnly.FromDateTime(value.Value).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-            if (!string.Equals(_date, text, StringComparison.Ordinal))
-            {
-                _date = text;
-                Notify(nameof(Date));
-            }
         }
     }
     public string BacklogQuickTitle { get => _backlogQuickTitle; set { _backlogQuickTitle = value; Notify(); } }
     public CategoryChoice? BacklogQuickCategory { get => _backlogQuickCategory; set { _backlogQuickCategory = value; Notify(); } }
+    public string CategoryNameValidationMessage
+    {
+        get => _categoryNameValidationMessage;
+        private set
+        {
+            _categoryNameValidationMessage = value;
+            Notify();
+            Notify(nameof(HasCategoryNameValidationError));
+        }
+    }
+    public bool HasCategoryNameValidationError => !string.IsNullOrEmpty(CategoryNameValidationMessage);
+    public string DateValidationMessage
+    {
+        get => _dateValidationMessage;
+        private set
+        {
+            if (string.Equals(_dateValidationMessage, value, StringComparison.Ordinal)) return;
+            _dateValidationMessage = value;
+            Notify();
+            Notify(nameof(HasDateValidationError));
+        }
+    }
+    public bool HasDateValidationError => !string.IsNullOrEmpty(DateValidationMessage);
+    public CategoryChoice? CategoryReplacement { get => _categoryReplacement; set { _categoryReplacement = value; Notify(); } }
+    public TaskContextChoice? TaskContextTarget
+    {
+        get => _taskContextTarget;
+        set
+        {
+            _taskContextTarget = value;
+            Notify();
+            Notify(nameof(CanChangeTaskContext));
+            Notify(nameof(TaskContextActionLabel));
+        }
+    }
+    public bool ShowTaskContext => HasInspector && !_editingCategory && !_creating && _editingTask;
+    public bool CanChangeTaskContext => ShowTaskContext && TaskContextTarget?.ProjectId != _snapshot.Tasks.Single(task => task.Id == _editingId).ProjectId;
+    public string TaskContextActionLabel => !ShowTaskContext || TaskContextTarget?.ProjectId == _snapshot.Tasks.Single(task => task.Id == _editingId).ProjectId
+        ? "Choose a different context"
+        : TaskContextTarget?.ProjectId is null
+            ? "Detach to standalone"
+            : _snapshot.Tasks.Single(task => task.Id == _editingId).ProjectId is null
+                ? "Attach to project"
+                : "Move to project";
+    public string CategoryDeleteHeading => _pendingCategoryDeleteId is null
+        ? string.Empty
+        : $"Replace {_snapshot.Categories.Single(category => category.Id == _pendingCategoryDeleteId).Name}";
+    public string PreserveCategoryLabel => _pendingAttachmentTaskId is null || _pendingAttachmentProjectId is null
+        ? "Keep current category"
+        : $"Keep {CategoryName(EffectiveCategoryId(_snapshot.Tasks.Single(task => task.Id == _pendingAttachmentTaskId)))} as override";
+    public string AdoptCategoryLabel => _pendingAttachmentProjectId is null
+        ? "Adopt project category"
+        : $"Adopt {CategoryName(_snapshot.Projects.Single(project => project.Id == _pendingAttachmentProjectId).CategoryId)}";
     public string ReorderAnnouncement { get => _reorderAnnouncement; private set { _reorderAnnouncement = value; Notify(); } }
     public string CompletionFocusAutomationId { get => _completionFocusAutomationId; private set { _completionFocusAutomationId = value; Notify(); } }
     public string ReorderFocusAutomationId { get => _reorderFocusAutomationId; private set { _reorderFocusAutomationId = value; Notify(); } }
+    public string DialogReturnFocusAutomationId { get => _dialogReturnFocusAutomationId; private set { _dialogReturnFocusAutomationId = value; Notify(); } }
     internal DateOnly Today => DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime);
     private bool IsStandaloneTaskDraft => _editingTask && (_creatingStandaloneTask
         || (_editingId is not null && _snapshot.Tasks.Single(task => task.Id == _editingId).ProjectId is null));
@@ -160,6 +256,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         get => _category;
         set
         {
+            if (_loadingDraft) { _category = value; return; }
             _category = value;
             Notify();
             Notify(nameof(CategoryHint));
@@ -174,7 +271,9 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         if (IsDirty)
         {
             _pendingNavigation = destination;
+            _pendingNavigationClosesInspector = true;
             Notify(nameof(NeedsDecision));
+            Notify(nameof(HasBlockingDialog));
             return;
         }
         CloseInspector();
@@ -183,6 +282,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
     public void SelectProject(string id) => Navigate(() => LoadProject(id));
     public void SelectTask(string id) => Navigate(() => LoadTask(id));
+    public void SelectCategory(string id) => Navigate(() => LoadCategory(id));
     public void SetBacklogActive(bool active) => _backlogActive = active;
     public void SetCompletedActive(bool active) => _completedActive = active;
 
@@ -236,6 +336,166 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         return true;
     }
 
+    internal void RequestDeleteCategory(string id)
+    {
+        if (_snapshot.Categories.Count == 1)
+        {
+            Message = "At least one Category must remain.";
+            return;
+        }
+
+        var referenced = _snapshot.Projects.Any(project => project.CategoryId == id)
+            || _snapshot.Tasks.Any(task => task.ExplicitCategoryId == id);
+        if (!referenced)
+        {
+            Attempt(() =>
+            {
+                var categoryIndex = _snapshot.Categories.ToList().FindIndex(category => category.Id == id);
+                var focusCategory = categoryIndex < _snapshot.Categories.Count - 1
+                    ? _snapshot.Categories[categoryIndex + 1]
+                    : _snapshot.Categories[categoryIndex - 1];
+                _work.DeleteCategory(id);
+                DialogReturnFocusAutomationId = $"category-selection-{focusCategory.Id}";
+                CloseInspector();
+                Reload();
+                Message = "Category deleted.";
+            }, "Could not delete the Category.");
+            return;
+        }
+
+        DialogReturnFocusAutomationId = "category-delete";
+        _pendingCategoryDeleteId = id;
+        CategoryReplacementChoices.Clear();
+        foreach (var category in _snapshot.Categories.Where(category => category.Id != id))
+            CategoryReplacementChoices.Add(new(category.Id, category.Name));
+        CategoryReplacement = CategoryReplacementChoices.FirstOrDefault();
+        Notify(nameof(NeedsCategoryReplacement));
+        Notify(nameof(CategoryDeleteHeading));
+        Notify(nameof(HasBlockingDialog));
+    }
+
+    private void BeginCategoryDeletion(string id)
+    {
+        if (NeedsDecision) return;
+        if (IsDirty)
+        {
+            _pendingNavigation = () => RequestDeleteCategory(id);
+            _pendingNavigationClosesInspector = false;
+            Notify(nameof(NeedsDecision));
+            Notify(nameof(HasBlockingDialog));
+            return;
+        }
+
+        RequestDeleteCategory(id);
+    }
+
+    private void ConfirmDeleteCategory()
+    {
+        if (_pendingCategoryDeleteId is null || CategoryReplacement?.Id is null) return;
+        var id = _pendingCategoryDeleteId;
+        var replacementId = CategoryReplacement.Id;
+        if (!Attempt(() =>
+            {
+                _work.DeleteCategory(id, replacementId);
+                DialogReturnFocusAutomationId = $"category-selection-{replacementId}";
+                CancelDeleteCategory();
+                CloseInspector();
+                Reload();
+                Message = "Category replaced and deleted.";
+            }, "Could not replace the Category. No changes were made.")) return;
+    }
+
+    private void CancelDeleteCategory()
+    {
+        _pendingCategoryDeleteId = null;
+        CategoryReplacementChoices.Clear();
+        CategoryReplacement = null;
+        Notify(nameof(NeedsCategoryReplacement));
+        Notify(nameof(CategoryDeleteHeading));
+        Notify(nameof(HasBlockingDialog));
+    }
+
+    private void RequestTaskContextChange()
+    {
+        if (!CanChangeTaskContext || _editingId is null) return;
+        var taskId = _editingId;
+        var targetProjectId = TaskContextTarget?.ProjectId;
+        ResolveDraftBeforeAction(() =>
+        {
+            if (targetProjectId is null)
+            {
+                Attempt(() =>
+                {
+                    _work.DetachTask(taskId);
+                    Reload();
+                    LoadTask(taskId);
+                    Message = "Task detached as standalone work.";
+                }, "Could not detach the Task. No changes were made.");
+                return;
+            }
+
+            var task = _snapshot.Tasks.Single(item => item.Id == taskId);
+            var effectiveCategoryId = EffectiveCategoryId(task);
+            var projectCategoryId = _snapshot.Projects.Single(project => project.Id == targetProjectId).CategoryId;
+            if (effectiveCategoryId == projectCategoryId)
+            {
+                AttachTask(taskId, targetProjectId, null);
+                return;
+            }
+
+            _pendingAttachmentTaskId = taskId;
+            _pendingAttachmentProjectId = targetProjectId;
+            Notify(nameof(NeedsAttachmentChoice));
+            Notify(nameof(PreserveCategoryLabel));
+            Notify(nameof(AdoptCategoryLabel));
+            Notify(nameof(HasBlockingDialog));
+        });
+    }
+
+    private void ResolveDraftBeforeAction(Action action)
+    {
+        if (NeedsDecision) return;
+        if (IsDirty)
+        {
+            _pendingNavigation = action;
+            _pendingNavigationClosesInspector = false;
+            Notify(nameof(NeedsDecision));
+            Notify(nameof(HasBlockingDialog));
+            return;
+        }
+
+        action();
+    }
+
+    private void CompletePendingAttachment(TaskAttachmentCategoryChoice choice)
+    {
+        if (_pendingAttachmentTaskId is null || _pendingAttachmentProjectId is null) return;
+        var taskId = _pendingAttachmentTaskId;
+        var projectId = _pendingAttachmentProjectId;
+        if (AttachTask(taskId, projectId, choice)) CancelPendingAttachment();
+    }
+
+    private bool AttachTask(string taskId, string projectId, TaskAttachmentCategoryChoice? choice)
+    {
+        return Attempt(() =>
+        {
+            _work.AttachTask(taskId, projectId, choice);
+            Reload();
+            LoadTask(taskId);
+            Message = "Task moved to the Project.";
+        }, "Could not move the Task. No changes were made.");
+    }
+
+    private void CancelPendingAttachment()
+    {
+        _pendingAttachmentTaskId = null;
+        _pendingAttachmentProjectId = null;
+        Notify(nameof(NeedsAttachmentChoice));
+        Notify(nameof(PreserveCategoryLabel));
+        Notify(nameof(AdoptCategoryLabel));
+        Notify(nameof(HasBlockingDialog));
+    }
+
     public bool DragTask(string taskId, string targetTaskId)
     {
         var targetPosition = Backlog.IndexOf(Backlog.Single(task => task.Id == targetTaskId));
@@ -252,10 +512,14 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         return target is not null && MoveProjectTask(projectId, taskId, project.Tasks.IndexOf(target));
     }
 
+    public bool DragCategory(string categoryId, string targetCategoryId) =>
+        MoveCategory(categoryId, CategoryGroups.IndexOf(CategoryGroups.Single(category => category.Id == targetCategoryId)));
+
     private void BeginProject()
     {
         _creating = true;
         _editingTask = false;
+        _editingCategory = false;
         _creatingStandaloneTask = false;
         _editingId = null;
         SetDraft(string.Empty, string.Empty, null, _snapshot.Categories.Count == 0 ? null : _snapshot.Categories[0].Id);
@@ -265,6 +529,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     {
         _creating = true;
         _editingTask = true;
+        _editingCategory = false;
         _creatingStandaloneTask = true;
         _editingId = null;
         SetDraft(string.Empty, string.Empty, null, null);
@@ -275,6 +540,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         var project = _snapshot.Projects.Single(p => p.Id == id);
         _editingId = id;
         _editingTask = false;
+        _editingCategory = false;
         _creating = false;
         _creatingStandaloneTask = false;
         SetDraft(project.Title, project.Description, project.TargetDate, project.CategoryId);
@@ -285,29 +551,119 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         var task = _snapshot.Tasks.Single(t => t.Id == id);
         _editingId = id;
         _editingTask = true;
+        _editingCategory = false;
         _creating = false;
         _creatingStandaloneTask = false;
         SetDraft(task.Title, task.Description, task.DueDate, task.ExplicitCategoryId);
+        RefreshTaskContextChoices(task);
+    }
+
+    private void BeginCategory()
+    {
+        _creating = true;
+        _editingTask = false;
+        _editingCategory = true;
+        _creatingStandaloneTask = false;
+        _editingId = null;
+        SetCategoryDraft(string.Empty);
+    }
+
+    private void LoadCategory(string id)
+    {
+        var category = _snapshot.Categories.Single(item => item.Id == id);
+        _editingId = id;
+        _editingTask = false;
+        _editingCategory = true;
+        _creating = false;
+        _creatingStandaloneTask = false;
+        SetCategoryDraft(category.Name);
+    }
+
+    private void SetCategoryDraft(string name)
+    {
+        _loadingDraft = true;
+        try
+        {
+            Categories.Clear();
+            _title = name;
+            _description = string.Empty;
+            _date = string.Empty;
+            _category = null;
+            _original = Fingerprint();
+            Notify(nameof(Title));
+            Notify(nameof(Description));
+            Notify(nameof(Date));
+            Notify(nameof(Category));
+            CategoryNameValidationMessage = string.Empty;
+            DateValidationMessage = string.Empty;
+            HasInspector = true;
+            Message = string.Empty;
+            NotifyInspectorPresentation();
+        }
+        finally
+        {
+            _title = name;
+            _description = string.Empty;
+            _date = string.Empty;
+            _category = null;
+            _loadingDraft = false;
+        }
+    }
+
+    private void RefreshTaskContextChoices(TaskRecord task)
+    {
+        TaskContextChoices.Clear();
+        TaskContextChoices.Add(new(null, "Standalone"));
+        foreach (var project in _snapshot.Projects)
+            TaskContextChoices.Add(new(project.Id, project.Title));
+        TaskContextTarget = TaskContextChoices.Single(choice => choice.ProjectId == task.ProjectId);
     }
 
     private void SetDraft(string title, string description, DateOnly? date, string? categoryId)
     {
-        Categories.Clear();
-        if (_editingTask && !IsStandaloneTaskDraft)
+        var dateText = date?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty;
+        CategoryChoice? categoryChoice = null;
+        _loadingDraft = true;
+        try
         {
-            var task = _snapshot.Tasks.Single(t => t.Id == _editingId);
-            var project = _snapshot.Projects.Single(p => p.Id == task.ProjectId);
-            Categories.Add(new(null, $"Inherit — {CategoryName(project.CategoryId)}"));
+            Categories.Clear();
+            if (_editingTask && !IsStandaloneTaskDraft)
+            {
+                var task = _snapshot.Tasks.Single(t => t.Id == _editingId);
+                var project = _snapshot.Projects.Single(p => p.Id == task.ProjectId);
+                Categories.Add(new(null, $"Inherit — {CategoryName(project.CategoryId)}"));
+            }
+            foreach (var category in _snapshot.Categories) Categories.Add(new(category.Id, category.Name));
+            _title = title;
+            _description = description;
+            _date = dateText;
+            categoryChoice = Categories.FirstOrDefault(c => c.Id == categoryId);
+            _category = categoryChoice;
+            _original = (title, description, dateText, categoryId);
+            Notify(nameof(Title));
+            Notify(nameof(Description));
+            Notify(nameof(Date));
+            Notify(nameof(Category));
+            Notify(nameof(CategoryHint));
+            DateValidationMessage = string.Empty;
+            HasInspector = true;
+            Message = string.Empty;
+            NotifyInspectorPresentation();
         }
-        foreach (var category in _snapshot.Categories) Categories.Add(new(category.Id, category.Name));
-        Title = title;
-        Description = description;
-        Date = date?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty;
-        Category = Categories.FirstOrDefault(c => c.Id == categoryId);
-        _original = Fingerprint();
-        HasInspector = true;
-        Message = string.Empty;
-        Notify(nameof(InspectorHeading)); Notify(nameof(SaveLabel)); Notify(nameof(DateLabel));
+        finally
+        {
+            _title = title;
+            _description = description;
+            _date = dateText;
+            _category = categoryChoice;
+            _loadingDraft = false;
+        }
+    }
+
+    private void NotifyInspectorPresentation()
+    {
+        Notify(nameof(InspectorHeading)); Notify(nameof(TitleAutomationName)); Notify(nameof(SaveLabel)); Notify(nameof(DateLabel));
+        Notify(nameof(ShowWorkInspector)); Notify(nameof(ShowCategoryInspector)); Notify(nameof(ShowCategoryDelete));
         Notify(nameof(ShowProjectSummary)); Notify(nameof(ProjectSummary));
         Notify(nameof(ShowTaskCompletionDate)); Notify(nameof(TaskCompletionDateText)); Notify(nameof(TaskCompletionDateAccessibleText));
         Notify(nameof(InspectorMetaLabel)); Notify(nameof(InspectorMetaValue));
@@ -316,14 +672,20 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public bool Save()
     {
         if (!HasInspector) return true;
+        if (_editingCategory) return SaveCategory();
         if (string.IsNullOrWhiteSpace(Title)) { Message = "Enter a title."; return false; }
         DateOnly? date = null;
         if (!string.IsNullOrWhiteSpace(Date))
         {
             if (!DateOnly.TryParseExact(Date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
-            { Message = "Enter a valid date as YYYY-MM-DD, or leave it empty."; return false; }
+            {
+                DateValidationMessage = "Enter a valid date as YYYY-MM-DD, or leave it empty.";
+                Message = DateValidationMessage;
+                return false;
+            }
             date = parsed;
         }
+        DateValidationMessage = string.Empty;
         if (Category is null || ((!_editingTask || IsStandaloneTaskDraft) && Category.Id is null)) { Message = "Choose a category."; return false; }
         return Attempt(() =>
         {
@@ -339,6 +701,43 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         });
     }
 
+    private bool SaveCategory()
+    {
+        if (string.IsNullOrWhiteSpace(Title))
+        {
+            CategoryNameValidationMessage = "Enter a category name.";
+            Message = CategoryNameValidationMessage;
+            return false;
+        }
+
+        string categoryId;
+        try
+        {
+            categoryId = _creating
+                ? _work.CreateCategory(Title).Id
+                : _work.RenameCategory(_editingId!, Title).Id;
+        }
+        catch (ArgumentException)
+        {
+            CategoryNameValidationMessage = "Enter a unique category name.";
+            Message = CategoryNameValidationMessage;
+            return false;
+        }
+        catch (WorkspaceWorkException)
+        {
+            Message = "Could not save workspace changes. Your draft is retained. Try again.";
+            return false;
+        }
+
+        _editingId = categoryId;
+        _creating = false;
+        Reload();
+        LoadCategory(categoryId);
+        Message = "Category saved.";
+
+        return true;
+    }
+
     private bool Attempt(Action action)
     {
         try { action(); return true; }
@@ -349,20 +748,35 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public void Cancel()
     {
         if (_creating || _editingId is null) CloseInspector();
+        else if (_editingCategory) LoadCategory(_editingId);
         else if (_editingTask) LoadTask(_editingId);
         else LoadProject(_editingId);
     }
-    private void CloseInspector() { HasInspector = false; _creating = false; _creatingStandaloneTask = false; Message = string.Empty; }
+    private void CloseInspector()
+    {
+        HasInspector = false;
+        _creating = false;
+        _creatingStandaloneTask = false;
+        _editingCategory = false;
+        CategoryNameValidationMessage = string.Empty;
+        DateValidationMessage = string.Empty;
+        Message = string.Empty;
+    }
     private void Leave()
     {
         var destination = _pendingNavigation;
         _pendingNavigation = null;
+        var closesInspector = _pendingNavigationClosesInspector;
+        _pendingNavigationClosesInspector = true;
         Notify(nameof(NeedsDecision));
-        CloseInspector();
+        Notify(nameof(HasBlockingDialog));
+        if (closesInspector) CloseInspector();
         destination?.Invoke();
     }
     private (string Title, string Description, string Date, string? CategoryId) Fingerprint() => (Title, Description, Date, Category?.Id);
     private string CategoryName(string id) => _snapshot.Categories.Single(c => c.Id == id).Name;
+    private string EffectiveCategoryId(TaskRecord task) => task.ExplicitCategoryId
+        ?? _snapshot.Projects.Single(project => project.Id == task.ProjectId).CategoryId;
     private void Reload()
     {
         _snapshot = _work.Read();
@@ -378,6 +792,23 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             row.Refresh(project, ProjectWorkSummary.From(_snapshot, project.Id), CategoryName(project.CategoryId), _snapshot.Tasks.Where(t => t.ProjectId == project.Id).OrderBy(t => t.ProjectPosition).Select(ToTaskRow));
             row.SetPosition(projectIndex + 1, _snapshot.Projects.Count);
             Projects.Add(row);
+        }
+        CategoryGroups.Clear();
+        for (var categoryIndex = 0; categoryIndex < _snapshot.Categories.Count; categoryIndex++)
+        {
+            var category = _snapshot.Categories[categoryIndex];
+            var projectsInCategory = Projects
+                .Where(project => _snapshot.Projects.Single(item => item.Id == project.Id).CategoryId == category.Id)
+                .ToArray();
+            var categoryProjects = projectsInCategory
+                .Select((project, index) => new CategoryProjectRowViewModel(project, index == projectsInCategory.Length - 1))
+                .ToArray();
+            var standaloneTasks = _snapshot.Tasks
+                .Where(task => task.ProjectId is null && task.ExplicitCategoryId == category.Id)
+                .OrderBy(task => task.SharedPosition)
+                .Select(ToTaskRow)
+                .ToArray();
+            CategoryGroups.Add(new(this, category, categoryProjects, standaloneTasks, categoryIndex + 1, _snapshot.Categories.Count));
         }
         var desiredBacklog = _snapshot.Tasks.Where(task => !task.IsComplete).OrderBy(t => t.SharedPosition).Select(ToTaskRow).ToArray();
         SynchroniseBacklog(desiredBacklog);
@@ -395,6 +826,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         Notify(nameof(HasNoProjects));
         Notify(nameof(HasCompleted));
         Notify(nameof(HasNoCompleted));
+        Notify(nameof(CanChangeTaskContext));
+        Notify(nameof(TaskContextActionLabel));
     }
     private TaskRowViewModel ToTaskRow(TaskRecord task)
     {
@@ -547,6 +980,22 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         return true;
     }
 
+    internal bool MoveCategory(string categoryId, int targetPosition)
+    {
+        if (CategoryGroups.Count == 0) return false;
+        targetPosition = Math.Clamp(targetPosition, 0, CategoryGroups.Count - 1);
+        if (!Attempt(() =>
+            {
+                var change = _work.MoveCategory(categoryId, targetPosition);
+                Reload();
+                var category = CategoryGroups.Single(row => row.Id == categoryId);
+                ReorderAnnouncement = $"Moved {category.Name} to position {change.Position} of {change.Count} in Categories.";
+                Message = ReorderAnnouncement;
+                ReorderFocusAutomationId = category.ReorderAutomationId;
+            }, "Could not reorder the Category.")) return false;
+        return true;
+    }
+
     internal bool MoveProjectTask(string projectId, string taskId, int targetPosition)
     {
         var count = Projects.Single(project => project.Id == projectId).Tasks.Count;
@@ -567,6 +1016,66 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 }
 
 public sealed record CategoryChoice(string? Id, string Name);
+public sealed record TaskContextChoice(string? ProjectId, string Name);
+public sealed record CategoryProjectRowViewModel(ProjectRowViewModel Project, bool IsLast);
+public sealed record CategoryTaskRowViewModel(TaskRowViewModel Task, bool IsLast);
+
+public sealed class CategoryGroupViewModel
+{
+    private readonly ProjectCaptureViewModel _owner;
+    private readonly int _position;
+    private readonly int _count;
+
+    public CategoryGroupViewModel(
+        ProjectCaptureViewModel owner,
+        WorkspaceCategory category,
+        IReadOnlyList<CategoryProjectRowViewModel> projects,
+        IReadOnlyList<TaskRowViewModel> standaloneTasks,
+        int position,
+        int count)
+    {
+        _owner = owner;
+        Id = category.Id;
+        Name = category.Name;
+        _position = position;
+        _count = count;
+        Projects = projects;
+        StandaloneTasks = standaloneTasks
+            .Select((task, index) => new CategoryTaskRowViewModel(task, index == standaloneTasks.Count - 1))
+            .ToArray();
+        SelectCommand = new(() => owner.SelectCategory(Id));
+        MoveUpCommand = new(() => owner.MoveCategory(Id, _position - 2));
+        MoveDownCommand = new(() => owner.MoveCategory(Id, _position));
+        MoveToTopCommand = new(() => owner.MoveCategory(Id, 0));
+        MoveToBottomCommand = new(() => owner.MoveCategory(Id, _count - 1));
+    }
+
+    public string Id { get; }
+    public string Name { get; }
+    public int ProjectCount => Projects.Count;
+    public int StandaloneTaskCount => StandaloneTasks.Count;
+    public bool HasProjects => ProjectCount > 0;
+    public bool HasStandaloneTasks => StandaloneTaskCount > 0;
+    public bool HasNoWork => !HasProjects && !HasStandaloneTasks;
+    public IReadOnlyList<CategoryProjectRowViewModel> Projects { get; }
+    public IReadOnlyList<CategoryTaskRowViewModel> StandaloneTasks { get; }
+    public string PositionText => $"{_position} of {_count}";
+    public string ReorderAutomationId => $"category-reorder-{Id}";
+    public string SelectionAutomationId => $"category-selection-{Id}";
+    public string ReorderAccessibleName => $"Reorder {Name} in Categories";
+    public string MoveUpAccessibleName => $"Move {Name} up in Categories";
+    public string MoveDownAccessibleName => $"Move {Name} down in Categories";
+    public string MoveToTopAccessibleName => $"Move {Name} to top of Categories";
+    public string MoveToBottomAccessibleName => $"Move {Name} to bottom of Categories";
+    public string SelectionAccessibleName => $"Edit {Name} category";
+    public string Summary => $"{ProjectCount} {(ProjectCount == 1 ? "project" : "projects")} · {StandaloneTaskCount} standalone {(StandaloneTaskCount == 1 ? "task" : "tasks")}";
+    public RelayCommand SelectCommand { get; }
+    public RelayCommand MoveUpCommand { get; }
+    public RelayCommand MoveDownCommand { get; }
+    public RelayCommand MoveToTopCommand { get; }
+    public RelayCommand MoveToBottomCommand { get; }
+}
+
 public sealed record CompletedTaskGroupViewModel(string Heading, IReadOnlyList<TaskRowViewModel> Tasks)
 {
     public IReadOnlyList<CompletedTaskRowViewModel> Rows { get; } = Tasks
@@ -623,6 +1132,7 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
     public string DateText => _dateText;
     public string DateAccessibleText => _dateAccessibleText;
     public string CompletionDateText => _completionDateText;
+    public bool HasCompletionDate => !string.IsNullOrEmpty(CompletionDateText);
     public string ProjectReorderAccessibleName => $"Reorder {Title} in project";
     public string ProjectReorderAutomationId => $"project-task-reorder-{Id}";
     public bool IsProjectLast => _projectCount > 0 && _projectPosition == _projectCount - 1;
@@ -668,6 +1178,7 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
         Notify(nameof(DateText));
         Notify(nameof(DateAccessibleText));
         Notify(nameof(CompletionDateText));
+        Notify(nameof(HasCompletionDate));
         Notify(nameof(ProjectReorderAccessibleName));
         Notify(nameof(MoveProjectTaskUpAccessibleName));
         Notify(nameof(MoveProjectTaskDownAccessibleName));
@@ -721,6 +1232,7 @@ public sealed class ProjectRowViewModel : INotifyPropertyChanged
     public string Summary { get; private set; } = string.Empty;
     public string Status { get; private set; } = string.Empty;
     public string ProgressText { get; private set; } = string.Empty;
+    public string AccessibleStatus => $"{Status}, {ProgressText}";
     public string CategoryName { get; private set; } = string.Empty;
     public string TargetText { get; private set; } = string.Empty;
     public string TargetAccessibleText { get; private set; } = string.Empty;
@@ -779,6 +1291,7 @@ public sealed class ProjectRowViewModel : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new(nameof(IsInProgress)));
         PropertyChanged?.Invoke(this, new(nameof(IsComplete)));
         PropertyChanged?.Invoke(this, new(nameof(ProgressText)));
+        PropertyChanged?.Invoke(this, new(nameof(AccessibleStatus)));
         PropertyChanged?.Invoke(this, new(nameof(CategoryName)));
         PropertyChanged?.Invoke(this, new(nameof(TargetText)));
         PropertyChanged?.Invoke(this, new(nameof(TargetAccessibleText)));

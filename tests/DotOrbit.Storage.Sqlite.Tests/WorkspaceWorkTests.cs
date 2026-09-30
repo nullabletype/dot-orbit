@@ -231,6 +231,159 @@ public sealed class WorkspaceWorkTests : IDisposable
     }
 
     [Fact]
+    public void CategoriesAreCreatedRenamedAndReorderedWithCaseInsensitiveUniqueNames()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+
+        var work = session.Work.CreateCategory(" Work ");
+        var someday = session.Work.CreateCategory("Someday");
+        Assert.Equal(["Home", "Work", "Someday"], session.Work.Read().Categories.Select(category => category.Name));
+        Assert.Throws<ArgumentException>(() => session.Work.CreateCategory("  "));
+        Assert.Throws<ArgumentException>(() => session.Work.CreateCategory("work"));
+        var resume = session.Work.CreateCategory("Résumé");
+        Assert.Throws<ArgumentException>(() => session.Work.CreateCategory("RÉSUMÉ"));
+        session.Work.DeleteCategory(resume.Id);
+        Assert.Throws<ArgumentException>(() => session.Work.RenameCategory(someday.Id, "\t"));
+        Assert.Throws<ArgumentException>(() => session.Work.RenameCategory(someday.Id, "HOME"));
+
+        var renamed = session.Work.RenameCategory(someday.Id, "Personal");
+        Assert.Equal("Personal", renamed.Name);
+        Assert.Equal(new CategoryOrderChange(renamed.Id, 1, 3), session.Work.MoveCategory(renamed.Id, 0));
+        Assert.Equal(["Personal", "Home", "Work"], session.Work.Read().Categories.Select(category => category.Name));
+
+        session.Work.DeleteCategory(work.Id);
+        Assert.Equal(["Personal", "Home"], session.Work.Read().Categories.Select(category => category.Name));
+        session.Work.DeleteCategory(renamed.Id);
+        Assert.Throws<InvalidOperationException>(() => session.Work.DeleteCategory(session.Work.Read().Categories[0].Id));
+        Assert.Equal("Home", Assert.Single(session.Work.Read().Categories).Name);
+    }
+
+    [Fact]
+    public void ReferencedCategoryDeletionReassignsEveryReferenceAtomicallyAndRollsBackOnFailure()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var home = session.Work.Read().Categories[0];
+        var work = session.Work.CreateCategory("Work");
+        var project = session.Work.CreateProject("Home project", "", home.Id, null);
+        session.Work.CreateTask(project.Id, "Inherited");
+        var overridden = session.Work.CreateTask(session.Work.CreateProject("Work project", "", work.Id, null).Id, "Override");
+        session.Work.UpdateTask(overridden.Id, overridden.Title, "", home.Id, null);
+        session.Work.CreateStandaloneTask("Standalone", "", home.Id, null);
+
+        Assert.Throws<ArgumentException>(() => session.Work.DeleteCategory(home.Id));
+        Assert.Throws<ArgumentException>(() => session.Work.DeleteCategory(home.Id, home.Id));
+        session.Work.DeleteCategory(home.Id, work.Id);
+
+        var replaced = session.Work.Read();
+        Assert.DoesNotContain(replaced.Categories, category => category.Id == home.Id);
+        Assert.All(replaced.Projects, item => Assert.Equal(work.Id, item.CategoryId));
+        Assert.Equal(work.Id, replaced.Tasks.Single(task => task.Id == overridden.Id).ExplicitCategoryId);
+        Assert.Equal(work.Id, replaced.Tasks.Single(task => task.ProjectId is null).ExplicitCategoryId);
+
+        var legacy = session.Work.CreateCategory("Legacy");
+        var legacyProject = session.Work.CreateProject("Legacy project", "", legacy.Id, null);
+        session.Work.CreateStandaloneTask("Legacy task", "", legacy.Id, null);
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        {
+            using var trigger = connection.CreateCommand();
+            trigger.CommandText = "CREATE TRIGGER reject_category_replacement BEFORE UPDATE OF explicit_category_id ON tasks BEGIN SELECT RAISE(ABORT, 'private category'); END;";
+            trigger.ExecuteNonQuery();
+        }
+
+        var error = Assert.Throws<WorkspaceWorkException>(() => session.Work.DeleteCategory(legacy.Id, work.Id));
+        Assert.Equal("The workspace operation could not be completed.", error.Message);
+        var unchanged = session.Work.Read();
+        Assert.Contains(unchanged.Categories, category => category.Id == legacy.Id);
+        Assert.Equal(legacy.Id, unchanged.Projects.Single(item => item.Id == legacyProject.Id).CategoryId);
+        Assert.Equal(legacy.Id, unchanged.Tasks.Single(task => task.Title == "Legacy task").ExplicitCategoryId);
+    }
+
+    [Fact]
+    public void AttachDetachAndCrossProjectMovePreserveSharedOrderAndMaintainDenseProjectOrders()
+    {
+        using (var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!)
+        {
+            var home = session.Work.Read().Categories[0];
+            var work = session.Work.CreateCategory("Work");
+            var homeProject = session.Work.CreateProject("Home project", "", home.Id, null);
+            var workProject = session.Work.CreateProject("Work project", "", work.Id, null);
+            var homeFirst = session.Work.CreateTask(homeProject.Id, "Home first");
+            var moving = session.Work.CreateTask(homeProject.Id, "Moving");
+            var homeLast = session.Work.CreateTask(homeProject.Id, "Home last");
+            var workFirst = session.Work.CreateTask(workProject.Id, "Work first");
+            var sharedOrder = session.Work.Read().Tasks.Select(task => task.Id).ToArray();
+
+            var detached = session.Work.DetachTask(moving.Id);
+            Assert.Null(detached.ProjectId);
+            Assert.Equal(home.Id, detached.ExplicitCategoryId);
+            Assert.Null(detached.ProjectPosition);
+            Assert.Equal([homeFirst.Id, homeLast.Id], session.Work.Read().Tasks.Where(task => task.ProjectId == homeProject.Id)
+                .OrderBy(task => task.ProjectPosition).Select(task => task.Id));
+            Assert.Equal([0, 1], session.Work.Read().Tasks.Where(task => task.ProjectId == homeProject.Id)
+                .OrderBy(task => task.ProjectPosition).Select(task => task.ProjectPosition));
+            Assert.Equal(sharedOrder, session.Work.Read().Tasks.Select(task => task.Id));
+
+            var reattached = session.Work.AttachTask(moving.Id, homeProject.Id);
+            Assert.Equal(homeProject.Id, reattached.ProjectId);
+            Assert.Null(reattached.ExplicitCategoryId);
+            Assert.Equal(2, reattached.ProjectPosition);
+
+            session.Work.DetachTask(moving.Id);
+            Assert.Throws<ArgumentException>(() => session.Work.AttachTask(moving.Id, workProject.Id));
+            Assert.Null(session.Work.Read().Tasks.Single(task => task.Id == moving.Id).ProjectId);
+            var preserved = session.Work.AttachTask(moving.Id, workProject.Id, TaskAttachmentCategoryChoice.PreserveEffectiveCategory);
+            Assert.Equal(home.Id, preserved.ExplicitCategoryId);
+            Assert.Equal(1, preserved.ProjectPosition);
+
+            var adopted = session.Work.AttachTask(moving.Id, homeProject.Id, TaskAttachmentCategoryChoice.AdoptProjectCategory);
+            Assert.Equal(homeProject.Id, adopted.ProjectId);
+            Assert.Null(adopted.ExplicitCategoryId);
+            Assert.Equal(2, adopted.ProjectPosition);
+            Assert.Equal(0, session.Work.Read().Tasks.Single(task => task.Id == workFirst.Id).ProjectPosition);
+            Assert.Equal(sharedOrder, session.Work.Read().Tasks.Select(task => task.Id));
+        }
+
+        using var reopened = _store.Open(WorkspacePath, _passphrase).Session!;
+        var snapshot = reopened.Work.Read();
+        Assert.Equal(["Home first", "Home last", "Moving"], snapshot.Tasks.Where(task => task.ProjectId == snapshot.Projects.Single(project => project.Title == "Home project").Id)
+            .OrderBy(task => task.ProjectPosition).Select(task => task.Title));
+        Assert.Equal(["Work first"], snapshot.Tasks.Where(task => task.ProjectId == snapshot.Projects.Single(project => project.Title == "Work project").Id)
+            .OrderBy(task => task.ProjectPosition).Select(task => task.Title));
+    }
+
+    [Fact]
+    public void CrossProjectMoveFailureRollsBackMembershipAndBothOrders()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var category = session.Work.Read().Categories[0];
+        var source = session.Work.CreateProject("Source", "", category.Id, null);
+        var destination = session.Work.CreateProject("Destination", "", category.Id, null);
+        var sourceFirst = session.Work.CreateTask(source.Id, "Source first");
+        var moving = session.Work.CreateTask(source.Id, "Moving");
+        var sourceLast = session.Work.CreateTask(source.Id, "Source last");
+        var destinationFirst = session.Work.CreateTask(destination.Id, "Destination first");
+        var before = session.Work.Read();
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        {
+            using var trigger = connection.CreateCommand();
+            trigger.CommandText = "CREATE TRIGGER reject_attach BEFORE UPDATE OF project_id ON tasks WHEN NEW.project_id IS NOT NULL BEGIN SELECT RAISE(ABORT, 'private attach'); END;";
+            trigger.ExecuteNonQuery();
+        }
+
+        var error = Assert.Throws<WorkspaceWorkException>(() => session.Work.AttachTask(moving.Id, destination.Id));
+        Assert.Equal("The workspace operation could not be completed.", error.Message);
+        var after = session.Work.Read();
+        Assert.Equal(before.Tasks, after.Tasks);
+        Assert.Equal([sourceFirst.Id, moving.Id, sourceLast.Id], after.Tasks.Where(task => task.ProjectId == source.Id)
+            .OrderBy(task => task.ProjectPosition).Select(task => task.Id));
+        Assert.Equal([0, 1, 2], after.Tasks.Where(task => task.ProjectId == source.Id)
+            .OrderBy(task => task.ProjectPosition).Select(task => task.ProjectPosition));
+        Assert.Equal([destinationFirst.Id], after.Tasks.Where(task => task.ProjectId == destination.Id)
+            .OrderBy(task => task.ProjectPosition).Select(task => task.Id));
+        Assert.Equal(before.Tasks.Select(task => task.Id), after.Tasks.Select(task => task.Id));
+    }
+
+    [Fact]
     public void InvalidReferencesAndBlankTitlesNeverChangeStoredWork()
     {
         using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;

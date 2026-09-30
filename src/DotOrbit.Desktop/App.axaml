@@ -150,7 +150,7 @@
       <Setter Property="CornerRadius" Value="7" />
       <Setter Property="FontSize" Value="{StaticResource TypeSizeTitle}" />
       <Setter Property="FontWeight" Value="Bold" />
-      <Setter Property="Padding" Value="7,5" />
+      <Setter Property="Padding" Value="5,5" />
     </Style>
     <Style Selector="TextBox.inspector-title:pointerover">
       <Setter Property="BorderBrush" Value="{StaticResource ControlHoverBorderBrush}" />

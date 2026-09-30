@@ -411,7 +411,7 @@ public sealed class ProjectCaptureWindowTests
     {
         var work = new MemoryWorkspaceWork();
         var project = work.CreateProject("Garden", "", "home", new DateOnly(2026, 10, 12));
-        work.CreateTask(project.Id, "Plant bulbs");
+        var task = work.CreateTask(project.Id, "Plant bulbs");
         var shell = new ShellViewModel(work);
         shell.PrimaryNavigation.Single(item => item.Title == "Projects").SelectCommand.Execute(null);
         var window = new MainWindow { DataContext = shell };
@@ -428,6 +428,20 @@ public sealed class ProjectCaptureWindowTests
         var disclosure = Assert.Single(header.GetVisualDescendants().OfType<ToggleButton>(),
             button => button.Classes.Contains("disclosure"));
         var target = Assert.Single(header.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "12 Oct 2026");
+        var projectTitle = Assert.Single(header.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Garden");
+        var taskTitle = Assert.Single(child.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Plant bulbs");
+        var projectTitleOrigin = projectTitle.TranslatePoint(default, window)!.Value;
+        var taskTitleOrigin = taskTitle.TranslatePoint(default, window)!.Value;
+        Assert.InRange(taskTitleOrigin.X - projectTitleOrigin.X, 7, 9);
+        var projectDots = Assert.Single(handle.GetVisualDescendants().OfType<Grid>(),
+            grid => grid.Bounds.Width == 8 && grid.Bounds.Height == 12);
+        var taskHandle = ButtonByAutomationId(window, $"project-task-reorder-{task.Id}");
+        var taskDots = Assert.Single(taskHandle.GetVisualDescendants().OfType<Grid>(),
+            grid => grid.Bounds.Width == 8 && grid.Bounds.Height == 12);
+        Assert.InRange(CentreInWindow(taskDots, window).X - CentreInWindow(projectDots, window).X, 3, 5);
+        var handleOrigin = OriginInWindow(handle, window);
+        var disclosureOrigin = OriginInWindow(disclosure, window);
+        Assert.InRange(disclosureOrigin.X - handleOrigin.X - handle.Bounds.Width, 3, 5);
         Assert.Equal(new CornerRadius(9, 9, 0, 0), header.CornerRadius);
         AssertInteractiveRowHover(window, header, NamedButton(window, "Garden"), handle, disclosure, target);
         Assert.Equal(Colors.Transparent, Assert.IsAssignableFrom<ISolidColorBrush>(child.Background).Color);
@@ -436,6 +450,76 @@ public sealed class ProjectCaptureWindowTests
         Assert.Equal(new CornerRadius(9), header.CornerRadius);
         window.MouseMove(RowSurfacePoint(header, window), RawInputModifiers.None);
         Assert.Equal(Color.Parse("#151923"), Assert.IsAssignableFrom<ISolidColorBrush>(header.Background).Color);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void ExpandedProjectTaskUsesBacklogControlAndTextAlignmentWithProjectDateTypography()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var task = work.CreateTask(project.Id, "Plant bulbs");
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Projects").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+
+        var card = Assert.Single(window.GetVisualDescendants().OfType<Border>(),
+            border => border.Classes.Contains("project-row"));
+        var header = Assert.Single(card.GetVisualDescendants().OfType<Border>(),
+            border => border.Classes.Contains("project-header-row"));
+        var child = Assert.Single(card.GetVisualDescendants().OfType<Border>(),
+            border => border.Classes.Contains("project-task-row"));
+        var projectDate = Assert.Single(header.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "No date");
+        var taskDate = Assert.Single(child.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "No date");
+        Assert.Equal(12, projectDate.FontSize);
+        Assert.Equal(projectDate.FontSize, taskDate.FontSize);
+
+        var taskTitle = Assert.Single(child.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Plant bulbs");
+        var taskMetadata = Assert.Single(child.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Home · inherited");
+        var emptyCompletionDate = Assert.Single(child.GetVisualDescendants().OfType<TextBlock>(),
+            text => string.IsNullOrEmpty(text.Text) && text.FontSize == 11);
+        Assert.False(emptyCompletionDate.IsVisible);
+        Assert.Equal(0, emptyCompletionDate.Bounds.Height);
+        var handle = ButtonByAutomationId(window, $"project-task-reorder-{task.Id}");
+        var dots = Assert.Single(handle.GetVisualDescendants().OfType<Grid>(),
+            grid => grid.Bounds.Width == 8 && grid.Bounds.Height == 12);
+        var toggle = ToggleByAutomationId(window, $"task-completion-{task.Id}");
+        var completionBox = Assert.Single(toggle.GetVisualDescendants().OfType<Border>(),
+            border => border.Name == "CompletionBox");
+        var projectOrigin = OriginInWindow(child, window);
+        var projectTitleOrigin = OriginInWindow(taskTitle, window) - projectOrigin;
+        var projectMetadataOrigin = OriginInWindow(taskMetadata, window) - projectOrigin;
+        var projectDotsCentre = CentreInWindow(dots, window) - projectOrigin;
+        var projectCompletionCentre = CentreInWindow(completionBox, window) - projectOrigin;
+
+        shell.PrimaryNavigation.Single(item => item.Title == "Backlog").SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var backlogRow = Assert.Single(window.GetVisualDescendants().OfType<Border>(),
+            border => border.Classes.Contains("backlog-row"));
+        var backlogTitle = Assert.Single(backlogRow.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Plant bulbs");
+        var backlogMetadata = Assert.Single(backlogRow.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Home · inherited");
+        var backlogHandle = ButtonByAutomationId(window, $"backlog-reorder-{task.Id}");
+        var backlogDots = Assert.Single(backlogHandle.GetVisualDescendants().OfType<Grid>(),
+            grid => grid.Bounds.Width == 8 && grid.Bounds.Height == 12);
+        var backlogToggle = Assert.Single(backlogRow.GetVisualDescendants().OfType<ToggleButton>(),
+            button => AutomationProperties.GetAutomationId(button) == $"task-completion-{task.Id}");
+        var backlogCompletionBox = Assert.Single(backlogToggle.GetVisualDescendants().OfType<Border>(),
+            border => border.Name == "CompletionBox");
+        var backlogOrigin = OriginInWindow(backlogRow, window);
+        var backlogTitleOrigin = OriginInWindow(backlogTitle, window) - backlogOrigin;
+        var backlogMetadataOrigin = OriginInWindow(backlogMetadata, window) - backlogOrigin;
+        var backlogDotsCentre = CentreInWindow(backlogDots, window) - backlogOrigin;
+        var backlogCompletionCentre = CentreInWindow(backlogCompletionBox, window) - backlogOrigin;
+
+        Assert.Equal(12, taskMetadata.FontSize);
+        Assert.Equal(backlogMetadata.FontSize, taskMetadata.FontSize);
+        Assert.InRange(Math.Abs(projectDotsCentre.X - backlogDotsCentre.X), 0, 1);
+        Assert.InRange(Math.Abs(projectCompletionCentre.X - backlogCompletionCentre.X), 0, 1);
+        Assert.InRange(Math.Abs(projectTitleOrigin.X - backlogTitleOrigin.X), 0, 1);
+        Assert.InRange(Math.Abs(projectMetadataOrigin.X - backlogMetadataOrigin.X), 0, 1);
+        Assert.InRange(Math.Abs((projectDotsCentre.Y - projectTitleOrigin.Y) - (backlogDotsCentre.Y - backlogTitleOrigin.Y)), 0, 1);
+        Assert.InRange(Math.Abs((projectCompletionCentre.Y - projectTitleOrigin.Y) - (backlogCompletionCentre.Y - backlogTitleOrigin.Y)), 0, 1);
         window.Close();
     }
 
@@ -813,11 +897,13 @@ public sealed class ProjectCaptureWindowTests
 
         var picker = Assert.Single(window.GetVisualDescendants().OfType<CalendarDatePicker>());
         Assert.Contains("Due date", AutomationProperties.GetName(picker), StringComparison.Ordinal);
+        Assert.Equal(12, picker.FontSize);
         picker.Text = "2026-10-12";
         Activate(window, NamedButton(window, "Save"));
         Assert.Equal(new DateOnly(2026, 10, 12), work.Read().Tasks.Single().DueDate);
 
         picker.SelectedDate = new DateTime(2026, 10, 13);
+        Dispatcher.UIThread.RunJobs();
         Assert.Equal("2026-10-13", shell.Work!.Date);
         Activate(window, NamedButton(window, "Save"));
         Assert.Equal(new DateOnly(2026, 10, 13), work.Read().Tasks.Single().DueDate);
@@ -828,6 +914,244 @@ public sealed class ProjectCaptureWindowTests
         window.KeyReleaseQwerty(PhysicalKey.ArrowDown, RawInputModifiers.Alt);
         Dispatcher.UIThread.RunJobs();
         Assert.True(picker.IsDropDownOpen);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void DateEditorKeepsFixedWidthAndRejectsInvalidDraftWithFieldFeedback()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        work.CreateTask(project.Id, "Plant bulbs");
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Projects").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+        Activate(window, NamedButton(window, "Plant bulbs"));
+
+        var picker = Assert.Single(window.GetVisualDescendants().OfType<CalendarDatePicker>());
+        Assert.Equal(150, picker.Bounds.Width);
+        var editor = Assert.Single(picker.GetVisualDescendants().OfType<TextBox>());
+        Assert.True(editor.Focus());
+        editor.Text = "f";
+        Assert.Equal("f", Assert.IsType<InspectorDatePicker>(picker).RawText);
+        Assert.Equal("f", shell.Work!.Date);
+        Assert.Equal(150, picker.Bounds.Width);
+        var save = NamedButton(window, "Save");
+        Assert.True(save.Focus());
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("f", shell.Work!.Date);
+        Activate(window, save);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Null(work.Read().Tasks.Single().DueDate);
+        Assert.Equal("f", shell.Work!.Date);
+        Assert.NotEqual("Changes saved.", shell.Work.Message);
+        Assert.Contains("error", picker.Classes);
+        Assert.True(picker.IsKeyboardFocusWithin);
+        Assert.Equal("f", editor.Text);
+        var validation = Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(),
+            text => text.Classes.Contains("validation-message")
+                && text.Text == "Enter a valid date as YYYY-MM-DD, or leave it empty.");
+        Assert.True(validation.IsEffectivelyVisible);
+        Assert.Equal(validation.Text, AutomationProperties.GetHelpText(picker));
+
+        editor.Text = "2026-10-12";
+        Dispatcher.UIThread.RunJobs();
+        Assert.DoesNotContain("error", picker.Classes);
+        Assert.False(validation.IsEffectivelyVisible);
+
+        Assert.True(save.Focus());
+        Activate(window, save);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(new DateOnly(2026, 10, 12), work.Read().Tasks.Single().DueDate);
+
+        Assert.True(editor.Focus());
+        editor.Text = "f";
+        Assert.True(save.Focus());
+        Dispatcher.UIThread.RunJobs();
+        Activate(window, save);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(new DateOnly(2026, 10, 12), work.Read().Tasks.Single().DueDate);
+        Assert.Equal("f", shell.Work.Date);
+        Assert.Equal("f", editor.Text);
+        Assert.True(shell.Work.HasDateValidationError);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void LeavingAnUnchangedDatedInspectorDoesNotRequestDraftResolution()
+    {
+        var work = new MemoryWorkspaceWork();
+        work.CreateProject("Dated project", "", "home", new DateOnly(2026, 10, 12));
+        work.CreateProject("Next project", "", "work", new DateOnly(2026, 11, 5));
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Projects").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+
+        Activate(window, NamedButton(window, "Dated project"));
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(shell.Work!.IsDirty);
+        var picker = Assert.Single(window.GetVisualDescendants().OfType<CalendarDatePicker>());
+        Assert.True(Assert.Single(picker.GetVisualDescendants().OfType<TextBox>()).Focus());
+        Activate(window, NamedButton(window, "Next project"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(shell.Work.NeedsDecision);
+        Assert.Equal("Next project", shell.Work.Title);
+        Assert.Equal("2026-11-05", shell.Work.Date);
+        Assert.All(work.Read().Projects, project => Assert.True(project.Title is "Dated project" or "Next project"));
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void LeavingAnUnchangedTaskTitleDoesNotRequestDraftResolution()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        work.CreateTask(project.Id, "Plant bulbs");
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Projects").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+
+        Activate(window, NamedButton(window, "Plant bulbs"));
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(shell.Work!.IsDirty);
+        var title = window.FindControl<TextBox>("DraftTitle")!;
+        Assert.True(title.Focus());
+        Assert.Equal("Plant bulbs", title.Text);
+        Activate(window, NamedButton(window, "Garden"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(shell.Work.NeedsDecision);
+        Assert.Equal("Garden", shell.Work.Title);
+        Assert.Equal("Plant bulbs", work.Read().Tasks.Single().Title);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void ClickingAmongUnchangedInspectorsNeverRequestsDraftResolution()
+    {
+        var work = new MemoryWorkspaceWork();
+        var datedProject = work.CreateProject("Dated project", "Dated description", "home", new DateOnly(2026, 10, 12));
+        var undatedProject = work.CreateProject("Undated project", "Undated description", "work", null);
+        work.CreateTask(datedProject.Id, "Undated task");
+        var datedTask = work.CreateTask(undatedProject.Id, "Dated task");
+        work.UpdateTask(datedTask.Id, datedTask.Title, datedTask.Description, datedTask.ExplicitCategoryId, new DateOnly(2026, 11, 5));
+        work.CreateStandaloneTask("Standalone task", "Standalone description", "work", new DateOnly(2026, 12, 1));
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Projects").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+
+        var sequence = new[] { "Dated project", "Undated task", "Undated project", "Dated task" };
+        for (var iteration = 0; iteration < 10; iteration++)
+        {
+            foreach (var title in sequence)
+            {
+                Activate(window, NamedButton(window, title));
+                Dispatcher.UIThread.RunJobs();
+                Assert.False(shell.Work!.NeedsDecision, $"Selection of {title} requested draft resolution on iteration {iteration}.");
+                Assert.False(shell.Work.IsDirty, $"Selection of {title} produced an untouched dirty draft on iteration {iteration}.");
+
+                Assert.True(window.FindControl<TextBox>("DraftTitle")!.Focus());
+                var description = window.GetVisualDescendants().OfType<TextBox>()
+                    .Single(text => AutomationProperties.GetName(text) == "Description, Markdown source");
+                Assert.True(description.Focus());
+                var dateEditor = Assert.Single(window.FindControl<CalendarDatePicker>("DraftDate")!
+                    .GetVisualDescendants().OfType<TextBox>());
+                Assert.True(dateEditor.Focus());
+                var category = window.GetVisualDescendants().OfType<ComboBox>()
+                    .Single(combo => AutomationProperties.GetName(combo) == "Category");
+                Assert.True(category.Focus());
+                if (shell.Work.ShowTaskContext)
+                {
+                    var context = window.GetVisualDescendants().OfType<ComboBox>()
+                        .Single(combo => AutomationProperties.GetName(combo) == "Task context");
+                    Assert.True(context.Focus());
+                }
+            }
+        }
+
+        shell.PrimaryNavigation.Single(item => item.Title == "Categories").SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        Activate(window, NamedButton(window, "Standalone task"));
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(shell.Work!.IsDirty);
+        Assert.True(window.FindControl<TextBox>("DraftTitle")!.Focus());
+        Assert.True(window.GetVisualDescendants().OfType<ComboBox>()
+            .Single(combo => AutomationProperties.GetName(combo) == "Category").Focus());
+        Assert.True(window.GetVisualDescendants().OfType<ComboBox>()
+            .Single(combo => AutomationProperties.GetName(combo) == "Task context").Focus());
+
+        Activate(window, NamedButton(window, "Edit Work category"));
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(shell.Work.NeedsDecision);
+        Assert.False(shell.Work.IsDirty);
+        Assert.True(window.FindControl<TextBox>("DraftTitle")!.Focus());
+        Activate(window, NamedButton(window, "Edit Home category"));
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(shell.Work.NeedsDecision);
+        Assert.False(shell.Work.IsDirty);
+        Assert.Equal("Home", shell.Work.Title);
+
+        Assert.False(shell.Work!.NeedsDecision);
+        Assert.False(shell.Work.IsDirty);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void LeavingAnUntouchedCreateDraftDoesNotRequestDraftResolution()
+    {
+        var work = new MemoryWorkspaceWork();
+        work.CreateProject("Existing project", "", "home", null);
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Projects").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+
+        Activate(window, NamedButton(window, "New project"));
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(shell.Work!.IsDirty);
+        Activate(window, NamedButton(window, "Existing project"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(shell.Work.NeedsDecision);
+        Assert.Equal("Existing project", shell.Work.Title);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void DiscardingInvalidDateCannotDirtyTheNextInspectorThroughAQueuedRestore()
+    {
+        var work = new MemoryWorkspaceWork();
+        work.CreateProject("First project", "", "home", new DateOnly(2026, 10, 12));
+        work.CreateProject("Second project", "", "work", new DateOnly(2026, 11, 5));
+        work.CreateProject("Third project", "", "home", null);
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Projects").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+
+        Activate(window, NamedButton(window, "First project"));
+        Dispatcher.UIThread.RunJobs();
+        var date = window.FindControl<CalendarDatePicker>("DraftDate")!;
+        var editor = Assert.Single(date.GetVisualDescendants().OfType<TextBox>());
+        Assert.True(editor.Focus());
+        editor.Text = "f";
+        Activate(window, NamedButton(window, "Second project"));
+        Assert.True(shell.Work!.NeedsDecision);
+        shell.Work.DiscardAndLeaveCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("Second project", shell.Work.Title);
+        Assert.Equal("2026-11-05", shell.Work.Date);
+        Assert.False(shell.Work.IsDirty);
+        Activate(window, NamedButton(window, "Third project"));
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(shell.Work.NeedsDecision);
         window.Close();
     }
 
@@ -1007,12 +1331,357 @@ public sealed class ProjectCaptureWindowTests
         window.Close();
     }
 
+    [AvaloniaFact]
+    public void CategoriesUseSharedListRowsAndContextualInspectorEditing()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("A deliberately long project title", "", "work", null);
+        work.CreateTask(project.Id, "Attached task");
+        var shortProject = work.CreateProject("Potato Project", "", "work", null);
+        for (var index = 0; index < 8; index++) work.CreateTask(shortProject.Id, $"Potato task {index}");
+        work.CreateStandaloneTask("A deliberately long standalone task title", "", "work", new DateOnly(2026, 10, 6));
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Categories").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text =>
+            text.Text == "Select a project, task, or category\nto see its details");
+
+        var workCategory = window.GetVisualDescendants().OfType<Border>()
+            .Single(border => border.Classes.Contains("category-row")
+                && Assert.IsType<CategoryGroupViewModel>(border.DataContext).Id == "work");
+        Assert.Empty(workCategory.GetVisualDescendants().OfType<TextBox>());
+        Assert.DoesNotContain(workCategory.GetVisualDescendants().OfType<Button>(), button =>
+        {
+            var name = AutomationProperties.GetName(button) ?? string.Empty;
+            return name.StartsWith("Rename ", StringComparison.Ordinal)
+                || name.StartsWith("Delete ", StringComparison.Ordinal);
+        });
+
+        var projectButton = NamedButton(window, "A deliberately long project title");
+        var taskButton = NamedButton(window, "A deliberately long standalone task title");
+        var categoryHandle = ButtonByAutomationId(window, "category-reorder-work");
+        var categoryTitle = ButtonByAutomationId(window, "category-selection-work")
+            .GetVisualDescendants().OfType<TextBlock>().Single();
+        var handleDots = Assert.Single(categoryHandle.GetVisualDescendants().OfType<Grid>(), grid =>
+            grid.Bounds.Width == 8 && grid.Bounds.Height == 12);
+        var handleDotsOrigin = handleDots.TranslatePoint(default, window)!.Value;
+        var categoryTitleOrigin = categoryTitle.TranslatePoint(default, window)!.Value;
+        var handleToTitleGap = categoryTitleOrigin.X - handleDotsOrigin.X - handleDots.Bounds.Width;
+        Assert.InRange(handleToTitleGap, 16, 20);
+        Assert.Contains("project-title", projectButton.Classes);
+        Assert.Contains("task-title", taskButton.Classes);
+        Assert.Equal(Colors.Transparent, Assert.IsAssignableFrom<ISolidColorBrush>(projectButton.Background).Color);
+        Assert.Equal(Colors.Transparent, Assert.IsAssignableFrom<ISolidColorBrush>(taskButton.Background).Color);
+        AssertTitleMetadataGap(projectButton.GetVisualAncestors().OfType<Border>()
+            .First(border => border.Classes.Contains("category-project-row")), "A deliberately long project title", "0/1 tasks", window);
+        var shortProjectButton = NamedButton(window, "Potato Project");
+        var longCount = Assert.Single(projectButton.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "0/1 tasks");
+        var shortCount = Assert.Single(shortProjectButton.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "0/8 tasks");
+        var longCountRight = OriginInWindow(longCount, window).X + longCount.Bounds.Width;
+        var shortCountRight = OriginInWindow(shortCount, window).X + shortCount.Bounds.Width;
+        Assert.InRange(Math.Abs(longCountRight - shortCountRight), 0, 0.5);
+        Assert.Equal(12, longCount.FontSize);
+        Assert.Equal(TextAlignment.Right, longCount.TextAlignment);
+        Assert.Equal("Not started, 0/1 tasks", ControlAutomationPeer.CreatePeerForElement(projectButton).GetItemStatus());
+        AssertTitleMetadataGap(taskButton.GetVisualAncestors().OfType<Border>()
+            .First(border => border.Classes.Contains("category-task-row")), "A deliberately long standalone task title", "6 Oct 2026", window);
+
+        Activate(window, NamedButton(window, "New category"));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "New category");
+        Assert.True(window.FindControl<TextBox>("DraftTitle")!.IsFocused);
+        window.KeyTextInput("Uncommitted category");
+        Assert.DoesNotContain(work.Read().Categories, category => category.Name == "Uncommitted category");
+        Activate(window, NamedButton(window, "Cancel editing"));
+        Dispatcher.UIThread.RunJobs();
+        Assert.DoesNotContain(work.Read().Categories, category => category.Name == "Uncommitted category");
+        Assert.True(NamedButton(window, "New category").IsFocused);
+
+        Activate(window, NamedButton(window, "Edit Work category"));
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Category details");
+        Assert.Equal("Work", window.FindControl<TextBox>("DraftTitle")!.Text);
+        Assert.NotNull(NamedButton(window, "Delete category"));
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void CanvasAndInspectorScrollbarsReserveAGutterAtMinimumWindowSize()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Inspect me", new string('x', 300), "home", new DateOnly(2026, 10, 6));
+        for (var index = 0; index < 9; index++) work.CreateCategory($"Category {index}");
+        for (var index = 0; index < 8; index++)
+        {
+            work.CreateProject($"Project {index}", "", "work", null);
+            work.CreateStandaloneTask($"Backlog task {index}", "", "work", null);
+        }
+        foreach (var completed in work.Read().Tasks.Where(item => item.Title.StartsWith("Backlog", StringComparison.Ordinal)).Take(5))
+            work.CompleteTask(completed.Id);
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+
+        var currentView = Assert.IsType<Grid>(window.FindControl<Grid>("CurrentViewRegion"));
+        foreach (var viewName in new[] { "Projects", "Backlog", "Categories", "Completed" })
+        {
+            shell.PrimaryNavigation.Single(item => item.Title == viewName).SelectCommand.Execute(null);
+            Dispatcher.UIThread.RunJobs();
+            var canvasScroll = Assert.Single(currentView.GetVisualChildren().OfType<ScrollViewer>(), viewer => viewer.IsVisible);
+            Assert.Equal(32, Assert.IsAssignableFrom<Control>(canvasScroll.Content).Margin.Right);
+            if (viewName == "Categories")
+            {
+                var categoryRow = canvasScroll.GetVisualDescendants().OfType<Border>()
+                    .First(border => border.Classes.Contains("category-row"));
+                AssertRightScrollbarGutter(canvasScroll, categoryRow, window, 12);
+            }
+        }
+
+        shell.Work!.SelectTask(task.Id);
+        Dispatcher.UIThread.RunJobs();
+        var inspector = Assert.IsType<Border>(window.FindControl<Border>("InspectorRegion"));
+        var inspectorScroll = Assert.Single(inspector.GetVisualChildren().OfType<Grid>()
+            .SelectMany(grid => grid.GetVisualChildren().OfType<ScrollViewer>()), viewer => viewer.IsVisible);
+        Assert.Equal(32, Assert.IsAssignableFrom<Control>(inspectorScroll.Content).Margin.Right);
+        AssertRightScrollbarGutter(inspectorScroll, window.FindControl<TextBox>("DraftTitle")!, window, 12);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void InspectorTitleTextStaysInsideItsFocusBorderAcrossWorkContexts()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Aligned project", "", "home", null);
+        var task = work.CreateStandaloneTask("Aligned task", "", "work", null);
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+
+        foreach (var select in new Action[]
+                 {
+                     () => shell.Work!.SelectProject(project.Id),
+                     () => shell.Work!.SelectTask(task.Id),
+                 })
+        {
+            select();
+            Dispatcher.UIThread.RunJobs();
+            var titleText = Assert.Single(window.FindControl<TextBox>("DraftTitle")!
+                .GetVisualDescendants().OfType<TextPresenter>());
+            var titleBox = window.FindControl<TextBox>("DraftTitle")!;
+            var titleOrigin = titleText.TranslatePoint(default, window)!.Value;
+            var titleBoxOrigin = titleBox.TranslatePoint(default, window)!.Value;
+            Assert.InRange(titleOrigin.X - titleBoxOrigin.X, 4, 6);
+        }
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void InspectorActionsClearTheViewportBottomAtMaximumScroll()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Inspect me", new string('x', 600), "home", null);
+        var shell = new ShellViewModel(work);
+        shell.Work!.SelectTask(task.Id);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var inspector = window.FindControl<Border>("InspectorRegion")!;
+        var inspectorScroll = Assert.Single(inspector.GetVisualChildren().OfType<Grid>()
+            .SelectMany(grid => grid.GetVisualChildren().OfType<ScrollViewer>()), viewer => viewer.IsVisible);
+        inspectorScroll.Offset = new Vector(0, inspectorScroll.Extent.Height);
+        Dispatcher.UIThread.RunJobs();
+        var actions = window.FindControl<Grid>("InspectorActions")!;
+        var viewportOrigin = inspectorScroll.TranslatePoint(default, window)!.Value;
+        var actionsOrigin = actions.TranslatePoint(default, window)!.Value;
+        var bottomClearance = viewportOrigin.Y + inspectorScroll.Bounds.Height - actionsOrigin.Y - actions.Bounds.Height;
+        Assert.InRange(bottomClearance, 12, double.PositiveInfinity);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void CategoriesViewGroupsExistingOrdersAndOffersAccessibleCategoryReorder()
+    {
+        var work = new MemoryWorkspaceWork();
+        var homeFirst = work.CreateProject("Home first", "", "home", null);
+        var workProject = work.CreateProject("Work project", "", "work", null);
+        var homeSecond = work.CreateProject("Home second", "", "home", null);
+        work.CreateStandaloneTask("Home older", "", "home", null);
+        work.CreateStandaloneTask("Work task", "", "work", null);
+        work.CreateStandaloneTask("Home newest", "", "home", null);
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Categories").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+
+        var categoryRows = window.GetVisualDescendants().OfType<Border>()
+            .Where(border => border.Classes.Contains("category-row"))
+            .ToArray();
+        Assert.Equal(["Home", "Work"], categoryRows.Select(row => Assert.IsType<CategoryGroupViewModel>(row.DataContext).Name));
+        var home = categoryRows.Single(row => Assert.IsType<CategoryGroupViewModel>(row.DataContext).Id == "home");
+        Assert.Equal([homeFirst.Id, homeSecond.Id], home.GetVisualDescendants().OfType<Border>()
+            .Where(border => border.Classes.Contains("category-project-row"))
+            .Select(row => Assert.IsType<CategoryProjectRowViewModel>(row.DataContext).Project.Id));
+        Assert.Equal(["Home newest", "Home older"], home.GetVisualDescendants().OfType<Border>()
+            .Where(border => border.Classes.Contains("category-task-row"))
+            .Select(row => Assert.IsType<CategoryTaskRowViewModel>(row.DataContext).Task.Title));
+        Assert.DoesNotContain(workProject.Id, home.GetVisualDescendants().OfType<Border>()
+            .Where(border => border.Classes.Contains("category-project-row"))
+            .Select(row => Assert.IsType<CategoryProjectRowViewModel>(row.DataContext).Project.Id));
+        var taskButton = NamedButton(window, "Home newest");
+        Assert.Equal("Home · standalone", ControlAutomationPeer.CreatePeerForElement(taskButton).GetItemStatus());
+
+        var workHandle = ButtonByAutomationId(window, "category-reorder-work");
+        Activate(window, workHandle);
+        var menu = Assert.IsType<MenuFlyout>(workHandle.Flyout);
+        var items = menu.Items.OfType<MenuItem>().ToArray();
+        Assert.Equal(
+            ["Move Work to top of Categories", "Move Work up in Categories", "Move Work down in Categories", "Move Work to bottom of Categories"],
+            items.Select(AutomationProperties.GetName));
+        items.Single(item => item.Header?.ToString() == "Move to top").Command!.Execute(null);
+        menu.Hide();
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(ButtonByAutomationId(window, "category-reorder-work").IsFocused);
+        Assert.Equal(["Work", "Home"], shell.Work!.CategoryGroups.Select(category => category.Name));
+        Assert.Equal("Moved Work to position 1 of 2 in Categories.", shell.Work.ReorderAnnouncement);
+
+        workHandle = ButtonByAutomationId(window, "category-reorder-work");
+        var homeHandle = ButtonByAutomationId(window, "category-reorder-home");
+        var homeRow = homeHandle.GetVisualAncestors().OfType<Border>().First(border => border.Classes.Contains("category-row"));
+        DragToTarget(window, workHandle, homeHandle);
+        AssertInsertionLine(homeRow);
+        window.MouseUp(CentreInWindow(homeHandle, window), MouseButton.Left, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(["Home", "Work"], shell.Work.CategoryGroups.Select(category => category.Name));
+        Assert.True(ButtonByAutomationId(window, "category-reorder-work").IsFocused);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void ReferencedCategoryDeletionRequiresAReplacementAndMovesFocusIntoTheDecision()
+    {
+        var work = new MemoryWorkspaceWork();
+        work.CreateProject("Garden", "", "home", null);
+        work.CreateStandaloneTask("Home task", "", "home", null);
+        work.CreateCategory("Spare");
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Categories").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+
+        Activate(window, NamedButton(window, "Edit Spare category"));
+        Activate(window, NamedButton(window, "Delete category"));
+        Dispatcher.UIThread.RunJobs();
+        Assert.DoesNotContain(work.Read().Categories, category => category.Name == "Spare");
+        Assert.True(ButtonByAutomationId(window, "category-selection-work").IsFocused);
+
+        Activate(window, NamedButton(window, "Edit Home category"));
+        Activate(window, NamedButton(window, "Delete category"));
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(shell.Work!.NeedsCategoryReplacement);
+        var replacement = Assert.IsType<ComboBox>(window.FindControl<ComboBox>("CategoryReplacement"));
+        Assert.True(replacement.IsFocused);
+        Assert.Equal("Replacement category", AutomationProperties.GetName(replacement));
+        Assert.Equal("work", shell.Work.CategoryReplacement?.Id);
+
+        Activate(window, NamedButton(window, "Cancel category deletion"));
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(shell.Work.NeedsCategoryReplacement);
+        Assert.True(ButtonByAutomationId(window, "category-delete").IsFocused);
+
+        Activate(window, NamedButton(window, "Delete category"));
+        Dispatcher.UIThread.RunJobs();
+        Activate(window, NamedButton(window, "Replace references and delete category"));
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(shell.Work.NeedsCategoryReplacement);
+        Assert.True(ButtonByAutomationId(window, "category-selection-work").IsFocused);
+        Assert.DoesNotContain(work.Read().Categories, category => category.Id == "home");
+        Assert.All(work.Read().Projects, project => Assert.Equal("work", project.CategoryId));
+        Assert.Equal("work", Assert.Single(work.Read().Tasks).ExplicitCategoryId);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void TaskContextMismatchOffersPreserveOrAdoptBeforeMovingAndDetachMaterialisesCategory()
+    {
+        var work = new MemoryWorkspaceWork();
+        var homeProject = work.CreateProject("Home project", "", "home", null);
+        var workProject = work.CreateProject("Work project", "", "work", null);
+        var task = work.CreateStandaloneTask("Move me", "", "home", null);
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Backlog").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+        Activate(window, NamedButton(window, "Move me"));
+
+        shell.Work!.TaskContextTarget = shell.Work.TaskContextChoices.Single(choice => choice.ProjectId == workProject.Id);
+        Activate(window, NamedButton(window, "Attach to project"));
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(shell.Work.NeedsAttachmentChoice);
+        var preserve = Assert.IsType<Button>(window.FindControl<Button>("PreserveTaskCategory"));
+        Assert.True(preserve.IsFocused);
+        Assert.Equal("Keep Home as override", AutomationProperties.GetName(preserve));
+        Assert.Equal("Adopt Work", AutomationProperties.GetName(NamedButton(window, "Adopt Work")));
+        Assert.Null(work.Read().Tasks.Single(item => item.Id == task.Id).ProjectId);
+
+        Activate(window, NamedButton(window, "Cancel task move"));
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(shell.Work.NeedsAttachmentChoice);
+        Assert.True(shell.Work.HasInspector);
+        Assert.True(Assert.IsType<Button>(window.FindControl<Button>("ChangeTaskContextButton")).IsFocused);
+        Assert.Null(work.Read().Tasks.Single(item => item.Id == task.Id).ProjectId);
+
+        Activate(window, NamedButton(window, "Attach to project"));
+        Dispatcher.UIThread.RunJobs();
+        Activate(window, NamedButton(window, "Adopt Work"));
+        Dispatcher.UIThread.RunJobs();
+        var adopted = work.Read().Tasks.Single(item => item.Id == task.Id);
+        Assert.Equal(workProject.Id, adopted.ProjectId);
+        Assert.Null(adopted.ExplicitCategoryId);
+
+        shell.Work.TaskContextTarget = shell.Work.TaskContextChoices.Single(choice => choice.ProjectId is null);
+        Activate(window, NamedButton(window, "Detach to standalone"));
+        var detached = work.Read().Tasks.Single(item => item.Id == task.Id);
+        Assert.Null(detached.ProjectId);
+        Assert.Equal("work", detached.ExplicitCategoryId);
+
+        shell.Work.TaskContextTarget = shell.Work.TaskContextChoices.Single(choice => choice.ProjectId == homeProject.Id);
+        Activate(window, NamedButton(window, "Attach to project"));
+        Assert.True(shell.Work.NeedsAttachmentChoice);
+        Activate(window, NamedButton(window, "Cancel task move"));
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(shell.Work.HasInspector);
+        Assert.True(Assert.IsType<Button>(window.FindControl<Button>("ChangeTaskContextButton")).IsFocused);
+        window.Close();
+    }
+
     private static void AssertStatusColour(Window window, string status, string expectedClass, Color expectedColour)
     {
         var text = Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(), item => item.Text == status);
         Assert.Contains("status-marker", text.Classes);
         Assert.Contains(expectedClass, text.Classes);
         Assert.Equal(expectedColour, Assert.IsAssignableFrom<ISolidColorBrush>(text.Foreground).Color);
+    }
+
+    private static void AssertTitleMetadataGap(Control row, string title, string metadata, Window window)
+    {
+        var titleText = row.GetVisualDescendants().OfType<TextBlock>().Single(text => text.Text == title);
+        var metadataText = row.GetVisualDescendants().OfType<TextBlock>().Single(text => text.Text == metadata);
+        var titleOrigin = titleText.TranslatePoint(default, window)!.Value;
+        var metadataOrigin = metadataText.TranslatePoint(default, window)!.Value;
+        var gap = metadataOrigin.X - titleOrigin.X - titleText.Bounds.Width;
+        Assert.True(gap >= 12, $"The title-to-metadata gap was {gap:0.##} pixels.");
+    }
+
+    private static void AssertRightScrollbarGutter(ScrollViewer viewer, Control content, Window window, double minimum)
+    {
+        var scrollbar = Assert.Single(viewer.GetVisualDescendants().OfType<ScrollBar>(), bar =>
+            bar.Orientation == Orientation.Vertical && bar.IsEffectivelyVisible);
+        var contentOrigin = content.TranslatePoint(default, window)!.Value;
+        var scrollbarOrigin = scrollbar.TranslatePoint(default, window)!.Value;
+        var gap = scrollbarOrigin.X - contentOrigin.X - content.Bounds.Width;
+        Assert.True(gap >= minimum, $"The content-to-scrollbar gap was {gap:0.##} pixels.");
     }
 
     private static void AssertInteractiveRowHover(Window window, Border row, Button title, params Control[] otherChildren)

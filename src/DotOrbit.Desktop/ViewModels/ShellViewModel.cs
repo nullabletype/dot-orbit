@@ -71,6 +71,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             Work.Projects.CollectionChanged += (_, _) => UpdateCounts();
             Work.Backlog.CollectionChanged += (_, _) => UpdateCounts();
             Work.Completed.CollectionChanged += (_, _) => UpdateCounts();
+            Work.CategoryGroups.CollectionChanged += (_, _) => UpdateCounts();
             UpdateCounts();
         }
     }
@@ -97,6 +98,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(ShowProjects));
             OnPropertyChanged(nameof(ShowBacklog));
             OnPropertyChanged(nameof(ShowCompleted));
+            OnPropertyChanged(nameof(ShowCategories));
             OnPropertyChanged(nameof(ShowEmpty));
             OnPropertyChanged(nameof(ViewSubtitle));
             OnPropertyChanged(nameof(EmptyStateHeading));
@@ -109,7 +111,8 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     public bool ShowProjects => Work is not null && ViewTitle == "Projects";
     public bool ShowBacklog => Work is not null && ViewTitle == "Backlog";
     public bool ShowCompleted => Work is not null && ViewTitle == "Completed";
-    public bool ShowEmpty => !ShowProjects && !ShowBacklog && !ShowCompleted;
+    public bool ShowCategories => Work is not null && ViewTitle == "Categories";
+    public bool ShowEmpty => !ShowProjects && !ShowBacklog && !ShowCompleted && !ShowCategories;
 
     public string ViewTitle => SelectedItem.Title;
 
@@ -169,6 +172,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         PrimaryNavigation.Single(n => n.Title == "Projects").CountText = Work!.Projects.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
         PrimaryNavigation.Single(n => n.Title == "Backlog").CountText = Work.Backlog.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
         PrimaryNavigation.Single(n => n.Title == "Completed").CountText = Work.Completed.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        PrimaryNavigation.Single(n => n.Title == "Categories").CountText = Work.CategoryGroups.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>

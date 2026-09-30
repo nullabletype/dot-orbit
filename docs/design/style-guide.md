@@ -25,6 +25,7 @@ The implemented tokens live in `src/DotOrbit.Desktop/Styles/Tokens.axaml`. Use t
 | State | `SuccessBrush`, `AmberBrush`, `ErrorBrush` | Positive/completed, attention/in-progress and validation/error. Always add a non-colour cue. |
 | Type | `AppFont`, `TypeSizeEyebrow`, `TypeSizeBody`, `TypeSizeTitle` | Inter; 12px labels/metadata, 14px body, 20px inspector titles. Headings may step above these roles locally. |
 | Spacing | `PanelInset`, `NavigationContentInset`, plus 4/6/8/10/12/20/24/32/44px increments | Use 10px equal list-panel insets and a 7px gutter between the navigation indicator and content. Add spacing between groups, not after a final group. |
+| Scrolling | `ScrollContentInset`, `InspectorScrollContentInset` | Reserve a right gutter inside every canvas and inspector scroller so an overlay scrollbar remains separate from content at the 1120×600 minimum window size. The inspector also reserves bottom clearance after its actions. |
 | Sizing | `ControlHitSize`, `ControlGlyphSize` | Compact actions retain a 30px hit target; completion uses one centred 22px visual square. |
 | Radius | `PanelRadius`, `ControlRadius`, `CompactControlRadius` | 10px panels, 8px fields/actions and 6px compact controls. Rows remain visually quieter than panels. |
 | Border and focus | `ControlBorder`, `FocusBorder` | 1px normal borders and a visible 2px keyboard-focus treatment. Focus must remain external to the completion glyph surface. |
@@ -39,6 +40,7 @@ The implemented recipes live in `src/DotOrbit.Desktop/Styles/ComponentRecipes.ax
 - `list-panel` supplies the shared surface, border, radius and equal 10px inset. Nested groups may add spacing between groups only.
 - `empty-state` supplies the bounded transparent surface. It needs a plain-language heading, explanation and, when applicable, a keyboard-operable next action.
 - A panel does not gain a raised background merely to create visual layers; reserve the raised surface for interaction or deliberate hierarchy.
+- Canvas content uses `ScrollContentInset` and inspector content uses `InspectorScrollContentInset`; scrollbars must not cover text, fields, row actions or panel borders at the minimum window size.
 
 ### Rows and titles
 
@@ -46,6 +48,7 @@ The implemented recipes live in `src/DotOrbit.Desktop/Styles/ComponentRecipes.ax
 - `row-title` remains transparent and borderless on hover and press. Keyboard focus retains the visible pink border.
 - `separated-row` uses a soft bottom rule only between peers. Add `last` to the final row of each independent list or Completed group. There is no trailing divider or trailing group margin.
 - A Project header owns hover independently of its expanded child region. Equal panel insets apply to Backlog and Completed list panels; Project cards retain their accepted header/child geometry.
+- Expanded Project Tasks use the same leading columns, two-line text rhythm, and vertically centred drag and completion controls as Backlog Tasks. The nested block has a small additional left inset so its handle and title sit to the right of the parent Project equivalents. Adjacent Project drag and disclosure controls retain a visible 4px gap. Project and Task date metadata, including “No date”, uses 12px type. Category Project progress counts occupy a right-aligned trailing column rather than following titles of different lengths.
 
 ### Reordering
 
@@ -64,7 +67,7 @@ The implemented recipes live in `src/DotOrbit.Desktop/Styles/ComponentRecipes.ax
 
 - Status markers combine a dot or other shape with text. Neutral means not started, amber means in progress or attention, and green means complete or positive.
 - `status-badge` is compact supplementary information, never the only announcement of important state.
-- Inspector fields reuse `inspector-title` and `inspector-field`. Date controls use the same field surface and remain keyboard operable.
+- Inspector fields reuse `inspector-title` and `inspector-field`. The editable title keeps a modest horizontal inset so glyphs remain inside its focus border, without recreating the original pronounced indent. Date controls use the same field surface, use 12px input and calendar typography, and remain keyboard operable.
 - Validation uses an error border plus nearby `validation-message` text that states the correction. Do not encode “invalid” only in red.
 
 ## Component-state matrix
@@ -87,6 +90,8 @@ The implemented recipes live in `src/DotOrbit.Desktop/Styles/ComponentRecipes.ax
 | Badge | accent surface plus short text | N/A unless actionable | Action owns focus if actionable | Count/state in text | Muted if unavailable | N/A |
 | Inspector field | input surface and strong border | framework hover | visible focus border | Selected value remains textual | Framework-disabled | error border plus correction text |
 | Date control | input surface and visible value | framework hover | keyboard calendar opening and visible focus | selected date in text | Framework-disabled | error border plus correction text |
+
+Inspector date controls retain a fixed 150px width for empty, valid, and invalid input. Unparseable manual input remains a draft, cannot be saved as an empty date, and is identified at the field with correction text and accessible help.
 | Empty state | heading and explanation | Action follows its button recipe | Action owns focus | N/A | N/A | N/A |
 | Validation feedback | Absent for valid input | N/A | Invalid field remains focusable | N/A | N/A | error border, explicit text and accessible relationship |
 

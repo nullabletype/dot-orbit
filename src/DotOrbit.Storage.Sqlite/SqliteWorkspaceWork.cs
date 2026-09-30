@@ -147,6 +147,87 @@ internal sealed class SqliteWorkspaceWork(
 
     public WorkspaceWorkSnapshot Read() => Guard(() => transactions.Read(ReadSnapshot));
 
+    public WorkspaceCategory CreateCategory(string name)
+    {
+        name = NormalizeCategoryName(name);
+        WorkspaceCategory? result = null;
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            EnsureCategoryNameAvailable(connection, transaction, name);
+            var position = EncryptedWorkspaceStore.ExecuteScalar<long>(connection,
+                "SELECT COALESCE(MAX(position), -1) + 1 FROM categories;", transaction);
+            result = new WorkspaceCategory(store.GetIdentifier(), name, position);
+            Execute(connection, transaction,
+                "INSERT INTO categories (id,name,position) VALUES ($id,$name,$position);",
+                ("$id", result.Id), ("$name", result.Name), ("$position", result.Position));
+        }));
+        return result!;
+    }
+
+    public WorkspaceCategory RenameCategory(string id, string name)
+    {
+        name = NormalizeCategoryName(name);
+        WorkspaceCategory? result = null;
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            Require(connection, transaction, "categories", id);
+            EnsureCategoryNameAvailable(connection, transaction, name, id);
+            Execute(connection, transaction, "UPDATE categories SET name=$name WHERE id=$id;",
+                ("$id", id), ("$name", name));
+            result = ReadSnapshot(connection, transaction).Categories.Single(category => category.Id == id);
+        }));
+        return result!;
+    }
+
+    public void DeleteCategory(string id, string? replacementCategoryId = null)
+    {
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            Require(connection, transaction, "categories", id);
+            var categoryIds = ReadIds(connection, transaction, "SELECT id FROM categories ORDER BY position,id;");
+            if (categoryIds.Count == 1) throw new InvalidOperationException("The final Category cannot be deleted.");
+
+            using var referenceCommand = connection.CreateCommand();
+            referenceCommand.Transaction = transaction;
+            referenceCommand.CommandText = "SELECT (SELECT COUNT(*) FROM projects WHERE category_id=$id)"
+                + " + (SELECT COUNT(*) FROM tasks WHERE explicit_category_id=$id);";
+            referenceCommand.Parameters.AddWithValue("$id", id);
+            var referenceCount = (long)referenceCommand.ExecuteScalar()!;
+            if (referenceCount > 0)
+            {
+                if (replacementCategoryId is null || string.Equals(id, replacementCategoryId, StringComparison.Ordinal))
+                    throw new ArgumentException("A distinct replacement Category is required.", nameof(replacementCategoryId));
+                Require(connection, transaction, "categories", replacementCategoryId);
+                Execute(connection, transaction, "UPDATE projects SET category_id=$replacement WHERE category_id=$id;",
+                    ("$replacement", replacementCategoryId), ("$id", id));
+                Execute(connection, transaction, "UPDATE tasks SET explicit_category_id=$replacement WHERE explicit_category_id=$id;",
+                    ("$replacement", replacementCategoryId), ("$id", id));
+            }
+            else if (replacementCategoryId is not null)
+            {
+                throw new ArgumentException("An unreferenced Category does not need a replacement.", nameof(replacementCategoryId));
+            }
+
+            Execute(connection, transaction, "DELETE FROM categories WHERE id=$id;", ("$id", id));
+            categoryIds.Remove(id);
+            RewriteOrder(connection, transaction, "categories", "position", categoryIds);
+        }));
+    }
+
+    public CategoryOrderChange MoveCategory(string id, int targetPosition)
+    {
+        CategoryOrderChange? result = null;
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            Require(connection, transaction, "categories", id);
+            var orderedIds = ReadIds(connection, transaction, "SELECT id FROM categories ORDER BY position,id;");
+            Move(orderedIds, id, targetPosition);
+            RewriteOrder(connection, transaction, "categories", "position", orderedIds);
+            result = new(id, targetPosition + 1, orderedIds.Count);
+        }));
+        return result!;
+    }
+
     public ProjectRecord CreateProject(string title, string description, string categoryId, DateOnly? targetDate)
     {
         title = WorkTitle.Normalize(title);
@@ -329,6 +410,71 @@ internal sealed class SqliteWorkspaceWork(
         return result!;
     }
 
+    public TaskRecord DetachTask(string id)
+    {
+        TaskRecord? result = null;
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            Require(connection, transaction, "tasks", id);
+            var snapshot = ReadSnapshot(connection, transaction);
+            var task = snapshot.Tasks.Single(item => item.Id == id);
+            if (task.ProjectId is null) throw new ArgumentException("The Task is already standalone.", nameof(id));
+            var effectiveCategoryId = EffectiveCategoryId(snapshot, task);
+            var sourceProjectId = task.ProjectId;
+            Execute(connection, transaction,
+                "UPDATE tasks SET project_id=NULL, project_position=NULL, explicit_category_id=$category WHERE id=$id;",
+                ("$category", effectiveCategoryId), ("$id", id));
+            var sourceIds = ReadIds(connection, transaction,
+                "SELECT id FROM tasks WHERE project_id=$project ORDER BY project_position,id;", ("$project", sourceProjectId));
+            RewriteProjectTaskOrder(connection, transaction, sourceProjectId, sourceIds);
+            result = ReadSnapshot(connection, transaction).Tasks.Single(item => item.Id == id);
+        }));
+        return result!;
+    }
+
+    public TaskRecord AttachTask(string id, string projectId, TaskAttachmentCategoryChoice? categoryChoice = null)
+    {
+        TaskRecord? result = null;
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            Require(connection, transaction, "tasks", id);
+            Require(connection, transaction, "projects", projectId);
+            var snapshot = ReadSnapshot(connection, transaction);
+            var task = snapshot.Tasks.Single(item => item.Id == id);
+            if (string.Equals(task.ProjectId, projectId, StringComparison.Ordinal))
+                throw new ArgumentException("The Task already belongs to this Project.", nameof(projectId));
+            var effectiveCategoryId = EffectiveCategoryId(snapshot, task);
+            var targetCategoryId = snapshot.Projects.Single(project => project.Id == projectId).CategoryId;
+            var categoriesMatch = string.Equals(effectiveCategoryId, targetCategoryId, StringComparison.Ordinal);
+            if (!categoriesMatch && categoryChoice is null)
+                throw new ArgumentException("Choose whether to preserve or adopt the Project Category.", nameof(categoryChoice));
+            if (categoryChoice is not null && !Enum.IsDefined(categoryChoice.Value))
+                throw new ArgumentOutOfRangeException(nameof(categoryChoice));
+
+            var sourceProjectId = task.ProjectId;
+            Execute(connection, transaction,
+                "UPDATE tasks SET project_id=NULL, project_position=NULL, explicit_category_id=$category WHERE id=$id;",
+                ("$category", effectiveCategoryId), ("$id", id));
+            if (sourceProjectId is not null)
+            {
+                var sourceIds = ReadIds(connection, transaction,
+                    "SELECT id FROM tasks WHERE project_id=$project ORDER BY project_position,id;", ("$project", sourceProjectId));
+                RewriteProjectTaskOrder(connection, transaction, sourceProjectId, sourceIds);
+            }
+
+            var destinationIds = ReadIds(connection, transaction,
+                "SELECT id FROM tasks WHERE project_id=$project ORDER BY project_position,id;", ("$project", projectId));
+            var explicitCategoryId = categoriesMatch || categoryChoice == TaskAttachmentCategoryChoice.AdoptProjectCategory
+                ? null
+                : effectiveCategoryId;
+            Execute(connection, transaction,
+                "UPDATE tasks SET project_id=$project, project_position=$position, explicit_category_id=$category WHERE id=$id;",
+                ("$project", projectId), ("$position", destinationIds.Count), ("$category", explicitCategoryId), ("$id", id));
+            result = ReadSnapshot(connection, transaction).Tasks.Single(item => item.Id == id);
+        }));
+        return result!;
+    }
+
     private static WorkspaceWorkSnapshot ReadSnapshot(SqliteConnection connection, SqliteTransaction? transaction = null)
     {
         var categories = new List<WorkspaceCategory>();
@@ -407,11 +553,46 @@ internal sealed class SqliteWorkspaceWork(
 
     private static void RewriteProjectTaskOrder(SqliteConnection connection, SqliteTransaction transaction, string projectId, List<string> orderedIds)
     {
+        using var offsetCommand = connection.CreateCommand();
+        offsetCommand.Transaction = transaction;
+        offsetCommand.CommandText = "SELECT COALESCE(MAX(project_position), -1) + $count + 1 FROM tasks WHERE project_id=$project;";
+        offsetCommand.Parameters.AddWithValue("$count", orderedIds.Count);
+        offsetCommand.Parameters.AddWithValue("$project", projectId);
+        var offset = (long)offsetCommand.ExecuteScalar()!;
         Execute(connection, transaction,
             "UPDATE tasks SET project_position = project_position + $offset WHERE project_id=$project;",
-            ("$offset", orderedIds.Count), ("$project", projectId));
+            ("$offset", offset), ("$project", projectId));
         for (var position = 0; position < orderedIds.Count; position++)
             Execute(connection, transaction, "UPDATE tasks SET project_position=$position WHERE id=$id;", ("$position", position), ("$id", orderedIds[position]));
+    }
+
+    private static string EffectiveCategoryId(WorkspaceWorkSnapshot snapshot, TaskRecord task) =>
+        task.ExplicitCategoryId
+        ?? snapshot.Projects.Single(project => project.Id == task.ProjectId).CategoryId;
+
+    private static string NormalizeCategoryName(string name)
+    {
+        var validation = CategoryName.Create(name);
+        if (!validation.IsValid) throw new ArgumentException("A Category name is required.", nameof(name));
+        return validation.CategoryName!.Value;
+    }
+
+    private static void EnsureCategoryNameAvailable(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string name,
+        string? exceptId = null)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT id, name FROM categories;";
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            if (!string.Equals(reader.GetString(0), exceptId, StringComparison.Ordinal)
+                && StringComparer.OrdinalIgnoreCase.Equals(reader.GetString(1), name))
+                throw new ArgumentException("Category names must be unique case-insensitively.", nameof(name));
+        }
     }
 
     private static string? Date(DateOnly? date) => date?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);

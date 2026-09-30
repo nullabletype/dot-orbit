@@ -3,6 +3,10 @@ namespace DotOrbit.Core.Workspaces;
 public interface IWorkspaceWork
 {
     WorkspaceWorkSnapshot Read();
+    WorkspaceCategory CreateCategory(string name);
+    WorkspaceCategory RenameCategory(string id, string name);
+    void DeleteCategory(string id, string? replacementCategoryId = null);
+    CategoryOrderChange MoveCategory(string id, int targetPosition);
     ProjectRecord CreateProject(string title, string description, string categoryId, DateOnly? targetDate);
     TaskRecord CreateTask(string projectId, string title);
     TaskRecord CreateStandaloneTask(string title, string description, string categoryId, DateOnly? dueDate);
@@ -13,6 +17,14 @@ public interface IWorkspaceWork
     SharedTaskOrderChange MoveTaskInSharedOrder(string id, int targetPosition);
     ProjectOrderChange MoveProject(string id, int targetPosition);
     ProjectTaskOrderChange MoveTaskInProject(string projectId, string taskId, int targetPosition);
+    TaskRecord DetachTask(string id);
+    TaskRecord AttachTask(string id, string projectId, TaskAttachmentCategoryChoice? categoryChoice = null);
+}
+
+public enum TaskAttachmentCategoryChoice
+{
+    PreserveEffectiveCategory,
+    AdoptProjectCategory,
 }
 
 public sealed record WorkspaceCategory(string Id, string Name, long Position);
@@ -35,6 +47,7 @@ public sealed record WorkspaceWorkSnapshot(IReadOnlyList<WorkspaceCategory> Cate
 public sealed record SharedTaskOrderChange(string TaskId, int Position, int Count);
 public sealed record ProjectOrderChange(string ProjectId, int Position, int Count);
 public sealed record ProjectTaskOrderChange(string ProjectId, string TaskId, int Position, int Count);
+public sealed record CategoryOrderChange(string CategoryId, int Position, int Count);
 
 public sealed class WorkspaceWorkException : Exception
 {

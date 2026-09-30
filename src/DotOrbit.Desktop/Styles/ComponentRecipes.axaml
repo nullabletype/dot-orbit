@@ -116,11 +116,25 @@
     <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
     <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />
   </Style>
+  <Style Selector="Border.category-row">
+    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+    <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />
+  </Style>
   <Style Selector="Border.project-header-row"><Setter Property="CornerRadius" Value="9" /></Style>
   <Style Selector="Border.project-header-row.expanded"><Setter Property="CornerRadius" Value="9,9,0,0" /></Style>
   <Style Selector="Border.reorder-target.drag-target">
     <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
     <Setter Property="BorderThickness" Value="0,0,0,2" />
+  </Style>
+  <Style Selector="Border.decision-overlay">
+    <Setter Property="Padding" Value="24" />
+    <Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="14" />
+    <Setter Property="BoxShadow" Value="0 14 38 0 #99000000" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
   </Style>
 
   <Style Selector="ToggleButton.disclosure">
@@ -192,13 +206,17 @@
     <Setter Property="Foreground" Value="{StaticResource ErrorBrush}" />
     <Setter Property="FontSize" Value="{StaticResource TypeSizeEyebrow}" />
   </Style>
-  <Style Selector="TextBox.inspector-field.error, ComboBox.inspector-field.error">
+  <Style Selector="TextBox.inspector-title.error, TextBox.inspector-field.error, ComboBox.inspector-field.error, :is(CalendarDatePicker).inspector-field.error">
     <Setter Property="BorderBrush" Value="{StaticResource ErrorBrush}" />
   </Style>
-  <Style Selector="CalendarDatePicker.inspector-field">
+  <Style Selector=":is(CalendarDatePicker).inspector-field">
+    <Setter Property="Width" Value="150" />
+    <Setter Property="HorizontalAlignment" Value="Left" />
     <Setter Property="Background" Value="{StaticResource PanelInputBrush}" />
     <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
     <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />
     <Setter Property="CornerRadius" Value="{StaticResource ControlRadius}" />
+    <Setter Property="FontSize" Value="{StaticResource TypeSizeEyebrow}" />
   </Style>
+  <Style Selector="Calendar"><Setter Property="FontSize" Value="{StaticResource TypeSizeEyebrow}" /></Style>
 </Styles>

@@ -77,7 +77,7 @@ public sealed class MainWindowTests
         Assert.Equal("WORKSPACE", window.FindControl<TextBlock>("WorkspaceLabelText")?.Text);
         Assert.Equal("PERSONAL WORKSPACE", window.FindControl<TextBlock>("CurrentViewEyebrowText")?.Text);
         Assert.Equal(
-            "Select a project or task\nto see its details",
+            "Select a project, task, or category\nto see its details",
             window.FindControl<TextBlock>("InspectorEmptyText")?.Text);
         Assert.NotNull(window.FindControl<Border>("TopBar"));
         Assert.NotNull(window.FindControl<Border>("InspectorRegion"));
