@@ -14,7 +14,7 @@ namespace DotOrbit.Desktop.Views;
 
 public sealed partial class MainWindow : Window
 {
-    private enum DragScope { None, Backlog, Projects, ProjectTasks }
+    private enum DragScope { None, Backlog, Projects, ProjectTasks, Categories }
 
     private IWorkspaceSession? _session;
     private bool _closingApproved;
@@ -98,6 +98,11 @@ public sealed partial class MainWindow : Window
     private void OnDateRefreshTick(object? sender, EventArgs e) => RefreshDatePresentation();
     private void RefreshDatePresentation() => (DataContext as ShellViewModel)?.Work?.RefreshDatePresentation();
 
+    private void OnDateValidationError(object? sender, CalendarDatePickerDateValidationErrorEventArgs e)
+    {
+        e.ThrowException = false;
+    }
+
     private void OnWorkChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(ProjectCaptureViewModel.NeedsDecision)
@@ -109,6 +114,11 @@ public sealed partial class MainWindow : Window
                         radio.SetCurrentValue(RadioButton.IsCheckedProperty, navigation.IsSelected);
                 this.FindControl<Button>("GuardSave")?.Focus();
             });
+        if (e.PropertyName == nameof(ProjectCaptureViewModel.DateValidationMessage)
+            && sender is ProjectCaptureViewModel { HasDateValidationError: true })
+            Dispatcher.UIThread.Post(
+                () => this.FindControl<CalendarDatePicker>("DraftDate")?.Focus(),
+                DispatcherPriority.ApplicationIdle);
         if (e.PropertyName == nameof(ProjectCaptureViewModel.CompletionFocusAutomationId)
             && sender is ProjectCaptureViewModel { CompletionFocusAutomationId.Length: > 0 } work)
             Dispatcher.UIThread.Post(() => this.GetVisualDescendants().OfType<Control>()
@@ -120,7 +130,28 @@ public sealed partial class MainWindow : Window
             Dispatcher.UIThread.Post(() => this.GetVisualDescendants().OfType<Control>()
                 .FirstOrDefault(control => AutomationProperties.GetAutomationId(control) == reordered.ReorderFocusAutomationId)?.Focus(),
                 DispatcherPriority.ApplicationIdle);
+        if (e.PropertyName == nameof(ProjectCaptureViewModel.DialogReturnFocusAutomationId)
+            && sender is ProjectCaptureViewModel { DialogReturnFocusAutomationId.Length: > 0 } dialogWork)
+            Dispatcher.UIThread.Post(() => FocusAutomationId(dialogWork.DialogReturnFocusAutomationId), DispatcherPriority.ApplicationIdle);
+        if (e.PropertyName == nameof(ProjectCaptureViewModel.NeedsCategoryReplacement)
+            && sender is ProjectCaptureViewModel categoryWork)
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (categoryWork.NeedsCategoryReplacement) this.FindControl<ComboBox>("CategoryReplacement")?.Focus();
+                else FocusAutomationId(categoryWork.DialogReturnFocusAutomationId);
+            }, DispatcherPriority.ApplicationIdle);
+        if (e.PropertyName == nameof(ProjectCaptureViewModel.NeedsAttachmentChoice)
+            && sender is ProjectCaptureViewModel attachmentWork)
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (attachmentWork.NeedsAttachmentChoice) this.FindControl<Button>("PreserveTaskCategory")?.Focus();
+                else this.FindControl<Button>("ChangeTaskContextButton")?.Focus();
+            }, DispatcherPriority.ApplicationIdle);
     }
+
+    private void FocusAutomationId(string automationId) => this.GetVisualDescendants().OfType<Control>()
+        .FirstOrDefault(control => control.IsEffectivelyVisible
+            && AutomationProperties.GetAutomationId(control) == automationId)?.Focus();
 
     private void Navigate(Action action)
     {
@@ -139,7 +170,9 @@ public sealed partial class MainWindow : Window
     {
         if (DataContext is ShellViewModel { Work.NeedsDecision: true }) this.FindControl<Button>("GuardSave")?.Focus();
         else if (DataContext is ShellViewModel { Work.HasInspector: true }) this.FindControl<TextBox>("DraftTitle")?.Focus();
-        else this.FindControl<Button>("NewProjectButton")?.Focus();
+        else if (this.FindControl<Button>("NewProjectButton") is { IsEffectivelyVisible: true } projectButton) projectButton.Focus();
+        else if (this.FindControl<Button>("NewTaskButton") is { IsEffectivelyVisible: true } taskButton) taskButton.Focus();
+        else if (this.FindControl<Button>("NewCategoryButton") is { IsEffectivelyVisible: true } categoryButton) categoryButton.Focus();
     });
 
     private void OnQuickAddKeyDown(object? sender, KeyEventArgs e)
@@ -193,6 +226,12 @@ public sealed partial class MainWindow : Window
             _draggedProjectId = projectId;
             return;
         }
+        if (handle?.Classes.Contains("category-drag-handle") == true && handle.DataContext is CategoryGroupViewModel category)
+        {
+            _dragScope = DragScope.Categories;
+            _draggedId = category.Id;
+            return;
+        }
         if (hit is Button || hit?.GetVisualAncestors().OfType<Button>().Any() == true) return;
         var row = (hit as Border)?.Classes.Contains("backlog-row") == true
             ? (Border?)hit
@@ -209,6 +248,7 @@ public sealed partial class MainWindow : Window
             DragScope.Backlog => "backlog-row",
             DragScope.Projects => "project-row",
             DragScope.ProjectTasks => "project-task-row",
+            DragScope.Categories => "category-row",
             _ => string.Empty,
         };
         var target = FindRow(hit, targetClass);
@@ -247,6 +287,7 @@ public sealed partial class MainWindow : Window
         }
         var target = _dragTarget?.DataContext as TaskRowViewModel;
         var targetProject = _dragTarget?.DataContext as ProjectRowViewModel;
+        var targetCategory = _dragTarget?.DataContext as CategoryGroupViewModel;
         _dragTarget?.Classes.Remove("drag-target");
         _dragTarget = null;
         var draggedId = _draggedId;
@@ -259,6 +300,8 @@ public sealed partial class MainWindow : Window
             work.DragProject(draggedId, targetProject.Id);
         else if (dragScope == DragScope.ProjectTasks && target is not null && draggedProjectId is not null)
             work.DragProjectTask(draggedProjectId, draggedId, target.Id);
+        else if (dragScope == DragScope.Categories && targetCategory is not null)
+            work.DragCategory(draggedId, targetCategory.Id);
         else return;
         e.Handled = true;
     }

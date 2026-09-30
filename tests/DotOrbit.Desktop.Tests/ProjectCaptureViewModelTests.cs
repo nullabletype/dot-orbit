@@ -42,17 +42,84 @@ public sealed class ProjectCaptureViewModelTests
     }
 
     [Fact]
+    public void LoadingDraftIgnoresReentrantWritesFromThePreviouslyBoundTitleEditor()
+    {
+        var work = new MemoryWorkspaceWork();
+        var previous = work.CreateProject("Previous", "", "home", null);
+        var next = work.CreateProject("Next", "", "work", null);
+        var model = new ProjectCaptureViewModel(work);
+        model.SelectProject(previous.Id);
+        var simulatedStaleWrite = false;
+        model.PropertyChanged += (_, change) =>
+        {
+            if (!simulatedStaleWrite && change.PropertyName == nameof(ProjectCaptureViewModel.Title) && model.Title == "Next")
+            {
+                simulatedStaleWrite = true;
+                model.Title = "Previous";
+            }
+        };
+
+        model.SelectProject(next.Id);
+
+        Assert.True(simulatedStaleWrite);
+        Assert.Equal("Next", model.Title);
+        Assert.False(model.IsDirty);
+    }
+
+    [Fact]
     public void CreationIsTransientAndCancelLeavesNoProject()
     {
         var work = new MemoryWorkspaceWork();
         var model = new ProjectCaptureViewModel(work);
         model.NewProjectCommand.Execute(null);
+        Assert.False(model.IsDirty);
+        model.Title = "Draft";
+        Assert.True(model.IsDirty);
+        model.Title = string.Empty;
+        Assert.False(model.IsDirty);
         model.Title = "Draft";
         Assert.Empty(work.Read().Projects);
         Assert.Empty(model.Projects);
         model.CancelCommand.Execute(null);
         Assert.False(model.HasInspector);
         Assert.Empty(work.Read().Projects);
+
+        model.NewTaskCommand.Execute(null);
+        Assert.False(model.IsDirty);
+        model.CancelCommand.Execute(null);
+        model.NewCategoryCommand.Execute(null);
+        Assert.False(model.IsDirty);
+        model.CancelCommand.Execute(null);
+    }
+
+    [Theory]
+    [InlineData("project")]
+    [InlineData("task")]
+    [InlineData("category")]
+    public void CreateDraftsGuardNavigationOnlyAfterARealEdit(string kind)
+    {
+        var model = new ProjectCaptureViewModel(new MemoryWorkspaceWork());
+        var command = kind switch
+        {
+            "project" => model.NewProjectCommand,
+            "task" => model.NewTaskCommand,
+            _ => model.NewCategoryCommand,
+        };
+
+        command.Execute(null);
+        Assert.False(model.IsDirty);
+        var leftBlankDraft = false;
+        model.Navigate(() => leftBlankDraft = true);
+        Assert.True(leftBlankDraft);
+        Assert.False(model.NeedsDecision);
+
+        command.Execute(null);
+        model.Title = "Draft";
+        var leftEditedDraft = false;
+        model.Navigate(() => leftEditedDraft = true);
+        Assert.False(leftEditedDraft);
+        Assert.True(model.NeedsDecision);
+        Assert.True(model.IsDirty);
     }
 
     [Fact]
@@ -111,8 +178,11 @@ public sealed class ProjectCaptureViewModelTests
         model.Title = "Saved garden";
         model.Date = "2026-02-30";
         Assert.False(model.Save());
+        Assert.True(model.HasDateValidationError);
+        Assert.Equal("Enter a valid date as YYYY-MM-DD, or leave it empty.", model.DateValidationMessage);
         Assert.Equal(project, Assert.Single(work.Read().Projects));
         model.Date = "2026-10-12";
+        Assert.False(model.HasDateValidationError);
         model.Description = "**Plan**";
         model.Category = model.Categories.Single(c => c.Id == "work");
         Assert.True(model.Save());
@@ -195,6 +265,207 @@ public sealed class ProjectCaptureViewModelTests
         backlog.SelectCommand.Execute(null);
         Assert.Null(model.BacklogQuickCategory);
         Assert.Empty(model.BacklogQuickTitle);
+    }
+
+    [Fact]
+    public void CategoryProjectionPreservesGlobalOrdersAndManagementUsesAccessibleCategoryScope()
+    {
+        var work = new MemoryWorkspaceWork();
+        var homeFirst = work.CreateProject("Home first", "", "home", null);
+        var workProject = work.CreateProject("Work project", "", "work", null);
+        var homeSecond = work.CreateProject("Home second", "", "home", null);
+        work.CreateStandaloneTask("Home older", "", "home", null);
+        work.CreateStandaloneTask("Work task", "", "work", null);
+        work.CreateStandaloneTask("Home newest", "", "home", null);
+        var model = new ProjectCaptureViewModel(work);
+
+        Assert.Equal(["Home", "Work"], model.CategoryGroups.Select(category => category.Name));
+        var home = model.CategoryGroups.Single(category => category.Id == "home");
+        Assert.Equal([homeFirst.Id, homeSecond.Id], home.Projects.Select(row => row.Project.Id));
+        Assert.Equal(["Home newest", "Home older"], home.StandaloneTasks.Select(row => row.Task.Title));
+        Assert.DoesNotContain(workProject.Id, home.Projects.Select(row => row.Project.Id));
+
+        model.CategoryGroups.Single(category => category.Id == "work").MoveToTopCommand.Execute(null);
+        Assert.Equal(["Work", "Home"], model.CategoryGroups.Select(category => category.Name));
+        Assert.Equal("Moved Work to position 1 of 2 in Categories.", model.ReorderAnnouncement);
+        Assert.Equal("category-reorder-work", model.ReorderFocusAutomationId);
+
+        model.NewCategoryCommand.Execute(null);
+        model.Title = " ";
+        Assert.False(model.Save());
+        Assert.True(model.HasCategoryNameValidationError);
+        Assert.Equal("Enter a category name.", model.CategoryNameValidationMessage);
+        model.Title = "Personal";
+        Assert.False(model.HasCategoryNameValidationError);
+        Assert.True(model.Save());
+        Assert.Equal("Personal", model.CategoryGroups[^1].Name);
+        model.Title = "HOME";
+        Assert.False(model.Save());
+        Assert.True(model.HasCategoryNameValidationError);
+        Assert.Equal("Personal", model.CategoryGroups[^1].Name);
+        model.Title = "Someday";
+        Assert.False(model.HasCategoryNameValidationError);
+        Assert.True(model.Save());
+        Assert.Equal("Someday", model.CategoryGroups[^1].Name);
+
+        model.CategoryGroups.Single(category => category.Id == "home").SelectCommand.Execute(null);
+        model.DeleteCategoryCommand.Execute(null);
+        Assert.True(model.NeedsCategoryReplacement);
+        model.CategoryReplacement = model.CategoryReplacementChoices.Single(category => category.Id == "work");
+        model.ConfirmDeleteCategoryCommand.Execute(null);
+        Assert.False(model.NeedsCategoryReplacement);
+        Assert.DoesNotContain(model.CategoryGroups, category => category.Id == "home");
+        Assert.All(work.Read().Projects.Where(project => project.Id != workProject.Id), project => Assert.Equal("work", project.CategoryId));
+        Assert.All(work.Read().Tasks.Where(task => task.ProjectId is null && task.Title.StartsWith("Home", StringComparison.Ordinal)), task => Assert.Equal("work", task.ExplicitCategoryId));
+    }
+
+    [Fact]
+    public void CategoriesKeepCompletedActiveStandaloneTasks()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Completed but active", "", "work", null);
+        work.CompleteTask(task.Id);
+
+        var model = new ProjectCaptureViewModel(work);
+
+        var categoryTask = Assert.Single(model.CategoryGroups.Single(category => category.Id == "work").StandaloneTasks);
+        Assert.Equal(task.Id, categoryTask.Task.Id);
+        Assert.True(categoryTask.Task.IsComplete);
+    }
+
+    [Theory]
+    [InlineData("save", "Renamed", true)]
+    [InlineData("discard", "Work", true)]
+    [InlineData("stay", "Work", false)]
+    public void CategoryDeletionRequiresExplicitDraftResolution(string choice, string persistedName, bool requestsDeletion)
+    {
+        var work = new MemoryWorkspaceWork();
+        work.CreateProject("Referenced project", "", "work", null);
+        var model = new ProjectCaptureViewModel(work);
+        model.SelectCategory("work");
+        model.Title = "Renamed";
+
+        model.DeleteCategoryCommand.Execute(null);
+
+        Assert.True(model.NeedsDecision);
+        Assert.False(model.NeedsCategoryReplacement);
+        var command = choice switch
+        {
+            "save" => model.SaveAndLeaveCommand,
+            "discard" => model.DiscardAndLeaveCommand,
+            _ => model.StayCommand,
+        };
+        command.Execute(null);
+
+        Assert.False(model.NeedsDecision);
+        Assert.Equal(requestsDeletion, model.NeedsCategoryReplacement);
+        Assert.Equal(persistedName, work.Read().Categories.Single(category => category.Id == "work").Name);
+        Assert.True(model.HasInspector);
+        if (!requestsDeletion)
+        {
+            Assert.True(model.IsDirty);
+            Assert.Equal("Renamed", model.Title);
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void CategoryStorageFailureRetainsTheDraftWithoutShowingANameValidationError(bool creating)
+    {
+        var work = new MemoryWorkspaceWork();
+        var model = new ProjectCaptureViewModel(work);
+        if (creating) model.NewCategoryCommand.Execute(null);
+        else model.SelectCategory("work");
+        model.Title = creating ? "Personal" : "Renamed";
+        work.FailWrites = true;
+
+        Assert.False(model.Save());
+
+        Assert.False(model.HasCategoryNameValidationError);
+        Assert.Equal("Could not save workspace changes. Your draft is retained. Try again.", model.Message);
+        Assert.True(model.IsDirty);
+        Assert.Equal(creating ? "Personal" : "Renamed", model.Title);
+    }
+
+    [Fact]
+    public void TaskContextActionsDetachMatchAutomaticallyAndRequireAnExplicitMismatchChoice()
+    {
+        var work = new MemoryWorkspaceWork();
+        var homeProject = work.CreateProject("Home project", "", "home", null);
+        var workProject = work.CreateProject("Work project", "", "work", null);
+        var task = work.CreateStandaloneTask("Move me", "", "home", null);
+        var model = new ProjectCaptureViewModel(work);
+
+        model.SelectTask(task.Id);
+        model.TaskContextTarget = model.TaskContextChoices.Single(choice => choice.ProjectId == homeProject.Id);
+        model.ChangeTaskContextCommand.Execute(null);
+        var attached = work.Read().Tasks.Single(item => item.Id == task.Id);
+        Assert.Equal(homeProject.Id, attached.ProjectId);
+        Assert.Null(attached.ExplicitCategoryId);
+        Assert.False(model.NeedsAttachmentChoice);
+
+        model.TaskContextTarget = model.TaskContextChoices.Single(choice => choice.ProjectId is null);
+        model.ChangeTaskContextCommand.Execute(null);
+        var detached = work.Read().Tasks.Single(item => item.Id == task.Id);
+        Assert.Null(detached.ProjectId);
+        Assert.Equal("home", detached.ExplicitCategoryId);
+
+        model.TaskContextTarget = model.TaskContextChoices.Single(choice => choice.ProjectId == workProject.Id);
+        model.ChangeTaskContextCommand.Execute(null);
+        Assert.True(model.NeedsAttachmentChoice);
+        Assert.True(model.HasBlockingDialog);
+        Assert.Null(work.Read().Tasks.Single(item => item.Id == task.Id).ProjectId);
+        Assert.Contains("Keep Home", model.PreserveCategoryLabel, StringComparison.Ordinal);
+        Assert.Contains("Adopt Work", model.AdoptCategoryLabel, StringComparison.Ordinal);
+        work.FailWrites = true;
+        model.PreserveTaskCategoryCommand.Execute(null);
+        Assert.True(model.NeedsAttachmentChoice);
+        Assert.Null(work.Read().Tasks.Single(item => item.Id == task.Id).ProjectId);
+        work.FailWrites = false;
+        model.PreserveTaskCategoryCommand.Execute(null);
+
+        var preserved = work.Read().Tasks.Single(item => item.Id == task.Id);
+        Assert.Equal(workProject.Id, preserved.ProjectId);
+        Assert.Equal("home", preserved.ExplicitCategoryId);
+
+        model.TaskContextTarget = model.TaskContextChoices.Single(choice => choice.ProjectId is null);
+        model.ChangeTaskContextCommand.Execute(null);
+        model.TaskContextTarget = model.TaskContextChoices.Single(choice => choice.ProjectId == workProject.Id);
+        model.ChangeTaskContextCommand.Execute(null);
+        Assert.True(model.NeedsAttachmentChoice);
+        model.AdoptProjectCategoryCommand.Execute(null);
+        var adopted = work.Read().Tasks.Single(item => item.Id == task.Id);
+        Assert.Equal(workProject.Id, adopted.ProjectId);
+        Assert.Null(adopted.ExplicitCategoryId);
+    }
+
+    [Fact]
+    public void TaskContextActionResolvesADirtyDraftWithoutClosingTheInspector()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Work project", "", "work", null);
+        var task = work.CreateStandaloneTask("Move me", "", "home", null);
+        var model = new ProjectCaptureViewModel(work);
+
+        model.SelectTask(task.Id);
+        model.Title = "Unsaved title";
+        model.TaskContextTarget = model.TaskContextChoices.Single(choice => choice.ProjectId == project.Id);
+        model.ChangeTaskContextCommand.Execute(null);
+        Assert.True(model.NeedsDecision);
+        Assert.True(model.HasInspector);
+        Assert.False(model.NeedsAttachmentChoice);
+
+        model.DiscardAndLeaveCommand.Execute(null);
+        Assert.False(model.NeedsDecision);
+        Assert.True(model.HasInspector);
+        Assert.True(model.NeedsAttachmentChoice);
+        Assert.Equal("Move me", model.Title);
+        Assert.Null(work.Read().Tasks.Single(item => item.Id == task.Id).ProjectId);
+
+        model.CancelAttachmentCommand.Execute(null);
+        Assert.False(model.NeedsAttachmentChoice);
+        Assert.True(model.HasInspector);
     }
 
     [Fact]
@@ -524,10 +795,56 @@ internal sealed class FixedTimeProvider(DateTimeOffset utcNow, TimeZoneInfo? loc
 
 internal sealed class MemoryWorkspaceWork : IWorkspaceWork
 {
+    private readonly List<WorkspaceCategory> _categories = [new("home", "Home", 0), new("work", "Work", 1)];
     private readonly List<ProjectRecord> _projects = [];
     private readonly List<TaskRecord> _tasks = [];
     public bool FailWrites { get; set; }
-    public WorkspaceWorkSnapshot Read() => new([new("home", "Home", 0), new("work", "Work", 1)], _projects.OrderBy(project => project.Position).ToArray(), _tasks.OrderBy(t => t.SharedPosition).ToArray());
+    public WorkspaceWorkSnapshot Read() => new(_categories.OrderBy(category => category.Position).ToArray(), _projects.OrderBy(project => project.Position).ToArray(), _tasks.OrderBy(t => t.SharedPosition).ToArray());
+    public WorkspaceCategory CreateCategory(string name)
+    {
+        Check();
+        name = name.Trim();
+        if (string.IsNullOrWhiteSpace(name) || _categories.Any(category => string.Equals(category.Name, name, StringComparison.OrdinalIgnoreCase)))
+            throw new ArgumentException("Category name unavailable.", nameof(name));
+        var category = new WorkspaceCategory($"category-{_categories.Count}", name, _categories.Count);
+        _categories.Add(category);
+        return category;
+    }
+    public WorkspaceCategory RenameCategory(string id, string name)
+    {
+        Check();
+        name = name.Trim();
+        if (string.IsNullOrWhiteSpace(name) || _categories.Any(category => category.Id != id && string.Equals(category.Name, name, StringComparison.OrdinalIgnoreCase)))
+            throw new ArgumentException("Category name unavailable.", nameof(name));
+        var index = _categories.FindIndex(category => category.Id == id);
+        return _categories[index] = _categories[index] with { Name = name };
+    }
+    public void DeleteCategory(string id, string? replacementCategoryId = null)
+    {
+        Check();
+        if (_categories.Count == 1) throw new InvalidOperationException();
+        var referenced = _projects.Any(project => project.CategoryId == id) || _tasks.Any(task => task.ExplicitCategoryId == id);
+        if (referenced && (replacementCategoryId is null || replacementCategoryId == id))
+            throw new ArgumentException("Replacement required.", nameof(replacementCategoryId));
+        if (replacementCategoryId is not null && _categories.All(category => category.Id != replacementCategoryId))
+            throw new ArgumentException("Replacement missing.", nameof(replacementCategoryId));
+        for (var index = 0; index < _projects.Count; index++)
+            if (_projects[index].CategoryId == id) _projects[index] = _projects[index] with { CategoryId = replacementCategoryId! };
+        for (var index = 0; index < _tasks.Count; index++)
+            if (_tasks[index].ExplicitCategoryId == id) _tasks[index] = _tasks[index] with { ExplicitCategoryId = replacementCategoryId };
+        _categories.RemoveAll(category => category.Id == id);
+        RewriteCategoryPositions();
+    }
+    public CategoryOrderChange MoveCategory(string id, int targetPosition)
+    {
+        Check();
+        if ((uint)targetPosition >= (uint)_categories.Count) throw new ArgumentOutOfRangeException(nameof(targetPosition));
+        var category = _categories.Single(item => item.Id == id);
+        _categories.Remove(category);
+        _categories.Insert(targetPosition, category);
+        RewriteCategoryPositions();
+        return new(id, targetPosition + 1, _categories.Count);
+    }
     public ProjectRecord CreateProject(string title, string description, string categoryId, DateOnly? targetDate)
     {
         Check();
@@ -631,9 +948,58 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
         }
         return new(projectId, taskId, targetPosition + 1, ordered.Count);
     }
+    public TaskRecord DetachTask(string id)
+    {
+        Check();
+        var index = _tasks.FindIndex(task => task.Id == id);
+        var task = _tasks[index];
+        if (task.ProjectId is null) throw new ArgumentException("Task is standalone.", nameof(id));
+        var effectiveCategoryId = EffectiveCategoryId(task);
+        var sourceProjectId = task.ProjectId;
+        _tasks[index] = task with { ProjectId = null, ProjectPosition = null, ExplicitCategoryId = effectiveCategoryId };
+        RewriteProjectPositions(sourceProjectId);
+        return _tasks[index];
+    }
+    public TaskRecord AttachTask(string id, string projectId, TaskAttachmentCategoryChoice? categoryChoice = null)
+    {
+        Check();
+        var index = _tasks.FindIndex(task => task.Id == id);
+        var task = _tasks[index];
+        var effectiveCategoryId = EffectiveCategoryId(task);
+        var targetCategoryId = _projects.Single(project => project.Id == projectId).CategoryId;
+        if (effectiveCategoryId != targetCategoryId && categoryChoice is null)
+            throw new ArgumentException("Category choice required.", nameof(categoryChoice));
+        var sourceProjectId = task.ProjectId;
+        _tasks[index] = task with
+        {
+            ProjectId = projectId,
+            ProjectPosition = _tasks.Count(candidate => candidate.ProjectId == projectId),
+            ExplicitCategoryId = effectiveCategoryId == targetCategoryId || categoryChoice == TaskAttachmentCategoryChoice.AdoptProjectCategory
+                ? null
+                : effectiveCategoryId,
+        };
+        if (sourceProjectId is not null && sourceProjectId != projectId) RewriteProjectPositions(sourceProjectId);
+        return _tasks[index];
+    }
     private void ShiftForNewTask()
     {
         for (var index = 0; index < _tasks.Count; index++) _tasks[index] = _tasks[index] with { SharedPosition = _tasks[index].SharedPosition + 1 };
+    }
+    private string EffectiveCategoryId(TaskRecord task) => task.ExplicitCategoryId
+        ?? _projects.Single(project => project.Id == task.ProjectId).CategoryId;
+    private void RewriteProjectPositions(string projectId)
+    {
+        var ordered = _tasks.Where(task => task.ProjectId == projectId).OrderBy(task => task.ProjectPosition).ToArray();
+        for (var position = 0; position < ordered.Length; position++)
+        {
+            var index = _tasks.FindIndex(task => task.Id == ordered[position].Id);
+            _tasks[index] = _tasks[index] with { ProjectPosition = position };
+        }
+    }
+    private void RewriteCategoryPositions()
+    {
+        for (var position = 0; position < _categories.Count; position++)
+            _categories[position] = _categories[position] with { Position = position };
     }
     private void Check() { if (FailWrites) throw new WorkspaceWorkException(); }
 }
