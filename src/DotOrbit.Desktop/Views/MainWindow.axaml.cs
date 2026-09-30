@@ -39,7 +39,11 @@ public sealed partial class MainWindow : Window
         AddHandler(PointerPressedEvent, OnTaskDragHandlePointerPressed, RoutingStrategies.Bubble, handledEventsToo: true);
         AddHandler(PointerMovedEvent, OnTaskDragPointerMoved, RoutingStrategies.Bubble, handledEventsToo: true);
         AddHandler(PointerReleasedEvent, OnBacklogTaskPointerReleased, RoutingStrategies.Bubble, handledEventsToo: true);
-        AddHandler(PointerCaptureLostEvent, OnPointerCaptureLost, RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(
+            PointerCaptureLostEvent,
+            OnPointerCaptureLost,
+            RoutingStrategies.Direct | RoutingStrategies.Bubble,
+            handledEventsToo: true);
         _dateRefreshTimer.Tick += OnDateRefreshTick;
         Opened += OnOpened;
         Activated += OnActivated;

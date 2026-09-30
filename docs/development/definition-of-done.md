@@ -6,6 +6,9 @@ An issue is complete only when:
 - relevant unit and integration checks pass;
 - domain invariants are covered at the appropriate boundary;
 - affected UI has been exercised in the real desktop runtime;
+- changed or new screens reuse the relevant recipes in `docs/design/style-guide.md` instead of recreating local component states;
+- changed or new actions have evidence for keyboard operation, meaningful accessible name, role and state, logical focus order and non-colour cues;
+- visual changes have received rendered human review in the local reference and affected production surfaces before publication;
 - keyboard and assistive-technology behaviour has been considered;
 - failure and empty states relevant to the slice are handled;
 - documentation and ADRs match the implemented behaviour;

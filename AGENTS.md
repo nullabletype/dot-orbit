@@ -21,7 +21,7 @@
 - Behavioural requirements: `docs/product/requirements.md`
 - Domain language and invariants: `CONTEXT.md`
 - UI decisions: `docs/design/ui-specification.md`
-- List or row UI changes: apply and test the **List-row interaction contract** in `docs/design/ui-specification.md`.
+- UI components and visual states: reuse and test the recipes in `docs/design/style-guide.md`; rendered human review remains required when visual judgement is involved.
 - Architectural decisions: `docs/adr/`
 - Delivery process: `docs/development/agent-loop.md`
 - Verification expectations: `docs/development/definition-of-done.md`

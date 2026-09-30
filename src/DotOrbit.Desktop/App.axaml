@@ -7,22 +7,8 @@
     <ResourceDictionary>
       <ResourceDictionary.MergedDictionaries>
         <ResourceInclude Source="/Assets/OrbitMark.axaml" />
+        <ResourceInclude Source="/Styles/Tokens.axaml" />
       </ResourceDictionary.MergedDictionaries>
-      <FontFamily x:Key="AppFont">avares://Avalonia.Fonts.Inter/Assets#Inter</FontFamily>
-      <SolidColorBrush x:Key="BackgroundBrush">#090B10</SolidColorBrush>
-      <SolidColorBrush x:Key="SidebarBrush">#0C0F15</SolidColorBrush>
-      <SolidColorBrush x:Key="PanelBrush">#10131A</SolidColorBrush>
-      <SolidColorBrush x:Key="PanelRaisedBrush">#151923</SolidColorBrush>
-      <SolidColorBrush x:Key="PanelInputBrush">#0B0E13</SolidColorBrush>
-      <SolidColorBrush x:Key="LineBrush">#272D39</SolidColorBrush>
-      <SolidColorBrush x:Key="LineSoftBrush">#1D222C</SolidColorBrush>
-      <SolidColorBrush x:Key="TextBrush">#F2F4F7</SolidColorBrush>
-      <SolidColorBrush x:Key="MutedTextBrush">#9099A9</SolidColorBrush>
-      <SolidColorBrush x:Key="QuietTextBrush">#858E9D</SolidColorBrush>
-      <SolidColorBrush x:Key="AccentBrush">#FF4FA3</SolidColorBrush>
-      <SolidColorBrush x:Key="AccentSurfaceBrush">#25131F</SolidColorBrush>
-      <SolidColorBrush x:Key="SuccessBrush">#7CE7B2</SolidColorBrush>
-      <SolidColorBrush x:Key="AmberBrush">#FFCF70</SolidColorBrush>
     </ResourceDictionary>
   </Application.Resources>
 
@@ -64,6 +50,8 @@
                   CornerRadius="2"
                   IsVisible="{TemplateBinding IsChecked}" />
               <ContentPresenter
+                  x:Name="NavigationContent"
+                  Margin="{StaticResource NavigationContentInset}"
                   HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
                   VerticalContentAlignment="Center"
                   Content="{TemplateBinding Content}"
@@ -83,11 +71,11 @@
     </Style>
     <Style Selector="RadioButton.nav-item:focus-visible">
       <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
-      <Setter Property="BorderThickness" Value="2" />
+      <Setter Property="BorderThickness" Value="{StaticResource FocusBorder}" />
     </Style>
 
     <Style Selector="TextBlock.eyebrow">
-      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontSize" Value="{StaticResource TypeSizeEyebrow}" />
       <Setter Property="FontWeight" Value="Bold" />
       <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
       <Setter Property="LetterSpacing" Value="1.4" />
@@ -112,18 +100,26 @@
       <Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" />
       <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
     </Style>
+    <Style Selector="Button.view-action:focus-visible">
+      <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+      <Setter Property="BorderThickness" Value="{StaticResource FocusBorder}" />
+    </Style>
     <Style Selector="Button.primary-action">
       <Setter Property="Background" Value="{StaticResource AccentBrush}" />
       <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="8" />
-      <Setter Property="Foreground" Value="#280014" />
+      <Setter Property="Foreground" Value="{StaticResource AccentContentBrush}" />
       <Setter Property="FontWeight" Value="Bold" />
       <Setter Property="Padding" Value="13,8" />
     </Style>
     <Style Selector="Button.primary-action:pointerover">
-      <Setter Property="Background" Value="#FF78B9" />
-      <Setter Property="BorderBrush" Value="#FF78B9" />
+      <Setter Property="Background" Value="{StaticResource AccentHoverBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource AccentHoverBrush}" />
+    </Style>
+    <Style Selector="Button.primary-action:focus-visible">
+      <Setter Property="BorderBrush" Value="{StaticResource TextBrush}" />
+      <Setter Property="BorderThickness" Value="{StaticResource FocusBorder}" />
     </Style>
     <Style Selector="Button.project-title, Button.task-title">
       <Setter Property="Background" Value="Transparent" />
@@ -145,184 +141,19 @@
     </Style>
     <Style Selector="Button.project-title:focus-visible, Button.task-title:focus-visible">
       <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
-    </Style>
-    <Style Selector="Button.drag-handle">
-      <Setter Property="MinWidth" Value="30" />
-      <Setter Property="Height" Value="30" />
-      <Setter Property="Padding" Value="6,3" />
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="BorderBrush" Value="Transparent" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="6" />
-      <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
-      <Setter Property="FontSize" Value="11" />
-    </Style>
-    <Style Selector="Button.drag-handle:pointerover">
-      <Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" />
-      <Setter Property="BorderBrush" Value="#414958" />
-      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-    </Style>
-    <Style Selector="Button.drag-handle:focus-visible">
-      <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
-    </Style>
-    <Style Selector="ToggleButton.completion-toggle">
-      <Setter Property="Width" Value="30" />
-      <Setter Property="Height" Value="30" />
-      <Setter Property="Padding" Value="0" />
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="BorderBrush" Value="{StaticResource MutedTextBrush}" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="6" />
-      <Setter Property="Foreground" Value="Transparent" />
-      <Setter Property="HorizontalContentAlignment" Value="Center" />
-      <Setter Property="VerticalContentAlignment" Value="Center" />
-      <Setter Property="Template">
-        <ControlTemplate>
-          <Grid Background="Transparent">
-            <Border
-                x:Name="CompletionBox"
-                Width="22"
-                Height="22"
-                HorizontalAlignment="Center"
-                VerticalAlignment="Center"
-                Background="{TemplateBinding Background}"
-                BorderBrush="{TemplateBinding BorderBrush}"
-                BorderThickness="{TemplateBinding BorderThickness}"
-                CornerRadius="{TemplateBinding CornerRadius}">
-              <Path
-                  x:Name="CompletionTick"
-                  Width="12"
-                  Height="11"
-                  HorizontalAlignment="Center"
-                  VerticalAlignment="Center"
-                  Data="M 2,6 L 5,9 L 11,2"
-                  IsVisible="{TemplateBinding IsChecked}"
-                  Stroke="{TemplateBinding Foreground}"
-                  StrokeLineCap="Round"
-                  StrokeJoin="Round"
-                  StrokeThickness="1.8" />
-            </Border>
-          </Grid>
-        </ControlTemplate>
-      </Setter>
-    </Style>
-    <Style Selector="ToggleButton.completion-toggle:pointerover">
-      <Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" />
-      <Setter Property="BorderBrush" Value="{StaticResource TextBrush}" />
-    </Style>
-    <Style Selector="ToggleButton.completion-toggle:checked">
-      <Setter Property="Background" Value="{StaticResource AccentBrush}" />
-      <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
-      <Setter Property="Foreground" Value="{StaticResource BackgroundBrush}" />
-    </Style>
-    <Style Selector="ToggleButton.completion-toggle:checked:pointerover">
-      <Setter Property="Background" Value="#C93678" />
-      <Setter Property="BorderBrush" Value="#C93678" />
-      <Setter Property="Foreground" Value="{StaticResource BackgroundBrush}" />
-    </Style>
-    <Style Selector="ToggleButton.completion-toggle:focus /template/ Border#CompletionBox,
-                     ToggleButton.completion-toggle:focus-visible /template/ Border#CompletionBox">
-      <Setter Property="BoxShadow" Value="0 0 0 2 #FFFF4FA3" />
-    </Style>
-    <Style Selector="ToggleButton.completion-toggle:checked:focus /template/ Border#CompletionBox,
-                     ToggleButton.completion-toggle:checked:focus-visible /template/ Border#CompletionBox,
-                     ToggleButton.completion-toggle:checked:pointerover:focus /template/ Border#CompletionBox,
-                     ToggleButton.completion-toggle:checked:pointerover:focus-visible /template/ Border#CompletionBox">
-      <Setter Property="BoxShadow" Value="0 0 0 2 #FFF2F4F7" />
-    </Style>
-    <Style Selector="Border.interactive-row">
-      <Setter Property="Background" Value="Transparent" />
-    </Style>
-    <Style Selector="Border.interactive-row:pointerover">
-      <Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" />
-    </Style>
-    <Style Selector="Border.separated-row">
-      <Setter Property="BorderBrush" Value="{StaticResource LineSoftBrush}" />
-      <Setter Property="BorderThickness" Value="0,0,0,1" />
-    </Style>
-    <Style Selector="Border.separated-row.last">
-      <Setter Property="BorderThickness" Value="0" />
-    </Style>
-    <Style Selector="Border.project-row">
-      <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
-      <Setter Property="BorderThickness" Value="1" />
-    </Style>
-    <Style Selector="Border.project-header-row">
-      <Setter Property="CornerRadius" Value="9" />
-    </Style>
-    <Style Selector="Border.project-header-row.expanded">
-      <Setter Property="CornerRadius" Value="9,9,0,0" />
-    </Style>
-    <Style Selector="Border.reorder-target.drag-target">
-      <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
-      <Setter Property="BorderThickness" Value="0,0,0,2" />
-    </Style>
-    <Style Selector="TextBlock.project-status.not-started">
-      <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
-    </Style>
-    <Style Selector="TextBlock.project-status.in-progress">
-      <Setter Property="Foreground" Value="{StaticResource AmberBrush}" />
-    </Style>
-    <Style Selector="TextBlock.project-status.complete">
-      <Setter Property="Foreground" Value="{StaticResource SuccessBrush}" />
-    </Style>
-    <Style Selector="Ellipse.project-status.not-started">
-      <Setter Property="Fill" Value="{StaticResource QuietTextBrush}" />
-    </Style>
-    <Style Selector="Ellipse.project-status.in-progress">
-      <Setter Property="Fill" Value="{StaticResource AmberBrush}" />
-    </Style>
-    <Style Selector="Ellipse.project-status.complete">
-      <Setter Property="Fill" Value="{StaticResource SuccessBrush}" />
-    </Style>
-    <Style Selector="ToggleButton.disclosure">
-      <Setter Property="Width" Value="28" />
-      <Setter Property="Height" Value="34" />
-      <Setter Property="Padding" Value="0" />
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="BorderBrush" Value="Transparent" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="6" />
-      <Setter Property="Foreground" Value="{StaticResource QuietTextBrush}" />
-      <Setter Property="HorizontalContentAlignment" Value="Center" />
-      <Setter Property="VerticalContentAlignment" Value="Center" />
-    </Style>
-    <Style Selector="ToggleButton.disclosure:pointerover">
-      <Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" />
-      <Setter Property="BorderBrush" Value="#414958" />
-      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-    </Style>
-    <Style Selector="ToggleButton.disclosure:checked,
-                     ToggleButton.disclosure:checked:pointerover">
-      <Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" />
-      <Setter Property="BorderBrush" Value="#414958" />
-      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-    </Style>
-    <Style Selector="ToggleButton.disclosure:focus,
-                     ToggleButton.disclosure:focus-visible">
-      <Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" />
-      <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
-      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-    </Style>
-    <Style Selector="ToggleButton.disclosure:checked:focus,
-                     ToggleButton.disclosure:checked:focus-visible,
-                     ToggleButton.disclosure:checked:pointerover:focus,
-                     ToggleButton.disclosure:checked:pointerover:focus-visible">
-      <Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" />
-      <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
-      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+      <Setter Property="BorderThickness" Value="{StaticResource FocusBorder}" />
     </Style>
     <Style Selector="TextBox.inspector-title">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderBrush" Value="Transparent" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="7" />
-      <Setter Property="FontSize" Value="20" />
+      <Setter Property="FontSize" Value="{StaticResource TypeSizeTitle}" />
       <Setter Property="FontWeight" Value="Bold" />
       <Setter Property="Padding" Value="7,5" />
     </Style>
     <Style Selector="TextBox.inspector-title:pointerover">
-      <Setter Property="BorderBrush" Value="#414958" />
+      <Setter Property="BorderBrush" Value="{StaticResource ControlHoverBorderBrush}" />
     </Style>
     <Style Selector="TextBox.inspector-title:focus /template/ Border#PART_BorderElement">
       <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
@@ -341,5 +172,6 @@
       <Setter Property="FontWeight" Value="Bold" />
       <Setter Property="LetterSpacing" Value="1.25" />
     </Style>
+    <StyleInclude Source="/Styles/ComponentRecipes.axaml" />
   </Application.Styles>
 </Application>

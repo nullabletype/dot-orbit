@@ -176,12 +176,10 @@
 
       <Border
           Grid.Row="2"
+          Classes="empty-state"
           IsVisible="{Binding ShowEmpty}"
           Padding="42"
           VerticalAlignment="Top"
-          Background="Transparent"
-          BorderBrush="{StaticResource LineBrush}"
-          BorderThickness="1"
           CornerRadius="14">
         <StackPanel HorizontalAlignment="Center" Spacing="8">
           <TextBlock
@@ -207,12 +205,9 @@
       <ScrollViewer Grid.Row="2" IsVisible="{Binding ShowProjects}">
         <StackPanel Spacing="10">
           <Border
+              Classes="empty-state"
               IsVisible="{Binding Work.HasNoProjects}"
-              Padding="44"
-              Background="Transparent"
-              BorderBrush="{StaticResource LineBrush}"
-              BorderThickness="1"
-              CornerRadius="10">
+              Padding="44">
             <StackPanel HorizontalAlignment="Center" Spacing="8">
               <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Text="No projects yet" />
               <TextBlock MaxWidth="420" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}" LineHeight="21" Text="Create a project when a piece of work needs more than one task." TextAlignment="Center" TextWrapping="Wrap" />
@@ -234,16 +229,6 @@
                             AutomationProperties.AutomationId="{Binding ReorderAutomationId}"
                             AutomationProperties.Name="{Binding ReorderAccessibleName}"
                             AutomationProperties.HelpText="Drag to another Project, or activate for keyboard reorder actions.">
-                          <Button.Content>
-                            <Grid Width="8" Height="12" ColumnDefinitions="*,*" RowDefinitions="*,*,*">
-                              <Ellipse Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
-                              <Ellipse Grid.Column="1" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
-                              <Ellipse Grid.Row="1" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
-                              <Ellipse Grid.Row="1" Grid.Column="1" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
-                              <Ellipse Grid.Row="2" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
-                              <Ellipse Grid.Row="2" Grid.Column="1" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
-                            </Grid>
-                          </Button.Content>
                           <Button.Flyout>
                             <MenuFlyout Closed="OnReorderMenuClosed">
                               <MenuItem Header="Move to top" Command="{Binding MoveToTopCommand}" AutomationProperties.Name="{Binding MoveToTopAccessibleName}" />
@@ -257,26 +242,7 @@
                             Grid.Column="1"
                             Classes="disclosure"
                             AutomationProperties.Name="{Binding ExpansionAccessibleName}"
-                            IsChecked="{Binding IsExpanded, Mode=TwoWay}">
-                          <Grid Width="12" Height="12">
-                            <Path
-                                HorizontalAlignment="Center"
-                                VerticalAlignment="Center"
-                                Data="M 1,3 L 6,8 L 11,3"
-                                IsVisible="{Binding IsExpanded}"
-                                Stroke="{Binding $parent[ToggleButton].Foreground}"
-                                StrokeLineCap="Round"
-                                StrokeThickness="1.6" />
-                            <Path
-                                HorizontalAlignment="Center"
-                                VerticalAlignment="Center"
-                                Data="M 3,1 L 8,6 L 3,11"
-                                IsVisible="{Binding !IsExpanded}"
-                                Stroke="{Binding $parent[ToggleButton].Foreground}"
-                                StrokeLineCap="Round"
-                                StrokeThickness="1.6" />
-                          </Grid>
-                        </ToggleButton>
+                            IsChecked="{Binding IsExpanded, Mode=TwoWay}" />
                         <Button
                             Grid.Column="2"
                             Classes="project-title row-title"
@@ -286,8 +252,8 @@
                             <TextBlock FontSize="15" FontWeight="Bold" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
                               <StackPanel Orientation="Horizontal" Spacing="6">
-                                <Ellipse Classes="project-status" Classes.not-started="{Binding IsNotStarted}" Classes.in-progress="{Binding IsInProgress}" Classes.complete="{Binding IsComplete}" Width="7" Height="7" VerticalAlignment="Center" />
-                                <TextBlock Classes="project-status" Classes.not-started="{Binding IsNotStarted}" Classes.in-progress="{Binding IsInProgress}" Classes.complete="{Binding IsComplete}" FontSize="12" Text="{Binding Status}" />
+                                <Ellipse Classes="status-marker" Classes.not-started="{Binding IsNotStarted}" Classes.in-progress="{Binding IsInProgress}" Classes.complete="{Binding IsComplete}" Width="7" Height="7" VerticalAlignment="Center" />
+                                <TextBlock Classes="status-marker" Classes.not-started="{Binding IsNotStarted}" Classes.in-progress="{Binding IsInProgress}" Classes.complete="{Binding IsComplete}" FontSize="12" Text="{Binding Status}" />
                               </StackPanel>
                               <TextBlock FontSize="12" Foreground="{StaticResource QuietTextBrush}" Text="·" />
                               <TextBlock FontSize="12" Foreground="{StaticResource MutedTextBrush}" Text="{Binding ProgressText}" />
@@ -321,21 +287,11 @@
                         <ItemsControl ItemsSource="{Binding Tasks}">
                           <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:TaskRowViewModel">
-                              <Border Classes="interactive-row separated-row reorder-target project-task-row" Classes.last="{Binding IsProjectLast}" MinHeight="48">
+                              <Border Classes="interactive-row separated-row reorder-target project-task-row" Classes.last="{Binding IsProjectLast}" MinHeight="{StaticResource CompactRowHeight}">
                                 <Grid VerticalAlignment="Center" ColumnDefinitions="30,34,*,Auto">
                                   <Button Classes="drag-handle project-task-drag-handle" AutomationProperties.AutomationId="{Binding ProjectReorderAutomationId}"
                                       AutomationProperties.Name="{Binding ProjectReorderAccessibleName}"
                                       AutomationProperties.HelpText="Drag within this Project, or activate for keyboard reorder actions.">
-                                    <Button.Content>
-                                      <Grid Width="8" Height="12" ColumnDefinitions="*,*" RowDefinitions="*,*,*">
-                                        <Ellipse Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
-                                        <Ellipse Grid.Column="1" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
-                                        <Ellipse Grid.Row="1" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
-                                        <Ellipse Grid.Row="1" Grid.Column="1" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
-                                        <Ellipse Grid.Row="2" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
-                                        <Ellipse Grid.Row="2" Grid.Column="1" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
-                                      </Grid>
-                                    </Button.Content>
                                     <Button.Flyout>
                                       <MenuFlyout Closed="OnReorderMenuClosed">
                                         <MenuItem Header="Move to top" Command="{Binding MoveProjectTaskToTopCommand}" AutomationProperties.Name="{Binding MoveProjectTaskToTopAccessibleName}" />
@@ -393,7 +349,7 @@
       </ScrollViewer>
       <ScrollViewer Grid.Row="2" IsVisible="{Binding ShowBacklog}">
         <StackPanel Spacing="10">
-          <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="10" Padding="10">
+          <Border Classes="list-panel">
             <Grid ColumnDefinitions="190,10,*">
               <ComboBox
                   ItemsSource="{Binding Work.BacklogCategories}"
@@ -418,27 +374,17 @@
                   KeyDown="OnBacklogQuickAddKeyDown" />
             </Grid>
           </Border>
-        <Border x:Name="BacklogListPanel" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="10" Padding="10">
+        <Border x:Name="BacklogListPanel" Classes="list-panel">
           <ItemsControl x:Name="BacklogItems" ItemsSource="{Binding Work.Backlog}">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:TaskRowViewModel">
-                <Border Classes="interactive-row separated-row reorder-target backlog-row" Classes.last="{Binding IsLast}" MinHeight="54">
+                <Border Classes="interactive-row separated-row reorder-target backlog-row" Classes.last="{Binding IsLast}" MinHeight="{StaticResource StandardRowHeight}">
                   <Grid VerticalAlignment="Center" ColumnDefinitions="34,34,*,Auto">
                     <Button
                         Classes="drag-handle backlog-drag-handle"
                         AutomationProperties.AutomationId="{Binding ReorderAutomationId}"
                         AutomationProperties.Name="{Binding ReorderAccessibleName}"
                         AutomationProperties.HelpText="Drag to another Backlog row, or activate for keyboard reorder actions.">
-                      <Button.Content>
-                        <Grid Width="8" Height="12" ColumnDefinitions="*,*" RowDefinitions="*,*,*">
-                          <Ellipse Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
-                          <Ellipse Grid.Column="1" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
-                          <Ellipse Grid.Row="1" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
-                          <Ellipse Grid.Row="1" Grid.Column="1" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
-                          <Ellipse Grid.Row="2" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
-                          <Ellipse Grid.Row="2" Grid.Column="1" Width="2" Height="2" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{Binding $parent[Button].Foreground}" />
-                        </Grid>
-                      </Button.Content>
                       <Button.Flyout>
                         <MenuFlyout Closed="OnReorderMenuClosed">
                           <MenuItem Header="Move to top" Command="{Binding MoveToTopCommand}" AutomationProperties.Name="{Binding MoveToTopAccessibleName}" />
@@ -479,8 +425,7 @@
       </ScrollViewer>
       <ScrollViewer Grid.Row="2" IsVisible="{Binding ShowCompleted}">
         <StackPanel Spacing="10">
-          <Border IsVisible="{Binding Work.HasNoCompleted}" Padding="44" Background="Transparent"
-              BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="10">
+          <Border Classes="empty-state" IsVisible="{Binding Work.HasNoCompleted}" Padding="44">
             <StackPanel HorizontalAlignment="Center" Spacing="8">
               <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Text="No completed tasks yet" />
               <TextBlock MaxWidth="420" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}"
@@ -488,8 +433,7 @@
                   TextAlignment="Center" TextWrapping="Wrap" />
             </StackPanel>
           </Border>
-          <Border x:Name="CompletedListPanel" IsVisible="{Binding Work.HasCompleted}" Background="{StaticResource PanelBrush}"
-              BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="10" Padding="10">
+          <Border x:Name="CompletedListPanel" Classes="list-panel" IsVisible="{Binding Work.HasCompleted}">
             <ItemsControl ItemsSource="{Binding Work.CompletedGroups}">
               <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate>
@@ -503,7 +447,7 @@
                     <ItemsControl ItemsSource="{Binding Rows}">
                       <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:CompletedTaskRowViewModel">
-                          <Border Classes="interactive-row separated-row completed-row" Classes.last="{Binding IsLast}" MinHeight="54">
+                          <Border Classes="interactive-row separated-row completed-row" Classes.last="{Binding IsLast}" MinHeight="{StaticResource StandardRowHeight}">
                             <Grid VerticalAlignment="Center" ColumnDefinitions="34,*,Auto">
                               <ToggleButton Classes="completion-toggle"
                                   IsChecked="{Binding Task.IsComplete, Mode=OneWay}" Command="{Binding Task.ToggleCompletionCommand}"
