@@ -1,6 +1,6 @@
 # UI specification
 
-The interactive source of truth is `prototype/index.html`. This document records the decisions that survived the design conversation; it is not a pixel-perfect replacement for the prototype.
+The historical `prototype/index.html` remains useful exploratory evidence. This document records the product-level UI decisions that survived the design conversation; [`style-guide.md`](style-guide.md) is the detailed authority for component anatomy, visual states, accessibility and Avalonia reuse.
 
 ## Recommended direction
 
@@ -52,15 +52,7 @@ Bin is a secondary utility item at the bottom of the sidebar, visually separated
 
 ## List-row interaction contract
 
-Current list surfaces compose the same semantic row states rather than defining surface-specific hover and reorder treatments:
-
-- The interactive row owns the full-width raised-charcoal hover surface, including while the pointer is over its completion control, handle, disclosure, title, metadata, or date. A Project header owns this surface independently of its expanded child region.
-- A nested row-title action stays transparent and borderless on hover and press; keyboard focus keeps the visible pink focus border.
-- A separated row uses the soft bottom rule only between peer rows. The final row in each independent list or Completed day/week group has no bottom rule.
-- A reorder target uses the pink bottom insertion rule. Invalid cross-scope targets show no rule, and drop, cancellation, or capture loss clears it.
-- Completion controls, disclosure controls, and six-dot reorder handles reuse their shared geometry and state styles across every row surface.
-
-Use the composable `interactive-row`, `row-title`, `separated-row`, `last`, and `reorder-target` classes for these states. Headless interaction tests must exercise the shared row contract when adding or changing a list surface.
+Current list surfaces compose the same semantic row states rather than defining surface-specific hover, completion, disclosure or reorder treatments. The authoritative row rules, component anatomy, semantic class names, state matrix and regression expectations are in the [desktop UI style guide](style-guide.md#rows-and-titles).
 
 ## Inspector
 

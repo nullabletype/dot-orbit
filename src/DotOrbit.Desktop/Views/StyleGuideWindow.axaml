@@ -1,0 +1,134 @@
+<Window
+    x:Class="DotOrbit.Desktop.Views.StyleGuideWindow"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="dot-orbit component reference"
+    Width="1180"
+    Height="760"
+    MinWidth="900"
+    MinHeight="620"
+    Background="{StaticResource BackgroundBrush}"
+    AutomationProperties.Name="dot-orbit component reference">
+  <ScrollViewer>
+    <Grid Margin="32" ColumnDefinitions="250,24,*" RowDefinitions="Auto,*">
+      <StackPanel Grid.ColumnSpan="3" Margin="0,0,0,24" Spacing="6">
+        <TextBlock Classes="eyebrow" Text="LOCAL DESIGN REFERENCE" />
+        <TextBlock FontSize="26" FontWeight="Bold" Text="Workbench component recipes" />
+        <TextBlock Foreground="{StaticResource MutedTextBrush}"
+            Text="Synthetic content only. Interact with the controls to inspect hover, pressed, focus, checked and disabled states." />
+      </StackPanel>
+
+      <Border Grid.Row="1" Classes="list-panel" Background="{StaticResource SidebarBrush}">
+        <StackPanel Spacing="4">
+          <TextBlock Classes="inspector-label" Margin="10,8" Text="NAVIGATION" />
+          <RadioButton Classes="nav-item" GroupName="reference-navigation" Content="Today"
+              AutomationProperties.Name="Reference Today navigation" />
+          <RadioButton x:Name="ReferenceSelectedNavigation" Classes="nav-item" GroupName="reference-navigation" Content="Projects" IsChecked="True"
+              AutomationProperties.Name="Reference Projects navigation selected" />
+          <RadioButton x:Name="ReferenceDisabledNavigation" Classes="nav-item" GroupName="reference-navigation" Content="Completed" IsEnabled="False"
+              AutomationProperties.Name="Reference Completed navigation disabled" />
+          <Separator Margin="10,12" />
+          <TextBlock Classes="inspector-label" Margin="10,4" Text="STATUS" />
+          <StackPanel Margin="10,4" Spacing="8">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Ellipse Classes="status-marker not-started" Width="7" Height="7" />
+              <TextBlock Classes="status-marker not-started" Text="Not started" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Ellipse Classes="status-marker in-progress" Width="7" Height="7" />
+              <TextBlock Classes="status-marker in-progress" Text="In progress" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Ellipse Classes="status-marker complete" Width="7" Height="7" />
+              <TextBlock Classes="status-marker complete" Text="Complete" />
+            </StackPanel>
+            <Border Classes="status-badge" HorizontalAlignment="Left">
+              <TextBlock Text="3 due" />
+            </Border>
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
+      <StackPanel Grid.Row="1" Grid.Column="2" Spacing="20">
+        <Border Classes="list-panel" AutomationProperties.Name="Reference list panel">
+          <StackPanel Spacing="0">
+            <Grid Margin="4,2,4,10" ColumnDefinitions="*,Auto">
+              <TextBlock Classes="eyebrow" Text="ROWS AND CONTROLS" />
+              <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                <Button Classes="view-action" Content="Secondary" AutomationProperties.Name="Reference secondary action" />
+                <Button Classes="primary-action" Content="Primary" AutomationProperties.Name="Reference primary action" />
+                <Button Classes="view-action" Content="Disabled" IsEnabled="False" AutomationProperties.Name="Reference disabled action" />
+              </StackPanel>
+            </Grid>
+            <Border x:Name="ReferencePeerRow" Classes="interactive-row separated-row" MinHeight="{StaticResource StandardRowHeight}">
+              <Grid ColumnDefinitions="34,34,*,Auto" VerticalAlignment="Center">
+                <Button x:Name="ReferenceDragHandle" Classes="drag-handle"
+                    AutomationProperties.Name="Move reference task" AutomationProperties.HelpText="Reference six-dot reorder handle" />
+                <ToggleButton Grid.Column="1" x:Name="ReferenceUncheckedCompletion" Classes="completion-toggle"
+                    Tag="reference task" IsCheckedChanged="OnReferenceCompletionStateChanged"
+                    AutomationProperties.Name="Complete reference task" />
+                <Button Grid.Column="2" x:Name="ReferenceRowTitle" Classes="task-title row-title"
+                    Content="Hover the complete row" AutomationProperties.Name="Hover the complete row" />
+                <TextBlock Grid.Column="3" Margin="8,0" Foreground="{StaticResource MutedTextBrush}" Text="2 Oct" />
+              </Grid>
+            </Border>
+            <Border x:Name="ReferenceLastRow" Classes="interactive-row separated-row last reorder-target drag-target" MinHeight="{StaticResource StandardRowHeight}">
+              <Grid ColumnDefinitions="34,34,*,Auto" VerticalAlignment="Center">
+                <Button Classes="drag-handle" AutomationProperties.Name="Move completed reference task" />
+                <ToggleButton Grid.Column="1" x:Name="ReferenceCheckedCompletion" Classes="completion-toggle" IsChecked="True"
+                    Tag="reference task" IsCheckedChanged="OnReferenceCompletionStateChanged"
+                    AutomationProperties.Name="Reopen reference task" />
+                <Button Grid.Column="2" Classes="task-title row-title" Content="Checked with insertion rule"
+                    AutomationProperties.Name="Checked with insertion rule" />
+                <ToggleButton Grid.Column="3" x:Name="ReferenceDisclosure" Classes="disclosure" IsChecked="True"
+                    Tag="reference details" IsCheckedChanged="OnReferenceDisclosureStateChanged"
+                    AutomationProperties.Name="Collapse reference details" />
+              </Grid>
+            </Border>
+          </StackPanel>
+        </Border>
+
+        <Grid ColumnDefinitions="*,20,*">
+          <Border Classes="list-panel">
+            <StackPanel Spacing="10">
+              <TextBlock Classes="eyebrow" Text="INSPECTOR FIELDS" />
+              <TextBlock Classes="inspector-label" Text="TITLE" />
+              <TextBox Classes="inspector-title" Text="Plan autumn garden" AutomationProperties.Name="Reference title" />
+              <TextBlock Classes="inspector-label" Text="CATEGORY" />
+              <ComboBox Classes="inspector-field" SelectedIndex="0" AutomationProperties.Name="Reference category">
+                <ComboBoxItem Content="Home" />
+                <ComboBoxItem Content="Work" />
+              </ComboBox>
+              <TextBlock Classes="inspector-label" Text="DATE" />
+              <CalendarDatePicker Classes="inspector-field" SelectedDate="2026-10-02" AutomationProperties.Name="Reference date" />
+              <TextBlock Classes="inspector-label" Text="VALIDATION" />
+              <TextBox x:Name="ReferenceInvalidField" Classes="inspector-field error" Text="" PlaceholderText="Required value"
+                  AutomationProperties.Name="Reference invalid field"
+                  AutomationProperties.HelpText="Required value. Choose a category before saving." />
+              <TextBlock Classes="validation-message" Text="Required value. Choose a category before saving." />
+            </StackPanel>
+          </Border>
+          <StackPanel Grid.Column="2" Spacing="20">
+            <Border Classes="empty-state" Padding="28">
+              <StackPanel HorizontalAlignment="Center" Spacing="8">
+                <TextBlock FontSize="18" FontWeight="SemiBold" Text="Nothing here yet" />
+                <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="An empty state explains what happens next." />
+                <Button Classes="primary-action" HorizontalAlignment="Center" Content="Create item"
+                    AutomationProperties.Name="Create reference item" />
+              </StackPanel>
+            </Border>
+            <Border Classes="list-panel">
+              <StackPanel Spacing="8">
+                <TextBlock Classes="eyebrow" Text="SEMANTIC COLOUR" />
+                <TextBlock Foreground="{StaticResource AccentBrush}" Text="Pink: interactive emphasis" />
+                <TextBlock Foreground="{StaticResource SuccessBrush}" Text="Green: completion or positive state" />
+                <TextBlock Foreground="{StaticResource AmberBrush}" Text="Amber: attention or in-progress state" />
+                <TextBlock Foreground="{StaticResource ErrorBrush}" Text="Error: validation requires text as well as colour" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </Grid>
+      </StackPanel>
+    </Grid>
+  </ScrollViewer>
+</Window>

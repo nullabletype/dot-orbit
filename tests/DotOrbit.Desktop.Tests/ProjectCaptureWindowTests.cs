@@ -973,10 +973,44 @@ public sealed class ProjectCaptureWindowTests
         window.Close();
     }
 
+    [AvaloniaFact]
+    public void CaptureLossAndWindowDeactivationClearTheInsertionRule()
+    {
+        var work = new MemoryWorkspaceWork();
+        var first = work.CreateProject("First", "", "home", null);
+        var second = work.CreateProject("Second", "", "home", null);
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Projects").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+
+        var source = ButtonByAutomationId(window, $"project-reorder-{first.Id}");
+        var target = ButtonByAutomationId(window, $"project-reorder-{second.Id}");
+        var targetRow = target.GetVisualAncestors().OfType<Border>().First(border => border.Classes.Contains("project-row"));
+        DragToTarget(window, source, target);
+        AssertInsertionLine(targetRow);
+
+        var pointer = new Pointer(1, PointerType.Mouse, isPrimary: true);
+        window.RaiseEvent(new PointerCaptureLostEventArgs(window, pointer)
+        {
+            RoutedEvent = InputElement.PointerCaptureLostEvent,
+        });
+        Dispatcher.UIThread.RunJobs();
+        AssertNoInsertionLine(targetRow, new Thickness(1), Color.Parse("#272D39"));
+
+        DragToTarget(window, source, target);
+        AssertInsertionLine(targetRow);
+        window.Hide();
+        Dispatcher.UIThread.RunJobs();
+        AssertNoInsertionLine(targetRow, new Thickness(1), Color.Parse("#272D39"));
+        Assert.Equal([first.Id, second.Id], work.Read().Projects.Select(project => project.Id));
+        window.Close();
+    }
+
     private static void AssertStatusColour(Window window, string status, string expectedClass, Color expectedColour)
     {
         var text = Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(), item => item.Text == status);
-        Assert.Contains("project-status", text.Classes);
+        Assert.Contains("status-marker", text.Classes);
         Assert.Contains(expectedClass, text.Classes);
         Assert.Equal(expectedColour, Assert.IsAssignableFrom<ISolidColorBrush>(text.Foreground).Color);
     }
@@ -1147,7 +1181,9 @@ public sealed class ProjectCaptureWindowTests
     {
         Assert.True(handle.Bounds.Width >= 30);
         Assert.Equal(30, handle.Bounds.Height);
-        var dots = Assert.IsType<Grid>(handle.Content);
+        var dots = Assert.Single(
+            handle.GetVisualDescendants().OfType<Grid>(),
+            grid => grid.Bounds.Width == 8 && grid.Bounds.Height == 12);
         Assert.Equal(8, dots.Bounds.Width);
         Assert.Equal(12, dots.Bounds.Height);
         Assert.Equal(2, dots.ColumnDefinitions.Count);
@@ -1220,4 +1256,5 @@ public sealed class ProjectCaptureWindowTests
         Assert.True(point.HasValue);
         return point.Value;
     }
+
 }
