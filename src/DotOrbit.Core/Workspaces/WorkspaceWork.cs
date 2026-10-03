@@ -6,12 +6,17 @@ public interface IWorkspaceWork
     WorkspaceCategory CreateCategory(string name);
     WorkspaceCategory RenameCategory(string id, string name);
     void DeleteCategory(string id, string? replacementCategoryId = null);
+    ParticipantRecord CreateParticipant(string label);
+    ParticipantRecord RenameParticipant(string id, string label);
+    void DeleteParticipant(string id);
     CategoryOrderChange MoveCategory(string id, int targetPosition);
     ProjectRecord CreateProject(string title, string description, string categoryId, DateOnly? targetDate);
     TaskRecord CreateTask(string projectId, string title);
-    TaskRecord CreateStandaloneTask(string title, string description, string categoryId, DateOnly? dueDate);
+    TaskRecord CreateStandaloneTask(string title, string description, string categoryId, DateOnly? dueDate,
+        ParticipantDraftChange? participantChange = null);
     ProjectRecord UpdateProject(string id, string title, string description, string categoryId, DateOnly? targetDate);
-    TaskRecord UpdateTask(string id, string title, string description, string? explicitCategoryId, DateOnly? dueDate);
+    TaskRecord UpdateTask(string id, string title, string description, string? explicitCategoryId, DateOnly? dueDate,
+        ParticipantDraftChange? participantChange = null);
     TaskRecord CompleteTask(string id);
     TaskRecord ReopenTask(string id);
     SharedTaskOrderChange MoveTaskInSharedOrder(string id, int targetPosition);
@@ -28,6 +33,10 @@ public enum TaskAttachmentCategoryChoice
 }
 
 public sealed record WorkspaceCategory(string Id, string Name, long Position);
+public sealed record ParticipantRecord(string Id, string Label);
+public sealed record ParticipantDraftChange(
+    IReadOnlyCollection<string> ParticipantIds,
+    IReadOnlyCollection<string> NewParticipantLabels);
 public sealed record ProjectRecord(string Id, string Title, string Description, string CategoryId, DateOnly? TargetDate, long Position);
 public sealed record TaskRecord(
     string Id,
@@ -39,11 +48,20 @@ public sealed record TaskRecord(
     long SharedPosition,
     long? ProjectPosition,
     DateTimeOffset? CompletedAt = null,
-    DateOnly? CompletionDate = null)
+    DateOnly? CompletionDate = null,
+    IReadOnlyList<string>? ParticipantIds = null)
 {
     public bool IsComplete => CompletedAt is not null && CompletionDate is not null;
+    public IReadOnlyList<string> Participants => ParticipantIds ?? [];
 }
-public sealed record WorkspaceWorkSnapshot(IReadOnlyList<WorkspaceCategory> Categories, IReadOnlyList<ProjectRecord> Projects, IReadOnlyList<TaskRecord> Tasks);
+public sealed record WorkspaceWorkSnapshot(
+    IReadOnlyList<WorkspaceCategory> Categories,
+    IReadOnlyList<ProjectRecord> Projects,
+    IReadOnlyList<TaskRecord> Tasks,
+    IReadOnlyList<ParticipantRecord>? ParticipantRecords = null)
+{
+    public IReadOnlyList<ParticipantRecord> Participants => ParticipantRecords ?? [];
+}
 public sealed record SharedTaskOrderChange(string TaskId, int Position, int Count);
 public sealed record ProjectOrderChange(string ProjectId, int Position, int Count);
 public sealed record ProjectTaskOrderChange(string ProjectId, string TaskId, int Position, int Count);
@@ -61,6 +79,17 @@ public static class WorkTitle
         ArgumentException.ThrowIfNullOrWhiteSpace(title);
         return title.Trim();
     }
+}
+
+public static class ParticipantLabel
+{
+    public static string Normalize(string label)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(label);
+        return label.Trim().Normalize(System.Text.NormalizationForm.FormKC);
+    }
+
+    public static string ComparisonKey(string label) => Normalize(label).ToUpperInvariant();
 }
 
 public sealed record ProjectWorkSummary(int CompletedCount, int TaskCount, DateOnly? CompletionDate)

@@ -26,24 +26,36 @@ public sealed partial class MainWindow : Window
     private string? _pressedTaskRowId;
     private Border? _dragTarget;
     private bool _markdownPointerStartedOutside;
+    private DateTime? _calendarDateAtOpen;
     private ProjectCaptureViewModel? _subscribedWork;
+    private SettingsViewModel? _subscribedSettings;
     private readonly DispatcherTimer _dateRefreshTimer = new() { Interval = TimeSpan.FromMinutes(1) };
+    private readonly IInspectorAutosaveScheduler _autosaveScheduler;
     private readonly IMarkdownClipboard? _markdownClipboard;
 
     public MainWindow()
-        : this(null, null)
+        : this(null, null, null)
     {
     }
 
     internal MainWindow(IWorkspaceSession? session)
-        : this(session, null)
+        : this(session, null, null)
     {
     }
 
     internal MainWindow(IWorkspaceSession? session, IMarkdownClipboard? markdownClipboard)
+        : this(session, markdownClipboard, null)
+    {
+    }
+
+    internal MainWindow(
+        IWorkspaceSession? session,
+        IMarkdownClipboard? markdownClipboard,
+        IInspectorAutosaveScheduler? autosaveScheduler)
     {
         _session = session;
         _markdownClipboard = markdownClipboard;
+        _autosaveScheduler = autosaveScheduler ?? new DispatcherInspectorAutosaveScheduler();
         AvaloniaXamlLoader.Load(this);
         DataContextChanged += OnDataContextChanged;
         AddHandler(PointerPressedEvent, OnTaskDragHandlePointerPressed, RoutingStrategies.Bubble, handledEventsToo: true);
@@ -64,12 +76,8 @@ public sealed partial class MainWindow : Window
         Activated += OnActivated;
         Deactivated += OnDeactivated;
         SetSessionContext();
-        var recoveryButton = this.FindControl<Button>("OpenRecoveryButton");
-        if (recoveryButton is not null)
-        {
+        if (this.FindControl<Button>("SettingsRecoveryButton") is { } recoveryButton)
             recoveryButton.IsVisible = session is not null;
-        }
-
         Closed += OnClosed;
         Closing += OnClosing;
     }
@@ -81,7 +89,13 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        Navigate(() => new RecoveryWindow(_session!.Recovery, ReplaceSession).Show(this));
+        var launcher = sender as Control;
+        Navigate(() =>
+        {
+            var recovery = new RecoveryWindow(_session!.Recovery, ReplaceSession);
+            recovery.Closed += (_, _) => Dispatcher.UIThread.Post(() => launcher?.Focus());
+            recovery.Show(this);
+        });
     }
 
     private void ReplaceSession(IWorkspaceSession session)
@@ -98,9 +112,39 @@ public sealed partial class MainWindow : Window
 
     private void OnDataContextChanged(object? sender, EventArgs e)
     {
-        if (_subscribedWork is not null) _subscribedWork.PropertyChanged -= OnWorkChanged;
+        _autosaveScheduler.Cancel();
+        if (_subscribedWork is not null)
+        {
+            _subscribedWork.PropertyChanged -= OnWorkChanged;
+            _subscribedWork.AutosaveRequested -= OnAutosaveRequested;
+        }
+        if (_subscribedSettings is not null)
+            _subscribedSettings.PropertyChanged -= OnSettingsChanged;
         _subscribedWork = (DataContext as ShellViewModel)?.Work;
-        if (_subscribedWork is not null) _subscribedWork.PropertyChanged += OnWorkChanged;
+        _subscribedSettings = (DataContext as ShellViewModel)?.Settings;
+        if (_subscribedWork is not null)
+        {
+            _subscribedWork.PropertyChanged += OnWorkChanged;
+            _subscribedWork.AutosaveRequested += OnAutosaveRequested;
+        }
+        if (_subscribedSettings is not null)
+            _subscribedSettings.PropertyChanged += OnSettingsChanged;
+    }
+
+    private void OnSettingsChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(SettingsViewModel.FocusAutomationId)
+            && sender is SettingsViewModel { FocusAutomationId.Length: > 0 } settings)
+            Dispatcher.UIThread.Post(() => FocusAutomationId(settings.FocusAutomationId), DispatcherPriority.ApplicationIdle);
+    }
+
+    private void OnAutosaveRequested(object? sender, AutosaveRequestEventArgs e)
+    {
+        if (sender is not ProjectCaptureViewModel work) return;
+        _autosaveScheduler.Schedule(
+            ProjectCaptureViewModel.AutosaveDelay,
+            e.Revision,
+            revision => work.RunScheduledAutosave(revision));
     }
 
     private void OnOpened(object? sender, EventArgs e)
@@ -116,6 +160,20 @@ public sealed partial class MainWindow : Window
     private void OnDateValidationError(object? sender, CalendarDatePickerDateValidationErrorEventArgs e)
     {
         e.ThrowException = false;
+    }
+
+    private void OnCalendarDateOpened(object? sender, EventArgs e)
+    {
+        if (sender is CalendarDatePicker picker) _calendarDateAtOpen = picker.SelectedDate;
+    }
+
+    private void OnCalendarDateCommitted(object? sender, EventArgs e)
+    {
+        if (sender is CalendarDatePicker picker
+            && picker.SelectedDate != _calendarDateAtOpen
+            && DataContext is ShellViewModel { Work: { } work })
+            work.CommitCalendarDate(picker.SelectedDate);
+        _calendarDateAtOpen = null;
     }
 
     private void OnWorkChanged(object? sender, PropertyChangedEventArgs e)
@@ -148,6 +206,9 @@ public sealed partial class MainWindow : Window
         if (e.PropertyName == nameof(ProjectCaptureViewModel.DialogReturnFocusAutomationId)
             && sender is ProjectCaptureViewModel { DialogReturnFocusAutomationId.Length: > 0 } dialogWork)
             Dispatcher.UIThread.Post(() => FocusAutomationId(dialogWork.DialogReturnFocusAutomationId), DispatcherPriority.ApplicationIdle);
+        if (e.PropertyName == nameof(ProjectCaptureViewModel.ParticipantFocusAutomationId)
+            && sender is ProjectCaptureViewModel { ParticipantFocusAutomationId.Length: > 0 } participantWork)
+            Dispatcher.UIThread.Post(() => FocusAutomationId(participantWork.ParticipantFocusAutomationId), DispatcherPriority.ApplicationIdle);
         if (e.PropertyName == nameof(ProjectCaptureViewModel.IsEditingMarkdown)
             && sender is ProjectCaptureViewModel { IsEditingMarkdown: true })
             Dispatcher.UIThread.Post(
@@ -216,6 +277,40 @@ public sealed partial class MainWindow : Window
         e.Handled = true;
         if (work.SubmitBacklogQuickAdd())
             Dispatcher.UIThread.Post(() => this.FindControl<TextBox>("BacklogQuickTitle")?.Focus());
+    }
+
+    private void OnNewParticipantKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (DataContext is not ShellViewModel { Work: { } work }) return;
+        if (e.Key == Key.Escape)
+        {
+            work.NewParticipantLabel = string.Empty;
+            work.ParticipantToAdd = null;
+            e.Handled = true;
+            Dispatcher.UIThread.Post(() => this.FindControl<ComboBox>("ParticipantPicker")?.Focus());
+            return;
+        }
+        if (e.Key == Key.Enter)
+        {
+            work.AddNewParticipantCommand.Execute(null);
+            e.Handled = true;
+        }
+    }
+
+    private void OnParticipantRenameKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (sender is not TextBox { DataContext: ParticipantSettingViewModel participant }) return;
+        if (e.Key == Key.Enter)
+        {
+            e.Handled = true;
+            participant.SaveRenameCommand.Execute(null);
+        }
+        else if (e.Key == Key.Escape)
+        {
+            e.Handled = true;
+            participant.CancelRenameCommand.Execute(null);
+            Dispatcher.UIThread.Post(() => FocusAutomationId(participant.RenameAutomationId));
+        }
     }
 
     private async void OnCopyRendered(object? sender, RoutedEventArgs e)
@@ -425,7 +520,12 @@ public sealed partial class MainWindow : Window
         ResetPointerGesture();
         _dateRefreshTimer.Stop();
         _dateRefreshTimer.Tick -= OnDateRefreshTick;
-        if (_subscribedWork is not null) _subscribedWork.PropertyChanged -= OnWorkChanged;
+        _autosaveScheduler.Dispose();
+        if (_subscribedWork is not null)
+        {
+            _subscribedWork.PropertyChanged -= OnWorkChanged;
+            _subscribedWork.AutosaveRequested -= OnAutosaveRequested;
+        }
         _session?.Dispose();
         _session = null;
     }

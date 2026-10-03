@@ -423,7 +423,7 @@ public sealed class WorkspaceWorkTests : IDisposable
         }
         using (var session = _store.Open(WorkspacePath, _passphrase).Session!)
         {
-            Assert.Equal(5, session.SchemaVersion);
+            Assert.Equal(6, session.SchemaVersion);
             Assert.Equal("original", Assert.Single(session.Work.Read().Categories).Id);
             var project = session.Work.CreateProject("Migrated project", "", "original", null);
             session.Work.CreateTask(project.Id, "Migrated task");
@@ -482,14 +482,18 @@ public sealed class WorkspaceWorkTests : IDisposable
     [InlineData("description TEXT NOT NULL", "description TEXT")]
     [InlineData("completion_instant TEXT", "completion_instant INTEGER")]
     [InlineData("CHECK((completion_instant IS NULL AND completion_date IS NULL)", "CHECK((completion_instant IS NULL OR completion_date IS NULL)")]
-    public void OpenRejectsSchemaFiveWithMissingConstraintsOrChangedTypes(string original, string replacement)
+    [InlineData("label TEXT NOT NULL CHECK(length(trim(label)) > 0)", "label TEXT NOT NULL")]
+    [InlineData("participant_id TEXT NOT NULL REFERENCES participants(id)", "participant_id TEXT NOT NULL")]
+    [InlineData("PRIMARY KEY(task_id, participant_id)", "UNIQUE(task_id, participant_id)")]
+    [InlineData("UNIQUE(task_id, position)", "UNIQUE(participant_id, position)")]
+    public void OpenRejectsSchemaSixWithMissingConstraintsOrChangedTypes(string original, string replacement)
     {
         _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!.Dispose();
         using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
         {
             using var command = connection.CreateCommand();
             // Rebuild the empty work tables with valid SQL that weakens one schema guarantee.
-            command.CommandText = "DROP TABLE tasks; DROP TABLE projects;" +
+            command.CommandText = "DROP TABLE task_participants; DROP TABLE participants; DROP TABLE tasks; DROP TABLE projects;" +
                 SqliteWorkspaceWork.Schema.Replace(original, replacement, StringComparison.Ordinal);
             command.ExecuteNonQuery();
             Assert.Equal("ok", EncryptedWorkspaceStore.ExecuteScalar<string>(connection, "PRAGMA integrity_check;"));
@@ -548,6 +552,218 @@ public sealed class WorkspaceWorkTests : IDisposable
         }
         Assert.Throws<WorkspaceWorkException>(() => session.Work.Read());
         session.Dispose();
+        Assert.Equal(WorkspaceOpenStatus.InvalidPassphraseOrStore, _store.Open(WorkspacePath, _passphrase).Status);
+    }
+
+    [Fact]
+    public void ParticipantIdentityAssociationsRenameAndReferencedDeletePersistAcrossReopen()
+    {
+        string participantId;
+        string taskId;
+        using (var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!)
+        {
+            var category = Assert.Single(session.Work.Read().Categories);
+            var participant = session.Work.CreateParticipant("  SD  ");
+            participantId = participant.Id;
+            var second = session.Work.CreateParticipant("AB");
+            var task = session.Work.CreateStandaloneTask("Call", "", category.Id, null,
+                new([participant.Id, second.Id], []));
+            taskId = task.Id;
+            Assert.Equal([participant.Id, second.Id], task.Participants);
+            Assert.Throws<InvalidOperationException>(() => session.Work.DeleteParticipant(participant.Id));
+
+            var renamed = session.Work.RenameParticipant(participant.Id, "Ste");
+            Assert.Equal(participant.Id, renamed.Id);
+            Assert.Equal("Ste", renamed.Label);
+            Assert.Equal([participant.Id, second.Id], session.Work.Read().Tasks.Single().Participants);
+            session.Work.UpdateTask(task.Id, "Call again", "", category.Id, null);
+            Assert.Equal([participant.Id, second.Id], session.Work.Read().Tasks.Single().Participants);
+        }
+
+        using var reopened = _store.Open(WorkspacePath, _passphrase).Session!;
+        var snapshot = reopened.Work.Read();
+        Assert.Equal("Ste", snapshot.Participants.Single(item => item.Id == participantId).Label);
+        var taskAfterReopen = snapshot.Tasks.Single(item => item.Id == taskId);
+        Assert.Contains(participantId, taskAfterReopen.Participants);
+        reopened.Work.UpdateTask(taskId, taskAfterReopen.Title, taskAfterReopen.Description,
+            taskAfterReopen.ExplicitCategoryId, taskAfterReopen.DueDate,
+            new(taskAfterReopen.Participants.Where(id => id != participantId).ToArray(), []));
+        reopened.Work.DeleteParticipant(participantId);
+        Assert.DoesNotContain(reopened.Work.Read().Participants, item => item.Id == participantId);
+    }
+
+    [Fact]
+    public void ParticipantLabelsAreRequiredAndEquivalentLabelsAreRejectedAtomically()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var first = session.Work.CreateParticipant("SD");
+        var second = session.Work.CreateParticipant("AB");
+
+        Assert.Throws<ArgumentException>(() => session.Work.CreateParticipant("  "));
+        Assert.Throws<ArgumentException>(() => session.Work.CreateParticipant("  sd  "));
+        Assert.Throws<ArgumentException>(() => session.Work.CreateParticipant("ＳＤ"));
+        Assert.Throws<ArgumentException>(() => session.Work.RenameParticipant(second.Id, " sD "));
+        Assert.Equal("SD", session.Work.Read().Participants.Single(item => item.Id == first.Id).Label);
+        Assert.Equal("AB", session.Work.Read().Participants.Single(item => item.Id == second.Id).Label);
+        Assert.Throws<ArgumentException>(() => session.Work.RenameParticipant(second.Id, "\t"));
+    }
+
+    [Fact]
+    public void DuplicateParticipantInTaskDraftRollsBackTaskAndAssociations()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        var participant = session.Work.CreateParticipant("SD");
+        var task = session.Work.CreateStandaloneTask("Original", "", category.Id, null,
+            new([participant.Id], []));
+
+        Assert.Throws<ArgumentException>(() => session.Work.UpdateTask(
+            task.Id, "Changed", "changed", category.Id, null,
+            new([participant.Id], [" sd "])));
+
+        var unchanged = session.Work.Read();
+        Assert.Single(unchanged.Participants);
+        Assert.Equal("Original", Assert.Single(unchanged.Tasks).Title);
+        Assert.Equal([participant.Id], unchanged.Tasks.Single().Participants);
+    }
+
+    [Fact]
+    public void TaskSaveCreatesNewParticipantAndAssociationInOneTransaction()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        var task = session.Work.CreateStandaloneTask("Call", "", category.Id, null,
+            new([], ["SD"]));
+
+        var snapshot = session.Work.Read();
+        var participant = Assert.Single(snapshot.Participants);
+        Assert.Equal("SD", participant.Label);
+        Assert.Equal([participant.Id], snapshot.Tasks.Single(item => item.Id == task.Id).Participants);
+    }
+
+    [Fact]
+    public void NewParticipantAndTaskCreationRollBackTogetherWhenAssociationFails()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "CREATE TRIGGER reject_association BEFORE INSERT ON task_participants BEGIN SELECT RAISE(ABORT, 'private'); END;";
+            command.ExecuteNonQuery();
+        }
+
+        Assert.Throws<WorkspaceWorkException>(() => session.Work.CreateStandaloneTask(
+            "Call", "private description", category.Id, null, new([], ["SD"])));
+        var unchanged = session.Work.Read();
+        Assert.Empty(unchanged.Tasks);
+        Assert.Empty(unchanged.Participants);
+    }
+
+    [Fact]
+    public void ParticipantSchemaContainsIdentityLabelUniqueComparisonKeyAndAssociationKeys()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        using var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadOnly);
+        Assert.Equal("id,label,comparison_key", EncryptedWorkspaceStore.ExecuteScalar<string>(connection,
+            "SELECT group_concat(name, ',') FROM pragma_table_info('participants');"));
+        Assert.Equal("task_id,participant_id,position", EncryptedWorkspaceStore.ExecuteScalar<string>(connection,
+            "SELECT group_concat(name, ',') FROM pragma_table_info('task_participants');"));
+    }
+
+    [Fact]
+    public void ParticipantComparisonKeyMismatchIsRejectedWhenOpeningTheWorkspace()
+    {
+        using (var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!)
+            session.Work.CreateParticipant("SD");
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(
+                   WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE participants SET comparison_key='WRONG';";
+            command.ExecuteNonQuery();
+        }
+
+        Assert.Equal(
+            WorkspaceOpenStatus.InvalidPassphraseOrStore,
+            _store.Open(WorkspacePath, _passphrase).Status);
+    }
+
+    [Fact]
+    public void AssociationFailureRollsBackTaskFieldsAndParticipantReferences()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        var first = session.Work.CreateParticipant("First");
+        var rejected = session.Work.CreateParticipant("Rejected");
+        var task = session.Work.CreateStandaloneTask("Original", "", category.Id, null, new([first.Id], []));
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = $"CREATE TRIGGER reject_association BEFORE INSERT ON task_participants WHEN NEW.participant_id='{rejected.Id}' BEGIN SELECT RAISE(ABORT, 'private'); END;";
+            command.ExecuteNonQuery();
+        }
+
+        Assert.Throws<WorkspaceWorkException>(() => session.Work.UpdateTask(task.Id, "Changed", "changed", category.Id,
+            new DateOnly(2030, 1, 1), new([rejected.Id], [])));
+        var unchanged = Assert.Single(session.Work.Read().Tasks);
+        Assert.Equal("Original", unchanged.Title);
+        Assert.Empty(unchanged.Description);
+        Assert.Null(unchanged.DueDate);
+        Assert.Equal([first.Id], unchanged.Participants);
+    }
+
+    [Fact]
+    public void RenameFailureRollsBackTheParticipantLabel()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var participant = session.Work.CreateParticipant("SD");
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "CREATE TRIGGER reject_rename BEFORE UPDATE ON participants BEGIN SELECT RAISE(ABORT, 'private'); END;";
+            command.ExecuteNonQuery();
+        }
+
+        Assert.Throws<WorkspaceWorkException>(() => session.Work.RenameParticipant(participant.Id, "Changed"));
+        Assert.Equal("SD", Assert.Single(session.Work.Read().Participants).Label);
+    }
+
+    [Fact]
+    public void ReleasedSchemaFiveMigratesToParticipantsWithoutChangingExistingWork()
+    {
+        Directory.CreateDirectory(_directory);
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWriteCreate))
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "CREATE TABLE categories(id TEXT NOT NULL PRIMARY KEY,name TEXT NOT NULL COLLATE NOCASE UNIQUE,position INTEGER NOT NULL CHECK(position>=0)); CREATE INDEX ix_categories_position ON categories(position); INSERT INTO categories VALUES ('home','Home',0);"
+                + SqliteWorkspaceWork.SchemaFive
+                + "INSERT INTO projects VALUES ('project','Garden','','home',NULL,0); INSERT INTO tasks VALUES ('task','project','Dig','',NULL,NULL,0,0,NULL,NULL);";
+            command.ExecuteNonQuery();
+        }
+
+        using var session = _store.Open(WorkspacePath, _passphrase).Session!;
+        Assert.Equal(6, session.SchemaVersion);
+        Assert.Equal("Dig", Assert.Single(session.Work.Read().Tasks).Title);
+        using var migrated = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadOnly);
+        Assert.Equal("id,label,comparison_key", EncryptedWorkspaceStore.ExecuteScalar<string>(migrated,
+            "SELECT group_concat(name, ',') FROM pragma_table_info('participants');"));
+        Assert.Empty(session.Work.Read().Participants);
+    }
+
+    [Fact]
+    public void MalformedSchemaFiveCompletionDataIsRejectedBeforeMigration()
+    {
+        Directory.CreateDirectory(_directory);
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWriteCreate))
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "CREATE TABLE categories(id TEXT NOT NULL PRIMARY KEY,name TEXT NOT NULL COLLATE NOCASE UNIQUE,position INTEGER NOT NULL CHECK(position>=0)); CREATE INDEX ix_categories_position ON categories(position); INSERT INTO categories VALUES ('home','Home',0);"
+                + SqliteWorkspaceWork.SchemaFive
+                + "INSERT INTO projects VALUES ('project','Garden','','home',NULL,0); INSERT INTO tasks VALUES ('task','project','Dig','',NULL,NULL,0,0,'not-an-instant','2026-10-03');";
+            command.ExecuteNonQuery();
+        }
+
         Assert.Equal(WorkspaceOpenStatus.InvalidPassphraseOrStore, _store.Open(WorkspacePath, _passphrase).Status);
     }
 

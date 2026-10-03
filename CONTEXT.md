@@ -38,7 +38,7 @@ A persisted Today-only placement for an incomplete Today Task: Planned or In pro
 
 ### Participant
 
-A reusable local label associated with a Task for context, typically initials or a nickname. Participants contain no contact fields, are not assignees, and do not imply identity, ownership, permissions, or workflow responsibility.
+A reusable local label associated with a Task for context, typically initials or a nickname. Its label is unique after whitespace, Unicode compatibility, and case normalisation. Participants contain no contact fields, are not assignees, and do not imply identity, ownership, permissions, or workflow responsibility.
 
 ### Completion status
 
@@ -80,7 +80,7 @@ A recoverable soft-deletion state for work the user intends to remove. Bin is di
 16. The completed-today projection is based on completion timestamp, not prior Today membership.
 17. Changing a Today lane never changes shared Task order.
 18. Reordering within a Today lane changes the relative shared order of the visible lane Tasks while preserving other Tasks' positions.
-19. A Participant is referenced by identity rather than copied as Task free text; renaming its label updates every Task that references it.
+19. A Participant is referenced by identity rather than copied as Task free text; renaming its unique label updates every Task that references it.
 20. Binned work is never treated as archived history.
 21. A binned Task does not contribute to its Project's derived status or completion date.
 22. Moving a Project to Bin moves its Tasks with it as one aggregate.
@@ -97,8 +97,8 @@ A recoverable soft-deletion state for work the user intends to remove. Bin is di
 33. Task due dates and Project target dates are date-only values; they do not imply a time of day, time zone, reminder, or notification.
 34. An active, incomplete Project whose target date is before today is overdue; this is presented on the Project itself and is not counted in the sidebar.
 35. Overdue state never changes the user-controlled Project order.
-36. Inspector field edits are drafts until explicitly saved; immediate workflow actions are separate domain actions and do not implicitly save or discard a draft.
-37. A new Project or Task does not exist in the domain until its creation draft is explicitly confirmed.
+36. Valid Project and Task inspector edits persist automatically; navigation, closing, and immediate workflow actions flush pending changes before proceeding, while invalid or failed changes remain available for correction, retry, or explicit discard. Category drafts retain explicit confirmation.
+37. A new Project or Task does not exist in the domain until its transient draft first becomes valid and is persisted automatically.
 38. New Task drafts use visible, editable defaults from their launch context: Project, Category, Today, Backlog, or global creation.
 39. A newly created Task starts at the top of shared Task order and, when attached, at the end of its Project order; new Projects and Categories start at the end of their respective orders.
 40. Quick-add is an explicit immediate action in Projects and Backlog that creates a title-only Task and returns focus to a fresh entry field for rapid sequential capture.

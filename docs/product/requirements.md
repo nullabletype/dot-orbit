@@ -6,7 +6,7 @@ Status: working specification derived from the interactive prototype.
 
 - **NAV-001** The primary navigation order is Today, Upcoming, Backlog, Projects, Categories, Completed, Archive.
 - **NAV-002** Today is the default view at application launch.
-- **NAV-003** Navigating away from an inspector with unsaved field edits prompts the user to save, discard, or remain on the current item.
+- **NAV-003** Navigating away from a Project or Task inspector flushes valid pending automatic changes first. Invalid or failed changes remain visible and block leaving until they are corrected, retried, or explicitly discarded; Category drafts retain the save, discard, or stay prompt.
 
 ## Projects and Tasks
 
@@ -29,12 +29,12 @@ Status: working specification derived from the interactive prototype.
 
 ## Editing
 
-- **EDIT-001** Inspector changes to titles, descriptions, dates, Categories, and Participants remain a local draft until the user explicitly chooses Save.
-- **EDIT-002** Cancel discards the current inspector draft and restores the last saved values.
-- **EDIT-003** Immediate workflow actions such as completion, Today membership, lane movement, archive, Bin, restore, and reorder are committed independently and never implicitly save or discard an inspector draft.
-- **EDIT-004** If an immediate action would make the drafted item unavailable in its current view, the application first requires the draft to be saved or discarded.
-- **EDIT-005** Creating a Project or Task opens a transient inspector draft that becomes a persisted item only after the user explicitly chooses Create.
-- **EDIT-006** Cancelling a creation draft leaves no partial item in lists, counts, backups, search, or other projections.
+- **EDIT-001** Valid Project and Task inspector changes are persisted automatically: text entry is coalesced after 600 milliseconds of inactivity, while discrete selections and Participant association changes save immediately.
+- **EDIT-002** Automatic saves are serialized and revision-aware so an older write cannot overwrite a newer inspector value. A persistent near-header status reports saving, saved, and failed states and provides an accessible retry action after failure.
+- **EDIT-003** Navigating, closing, or starting an immediate workflow action first flushes valid pending Project or Task changes. Invalid or failed changes remain visible and block leaving until corrected, retried, or explicitly discarded.
+- **EDIT-004** Category editing retains explicit Save and Cancel actions and the save, discard, or stay navigation decision.
+- **EDIT-005** Creating a Project or Task opens a transient inspector. The first valid automatic save creates it; an incomplete or blank draft remains transient and can be left without creating a partial item.
+- **EDIT-006** Discarding an invalid or failed creation draft leaves no partial item in lists, counts, backups, search, or other projections.
 - **EDIT-007** A Task draft opened from a Project defaults to that Project and inherited Category.
 - **EDIT-008** A Task draft opened from a Category defaults to a standalone Task with that Category.
 - **EDIT-009** A Task draft opened from Today defaults to Today membership in Planned and allows an optional Project to be selected before creation.
@@ -154,10 +154,11 @@ Status: working specification derived from the interactive prototype.
 - **MARKDOWN-002** The rendered description can be copied as rich HTML with a plain-text fallback for Teams, Word, and similar applications.
 - **PARTICIPANT-001** Participants are optional reusable local records identified by a user-provided label, typically initials or a nickname, and do not create an assignee or ownership model.
 - **PARTICIPANT-002** A Participant stores only its label and stable identifier; it has no email address, contact details, account, permissions, or operating-system contact link.
-- **PARTICIPANT-003** Selecting an existing Participant reuses that record; entering a new label creates a local Participant.
-- **PARTICIPANT-004** Renaming a Participant updates its label everywhere it is referenced.
-- **PARTICIPANT-005** A Participant cannot be deleted while Tasks reference it; the references must be removed first.
-- **PARTICIPANT-006** Participant entry explains that labels should use initials or nicknames rather than personally identifying contact information.
+- **PARTICIPANT-003** The Participant picker lists reusable records followed by a distinct New participant action. Choosing it reveals a focused label field with Enter/Add and Escape/Cancel behaviour. A new unique label is created and associated atomically with the Task's next automatic save; an equivalent existing label associates that existing Participant instead, and an already-associated match is rejected at the field.
+- **PARTICIPANT-004** Participant labels are unique after trimming, Unicode compatibility normalisation, and case-insensitive comparison. Creating or renaming to an equivalent label never creates or merges duplicate identities.
+- **PARTICIPANT-005** Settings lists all Participants using the shared list-row pattern. Renaming one row is an explicit Save/Cancel action and updates its label everywhere it is referenced.
+- **PARTICIPANT-006** Settings can delete an unreferenced Participant. A Participant cannot be deleted while Tasks reference it; the references must be removed first.
+- **PARTICIPANT-007** Participant entry explains that labels should use initials or nicknames rather than personally identifying contact information.
 - **MARKDOWN-003** Markdown follows a CommonMark-style subset with raw HTML disabled.
 - **MARKDOWN-004** Markdown rendering rejects scripts, embedded objects, inline event handlers, and unsafe or custom URI schemes.
 - **MARKDOWN-005** Remote images are not fetched automatically and render as links or placeholders.
@@ -202,6 +203,7 @@ Status: working specification derived from the interactive prototype.
 - **DATA-026** A failed or interrupted migration leaves the pre-migration database usable and offers restoration from the recovery backup.
 - **DATA-027** An older application refuses a database created by a newer unsupported schema version without modifying it.
 - **DATA-028** Migration tests cover upgrades from every previously released schema still in the supported upgrade path, including interrupted migration and recovery.
+- **DATA-029** Settings contains the persistent Recovery entry; recovery is not a permanent primary-work action.
 
 ## Synchronisation
 

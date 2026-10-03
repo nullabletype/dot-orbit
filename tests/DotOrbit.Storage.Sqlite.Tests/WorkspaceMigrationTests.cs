@@ -18,9 +18,9 @@ public sealed class WorkspaceMigrationTests
 
         using var session = fixture.CreateCurrentWorkspace();
 
-        Assert.Equal(5, session.SchemaVersion);
+        Assert.Equal(6, session.SchemaVersion);
         using var connection = OpenInspectionConnection(fixture.WorkspacePath, ValidPassphrase);
-        Assert.Equal(5L, ExecuteScalar<long>(connection, "PRAGMA user_version;"));
+        Assert.Equal(6L, ExecuteScalar<long>(connection, "PRAGMA user_version;"));
         Assert.Equal(
             "index",
             ExecuteScalar<string>(
@@ -39,7 +39,7 @@ public sealed class WorkspaceMigrationTests
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
         Assert.NotNull(session);
-        Assert.Equal(5, session.SchemaVersion);
+        Assert.Equal(6, session.SchemaVersion);
         Assert.Equal("Personal Admin", session.FirstCategoryName);
         var recoveryPath = Assert.Single(
             Directory.GetFiles(
@@ -48,7 +48,7 @@ public sealed class WorkspaceMigrationTests
         AssertSchemaOneWorkspace(recoveryPath, "Personal Admin");
 
         using var migrated = OpenInspectionConnection(fixture.WorkspacePath, ValidPassphrase);
-        Assert.Equal(5L, ExecuteScalar<long>(migrated, "PRAGMA user_version;"));
+        Assert.Equal(6L, ExecuteScalar<long>(migrated, "PRAGMA user_version;"));
         Assert.Equal(
             1L,
             ExecuteScalar<long>(
@@ -66,7 +66,7 @@ public sealed class WorkspaceMigrationTests
         using var session = result.Session;
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
-        Assert.Equal(5, session?.SchemaVersion);
+        Assert.Equal(6, session?.SchemaVersion);
         var snapshot = session!.Work.Read();
         Assert.Equal(["First", "Second"], snapshot.Tasks.Select(task => task.Title));
         Assert.All(snapshot.Tasks, task => Assert.Equal("project", task.ProjectId));
@@ -87,7 +87,7 @@ public sealed class WorkspaceMigrationTests
         using var session = result.Session;
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
-        Assert.Equal(5, session?.SchemaVersion);
+        Assert.Equal(6, session?.SchemaVersion);
         var snapshot = session!.Work.Read();
         Assert.Equal(["project-two", "project-one"], snapshot.Projects.Select(project => project.Id));
         Assert.Equal([0L, 1L], snapshot.Projects.Select(project => project.Position));
@@ -142,7 +142,7 @@ public sealed class WorkspaceMigrationTests
         using var session = result.Session;
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
-        Assert.Equal(5, session?.SchemaVersion);
+        Assert.Equal(6, session?.SchemaVersion);
         Assert.Empty(
             Directory.GetFiles(
                 fixture.DirectoryPath,
@@ -179,7 +179,7 @@ public sealed class WorkspaceMigrationTests
         using var session = result.Session;
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
-        Assert.Equal(5, session?.SchemaVersion);
+        Assert.Equal(6, session?.SchemaVersion);
         Assert.Single(
             Directory.GetFiles(
                 fixture.DirectoryPath,
@@ -249,7 +249,7 @@ public sealed class WorkspaceMigrationTests
     {
         MigrationFixture fixture = null!;
         fixture = new MigrationFixture(
-            afterMigration: () => fixture.SetSchemaVersion(6));
+            afterMigration: () => fixture.SetSchemaVersion(7));
         using (fixture)
         {
             fixture.CreateSchemaOneWorkspace("Home");
@@ -321,7 +321,7 @@ public sealed class WorkspaceMigrationTests
             using var session = result.Session;
 
             Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
-            Assert.Equal(5, session?.SchemaVersion);
+            Assert.Equal(6, session?.SchemaVersion);
         }
     }
 
@@ -329,7 +329,7 @@ public sealed class WorkspaceMigrationTests
     public void NewerSchemaIsRefusedWithoutPublishingRecoveryOrChangingBytes()
     {
         using var fixture = new MigrationFixture();
-        fixture.CreateSchemaOneWorkspace("Home", schemaVersion: 6);
+        fixture.CreateSchemaOneWorkspace("Home", schemaVersion: 7);
         var original = File.ReadAllBytes(fixture.WorkspacePath);
 
         var result = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase());
@@ -361,12 +361,12 @@ public sealed class WorkspaceMigrationTests
 
         Assert.Equal(WorkspaceRestoreStatus.Restored, result.Status);
         Assert.NotNull(restored);
-        Assert.Equal(5, restored.SchemaVersion);
+        Assert.Equal(6, restored.SchemaVersion);
         Assert.Equal("Restored category", restored.FirstCategoryName);
         using var inspection = OpenInspectionConnection(
             fixture.WorkspacePath,
             ValidPassphrase);
-        Assert.Equal(5L, ExecuteScalar<long>(inspection, "PRAGMA user_version;"));
+        Assert.Equal(6L, ExecuteScalar<long>(inspection, "PRAGMA user_version;"));
         Assert.Equal(
             1L,
             ExecuteScalar<long>(

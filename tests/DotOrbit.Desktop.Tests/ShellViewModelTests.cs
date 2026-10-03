@@ -15,16 +15,19 @@ public sealed class ShellViewModelTests
             ["Today", "Upcoming", "Backlog", "Projects", "Categories", "Completed", "Archive"],
             shell.PrimaryNavigation.Select(item => item.Title));
         Assert.Equal("Bin", shell.BinNavigation.Title);
+        Assert.Equal("Settings", shell.SettingsNavigation.Title);
         Assert.DoesNotContain(shell.BinNavigation, shell.PrimaryNavigation);
+        Assert.DoesNotContain(shell.SettingsNavigation, shell.PrimaryNavigation);
         Assert.All(shell.PrimaryNavigation, item => Assert.Equal("0", item.CountText));
         Assert.Null(shell.BinNavigation.CountText);
+        Assert.Null(shell.SettingsNavigation.CountText);
     }
 
     [Fact]
     public void EveryDestinationProvidesAUsableEmptyState()
     {
         var shell = new ShellViewModel();
-        var destinations = shell.PrimaryNavigation.Append(shell.BinNavigation);
+        var destinations = shell.PrimaryNavigation.Append(shell.BinNavigation).Append(shell.SettingsNavigation);
 
         Assert.All(destinations, destination =>
         {
