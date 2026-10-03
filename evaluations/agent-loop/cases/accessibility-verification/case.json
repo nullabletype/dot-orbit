@@ -41,6 +41,7 @@
         "rendered",
         "assistive technology"
       ],
+      "caseSensitive": false,
       "points": 20
     },
     {

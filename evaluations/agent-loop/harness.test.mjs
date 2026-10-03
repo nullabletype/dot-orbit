@@ -46,6 +46,13 @@ test("validateCase rejects path escapes and unsupported graders", () => {
     })),
     /unsupported-type/,
   );
+  assert.throws(
+    () => validateCase(definition({
+      checks: [{ id: "content", type: "file-contains", path: "workspace/value.txt", fragments: ["done"], caseSensitive: "no", points: 100 }],
+      rubric: { totalPoints: 100, passPoints: 100 },
+    })),
+    /case-sensitive-boolean-required/,
+  );
 });
 
 test("evaluateChecks grades observable content and unrelated churn", async (t) => {

@@ -26,6 +26,9 @@ function checkDefinition(check, index) {
   }
   if (check.type === "file-contains" || check.type === "file-excludes") {
     safeRelativePath(check.path, `checks[${index}].path`);
+    if (check.caseSensitive !== undefined && typeof check.caseSensitive !== "boolean") {
+      throw new Error(`checks[${index}]:case-sensitive-boolean-required`);
+    }
     if (!Array.isArray(check.fragments) || check.fragments.length === 0
       || check.fragments.some((fragment) => typeof fragment !== "string" || fragment.length === 0)) {
       throw new Error(`checks[${index}]:fragments-required`);
@@ -164,9 +167,13 @@ export async function evaluateChecks(definition, worktree, baseRef = "HEAD") {
       } catch {
         content = undefined;
       }
+      if (content !== undefined && check.caseSensitive === false) content = content.toLocaleLowerCase("en-US");
+      const fragments = check.caseSensitive === false
+        ? check.fragments.map((fragment) => fragment.toLocaleLowerCase("en-US"))
+        : check.fragments;
       passed = content !== undefined && (check.type === "file-contains"
-        ? check.fragments.every((fragment) => content.includes(fragment))
-        : check.fragments.every((fragment) => !content.includes(fragment)));
+        ? fragments.every((fragment) => content.includes(fragment))
+        : fragments.every((fragment) => !content.includes(fragment)));
     } else if (check.type === "command") {
       const [command, ...args] = check.command;
       const result = await runProcess(command, args, { cwd: worktree, timeoutMilliseconds: check.timeoutMilliseconds ?? 120_000 });

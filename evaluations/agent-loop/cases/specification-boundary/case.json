@@ -51,6 +51,7 @@
         "Open decisions\n\nNone",
         "Blocked by\n\nNone"
       ],
+      "caseSensitive": false,
       "points": 40
     },
     {
