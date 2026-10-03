@@ -681,17 +681,17 @@ public sealed class MarkdownTests
         editor.Text = "````\n```\n- code";
         editor.CaretIndex = editor.Text.Length;
         PressKey(window, PhysicalKey.Enter, RawInputModifiers.None);
-        Assert.Equal("````\n```\n- code\n", editor.Text);
+        Assert.Equal($"````\n```\n- code{Environment.NewLine}", editor.Text);
 
         editor.Text = "    - indented code";
         editor.CaretIndex = editor.Text.Length;
         PressKey(window, PhysicalKey.Enter, RawInputModifiers.None);
-        Assert.Equal("    - indented code\n", editor.Text);
+        Assert.Equal($"    - indented code{Environment.NewLine}", editor.Text);
 
         editor.Text = "1. Item\n\n        - nested code";
         editor.CaretIndex = editor.Text.Length;
         PressKey(window, PhysicalKey.Enter, RawInputModifiers.None);
-        Assert.Equal("1. Item\n\n        - nested code\n", editor.Text);
+        Assert.Equal($"1. Item\n\n        - nested code{Environment.NewLine}", editor.Text);
 
         editor.Text = "1. Item\n   continuation\n\n    - Child";
         editor.CaretIndex = editor.Text.Length;
