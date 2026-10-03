@@ -26,12 +26,14 @@ node evaluations/agent-loop/run.mjs \
   --candidate codex \
   --candidate-arg --ask-for-approval \
   --candidate-arg never \
+  --candidate-arg --model \
+  --candidate-arg gpt-5.5 \
   --candidate-arg exec \
   --candidate-arg --ephemeral \
   --candidate-arg --sandbox \
   --candidate-arg workspace-write \
   --candidate-arg - \
-  --candidate-identity codex-local-default \
+  --candidate-identity codex-v0.142.5-gpt-5.5-medium \
   --trials 2 \
   --max-corrections 1 \
   --results /absolute/private/path/baseline.json
@@ -56,6 +58,8 @@ An optional independent reviewer follows the same stdin/cwd contract. Add `--rev
 ## Recorded metrics
 
 The machine-readable JSON records the exact source commit, hashes of the current instruction set and harness manifests, candidate identity label, repeated-trial successes, first-pass gate rate, harness-owned correction cycles, unrelated-file churn, elapsed time, failed/timed-out candidate invocations, and independent-review outcome. Elapsed time is noisy and non-scoring. Candidate output byte count is retained only to confirm output was discarded.
+
+The initial real-agent baseline is checked in at [`baselines/2026-10-03-codex-gpt-5.5.json`](baselines/2026-10-03-codex-gpt-5.5.json). It records 12/12 eventual successes, 7/12 first-pass successes, five correction cycles, zero unrelated-file changes, zero candidate-process failures, and unavailable independent review. The candidate model is part of that baseline identity, not a permanent recommendation; select and label the supported candidate being measured when recording a later baseline.
 
 The runner never serializes prompts, stdout, stderr, diffs, file contents, environment values, credentials, raw traces, or reviewer prose. Results are local records; they are not GitHub Actions artifacts. A deliberately curated aggregate baseline may be committed after privacy review, but raw logs and general evidence bundles may not.
 

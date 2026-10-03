@@ -1,0 +1,312 @@
+{
+  "schema": "dot-orbit-agent-evaluation:v1",
+  "recordedAt": "2026-10-03T19:14:06.719Z",
+  "sourceCommit": "0c45b03f43a7589ddea464293a6e1228a2db2517",
+  "instructionVersion": "d68f80bf977014106c561956ff0024ab8104aaa56f3b64900681436665b3b07b",
+  "harnessVersion": "d70598ff7d5acf60a8bb792f873305247c5d1ba2d1d57f0230af8245d60c0751",
+  "configuration": {
+    "trials": 2,
+    "maximumCorrectionCycles": 1,
+    "caseCount": 6,
+    "independentReviewerConfigured": false,
+    "candidateIdentity": "codex-v0.142.5-gpt-5.5-medium"
+  },
+  "aggregate": {
+    "totalRuns": 12,
+    "successfulRuns": 12,
+    "repeatedTrialSuccessRate": 1,
+    "firstPassGateRate": 0.5833333333333334,
+    "correctionCycles": 5,
+    "unrelatedFileChurn": 0,
+    "elapsedMilliseconds": 1094166,
+    "toolFailures": 0,
+    "independentReview": {
+      "approved": 0,
+      "rejected": 0,
+      "unavailable": 12,
+      "errored": 0
+    }
+  },
+  "runs": [
+    {
+      "caseId": "accessibility-verification",
+      "category": "accessibility-verification",
+      "trial": 1,
+      "passed": true,
+      "firstPassPassed": false,
+      "points": 100,
+      "maximumPoints": 100,
+      "checks": [
+        { "id": "accessible-markup", "passed": true, "points": 60, "maximumPoints": 60 },
+        { "id": "verification-boundary", "passed": true, "points": 20, "maximumPoints": 20 },
+        { "id": "allowed-scope", "passed": true, "points": 20, "maximumPoints": 20 }
+      ],
+      "correctionCycles": 1,
+      "unrelatedFileChurn": 0,
+      "changedPathCount": 2,
+      "elapsedMilliseconds": 138972,
+      "toolFailures": 0,
+      "candidateExitCode": 0,
+      "candidateTimedOut": false,
+      "candidateOutputBytesDiscarded": 75442,
+      "independentReview": "unavailable"
+    },
+    {
+      "caseId": "bounded-ordering",
+      "category": "bounded-code-change",
+      "trial": 1,
+      "passed": true,
+      "firstPassPassed": true,
+      "points": 100,
+      "maximumPoints": 100,
+      "checks": [
+        { "id": "ordering-behaviour", "passed": true, "points": 80, "maximumPoints": 80 },
+        { "id": "allowed-scope", "passed": true, "points": 20, "maximumPoints": 20 }
+      ],
+      "correctionCycles": 0,
+      "unrelatedFileChurn": 0,
+      "changedPathCount": 1,
+      "elapsedMilliseconds": 35244,
+      "toolFailures": 0,
+      "candidateExitCode": 0,
+      "candidateTimedOut": false,
+      "candidateOutputBytesDiscarded": 18923,
+      "independentReview": "unavailable"
+    },
+    {
+      "caseId": "dependency-security-review",
+      "category": "dependency-security-review",
+      "trial": 1,
+      "passed": true,
+      "firstPassPassed": true,
+      "points": 100,
+      "maximumPoints": 100,
+      "checks": [
+        { "id": "supported-pins", "passed": true, "points": 70, "maximumPoints": 70 },
+        { "id": "review-record", "passed": true, "points": 10, "maximumPoints": 10 },
+        { "id": "allowed-scope", "passed": true, "points": 20, "maximumPoints": 20 }
+      ],
+      "correctionCycles": 0,
+      "unrelatedFileChurn": 0,
+      "changedPathCount": 4,
+      "elapsedMilliseconds": 58253,
+      "toolFailures": 0,
+      "candidateExitCode": 0,
+      "candidateTimedOut": false,
+      "candidateOutputBytesDiscarded": 85719,
+      "independentReview": "unavailable"
+    },
+    {
+      "caseId": "documentation-drift",
+      "category": "documentation-drift",
+      "trial": 1,
+      "passed": true,
+      "firstPassPassed": true,
+      "points": 100,
+      "maximumPoints": 100,
+      "checks": [
+        { "id": "documentation-contract", "passed": true, "points": 60, "maximumPoints": 60 },
+        { "id": "stale-switch-removed", "passed": true, "points": 20, "maximumPoints": 20 },
+        { "id": "allowed-scope", "passed": true, "points": 20, "maximumPoints": 20 }
+      ],
+      "correctionCycles": 0,
+      "unrelatedFileChurn": 0,
+      "changedPathCount": 1,
+      "elapsedMilliseconds": 43863,
+      "toolFailures": 0,
+      "candidateExitCode": 0,
+      "candidateTimedOut": false,
+      "candidateOutputBytesDiscarded": 81364,
+      "independentReview": "unavailable"
+    },
+    {
+      "caseId": "regression-date-validation",
+      "category": "regression-repair",
+      "trial": 1,
+      "passed": true,
+      "firstPassPassed": false,
+      "points": 100,
+      "maximumPoints": 100,
+      "checks": [
+        { "id": "date-behaviour", "passed": true, "points": 60, "maximumPoints": 60 },
+        { "id": "regression-cases", "passed": true, "points": 20, "maximumPoints": 20 },
+        { "id": "allowed-scope", "passed": true, "points": 20, "maximumPoints": 20 }
+      ],
+      "correctionCycles": 1,
+      "unrelatedFileChurn": 0,
+      "changedPathCount": 2,
+      "elapsedMilliseconds": 131784,
+      "toolFailures": 0,
+      "candidateExitCode": 0,
+      "candidateTimedOut": false,
+      "candidateOutputBytesDiscarded": 87140,
+      "independentReview": "unavailable"
+    },
+    {
+      "caseId": "specification-boundary",
+      "category": "specification",
+      "trial": 1,
+      "passed": true,
+      "firstPassPassed": false,
+      "points": 100,
+      "maximumPoints": 100,
+      "checks": [
+        { "id": "complete-contract", "passed": true, "points": 40, "maximumPoints": 40 },
+        { "id": "product-boundary", "passed": true, "points": 40, "maximumPoints": 40 },
+        { "id": "allowed-scope", "passed": true, "points": 20, "maximumPoints": 20 }
+      ],
+      "correctionCycles": 1,
+      "unrelatedFileChurn": 0,
+      "changedPathCount": 1,
+      "elapsedMilliseconds": 181204,
+      "toolFailures": 0,
+      "candidateExitCode": 0,
+      "candidateTimedOut": false,
+      "candidateOutputBytesDiscarded": 168592,
+      "independentReview": "unavailable"
+    },
+    {
+      "caseId": "accessibility-verification",
+      "category": "accessibility-verification",
+      "trial": 2,
+      "passed": true,
+      "firstPassPassed": false,
+      "points": 100,
+      "maximumPoints": 100,
+      "checks": [
+        { "id": "accessible-markup", "passed": true, "points": 60, "maximumPoints": 60 },
+        { "id": "verification-boundary", "passed": true, "points": 20, "maximumPoints": 20 },
+        { "id": "allowed-scope", "passed": true, "points": 20, "maximumPoints": 20 }
+      ],
+      "correctionCycles": 1,
+      "unrelatedFileChurn": 0,
+      "changedPathCount": 2,
+      "elapsedMilliseconds": 117181,
+      "toolFailures": 0,
+      "candidateExitCode": 0,
+      "candidateTimedOut": false,
+      "candidateOutputBytesDiscarded": 57964,
+      "independentReview": "unavailable"
+    },
+    {
+      "caseId": "bounded-ordering",
+      "category": "bounded-code-change",
+      "trial": 2,
+      "passed": true,
+      "firstPassPassed": true,
+      "points": 100,
+      "maximumPoints": 100,
+      "checks": [
+        { "id": "ordering-behaviour", "passed": true, "points": 80, "maximumPoints": 80 },
+        { "id": "allowed-scope", "passed": true, "points": 20, "maximumPoints": 20 }
+      ],
+      "correctionCycles": 0,
+      "unrelatedFileChurn": 0,
+      "changedPathCount": 1,
+      "elapsedMilliseconds": 33355,
+      "toolFailures": 0,
+      "candidateExitCode": 0,
+      "candidateTimedOut": false,
+      "candidateOutputBytesDiscarded": 17839,
+      "independentReview": "unavailable"
+    },
+    {
+      "caseId": "dependency-security-review",
+      "category": "dependency-security-review",
+      "trial": 2,
+      "passed": true,
+      "firstPassPassed": true,
+      "points": 100,
+      "maximumPoints": 100,
+      "checks": [
+        { "id": "supported-pins", "passed": true, "points": 70, "maximumPoints": 70 },
+        { "id": "review-record", "passed": true, "points": 10, "maximumPoints": 10 },
+        { "id": "allowed-scope", "passed": true, "points": 20, "maximumPoints": 20 }
+      ],
+      "correctionCycles": 0,
+      "unrelatedFileChurn": 0,
+      "changedPathCount": 4,
+      "elapsedMilliseconds": 63138,
+      "toolFailures": 0,
+      "candidateExitCode": 0,
+      "candidateTimedOut": false,
+      "candidateOutputBytesDiscarded": 44848,
+      "independentReview": "unavailable"
+    },
+    {
+      "caseId": "documentation-drift",
+      "category": "documentation-drift",
+      "trial": 2,
+      "passed": true,
+      "firstPassPassed": true,
+      "points": 100,
+      "maximumPoints": 100,
+      "checks": [
+        { "id": "documentation-contract", "passed": true, "points": 60, "maximumPoints": 60 },
+        { "id": "stale-switch-removed", "passed": true, "points": 20, "maximumPoints": 20 },
+        { "id": "allowed-scope", "passed": true, "points": 20, "maximumPoints": 20 }
+      ],
+      "correctionCycles": 0,
+      "unrelatedFileChurn": 0,
+      "changedPathCount": 1,
+      "elapsedMilliseconds": 40270,
+      "toolFailures": 0,
+      "candidateExitCode": 0,
+      "candidateTimedOut": false,
+      "candidateOutputBytesDiscarded": 23447,
+      "independentReview": "unavailable"
+    },
+    {
+      "caseId": "regression-date-validation",
+      "category": "regression-repair",
+      "trial": 2,
+      "passed": true,
+      "firstPassPassed": false,
+      "points": 100,
+      "maximumPoints": 100,
+      "checks": [
+        { "id": "date-behaviour", "passed": true, "points": 60, "maximumPoints": 60 },
+        { "id": "regression-cases", "passed": true, "points": 20, "maximumPoints": 20 },
+        { "id": "allowed-scope", "passed": true, "points": 20, "maximumPoints": 20 }
+      ],
+      "correctionCycles": 1,
+      "unrelatedFileChurn": 0,
+      "changedPathCount": 2,
+      "elapsedMilliseconds": 139888,
+      "toolFailures": 0,
+      "candidateExitCode": 0,
+      "candidateTimedOut": false,
+      "candidateOutputBytesDiscarded": 52489,
+      "independentReview": "unavailable"
+    },
+    {
+      "caseId": "specification-boundary",
+      "category": "specification",
+      "trial": 2,
+      "passed": true,
+      "firstPassPassed": true,
+      "points": 100,
+      "maximumPoints": 100,
+      "checks": [
+        { "id": "complete-contract", "passed": true, "points": 40, "maximumPoints": 40 },
+        { "id": "product-boundary", "passed": true, "points": 40, "maximumPoints": 40 },
+        { "id": "allowed-scope", "passed": true, "points": 20, "maximumPoints": 20 }
+      ],
+      "correctionCycles": 0,
+      "unrelatedFileChurn": 0,
+      "changedPathCount": 1,
+      "elapsedMilliseconds": 111014,
+      "toolFailures": 0,
+      "candidateExitCode": 0,
+      "candidateTimedOut": false,
+      "candidateOutputBytesDiscarded": 175511,
+      "independentReview": "unavailable"
+    }
+  ],
+  "limitations": [
+    "Candidate stdout and stderr are discarded; toolFailures counts failed, timed-out, or unspawnable candidate invocations rather than internal tool-call errors.",
+    "No independent reviewer was configured; every run records independentReview as unavailable.",
+    "The suite is a small regression signal for repository-agent behaviour, not a product-quality or model leaderboard score."
+  ]
+}
+
