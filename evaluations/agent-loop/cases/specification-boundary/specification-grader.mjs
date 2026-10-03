@@ -47,9 +47,12 @@ export function gradeSpecification(markdown) {
   if (bulletCount(parsed.get("Acceptance criteria")) < 3) return false;
   if (bulletCount(parsed.get("Non-goals")) < 3) return false;
   if (bulletCount(parsed.get("Verification")) < 3) return false;
-  const combined = [...parsed.values()].join("\n").toLocaleLowerCase("en-US");
-  return ["local-only", "encrypted", "single context", "accounts", "sync", "cloud"]
-    .every((term) => combined.includes(term));
+  const lower = (heading) => parsed.get(heading).toLocaleLowerCase("en-US");
+  return ["task", "save", "encrypted"].every((term) => lower("Acceptance criteria").includes(term))
+    && ["accounts", "sync", "cloud"].every((term) => lower("Non-goals").includes(term))
+    && ["context.md", "local-only", "single context"].every((term) => lower("Domain and decision context").includes(term))
+    && ["encrypted", "diagnostics", "plaintext"].every((term) => lower("Known constraints").includes(term))
+    && ["test", "reopen", "gate"].every((term) => lower("Verification").includes(term));
 }
 
 async function main() {

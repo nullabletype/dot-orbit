@@ -28,7 +28,7 @@ People can capture a task without leaving the current view and find it in the lo
 
 ## Domain and decision context
 
-Follow CONTEXT.md and the local-only first-release boundary in the product brief and ADRs. This slice adds no new context or storage boundary.
+Follow CONTEXT.md and the local-only first-release boundary in the product brief and ADRs. This slice stays inside the existing single context and storage boundary.
 
 ## Known constraints
 

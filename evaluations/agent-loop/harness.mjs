@@ -259,6 +259,17 @@ async function fingerprint(root, paths) {
   return hash.digest("hex");
 }
 
+export function versionInputs(trackedPaths) {
+  return {
+    instructionRelativePaths: trackedPaths.filter((path) => (path.endsWith(".md")
+      && !path.startsWith("evaluations/agent-loop/baselines/"))
+      || path.startsWith(".github/ISSUE_TEMPLATE/")),
+    harnessRelativePaths: trackedPaths.filter((path) => (path.startsWith("evaluations/agent-loop/")
+      && !path.startsWith("evaluations/agent-loop/baselines/"))
+      || path === ".github/workflows/build.yml"),
+  };
+}
+
 function correctionPrompt(definition, failedChecks, cycle) {
   return `${definition.prompt}\n\nCorrection cycle ${cycle}: deterministic checks still failing: ${failedChecks.join(", ")}. Reinspect only the allowed scope, correct the result, and rerun the relevant local checks.`;
 }
@@ -308,15 +319,7 @@ export async function runEvaluation(options) {
   const trackedPaths = (await gitText(repoRoot, ["ls-files"]))
     .split("\n")
     .filter(Boolean);
-  const instructionRelativePaths = trackedPaths.filter((path) => path === "AGENTS.md"
-    || path === ".github/HANDOFF_TEMPLATE.md"
-    || path === ".github/PULL_REQUEST_TEMPLATE.md"
-    || path.startsWith(".github/ISSUE_TEMPLATE/")
-    || path.startsWith("docs/agents/")
-    || path === "docs/development/agent-loop.md"
-    || path === "docs/development/definition-of-done.md");
-  const harnessRelativePaths = trackedPaths.filter((path) => path.startsWith("evaluations/agent-loop/")
-    && !path.startsWith("evaluations/agent-loop/baselines/"));
+  const { instructionRelativePaths, harnessRelativePaths } = versionInputs(trackedPaths);
   const instructionPaths = instructionRelativePaths.map((path) => join(repoRoot, path));
   const harnessPaths = harnessRelativePaths.map((path) => join(repoRoot, path));
   if (!harnessRelativePaths.includes("evaluations/agent-loop/harness.mjs")) {

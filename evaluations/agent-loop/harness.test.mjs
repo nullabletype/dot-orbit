@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
-import { evaluateChecks, runEvaluation, runProcess, summarize, validateCase } from "./harness.mjs";
+import { evaluateChecks, runEvaluation, runProcess, summarize, validateCase, versionInputs } from "./harness.mjs";
 import { gradeSpecification } from "./cases/specification-boundary/specification-grader.mjs";
 
 const exec = promisify(execFile);
@@ -117,6 +117,52 @@ test("specification grader rejects empty or keyword-only sections", () => {
 
   const keywordOnly = headings.map((heading) => `## ${heading}\n\nlocal-only encrypted single context accounts sync cloud`).join("\n\n");
   assert.equal(gradeSpecification(keywordOnly), false);
+
+  const misplaced = headings.map((heading) => {
+    if (heading === "Readiness contract") return `## ${heading}\n\ndot-orbit-issue-readiness:v1`;
+    if (heading === "Open decisions" || heading === "Blocked by") return `## ${heading}\n\nNone`;
+    if (["Acceptance criteria", "Non-goals", "Verification"].includes(heading)) {
+      return `## ${heading}\n\n- alpha\n- beta\n- gamma`;
+    }
+    if (heading === "User-visible outcome") {
+      return `## ${heading}\n\nlocal-only encrypted single context accounts sync cloud task save CONTEXT.md diagnostics plaintext test reopen gate`;
+    }
+    return `## ${heading}\n\ncontent`;
+  }).join("\n\n");
+  assert.equal(gradeSpecification(misplaced), false);
+});
+
+test("version inputs cover repository guidance and every non-baseline suite input", () => {
+  const selected = versionInputs([
+    "AGENTS.md",
+    "CONTEXT.md",
+    "README.md",
+    "docs/product/brief.md",
+    "docs/design/style-guide.md",
+    "docs/adr/0001-example.md",
+    ".github/HANDOFF_TEMPLATE.md",
+    ".github/ISSUE_TEMPLATE/agent-ready.yml",
+    ".github/workflows/build.yml",
+    "evaluations/agent-loop/harness.mjs",
+    "evaluations/agent-loop/cases/sample/workspace/verification.md",
+    "evaluations/agent-loop/baselines/old.json",
+  ]);
+  assert.deepEqual(selected.instructionRelativePaths, [
+    "AGENTS.md",
+    "CONTEXT.md",
+    "README.md",
+    "docs/product/brief.md",
+    "docs/design/style-guide.md",
+    "docs/adr/0001-example.md",
+    ".github/HANDOFF_TEMPLATE.md",
+    ".github/ISSUE_TEMPLATE/agent-ready.yml",
+    "evaluations/agent-loop/cases/sample/workspace/verification.md",
+  ]);
+  assert.deepEqual(selected.harnessRelativePaths, [
+    ".github/workflows/build.yml",
+    "evaluations/agent-loop/harness.mjs",
+    "evaluations/agent-loop/cases/sample/workspace/verification.md",
+  ]);
 });
 
 test("runEvaluation uses detached worktrees and leaves the source checkout unchanged", async (t) => {
