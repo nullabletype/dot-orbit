@@ -5,6 +5,7 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Input.Raw;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using DotOrbit.Desktop.ViewModels;
 using DotOrbit.Desktop.Views;
@@ -22,7 +23,7 @@ public sealed class MainWindowTests
 
         var navigation = window.GetVisualDescendants().OfType<RadioButton>().ToArray();
 
-        Assert.Equal(8, navigation.Length);
+        Assert.Equal(9, navigation.Length);
         Assert.Equal(
             [
                 "Open Today",
@@ -33,6 +34,7 @@ public sealed class MainWindowTests
                 "Open Completed",
                 "Open Archive",
                 "Open Bin",
+                "Open Settings",
             ],
             navigation.Select(AutomationProperties.GetName));
         Assert.Equal(
@@ -45,6 +47,7 @@ public sealed class MainWindowTests
                 "navigation-completed",
                 "navigation-archive",
                 "navigation-bin",
+                "navigation-settings",
             ],
             navigation.Select(AutomationProperties.GetAutomationId));
         Assert.All(navigation, control =>
@@ -135,21 +138,28 @@ public sealed class MainWindowTests
     }
 
     [AvaloniaFact]
-    public void UnlockedShellExposesKeyboardAccessibleRecoveryAction()
+    public void UnlockedShellExposesRecoveryOnlyFromSettings()
     {
         using var session = new RecoveryViewModelTests.StubWorkspaceSession(
             new RecoveryViewModelTests.StubWorkspaceRecovery());
         var window = new MainWindow(session);
         window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.SettingsNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
 
-        var recovery = Assert.IsType<Button>(window.FindControl<Button>("OpenRecoveryButton"));
+        Assert.Null(window.FindControl<Button>("OpenRecoveryButton"));
+        var recovery = Assert.IsType<Button>(window.FindControl<Button>("SettingsRecoveryButton"));
 
         Assert.True(recovery.IsVisible);
         Assert.True(recovery.Focusable);
-        Assert.Equal("Open recovery", AutomationProperties.GetName(recovery));
-        Assert.Contains(
-            "portable encrypted recovery points",
-            AutomationProperties.GetHelpText(recovery),
-            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Open recovery settings", AutomationProperties.GetName(recovery));
+        Assert.True(recovery.Focus());
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        var recoveryWindow = Assert.IsType<RecoveryWindow>(Assert.Single(window.OwnedWindows));
+        recoveryWindow.Close();
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(recovery.IsKeyboardFocusWithin);
     }
 }

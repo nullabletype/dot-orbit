@@ -22,7 +22,7 @@ Decided: completion also captures the local calendar date at that moment. Histor
 
 Decided: changing a Task between Planned and In progress preserves shared Backlog order. Each lane displays Tasks in shared order; reordering within a lane changes the relative shared order of those lane Tasks while preserving other positions. Completed today is ordered newest first and is not manually reordered.
 
-Decided: Participants are reusable local records containing only a stable identifier and user-provided label, normally initials or a nickname. They have no contact, account, assignment, or permissions data. Renaming updates all references, and referenced Participants cannot be deleted.
+Decided: Participants are reusable local records containing only a stable identifier and user-provided label, normally initials or a nickname. Labels are unique after trim, Unicode compatibility, and case normalisation. They have no contact, account, assignment, or permissions data. Renaming updates all references, and referenced Participants cannot be deleted.
 
 Decided: recurring Tasks are outside the first useful release. A future recurrence design must model templates and occurrences explicitly rather than repeatedly resetting one Task and losing completion history.
 
@@ -86,9 +86,13 @@ Decided: overdue Projects do not add a sidebar badge. An active, incomplete Proj
 
 Decided: overdue status is informational and never changes the user-controlled Project order.
 
-Decided: inspector field edits use explicit Save and Cancel actions. Titles, descriptions, dates, Categories, and Participants remain a local draft until saved. Navigating away prompts to save, discard, or remain. Immediate workflow actions commit independently and never silently save or discard the draft; an action that would remove the item from view first resolves it.
+Decided: Project and Task inspectors save valid changes automatically. Text entry is coalesced after 600 milliseconds; discrete selections and Participant association changes save immediately. Navigation, close, and immediate actions flush pending changes first. Invalid or failed changes remain visible and block leaving until corrected, retried, or explicitly discarded. A near-header accessible status and Retry action make persistence visible without scrolling. Category editing retains explicit Save and Cancel.
 
-Decided: creating a Project or Task uses the same draft boundary. A new item does not enter lists, counts, backups, search, or other projections until Create succeeds; Cancel leaves no partial record.
+Decided: new Project and Task inspectors begin as transient drafts. Their first valid automatic save creates the record; blank or incomplete drafts can be left without adding partial data to lists, counts, backups, search, or other projections.
+
+Decided: the Participant picker ends with a distinct New participant action which reveals a temporary label field. Enter/Add creates and associates a unique label with the Task's next atomic save, or associates the matching existing Participant; a match already on the Task is rejected inline. Escape/Cancel returns to the picker. Rename and delete live in Settings rather than every Task inspector.
+
+Decided: Settings is a count-free utility destination after Bin. Participant management uses standard list rows, and Recovery launches from its own Settings section rather than occupying the primary-work top bar.
 
 Decided: New Task drafts use visible, editable context defaults. Project creation attaches and inherits; Category creation defaults to a standalone Task in that Category; Today creation defaults to Today and Planned with optional Project selection; Backlog and global creation default to standalone with a required Category.
 

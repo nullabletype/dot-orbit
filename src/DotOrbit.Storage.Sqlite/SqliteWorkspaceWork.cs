@@ -81,7 +81,28 @@ internal sealed class SqliteWorkspaceWork(
         );
         """;
 
-    internal const string Schema = ProjectSchema + TaskSchema + "PRAGMA user_version = 5;";
+    internal const string SchemaFive = ProjectSchema + TaskSchema + "PRAGMA user_version = 5;";
+
+    internal const string ParticipantSchema = """
+        CREATE TABLE participants (
+            id TEXT NOT NULL PRIMARY KEY,
+            label TEXT NOT NULL CHECK(length(trim(label)) > 0),
+            comparison_key TEXT NOT NULL UNIQUE CHECK(length(comparison_key) > 0)
+        );
+        """;
+
+    internal const string TaskParticipantSchema = """
+        CREATE TABLE task_participants (
+            task_id TEXT NOT NULL REFERENCES tasks(id),
+            participant_id TEXT NOT NULL REFERENCES participants(id),
+            position INTEGER NOT NULL CHECK(position >= 0),
+            PRIMARY KEY(task_id, participant_id),
+            UNIQUE(task_id, position)
+        );
+        """;
+
+    internal const string Schema = ProjectSchema + TaskSchema + ParticipantSchema + TaskParticipantSchema
+        + "PRAGMA user_version = 6;";
 
     internal static void ValidateShape(SqliteConnection connection, SqliteTransaction? transaction, string? schema = null)
     {
@@ -94,6 +115,11 @@ internal sealed class SqliteWorkspaceWork(
         var definitions = schema.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
         ValidateTableDefinition(command, "projects", definitions[0]);
         ValidateTableDefinition(command, "tasks", definitions[1]);
+        if (string.Equals(schema, Schema, StringComparison.Ordinal))
+        {
+            ValidateTableDefinition(command, "participants", definitions[2]);
+            ValidateTableDefinition(command, "task_participants", definitions[3]);
+        }
         command.Parameters.Clear();
         command.CommandText = "PRAGMA foreign_key_check;";
         using (var foreignKeys = command.ExecuteReader())
@@ -101,8 +127,10 @@ internal sealed class SqliteWorkspaceWork(
             if (foreignKeys.Read()) throw new InvalidDataException();
         }
 
+        var hasCompletion = string.Equals(schema, SchemaFive, StringComparison.Ordinal)
+            || string.Equals(schema, Schema, StringComparison.Ordinal);
         command.CommandText = "SELECT target_date FROM projects UNION ALL SELECT due_date FROM tasks"
-            + (string.Equals(schema, Schema, StringComparison.Ordinal)
+            + (hasCompletion
                 ? " UNION ALL SELECT completion_date FROM tasks;"
                 : ";");
         using (var dates = command.ExecuteReader())
@@ -117,7 +145,7 @@ internal sealed class SqliteWorkspaceWork(
                 }
             }
         }
-        if (string.Equals(schema, Schema, StringComparison.Ordinal))
+        if (hasCompletion)
         {
             command.CommandText = "SELECT completion_instant FROM tasks WHERE completion_instant IS NOT NULL;";
             using var instants = command.ExecuteReader();
@@ -127,6 +155,17 @@ internal sealed class SqliteWorkspaceWork(
                         DateTimeStyles.RoundtripKind, out _))
                     throw new InvalidDataException();
             }
+        }
+        if (string.Equals(schema, Schema, StringComparison.Ordinal))
+        {
+            command.CommandText = "SELECT label, comparison_key FROM participants;";
+            using var participants = command.ExecuteReader();
+            while (participants.Read())
+                if (!string.Equals(
+                        ParticipantLabel.ComparisonKey(participants.GetString(0)),
+                        participants.GetString(1),
+                        StringComparison.Ordinal))
+                    throw new InvalidDataException();
         }
     }
 
@@ -177,6 +216,53 @@ internal sealed class SqliteWorkspaceWork(
             result = ReadSnapshot(connection, transaction).Categories.Single(category => category.Id == id);
         }));
         return result!;
+    }
+
+    public ParticipantRecord CreateParticipant(string label)
+    {
+        label = ParticipantLabel.Normalize(label);
+        ParticipantRecord? result = null;
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            EnsureParticipantLabelAvailable(connection, transaction, label);
+            result = new(store.GetIdentifier(), label);
+            Execute(connection, transaction,
+                "INSERT INTO participants (id,label,comparison_key) VALUES ($id,$label,$key);",
+                ("$id", result.Id), ("$label", result.Label),
+                ("$key", ParticipantLabel.ComparisonKey(result.Label)));
+        }));
+        return result!;
+    }
+
+    public ParticipantRecord RenameParticipant(string id, string label)
+    {
+        label = ParticipantLabel.Normalize(label);
+        ParticipantRecord? result = null;
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            Require(connection, transaction, "participants", id);
+            EnsureParticipantLabelAvailable(connection, transaction, label, id);
+            Execute(connection, transaction,
+                "UPDATE participants SET label=$label, comparison_key=$key WHERE id=$id;",
+                ("$id", id), ("$label", label), ("$key", ParticipantLabel.ComparisonKey(label)));
+            result = new(id, label);
+        }));
+        return result!;
+    }
+
+    public void DeleteParticipant(string id)
+    {
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            Require(connection, transaction, "participants", id);
+            using var referenceCommand = connection.CreateCommand();
+            referenceCommand.Transaction = transaction;
+            referenceCommand.CommandText = "SELECT COUNT(*) FROM task_participants WHERE participant_id=$id;";
+            referenceCommand.Parameters.AddWithValue("$id", id);
+            var references = (long)referenceCommand.ExecuteScalar()!;
+            if (references > 0) throw new InvalidOperationException("The Participant is referenced by a Task.");
+            Execute(connection, transaction, "DELETE FROM participants WHERE id=$id;", ("$id", id));
+        }));
     }
 
     public void DeleteCategory(string id, string? replacementCategoryId = null)
@@ -268,7 +354,8 @@ internal sealed class SqliteWorkspaceWork(
         return result!;
     }
 
-    public TaskRecord CreateStandaloneTask(string title, string description, string categoryId, DateOnly? dueDate)
+    public TaskRecord CreateStandaloneTask(string title, string description, string categoryId, DateOnly? dueDate,
+        ParticipantDraftChange? participantChange = null)
     {
         title = WorkTitle.Normalize(title);
         ArgumentNullException.ThrowIfNull(description);
@@ -282,6 +369,9 @@ internal sealed class SqliteWorkspaceWork(
                 "INSERT INTO tasks VALUES ($id, NULL, $title, $description, $category, $date, 0, NULL, NULL, NULL);",
                 ("$id", result.Id), ("$title", title), ("$description", description),
                 ("$category", categoryId), ("$date", Date(dueDate)));
+            ApplyParticipantChanges(connection, transaction, result.Id,
+                participantChange ?? new([], []));
+            result = ReadSnapshot(connection, transaction).Tasks.Single(task => task.Id == result.Id);
         }));
         return result!;
     }
@@ -303,7 +393,8 @@ internal sealed class SqliteWorkspaceWork(
         return result!;
     }
 
-    public TaskRecord UpdateTask(string id, string title, string description, string? explicitCategoryId, DateOnly? dueDate)
+    public TaskRecord UpdateTask(string id, string title, string description, string? explicitCategoryId, DateOnly? dueDate,
+        ParticipantDraftChange? participantChange = null)
     {
         title = WorkTitle.Normalize(title);
         ArgumentNullException.ThrowIfNull(description);
@@ -318,6 +409,8 @@ internal sealed class SqliteWorkspaceWork(
             Execute(connection, transaction,
                 "UPDATE tasks SET title=$title, description=$description, explicit_category_id=$category, due_date=$date WHERE id=$id;",
                 ("$id", id), ("$title", title), ("$description", description), ("$category", explicitCategoryId), ("$date", Date(dueDate)));
+            if (participantChange is not null)
+                ApplyParticipantChanges(connection, transaction, id, participantChange);
             result = ReadSnapshot(connection, transaction).Tasks.Single(task => task.Id == id);
         }));
         return result!;
@@ -480,6 +573,8 @@ internal sealed class SqliteWorkspaceWork(
         var categories = new List<WorkspaceCategory>();
         var projects = new List<ProjectRecord>();
         var tasks = new List<TaskRecord>();
+        var participants = new List<ParticipantRecord>();
+        var participantIdsByTask = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = "SELECT id,name,position FROM categories ORDER BY position,id;";
@@ -488,10 +583,29 @@ internal sealed class SqliteWorkspaceWork(
         command.CommandText = "SELECT id,title,description,category_id,target_date,position FROM projects ORDER BY position,id;";
         using (var reader = command.ExecuteReader())
             while (reader.Read()) projects.Add(new(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), ReadDate(reader, 4), reader.GetInt64(5)));
+        command.CommandText = "SELECT id,label FROM participants ORDER BY label COLLATE NOCASE,id;";
+        using (var reader = command.ExecuteReader())
+            while (reader.Read()) participants.Add(new(reader.GetString(0), reader.GetString(1)));
+        command.CommandText = "SELECT task_id,participant_id FROM task_participants ORDER BY task_id,position;";
+        using (var reader = command.ExecuteReader())
+            while (reader.Read())
+            {
+                var taskId = reader.GetString(0);
+                if (!participantIdsByTask.TryGetValue(taskId, out var ids))
+                {
+                    ids = [];
+                    participantIdsByTask.Add(taskId, ids);
+                }
+                ids.Add(reader.GetString(1));
+            }
         command.CommandText = "SELECT id,project_id,title,description,explicit_category_id,due_date,shared_position,project_position,completion_instant,completion_date FROM tasks ORDER BY shared_position,id;";
         using (var reader = command.ExecuteReader())
-            while (reader.Read()) tasks.Add(new(reader.GetString(0), reader.IsDBNull(1) ? null : reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4), ReadDate(reader, 5), reader.GetInt64(6), reader.IsDBNull(7) ? null : reader.GetInt64(7), ReadInstant(reader, 8), ReadDate(reader, 9)));
-        return new(categories.AsReadOnly(), projects.AsReadOnly(), tasks.AsReadOnly());
+            while (reader.Read())
+            {
+                var taskId = reader.GetString(0);
+                tasks.Add(new(taskId, reader.IsDBNull(1) ? null : reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4), ReadDate(reader, 5), reader.GetInt64(6), reader.IsDBNull(7) ? null : reader.GetInt64(7), ReadInstant(reader, 8), ReadDate(reader, 9), participantIdsByTask.GetValueOrDefault(taskId)?.AsReadOnly() ?? []));
+            }
+        return new(categories.AsReadOnly(), projects.AsReadOnly(), tasks.AsReadOnly(), participants.AsReadOnly());
     }
 
     private static void ShiftSharedOrderForNewTask(SqliteConnection connection, SqliteTransaction transaction)
@@ -595,7 +709,50 @@ internal sealed class SqliteWorkspaceWork(
         }
     }
 
+    private void ApplyParticipantChanges(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string taskId,
+        ParticipantDraftChange change)
+    {
+        var associations = change.ParticipantIds.Distinct(StringComparer.Ordinal).ToList();
+        foreach (var participantId in associations) Require(connection, transaction, "participants", participantId);
+        foreach (var newLabel in change.NewParticipantLabels)
+        {
+            var label = ParticipantLabel.Normalize(newLabel);
+            EnsureParticipantLabelAvailable(connection, transaction, label);
+            var participant = new ParticipantRecord(store.GetIdentifier(), label);
+            Execute(connection, transaction,
+                "INSERT INTO participants (id,label,comparison_key) VALUES ($id,$label,$key);",
+                ("$id", participant.Id), ("$label", participant.Label),
+                ("$key", ParticipantLabel.ComparisonKey(participant.Label)));
+            associations.Add(participant.Id);
+        }
+
+        Execute(connection, transaction, "DELETE FROM task_participants WHERE task_id=$task;", ("$task", taskId));
+        for (var position = 0; position < associations.Count; position++)
+            Execute(connection, transaction,
+                "INSERT INTO task_participants (task_id,participant_id,position) VALUES ($task,$participant,$position);",
+                ("$task", taskId), ("$participant", associations[position]), ("$position", position));
+
+    }
+
     private static string? Date(DateOnly? date) => date?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    private static void EnsureParticipantLabelAvailable(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string label,
+        string? exceptId = null)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT id FROM participants WHERE comparison_key=$key;";
+        command.Parameters.AddWithValue("$key", ParticipantLabel.ComparisonKey(label));
+        var existingId = command.ExecuteScalar() as string;
+        if (existingId is not null && !string.Equals(existingId, exceptId, StringComparison.Ordinal))
+            throw new ArgumentException("Participant labels must be unique after normalization.", nameof(label));
+    }
     private static DateOnly? ReadDate(SqliteDataReader reader, int ordinal) => reader.IsDBNull(ordinal)
         ? null : DateOnly.ParseExact(reader.GetString(ordinal), "yyyy-MM-dd", CultureInfo.InvariantCulture);
     private static DateTimeOffset? ReadInstant(SqliteDataReader reader, int ordinal) => reader.IsDBNull(ordinal)

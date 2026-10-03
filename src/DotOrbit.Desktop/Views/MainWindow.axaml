@@ -53,7 +53,7 @@
         Background="{StaticResource BackgroundBrush}"
         BorderBrush="{StaticResource LineBrush}"
         BorderThickness="0,0,0,1">
-      <Grid ColumnDefinitions="228,*,Auto">
+      <Grid ColumnDefinitions="228,*">
         <StackPanel
             Grid.Column="0"
             Margin="22,0,0,0"
@@ -73,19 +73,6 @@
               FontWeight="Bold"
               Text="dot-orbit" />
         </StackPanel>
-        <Button
-            x:Name="OpenRecoveryButton"
-            Grid.Column="2"
-            Classes="view-action"
-            Margin="0,0,24,0"
-            HorizontalAlignment="Right"
-            VerticalAlignment="Center"
-            AutomationProperties.HelpText="Create or restore portable encrypted recovery points."
-            AutomationProperties.Name="Open recovery"
-            Click="OnOpenRecovery"
-            IsVisible="False">
-          Recovery
-        </Button>
       </Grid>
     </Border>
 
@@ -117,16 +104,23 @@
             Padding="0,12,0,0"
             BorderBrush="{StaticResource LineSoftBrush}"
             BorderThickness="0,1,0,0">
-          <ContentControl
-              HorizontalContentAlignment="Stretch"
-              Content="{Binding BinNavigation}"
-              ContentTemplate="{StaticResource NavigationItemTemplate}" />
+          <StackPanel Spacing="4">
+            <ContentControl
+                HorizontalContentAlignment="Stretch"
+                Content="{Binding BinNavigation}"
+                ContentTemplate="{StaticResource NavigationItemTemplate}" />
+            <ContentControl
+                HorizontalContentAlignment="Stretch"
+                Content="{Binding SettingsNavigation}"
+                ContentTemplate="{StaticResource NavigationItemTemplate}" />
+          </StackPanel>
         </Border>
       </Grid>
     </Border>
 
     <Grid
         x:Name="CurrentViewRegion"
+        IsVisible="{Binding !ShowSettings}"
         IsEnabled="{Binding !Work.HasBlockingDialog, FallbackValue=True}"
         Grid.Row="1"
         Grid.Column="1"
@@ -569,8 +563,112 @@
       </ScrollViewer>
     </Grid>
 
+    <ScrollViewer
+        x:Name="SettingsRegion"
+        Grid.Row="1"
+        Grid.Column="1"
+        Grid.ColumnSpan="2"
+        Margin="32,30,32,60"
+        IsVisible="{Binding ShowSettings}">
+      <StackPanel Margin="{StaticResource ScrollContentInset}" Spacing="24">
+        <StackPanel Spacing="7">
+          <TextBlock Classes="eyebrow" Text="WORKSPACE" />
+          <TextBlock FontSize="31" FontWeight="Bold" LetterSpacing="-1.2" Text="Settings"
+              AutomationProperties.Name="Current view" />
+          <TextBlock FontSize="14" Foreground="{StaticResource MutedTextBrush}"
+              Text="Manage reusable workspace data and recovery options." />
+        </StackPanel>
+
+        <StackPanel Spacing="10">
+          <StackPanel Spacing="4">
+            <TextBlock FontSize="20" FontWeight="Bold" Text="Participants" />
+            <TextBlock Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"
+                Text="Reusable initials or nicknames that can be associated with Tasks." />
+          </StackPanel>
+          <Border x:Name="SettingsParticipantsEmpty" Classes="empty-state"
+              IsVisible="{Binding Settings.HasNoParticipants}" Padding="32">
+            <StackPanel HorizontalAlignment="Center" Spacing="8">
+              <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold"
+                  Text="No Participants yet" TextAlignment="Center" />
+              <TextBlock MaxWidth="440" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}"
+                  Text="Create one from a Task's Participant picker." TextAlignment="Center" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+          <Border x:Name="SettingsParticipantsList" Classes="list-panel"
+              IsVisible="{Binding Settings.HasParticipants}">
+              <ItemsControl ItemsSource="{Binding Settings.Participants}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ParticipantSettingViewModel">
+                    <Border Classes="interactive-row separated-row" Classes.last="{Binding IsLast}" MinHeight="54">
+                      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                        <StackPanel VerticalAlignment="Center" IsVisible="{Binding IsReadOnly}" Spacing="2">
+                          <TextBlock FontWeight="SemiBold" Text="{Binding Label}" />
+                          <TextBlock FontSize="12" Foreground="{StaticResource MutedTextBrush}" Text="{Binding UsageText}" />
+                          <TextBlock Classes="validation-message" Text="{Binding ValidationMessage}"
+                              IsVisible="{Binding HasValidationError}" AutomationProperties.LiveSetting="Polite" />
+                        </StackPanel>
+                        <StackPanel VerticalAlignment="Center" IsVisible="{Binding IsEditing}" Spacing="3">
+                          <TextBox Classes="inspector-field" Classes.error="{Binding HasValidationError}"
+                              Text="{Binding DraftLabel, Mode=TwoWay}"
+                              KeyDown="OnParticipantRenameKeyDown"
+                              AutomationProperties.AutomationId="{Binding LabelAutomationId}"
+                              AutomationProperties.Name="Participant label"
+                              AutomationProperties.HelpText="{Binding ValidationMessage}" />
+                          <TextBlock Classes="validation-message" Text="{Binding ValidationMessage}"
+                              IsVisible="{Binding HasValidationError}" AutomationProperties.LiveSetting="Polite" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Classes="view-action" Content="Rename"
+                            IsVisible="{Binding IsReadOnly}" Command="{Binding BeginRenameCommand}"
+                            AutomationProperties.AutomationId="{Binding RenameAutomationId}"
+                            AutomationProperties.Name="{Binding RenameAccessibleName}" />
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsEditing}">
+                          <Button Classes="primary-action" Content="Save" Command="{Binding SaveRenameCommand}"
+                              AutomationProperties.Name="Save Participant label" />
+                          <Button Classes="view-action" Content="Cancel" Command="{Binding CancelRenameCommand}"
+                              AutomationProperties.Name="Cancel Participant rename" />
+                        </StackPanel>
+                        <Button Grid.Column="2" Classes="view-action" Content="Delete"
+                            IsVisible="{Binding IsReadOnly}" Command="{Binding DeleteCommand}"
+                            AutomationProperties.AutomationId="{Binding DeleteAutomationId}"
+                            AutomationProperties.Name="{Binding DeleteAccessibleName}" />
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+          </Border>
+        </StackPanel>
+
+        <StackPanel Spacing="10">
+          <StackPanel Spacing="4">
+            <TextBlock FontSize="20" FontWeight="Bold" Text="Recovery" />
+            <TextBlock Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"
+                Text="Create and restore portable encrypted recovery points." />
+          </StackPanel>
+          <Border Classes="list-panel">
+            <Border Classes="interactive-row separated-row last" MinHeight="54">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <StackPanel VerticalAlignment="Center" Spacing="2">
+                  <TextBlock FontWeight="SemiBold" Text="Encrypted recovery" />
+                  <TextBlock FontSize="12" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"
+                      Text="Choose automatic recovery storage, create a recovery point, or restore one." />
+                </StackPanel>
+                <Button x:Name="SettingsRecoveryButton" Grid.Column="1" Classes="view-action"
+                    Content="Open recovery settings" Click="OnOpenRecovery"
+                    AutomationProperties.AutomationId="settings-recovery-open"
+                    AutomationProperties.Name="Open recovery settings" />
+              </Grid>
+            </Border>
+          </Border>
+        </StackPanel>
+        <TextBlock Height="1" Opacity="0" Text="{Binding Settings.Announcement}"
+            AutomationProperties.LiveSetting="Polite" />
+      </StackPanel>
+    </ScrollViewer>
+
     <Border
         x:Name="InspectorRegion"
+        IsVisible="{Binding !ShowSettings}"
         IsEnabled="{Binding !Work.HasBlockingDialog, FallbackValue=True}"
         Grid.Row="1"
         Grid.Column="2"
@@ -578,8 +676,9 @@
         Background="{StaticResource PanelBrush}"
         BorderBrush="{StaticResource LineBrush}"
         BorderThickness="1,0,0,0">
-      <Grid>
+      <Grid RowDefinitions="Auto,*">
       <TextBlock
+          Grid.RowSpan="2"
           IsVisible="{Binding Work.HasNoInspector, FallbackValue=True}"
           x:Name="InspectorEmptyText"
           HorizontalAlignment="Center"
@@ -589,28 +688,33 @@
           LineHeight="19"
           Text="Select a project, task, or category&#x0a;to see its details"
           TextAlignment="Center" />
-      <ScrollViewer IsVisible="{Binding Work.HasInspector}">
+      <Grid Grid.Row="0" Margin="0,0,32,12" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8"
+          IsVisible="{Binding Work.HasInspector}">
+            <Border Padding="8,4" Background="{StaticResource PanelRaisedBrush}"
+                BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="12">
+              <TextBlock FontSize="11" Foreground="{StaticResource MutedTextBrush}" Text="{Binding Work.InspectorHeading}" />
+            </Border>
+            <TextBlock Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right"
+                IsVisible="{Binding Work.ShowAutosaveStatus}" Text="{Binding Work.AutosaveStatus}"
+                FontSize="11" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"
+                AutomationProperties.Name="Autosave status" AutomationProperties.LiveSetting="Polite" />
+            <Button Grid.Column="2" Classes="view-action" Content="Retry"
+                IsVisible="{Binding Work.HasAutosaveError}" Command="{Binding Work.RetryAutosaveCommand}"
+                AutomationProperties.Name="Retry automatic save" />
+      </Grid>
+      <ScrollViewer Grid.Row="1" IsVisible="{Binding Work.HasInspector}">
         <StackPanel Margin="{StaticResource InspectorScrollContentInset}" Spacing="0">
-          <Border
-              HorizontalAlignment="Left"
-              Padding="8,4"
-              Background="{StaticResource PanelRaisedBrush}"
-              BorderBrush="{StaticResource LineBrush}"
-              BorderThickness="1"
-              CornerRadius="12">
-            <TextBlock FontSize="11" Foreground="{StaticResource MutedTextBrush}" Text="{Binding Work.InspectorHeading}" />
-          </Border>
           <TextBox
               x:Name="DraftTitle"
               Classes="inspector-title"
-              Classes.error="{Binding Work.HasCategoryNameValidationError}"
+              Classes.error="{Binding Work.HasTitleValidationError}"
               Margin="0,9,0,0"
               Text="{Binding Work.Title, Mode=TwoWay}"
               AutomationProperties.Name="{Binding Work.TitleAutomationName}"
-              AutomationProperties.HelpText="{Binding Work.CategoryNameValidationMessage}" />
+              AutomationProperties.HelpText="{Binding Work.TitleValidationMessage}" />
           <TextBlock Classes="validation-message" Margin="7,4,0,0"
-              Text="{Binding Work.CategoryNameValidationMessage}"
-              IsVisible="{Binding Work.HasCategoryNameValidationError}" />
+              Text="{Binding Work.TitleValidationMessage}"
+              IsVisible="{Binding Work.HasTitleValidationError}" />
           <TextBlock
               Margin="0,2,0,0"
               IsVisible="{Binding Work.ShowProjectSummary}"
@@ -665,6 +769,8 @@
                       RawText="{Binding Work.Date, Mode=TwoWay}"
                       PlaceholderText="YYYY-MM-DD"
                       DateValidationError="OnDateValidationError"
+                      CalendarOpened="OnCalendarDateOpened"
+                      CalendarClosed="OnCalendarDateCommitted"
                       AutomationProperties.Name="{Binding Work.DateLabel}"
                       AutomationProperties.HelpText="{Binding Work.DateValidationMessage}" />
                   <TextBlock Classes="validation-message" Margin="7,0,0,0"
@@ -709,6 +815,64 @@
           </Border>
 
           <Border Margin="0,14,0,0" Padding="0,14,0,0" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0"
+              IsVisible="{Binding Work.ShowParticipants}">
+            <StackPanel Spacing="9">
+              <TextBlock Classes="inspector-label" Text="PARTICIPANTS" />
+              <TextBlock Text="{x:Static vm:ProjectCaptureViewModel.ParticipantGuidance}" FontSize="11"
+                  Foreground="{StaticResource QuietTextBrush}" TextWrapping="Wrap"
+                  AutomationProperties.Name="Participant guidance" />
+              <ItemsControl ItemsSource="{Binding Work.SelectedParticipants}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ParticipantDraftViewModel">
+                    <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                      <TextBlock VerticalAlignment="Center" Text="{Binding Label}" />
+                      <Button Grid.Column="1" Classes="view-action" Content="Remove" Command="{Binding RemoveCommand}"
+                          AutomationProperties.AutomationId="{Binding RemoveAutomationId}"
+                          AutomationProperties.Name="{Binding RemoveAccessibleName}" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <ComboBox x:Name="ParticipantPicker" Classes="inspector-field"
+                    Classes.error="{Binding Work.HasParticipantSelectionError}"
+                    ItemsSource="{Binding Work.AvailableParticipants}" SelectedItem="{Binding Work.ParticipantToAdd, Mode=TwoWay}"
+                    AutomationProperties.AutomationId="participant-picker"
+                    AutomationProperties.Name="Choose or create Participant"
+                    AutomationProperties.HelpText="{Binding Work.ParticipantSelectionMessage}">
+                  <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ParticipantChoice"><TextBlock Text="{Binding Label}" /></DataTemplate>
+                  </ComboBox.ItemTemplate>
+                </ComboBox>
+                <Button Grid.Column="1" Classes="view-action" Content="Add" Command="{Binding Work.AddParticipantCommand}"
+                    IsVisible="{Binding Work.ShowExistingParticipantAction}"
+                    AutomationProperties.Name="Add existing Participant to Task" />
+              </Grid>
+              <TextBlock Classes="validation-message" Text="{Binding Work.ParticipantSelectionMessage}"
+                  IsVisible="{Binding Work.HasParticipantSelectionError}" AutomationProperties.LiveSetting="Polite" />
+              <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8" IsVisible="{Binding Work.ShowNewParticipantEntry}">
+                <TextBox x:Name="NewParticipantLabel" Classes="inspector-field"
+                    Classes.error="{Binding Work.HasNewParticipantValidationError}"
+                    Text="{Binding Work.NewParticipantLabel, Mode=TwoWay}"
+                    KeyDown="OnNewParticipantKeyDown"
+                    AutomationProperties.AutomationId="new-participant-label"
+                    AutomationProperties.Name="New Participant label"
+                    AutomationProperties.HelpText="{Binding Work.NewParticipantValidationMessage}" />
+                <Button Grid.Column="1" Classes="view-action" Content="Add"
+                    Command="{Binding Work.AddNewParticipantCommand}"
+                    AutomationProperties.Name="Add new Participant to Task" />
+                <Button Grid.Column="2" Classes="view-action" Content="Cancel"
+                    Command="{Binding Work.CancelNewParticipantCommand}"
+                    AutomationProperties.Name="Cancel new Participant" />
+              </Grid>
+              <TextBlock Classes="validation-message" Text="{Binding Work.NewParticipantValidationMessage}"
+                  IsVisible="{Binding Work.HasNewParticipantValidationError}" AutomationProperties.LiveSetting="Polite" />
+              <TextBlock Height="1" Opacity="0" Text="{Binding Work.ParticipantAnnouncement}"
+                  AutomationProperties.AutomationId="participant-announcement" AutomationProperties.LiveSetting="Polite" />
+            </StackPanel>
+          </Border>
+
+          <Border Margin="0,14,0,0" Padding="0,14,0,0" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0"
               IsVisible="{Binding Work.ShowTaskContext}">
             <StackPanel Spacing="9">
               <TextBlock Classes="inspector-label" Text="TASK CONTEXT" />
@@ -735,7 +899,8 @@
               Command="{Binding Work.DeleteCategoryCommand}" IsVisible="{Binding Work.ShowCategoryDelete}"
               AutomationProperties.AutomationId="category-delete" AutomationProperties.Name="Delete category" />
 
-          <Grid x:Name="InspectorActions" Margin="0,24,0,0" ColumnDefinitions="*,8,*">
+          <Grid x:Name="InspectorActions" Margin="0,24,0,0" ColumnDefinitions="*,8,*"
+              IsVisible="{Binding Work.ShowExplicitInspectorActions}">
             <Button
                 Classes="primary-action"
                 Content="{Binding Work.SaveLabel}"
@@ -759,11 +924,11 @@
     <Border Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Classes="decision-overlay" IsVisible="{Binding Work.NeedsDecision}">
       <StackPanel Width="470" Spacing="16" AutomationProperties.LiveSetting="Assertive">
         <StackPanel Spacing="5">
-          <TextBlock Text="Save your changes before leaving?" FontSize="20" FontWeight="Bold" />
-          <TextBlock Text="Your inspector contains changes that have not been saved." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding Work.DecisionHeading}" FontSize="20" FontWeight="Bold" />
+          <TextBlock Text="{Binding Work.DecisionBody}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
         </StackPanel>
         <StackPanel Orientation="Horizontal" Spacing="12">
-          <Button x:Name="GuardSave" Classes="primary-action" Content="Save and leave" Command="{Binding Work.SaveAndLeaveCommand}" AutomationProperties.Name="Save changes and leave" />
+          <Button x:Name="GuardSave" Classes="primary-action" Content="{Binding Work.DecisionSaveLabel}" Command="{Binding Work.SaveAndLeaveCommand}" AutomationProperties.Name="{Binding Work.DecisionSaveLabel}" />
           <Button Classes="view-action" Content="Discard and leave" Command="{Binding Work.DiscardAndLeaveCommand}" AutomationProperties.Name="Discard changes and leave" />
           <Button Classes="view-action" Content="Stay" Command="{Binding Work.StayCommand}" AutomationProperties.Name="Stay and keep editing" Click="OnFocusInspector" />
         </StackPanel>

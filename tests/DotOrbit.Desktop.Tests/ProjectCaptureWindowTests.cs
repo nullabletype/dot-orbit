@@ -23,6 +23,316 @@ namespace DotOrbit.Desktop.Tests;
 public sealed class ProjectCaptureWindowTests
 {
     [AvaloniaFact]
+    public void TextAutosaveDebounceRestartsAndRejectsAStaleScheduledRevision()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Original", "", "home", null);
+        var baselineWrites = work.WriteCount;
+        var scheduler = new ManualInspectorAutosaveScheduler();
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow(null, null, scheduler) { DataContext = shell, Width = 1440, Height = 900 };
+        window.Show();
+        shell.Work!.SelectProject(project.Id);
+
+        shell.Work.Title = "First";
+        var stale = scheduler.Pending.Single();
+        shell.Work.Title = "Second";
+
+        Assert.Equal(2, scheduler.ScheduleCount);
+        Assert.Equal(ProjectCaptureViewModel.AutosaveDelay, scheduler.Delay);
+        Assert.Equal("Original", Assert.Single(work.Read().Projects).Title);
+        Assert.Equal(baselineWrites, work.WriteCount);
+        stale.Callback(stale.Revision);
+        Assert.Equal("Original", Assert.Single(work.Read().Projects).Title);
+        Assert.Equal(baselineWrites, work.WriteCount);
+
+        scheduler.FireCurrent();
+        Assert.Equal("Second", Assert.Single(work.Read().Projects).Title);
+        Assert.Equal(baselineWrites + 1, work.WriteCount);
+        scheduler.FireCurrent();
+        Assert.Equal(baselineWrites + 1, work.WriteCount);
+
+        var status = Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(),
+            item => AutomationProperties.GetName(item) == "Autosave status");
+        Assert.Empty(status.GetVisualAncestors().OfType<ScrollViewer>());
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void TaskParticipantControlsExposeGuidanceValidationAndKeyboardSelectionRemoval()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Call", "", "home", null);
+        var participant = work.CreateParticipant("SD");
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Backlog").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell, Width = 1440, Height = 1100 };
+        window.Show();
+        shell.Work!.SelectTask(task.Id);
+        Dispatcher.UIThread.RunJobs();
+
+        var guidance = Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(),
+            text => AutomationProperties.GetName(text) == "Participant guidance");
+        Assert.Contains("initials or a nickname", guidance.Text, StringComparison.Ordinal);
+        Assert.Contains("contact details", guidance.Text, StringComparison.Ordinal);
+        var picker = window.FindControl<ComboBox>("ParticipantPicker")!;
+        Assert.Equal("Choose or create Participant", AutomationProperties.GetName(picker));
+        picker.SelectedItem = shell.Work.AvailableParticipants.Single(item => item.Id == participant.Id);
+        var add = NamedButton(window, "Add existing Participant to Task");
+        add.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(add.Focus());
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("SD", Assert.Single(shell.Work.SelectedParticipants).Label);
+        Assert.True(picker.IsKeyboardFocusWithin);
+        Assert.Equal([participant.Id], work.Read().Tasks.Single().Participants);
+        Assert.Equal("Added SD to the Task draft.", shell.Work.ParticipantAnnouncement);
+
+        var remove = NamedButton(window, "Remove SD from Task");
+        remove.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(remove.Focus());
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Empty(shell.Work.SelectedParticipants);
+        Assert.True(picker.IsKeyboardFocusWithin);
+        Assert.Equal("Removed SD from the Task draft.", shell.Work.ParticipantAnnouncement);
+
+        picker.SelectedItem = shell.Work.AvailableParticipants.Single(item => item.IsNew);
+        Dispatcher.UIThread.RunJobs();
+        var create = NamedButton(window, "Add new Participant to Task");
+        create.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(create.Focus());
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(shell.Work.HasNewParticipantValidationError);
+        Assert.Equal("Enter a Participant label.", shell.Work.NewParticipantValidationMessage);
+        var field = window.FindControl<TextBox>("NewParticipantLabel")!;
+        Assert.Equal("New Participant label", AutomationProperties.GetName(field));
+        Assert.Equal(shell.Work.NewParticipantValidationMessage, AutomationProperties.GetHelpText(field));
+        field.Text = " sd ";
+        Assert.True(field.Focus());
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        window.KeyReleaseQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(participant.Id, Assert.Single(shell.Work.SelectedParticipants).Id);
+        Assert.Single(work.Read().Participants);
+
+        picker.SelectedItem = shell.Work.AvailableParticipants.Single(item => item.IsNew);
+        Dispatcher.UIThread.RunJobs();
+        field.Text = "ＳＤ";
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        window.KeyReleaseQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("This Participant is already on this Task.", shell.Work.NewParticipantValidationMessage);
+        Assert.True(field.IsKeyboardFocusWithin);
+        Assert.Equal("ＳＤ", field.Text);
+        shell.Work.CancelNewParticipantCommand.Execute(null);
+        picker.SelectedItem = shell.Work.AvailableParticipants.Single(item => item.IsNew);
+        Dispatcher.UIThread.RunJobs();
+        field.Text = "Cancelled";
+        Assert.True(field.Focus());
+        window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+        window.KeyReleaseQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(shell.Work.ShowNewParticipantEntry);
+        Assert.Null(shell.Work.ParticipantToAdd);
+        Assert.True(picker.IsKeyboardFocusWithin);
+
+        picker.SelectedItem = shell.Work.AvailableParticipants.Single(item => item.IsNew);
+        Dispatcher.UIThread.RunJobs();
+        Activate(window, NamedButton(window, "Cancel new Participant"));
+        Assert.False(shell.Work.ShowNewParticipantEntry);
+
+        picker.SelectedItem = shell.Work.AvailableParticipants.Single(item => item.IsNew);
+        Dispatcher.UIThread.RunJobs();
+        field.Text = "AB";
+        Assert.True(field.Focus());
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        window.KeyReleaseQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(shell.Work.ShowNewParticipantEntry);
+        Assert.Contains(work.Read().Participants, item => item.Label == "AB");
+        Assert.Contains(work.Read().Tasks.Single().Participants,
+            id => work.Read().Participants.Single(item => item.Id == id).Label == "AB");
+        Assert.True(picker.IsKeyboardFocusWithin);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void SettingsUsesListRowsForParticipantManagementAndRecovery()
+    {
+        var work = new MemoryWorkspaceWork();
+        var participant = work.CreateParticipant("SD");
+        var free = work.CreateParticipant("Free");
+        work.CreateStandaloneTask("Call", "", "home", null,
+            new([participant.Id], []));
+        var shell = new ShellViewModel(work);
+        shell.SettingsNavigation.SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell, Width = 1440, Height = 1100 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var settingsRegion = window.FindControl<ScrollViewer>("SettingsRegion")!;
+        Assert.True(settingsRegion.IsVisible);
+        Assert.Equal(new Thickness(32, 30, 32, 60), settingsRegion.Margin);
+        Assert.Equal(window.FindControl<Grid>("CurrentViewRegion")!.Margin, settingsRegion.Margin);
+        Assert.False(window.FindControl<Border>("InspectorRegion")!.IsVisible);
+        Assert.Null(window.FindControl<Button>("OpenRecoveryButton"));
+        var participantList = window.FindControl<Border>("SettingsParticipantsList")!;
+        Assert.True(participantList.IsVisible);
+        Assert.Contains("list-panel", participantList.Classes);
+        var participantRows = participantList.GetVisualDescendants().OfType<Border>()
+            .Where(border => border.DataContext is ParticipantSettingViewModel
+                && border.Classes.Contains("interactive-row"))
+            .ToArray();
+        Assert.Equal(2, participantRows.Length);
+        Assert.All(participantRows, row =>
+        {
+            Assert.Contains("interactive-row", row.Classes);
+            Assert.Contains("separated-row", row.Classes);
+        });
+        Assert.DoesNotContain("last", participantRows[0].Classes);
+        Assert.Contains("last", participantRows[1].Classes);
+        var rename = ButtonByAutomationId(window, $"settings-participant-rename-{participant.Id}");
+        Assert.Contains("view-action", rename.Classes);
+        Assert.True(rename.Focus());
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        var label = Assert.Single(window.GetVisualDescendants().OfType<TextBox>(),
+            field => AutomationProperties.GetAutomationId(field) == $"settings-participant-label-{participant.Id}");
+        Assert.Equal("Participant label", AutomationProperties.GetName(label));
+        label.Text = string.Empty;
+        Assert.True(label.Focus());
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        window.KeyReleaseQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        var manager = shell.Settings!.Participants.Single(item => item.Id == participant.Id);
+        Assert.True(manager.HasValidationError);
+        Assert.Equal("Enter a Participant label.", AutomationProperties.GetHelpText(label));
+        Assert.Equal("SD", work.Read().Participants.Single(item => item.Id == participant.Id).Label);
+
+        label.Text = "Ste";
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        window.KeyReleaseQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Contains("Renamed Participant to Ste", shell.Settings.Announcement, StringComparison.Ordinal);
+        Assert.Equal("Ste", work.Read().Participants.Single(item => item.Id == participant.Id).Label);
+        Assert.True(ButtonByAutomationId(window, $"settings-participant-rename-{participant.Id}").IsKeyboardFocusWithin);
+
+        var delete = ButtonByAutomationId(window, $"settings-participant-delete-{participant.Id}");
+        Assert.True(delete.Focus());
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        var referencedManager = shell.Settings.Participants.Single(item => item.Id == participant.Id);
+        Assert.Contains("every Task", referencedManager.ValidationMessage, StringComparison.Ordinal);
+        Assert.Equal("Ste", work.Read().Participants.Single(item => item.Id == participant.Id).Label);
+        Assert.Equal(2, work.Read().Participants.Count);
+
+        var freeManager = shell.Settings.Participants.Single(item => item.Id == free.Id);
+        freeManager.DeleteCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Single(work.Read().Participants);
+        Assert.NotNull(window.FindControl<Button>("SettingsRecoveryButton"));
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void EmptySettingsParticipantsUseTheSharedEmptyStateAnatomy()
+    {
+        var shell = new ShellViewModel(new MemoryWorkspaceWork());
+        shell.SettingsNavigation.SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var empty = window.FindControl<Border>("SettingsParticipantsEmpty")!;
+        Assert.True(empty.IsVisible);
+        Assert.Contains("empty-state", empty.Classes);
+        Assert.False(window.FindControl<Border>("SettingsParticipantsList")!.IsVisible);
+        Assert.Contains(empty.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "No Participants yet");
+        Assert.Contains(empty.GetVisualDescendants().OfType<TextBlock>(),
+            text => text.Text == "Create one from a Task's Participant picker.");
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void SettingsParticipantAndRecoveryControlsFollowLogicalKeyboardTabOrder()
+    {
+        using var session = new RecoveryViewModelTests.StubWorkspaceSession(
+            new RecoveryViewModelTests.StubWorkspaceRecovery());
+        var participant = session.Work.CreateParticipant("SD");
+        var window = new MainWindow(session) { Width = 1440, Height = 900 };
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.SettingsNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+
+        var rename = ButtonByAutomationId(window, $"settings-participant-rename-{participant.Id}");
+        Assert.True(rename.Focus(NavigationMethod.Tab));
+        Tab(window);
+        Assert.True(ButtonByAutomationId(window, $"settings-participant-delete-{participant.Id}").IsKeyboardFocusWithin);
+
+        Assert.True(rename.Focus(NavigationMethod.Tab));
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        var field = Assert.Single(window.GetVisualDescendants().OfType<TextBox>(),
+            control => AutomationProperties.GetAutomationId(control) == $"settings-participant-label-{participant.Id}");
+        Assert.True(field.IsKeyboardFocusWithin);
+        Tab(window);
+        Assert.True(NamedButton(window, "Save Participant label").IsKeyboardFocusWithin);
+        Tab(window);
+        var cancel = NamedButton(window, "Cancel Participant rename");
+        Assert.True(cancel.IsKeyboardFocusWithin);
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(rename.IsKeyboardFocusWithin);
+        Tab(window);
+        Assert.True(ButtonByAutomationId(window, $"settings-participant-delete-{participant.Id}").IsKeyboardFocusWithin);
+        Tab(window);
+        Assert.True(window.FindControl<Button>("SettingsRecoveryButton")!.IsKeyboardFocusWithin);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void ParticipantControlsFollowLogicalKeyboardTabOrder()
+    {
+        var work = new MemoryWorkspaceWork();
+        var participant = work.CreateParticipant("SD");
+        var task = work.CreateStandaloneTask("Call", "", "home", null,
+            new([participant.Id], []));
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Backlog").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell, Width = 1440, Height = 1100 };
+        window.Show();
+        shell.Work!.SelectTask(task.Id);
+        Dispatcher.UIThread.RunJobs();
+
+        var picker = window.FindControl<ComboBox>("ParticipantPicker")!;
+        picker.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+        var category = window.GetVisualDescendants().OfType<ComboBox>().Single(control =>
+            AutomationProperties.GetName(control) == "Category");
+        Assert.True(category.Focus(NavigationMethod.Tab));
+        Tab(window);
+        Assert.True(NamedButton(window, "Remove SD from Task").IsKeyboardFocusWithin);
+        Tab(window);
+        Assert.True(picker.IsKeyboardFocusWithin);
+        Assert.True(shell.Work.AvailableParticipants.Last().IsNew);
+        picker.SelectedItem = shell.Work.AvailableParticipants.Last();
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(window.FindControl<TextBox>("NewParticipantLabel")!.IsKeyboardFocusWithin);
+        Tab(window);
+        Assert.True(NamedButton(window, "Add new Participant to Task").IsKeyboardFocusWithin);
+        Tab(window);
+        Assert.True(NamedButton(window, "Cancel new Participant").IsKeyboardFocusWithin);
+        Assert.Null(window.FindControl<Expander>("ParticipantManagementExpander"));
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public void ProjectsAndInspectorRetainWorkbenchHierarchyAndAccessibleActions()
     {
         var work = new MemoryWorkspaceWork();
@@ -62,7 +372,7 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
-    public void ProjectButtonsCreateCancelEditAndResolveFailedNavigationThroughBindings()
+    public void ProjectInspectorAutosavesCreationEditingAndFailedNavigationThroughBindings()
     {
         using var session = new RecoveryViewModelTests.StubWorkspaceSession(new RecoveryViewModelTests.StubWorkspaceRecovery());
         var work = Assert.IsType<MemoryWorkspaceWork>(session.Work);
@@ -73,17 +383,17 @@ public sealed class ProjectCaptureWindowTests
         Activate(window, NamedButton(window, "New project"));
         var title = window.FindControl<TextBox>("DraftTitle")!;
         Assert.True(title.IsFocused);
-        window.KeyTextInput("Cancelled project");
         Assert.Empty(work.Read().Projects);
         Assert.Empty(shell.Work!.Projects);
-        Activate(window, NamedButton(window, "Cancel editing"));
+        Activate(window, NamedButton(window, "Open Backlog"));
         Assert.Empty(work.Read().Projects);
         Assert.False(shell.Work.HasInspector);
-        Assert.True(window.FindControl<Button>("NewProjectButton")!.IsFocused);
 
+        Activate(window, NamedButton(window, "Open Projects"));
         Activate(window, NamedButton(window, "New project"));
         window.KeyTextInput("Garden");
-        Activate(window, NamedButton(window, "Create"));
+        Assert.True(shell.Work.RunScheduledAutosave());
+        Dispatcher.UIThread.RunJobs();
         Assert.Equal("Garden", Assert.Single(work.Read().Projects).Title);
         Assert.Equal("Garden", Assert.Single(shell.Work.Projects).Title);
         Assert.NotNull(NamedButton(window, "Garden"));
@@ -95,18 +405,23 @@ public sealed class ProjectCaptureWindowTests
         title.SelectAll();
         window.KeyTextInput("Renamed garden");
         Assert.Equal("Garden", Assert.Single(work.Read().Projects).Title);
-        Activate(window, NamedButton(window, "Save"));
+        Assert.True(shell.Work.RunScheduledAutosave());
+        Dispatcher.UIThread.RunJobs();
         Assert.Equal("Renamed garden", Assert.Single(work.Read().Projects).Title);
         Assert.Equal("Renamed garden", Assert.Single(shell.Work.Projects).Title);
 
         title.Focus();
         title.SelectAll();
         window.KeyTextInput("Unsaved edit");
+        work.FailWrites = true;
         Activate(window, NamedButton(window, "Open Backlog"));
         Assert.True(shell.Work.NeedsDecision);
-        work.FailWrites = true;
-        Activate(window, NamedButton(window, "Save changes and leave"));
+        Activate(window, NamedButton(window, "Retry and leave"));
         Assert.True(shell.Work.NeedsDecision);
+        Assert.True(shell.Work.HasAutosaveError);
+        var retry = NamedButton(window, "Retry automatic save");
+        Assert.True(retry.IsVisible);
+        Assert.Equal("Retry automatic save", AutomationProperties.GetName(retry));
         Assert.True(window.FindControl<Button>("GuardSave")!.IsFocused);
         Assert.Equal("Projects", shell.ViewTitle);
         Assert.Equal("Unsaved edit", title.Text);
@@ -115,16 +430,15 @@ public sealed class ProjectCaptureWindowTests
         Assert.False(shell.Work.NeedsDecision);
         Assert.True(title.IsFocused);
         Assert.Equal("Unsaved edit", title.Text);
-        Activate(window, NamedButton(window, "Cancel editing"));
-        Assert.True(title.IsFocused);
-        Assert.Equal("Renamed garden", title.Text);
-        Assert.Equal("Renamed garden", Assert.Single(work.Read().Projects).Title);
-        Assert.False(shell.Work.IsDirty);
+        work.FailWrites = false;
+        Activate(window, NamedButton(window, "Open Backlog"));
+        Assert.Equal("Backlog", shell.ViewTitle);
+        Assert.Equal("Unsaved edit", Assert.Single(work.Read().Projects).Title);
         window.Close();
     }
 
     [AvaloniaFact]
-    public void DirtyNavigationRetainsCheckedViewUntilDecision()
+    public void FailedAutosaveNavigationRetainsCheckedViewUntilDecision()
     {
         using var session = new RecoveryViewModelTests.StubWorkspaceSession(new RecoveryViewModelTests.StubWorkspaceRecovery());
         var window = new MainWindow(session);
@@ -132,6 +446,7 @@ public sealed class ProjectCaptureWindowTests
         var shell = Assert.IsType<ShellViewModel>(window.DataContext);
         shell.Work!.NewProjectCommand.Execute(null);
         shell.Work.Title = "Unsaved";
+        Assert.IsType<MemoryWorkspaceWork>(session.Work).FailWrites = true;
         var radios = window.GetVisualDescendants().OfType<RadioButton>().ToArray();
         var today = radios.Single(r => AutomationProperties.GetAutomationId(r) == "navigation-today");
         var projects = radios.Single(r => AutomationProperties.GetAutomationId(r) == "navigation-projects");
@@ -163,6 +478,7 @@ public sealed class ProjectCaptureWindowTests
         window.Show();
         shell.Work!.SelectTask(first.Id);
         shell.Work.Title = "Unsaved first task";
+        work.FailWrites = true;
 
         Activate(window, NamedButton(window, "Second task"));
 
@@ -229,6 +545,7 @@ public sealed class ProjectCaptureWindowTests
         var shell = Assert.IsType<ShellViewModel>(window.DataContext);
         shell.Work!.NewProjectCommand.Execute(null);
         shell.Work.Title = "Unsaved";
+        Assert.IsType<MemoryWorkspaceWork>(session.Work).FailWrites = true;
         window.Close();
         Dispatcher.UIThread.RunJobs();
         Assert.True(window.IsVisible);
@@ -930,13 +1247,16 @@ public sealed class ProjectCaptureWindowTests
         Assert.Contains("Due date", AutomationProperties.GetName(picker), StringComparison.Ordinal);
         Assert.Equal(12, picker.FontSize);
         picker.Text = "2026-10-12";
-        Activate(window, NamedButton(window, "Save"));
+        Assert.Null(work.Read().Tasks.Single().DueDate);
+        Assert.True(shell.Work!.RunScheduledAutosave());
+        Dispatcher.UIThread.RunJobs();
         Assert.Equal(new DateOnly(2026, 10, 12), work.Read().Tasks.Single().DueDate);
 
+        picker.IsDropDownOpen = true;
         picker.SelectedDate = new DateTime(2026, 10, 13);
+        picker.IsDropDownOpen = false;
         Dispatcher.UIThread.RunJobs();
         Assert.Equal("2026-10-13", shell.Work!.Date);
-        Activate(window, NamedButton(window, "Save"));
         Assert.Equal(new DateOnly(2026, 10, 13), work.Read().Tasks.Single().DueDate);
 
         var pickerTextBox = Assert.Single(picker.GetVisualDescendants().OfType<TextBox>());
@@ -968,11 +1288,8 @@ public sealed class ProjectCaptureWindowTests
         Assert.Equal("f", Assert.IsType<InspectorDatePicker>(picker).RawText);
         Assert.Equal("f", shell.Work!.Date);
         Assert.Equal(150, picker.Bounds.Width);
-        var save = NamedButton(window, "Save");
-        Assert.True(save.Focus());
-        Dispatcher.UIThread.RunJobs();
         Assert.Equal("f", shell.Work!.Date);
-        Activate(window, save);
+        Assert.False(shell.Work.RunScheduledAutosave());
         Dispatcher.UIThread.RunJobs();
 
         Assert.Null(work.Read().Tasks.Single().DueDate);
@@ -992,16 +1309,13 @@ public sealed class ProjectCaptureWindowTests
         Assert.DoesNotContain("error", picker.Classes);
         Assert.False(validation.IsEffectivelyVisible);
 
-        Assert.True(save.Focus());
-        Activate(window, save);
+        Assert.True(shell.Work.RunScheduledAutosave());
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(new DateOnly(2026, 10, 12), work.Read().Tasks.Single().DueDate);
 
         Assert.True(editor.Focus());
         editor.Text = "f";
-        Assert.True(save.Focus());
-        Dispatcher.UIThread.RunJobs();
-        Activate(window, save);
+        Assert.False(shell.Work.RunScheduledAutosave());
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(new DateOnly(2026, 10, 12), work.Read().Tasks.Single().DueDate);
         Assert.Equal("f", shell.Work.Date);
@@ -1190,7 +1504,7 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
-    public void CompletingDirtyBacklogRowRequiresDecisionThenFocusesRemainingCompletionControl()
+    public void CompletingBacklogRowFlushesPendingFieldsThenFocusesRemainingCompletionControl()
     {
         var work = new MemoryWorkspaceWork();
         var project = work.CreateProject("Garden", "", "home", null);
@@ -1209,12 +1523,9 @@ public sealed class ProjectCaptureWindowTests
         window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None);
         window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
-        Assert.True(shell.Work!.NeedsDecision);
-        Assert.True(window.FindControl<Button>("GuardSave")!.IsFocused);
-        Activate(window, NamedButton(window, "Discard changes and leave"));
-        Dispatcher.UIThread.RunJobs();
-
+        Assert.False(shell.Work!.NeedsDecision);
         Assert.True(work.Read().Tasks.Single(task => task.Id == completing.Id).IsComplete);
+        Assert.Equal("Unsaved completing", work.Read().Tasks.Single(task => task.Id == completing.Id).Title);
         Assert.True(ToggleByAutomationId(window, $"task-completion-{remaining.Id}").IsFocused);
         window.Close();
     }
@@ -1937,6 +2248,13 @@ public sealed class ProjectCaptureWindowTests
         Dispatcher.UIThread.RunJobs();
     }
 
+    private static void Tab(Window window)
+    {
+        window.KeyPressQwerty(PhysicalKey.Tab, RawInputModifiers.None);
+        window.KeyReleaseQwerty(PhysicalKey.Tab, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+    }
+
     private static TextBox QuickField(Window window) => Assert.Single(window.GetVisualDescendants().OfType<TextBox>(), b => b.Classes.Contains("quick-add"));
 
     private static Point CentreInWindow(Control control, Window window)
@@ -1959,5 +2277,27 @@ public sealed class ProjectCaptureWindowTests
         Assert.True(point.HasValue);
         return point.Value;
     }
+
+    private sealed class ManualInspectorAutosaveScheduler : IInspectorAutosaveScheduler
+    {
+        private ScheduledAutosave? _current;
+        public List<ScheduledAutosave> Pending { get; } = [];
+        public int ScheduleCount { get; private set; }
+        public TimeSpan Delay { get; private set; }
+
+        public void Schedule(TimeSpan delay, long revision, Action<long> callback)
+        {
+            Delay = delay;
+            ScheduleCount++;
+            _current = new(revision, callback);
+            Pending.Add(_current);
+        }
+
+        public void Cancel() => _current = null;
+        public void Dispose() => Cancel();
+        public void FireCurrent() => _current?.Callback(_current.Revision);
+    }
+
+    private sealed record ScheduledAutosave(long Revision, Action<long> Callback);
 
 }

@@ -11,6 +11,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     public ShellViewModel(IWorkspaceWork? work = null, TimeProvider? timeProvider = null)
     {
         Work = work is null ? null : new ProjectCaptureViewModel(work, timeProvider);
+        Settings = work is null ? null : new SettingsViewModel(work, () => Work!.RefreshFromStore());
         PrimaryNavigation =
         [
             CreateNavigationItem(
@@ -65,6 +66,14 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             "Removed projects and tasks will wait here until restored or permanently emptied.",
             countText: null);
 
+        SettingsNavigation = CreateNavigationItem(
+            "Settings",
+            "M19.43,12.98C19.47,12.66 19.5,12.34 19.5,12C19.5,11.66 19.47,11.34 19.43,11.02L21.54,9.37L19.54,5.91L17.05,6.91C16.54,6.5 15.98,6.17 15.35,5.92L15,3.27H11L10.65,5.92C10.02,6.17 9.46,6.5 8.95,6.91L6.46,5.91L4.46,9.37L6.57,11.02C6.53,11.34 6.5,11.67 6.5,12C6.5,12.33 6.53,12.66 6.57,12.98L4.46,14.63L6.46,18.09L8.95,17.09C9.46,17.5 10.02,17.83 10.65,18.08L11,20.73H15L15.35,18.08C15.98,17.83 16.54,17.5 17.05,17.09L19.54,18.09L21.54,14.63L19.43,12.98M13,15.5A3.5,3.5 0 1,1 13,8.5A3.5,3.5 0 1,1 13,15.5",
+            "Manage reusable workspace data and recovery options.",
+            "Settings",
+            "Manage reusable Participants and encrypted recovery options.",
+            countText: null);
+
         Select(PrimaryNavigation[0]);
         if (Work is not null)
         {
@@ -81,6 +90,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     public IReadOnlyList<NavigationItemViewModel> PrimaryNavigation { get; }
 
     public NavigationItemViewModel BinNavigation { get; }
+    public NavigationItemViewModel SettingsNavigation { get; }
 
     public NavigationItemViewModel SelectedItem
     {
@@ -100,6 +110,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(ShowCompleted));
             OnPropertyChanged(nameof(ShowCategories));
             OnPropertyChanged(nameof(ShowEmpty));
+            OnPropertyChanged(nameof(ShowSettings));
             OnPropertyChanged(nameof(ViewSubtitle));
             OnPropertyChanged(nameof(EmptyStateHeading));
             OnPropertyChanged(nameof(EmptyStateBody));
@@ -107,12 +118,14 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     }
 
     public ProjectCaptureViewModel? Work { get; }
+    public SettingsViewModel? Settings { get; }
 
     public bool ShowProjects => Work is not null && ViewTitle == "Projects";
     public bool ShowBacklog => Work is not null && ViewTitle == "Backlog";
     public bool ShowCompleted => Work is not null && ViewTitle == "Completed";
     public bool ShowCategories => Work is not null && ViewTitle == "Categories";
-    public bool ShowEmpty => !ShowProjects && !ShowBacklog && !ShowCompleted && !ShowCategories;
+    public bool ShowSettings => ViewTitle == "Settings";
+    public bool ShowEmpty => !ShowProjects && !ShowBacklog && !ShowCompleted && !ShowCategories && !ShowSettings;
 
     public string ViewTitle => SelectedItem.Title;
 
@@ -165,6 +178,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         }
         Work?.SetBacklogActive(isBacklog);
         if (Work is not null && wasCompleted != isCompleted) Work.SetCompletedActive(isCompleted);
+        if (item.Title == "Settings") Settings?.Refresh();
     }
 
     private void UpdateCounts()

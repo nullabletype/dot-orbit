@@ -23,7 +23,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private string _description = string.Empty;
     private string _date = string.Empty;
     private CategoryChoice? _category;
-    private (string Title, string Description, string Date, string? CategoryId) _original;
+    private (string Title, string Description, string Date, string? CategoryId, string Participants) _original;
     private string _message = string.Empty;
     private bool _hasInspector;
     private string _backlogQuickTitle = string.Empty;
@@ -36,6 +36,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private DateOnly _presentationDate;
     private string _presentationTimeZoneId = string.Empty;
     private string _categoryNameValidationMessage = string.Empty;
+    private string _workTitleValidationMessage = string.Empty;
     private string _dateValidationMessage = string.Empty;
     private string? _pendingCategoryDeleteId;
     private CategoryChoice? _categoryReplacement;
@@ -47,6 +48,19 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private bool _loadingDraft;
     private bool _editingMarkdown;
     private SanitisedMarkdownDocument _renderedDescription = SanitisedMarkdownDocument.Empty;
+    private ParticipantChoice? _participantToAdd;
+    private string _newParticipantLabel = string.Empty;
+    private string _newParticipantValidationMessage = string.Empty;
+    private string _participantSelectionMessage = string.Empty;
+    private string _participantAnnouncement = string.Empty;
+    private string _participantFocusAutomationId = string.Empty;
+    private int _participantDraftSequence;
+    private long _autosaveRevision;
+    private bool _autosaveInProgress;
+    private string _autosaveStatus = "Changes save automatically.";
+    private bool _hasAutosaveError;
+
+    public static TimeSpan AutosaveDelay { get; } = TimeSpan.FromMilliseconds(600);
 
     public ProjectCaptureViewModel(IWorkspaceWork work, TimeProvider? timeProvider = null)
     {
@@ -55,6 +69,15 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         NewProjectCommand = new(() => Navigate(BeginProject));
         NewTaskCommand = new(() => Navigate(BeginStandaloneTask));
         NewCategoryCommand = new(() => Navigate(BeginCategory));
+        AddParticipantCommand = new(AddParticipant);
+        AddNewParticipantCommand = new(AddNewParticipant);
+        CancelNewParticipantCommand = new(() =>
+        {
+            NewParticipantLabel = string.Empty;
+            ParticipantToAdd = null;
+            ParticipantFocusAutomationId = "participant-picker";
+        });
+        RetryAutosaveCommand = new(() => RunScheduledAutosave(force: true));
         DeleteCategoryCommand = new(() =>
         {
             if (_editingCategory && !_creating && _editingId is not null) BeginCategoryDeletion(_editingId);
@@ -91,9 +114,15 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public ObservableCollection<CategoryGroupViewModel> CategoryGroups { get; } = [];
     public ObservableCollection<CategoryChoice> CategoryReplacementChoices { get; } = [];
     public ObservableCollection<TaskContextChoice> TaskContextChoices { get; } = [];
+    public ObservableCollection<ParticipantChoice> AvailableParticipants { get; } = [];
+    public ObservableCollection<ParticipantDraftViewModel> SelectedParticipants { get; } = [];
     public RelayCommand NewProjectCommand { get; }
     public RelayCommand NewTaskCommand { get; }
     public RelayCommand NewCategoryCommand { get; }
+    public RelayCommand AddParticipantCommand { get; }
+    public RelayCommand AddNewParticipantCommand { get; }
+    public RelayCommand CancelNewParticipantCommand { get; }
+    public RelayCommand RetryAutosaveCommand { get; }
     public RelayCommand DeleteCategoryCommand { get; }
     public RelayCommand ConfirmDeleteCategoryCommand { get; }
     public RelayCommand CancelDeleteCategoryCommand { get; }
@@ -121,6 +150,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             Notify(nameof(ShowWorkInspector));
             Notify(nameof(ShowCategoryInspector));
             Notify(nameof(ShowCategoryDelete));
+            Notify(nameof(ShowParticipants));
             Notify(nameof(ShowMarkdownPreview));
             Notify(nameof(ShowMarkdownEditor));
         }
@@ -135,11 +165,73 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public bool NeedsAttachmentChoice => _pendingAttachmentTaskId is not null;
     public bool HasBlockingDialog => NeedsDecision || NeedsCategoryReplacement || NeedsAttachmentChoice;
     public bool IsDirty => HasInspector && _original != Fingerprint();
+    public bool ShowExplicitInspectorActions => HasInspector && _editingCategory;
+    public bool ShowAutosaveStatus => HasInspector && !_editingCategory;
+    public string AutosaveStatus
+    {
+        get => _autosaveStatus;
+        private set { _autosaveStatus = value; Notify(); }
+    }
+    public bool HasAutosaveError
+    {
+        get => _hasAutosaveError;
+        private set { _hasAutosaveError = value; Notify(); }
+    }
+    public bool ShowNewParticipantEntry => ParticipantToAdd?.IsNew == true;
+    public bool ShowExistingParticipantAction => ParticipantToAdd is { IsNew: false, Id: not null };
+    public event EventHandler<AutosaveRequestEventArgs>? AutosaveRequested;
     public bool ShowWorkInspector => HasInspector && !_editingCategory;
     public bool ShowMarkdownPreview => ShowWorkInspector && !IsEditingMarkdown;
     public bool ShowMarkdownEditor => ShowWorkInspector && IsEditingMarkdown;
     public bool ShowCategoryInspector => HasInspector && _editingCategory;
     public bool ShowCategoryDelete => ShowCategoryInspector && !_creating;
+    public bool ShowParticipants => HasInspector && _editingTask && !_editingCategory;
+    public const string ParticipantGuidance = "Use initials or a nickname. Do not enter email addresses or other contact details.";
+    public ParticipantChoice? ParticipantToAdd
+    {
+        get => _participantToAdd;
+        set
+        {
+            _participantToAdd = value;
+            ParticipantSelectionMessage = string.Empty;
+            Notify();
+            Notify(nameof(ShowNewParticipantEntry));
+            Notify(nameof(ShowExistingParticipantAction));
+            if (value?.IsNew == true) ParticipantFocusAutomationId = "new-participant-label";
+        }
+    }
+    public string NewParticipantLabel
+    {
+        get => _newParticipantLabel;
+        set
+        {
+            _newParticipantLabel = value;
+            NewParticipantValidationMessage = string.Empty;
+            Notify();
+        }
+    }
+    public string NewParticipantValidationMessage
+    {
+        get => _newParticipantValidationMessage;
+        private set { _newParticipantValidationMessage = value; Notify(); Notify(nameof(HasNewParticipantValidationError)); }
+    }
+    public bool HasNewParticipantValidationError => !string.IsNullOrEmpty(NewParticipantValidationMessage);
+    public string ParticipantSelectionMessage
+    {
+        get => _participantSelectionMessage;
+        private set { _participantSelectionMessage = value; Notify(); Notify(nameof(HasParticipantSelectionError)); }
+    }
+    public bool HasParticipantSelectionError => !string.IsNullOrEmpty(ParticipantSelectionMessage);
+    public string ParticipantAnnouncement
+    {
+        get => _participantAnnouncement;
+        private set { _participantAnnouncement = value; Notify(); }
+    }
+    public string ParticipantFocusAutomationId
+    {
+        get => _participantFocusAutomationId;
+        private set { _participantFocusAutomationId = value; Notify(); }
+    }
     public string InspectorHeading => _editingCategory
         ? (_creating ? "New category" : "Category details")
         : _creating ? (_editingTask ? "New task" : "New project") : _editingTask ? "Task details" : "Project details";
@@ -166,6 +258,11 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             ? $"{Projects.Single(p => p.Id == _editingId).Status} · {Projects.Single(p => p.Id == _editingId).ProgressText}"
             : "Not started · 0/0 tasks";
     public string SaveLabel => _creating ? "Create" : "Save";
+    public string DecisionHeading => _editingCategory ? "Save your changes before leaving?" : "Changes could not be saved";
+    public string DecisionBody => _editingCategory
+        ? "Your inspector contains changes that have not been saved."
+        : "Correct the highlighted fields or retry saving before leaving. You can also discard these changes.";
+    public string DecisionSaveLabel => _editingCategory ? "Save and leave" : "Retry and leave";
     public string DateLabel => _editingTask ? "Due date (YYYY-MM-DD, optional)" : "Target date (YYYY-MM-DD, optional)";
     public string CategoryHint => _editingTask
         ? IsStandaloneTaskDraft
@@ -197,9 +294,17 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         set
         {
             if (_loadingDraft) { _title = value; return; }
+            if (string.Equals(_title, value, StringComparison.Ordinal)) return;
             _title = value;
             if (_editingCategory) CategoryNameValidationMessage = string.Empty;
+            else
+            {
+                _workTitleValidationMessage = string.Empty;
+                Notify(nameof(TitleValidationMessage));
+                Notify(nameof(HasTitleValidationError));
+            }
             Notify();
+            DraftChanged();
         }
     }
     public string Description
@@ -208,9 +313,11 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         set
         {
             if (_loadingDraft) { _description = value; return; }
+            if (string.Equals(_description, value, StringComparison.Ordinal)) return;
             _description = value;
             RefreshRenderedDescription();
             Notify();
+            DraftChanged();
         }
     }
     public string Date
@@ -223,6 +330,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             _date = value;
             DateValidationMessage = string.Empty;
             Notify();
+            DraftChanged();
         }
     }
     public string BacklogQuickTitle { get => _backlogQuickTitle; set { _backlogQuickTitle = value; Notify(); } }
@@ -235,9 +343,13 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             _categoryNameValidationMessage = value;
             Notify();
             Notify(nameof(HasCategoryNameValidationError));
+            Notify(nameof(TitleValidationMessage));
+            Notify(nameof(HasTitleValidationError));
         }
     }
     public bool HasCategoryNameValidationError => !string.IsNullOrEmpty(CategoryNameValidationMessage);
+    public string TitleValidationMessage => _editingCategory ? CategoryNameValidationMessage : _workTitleValidationMessage;
+    public bool HasTitleValidationError => !string.IsNullOrEmpty(TitleValidationMessage);
     public string DateValidationMessage
     {
         get => _dateValidationMessage;
@@ -296,18 +408,79 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         set
         {
             if (_loadingDraft) { _category = value; return; }
+            if (_category == value) return;
             _category = value;
             Notify();
             Notify(nameof(CategoryHint));
             Notify(nameof(InspectorMetaValue));
+            DraftChanged(immediate: true);
         }
+    }
+
+    private void DraftChanged(bool immediate = false)
+    {
+        Notify(nameof(IsDirty));
+        if (!HasInspector || _editingCategory) return;
+        _autosaveRevision++;
+        HasAutosaveError = false;
+        AutosaveStatus = IsDirty ? (immediate ? "Saving…" : "Saving soon…") : "Saved";
+        if (immediate) RunScheduledAutosave();
+        else AutosaveRequested?.Invoke(this, new(_autosaveRevision));
+    }
+
+    public bool RunScheduledAutosave(long? scheduledRevision = null, bool force = false)
+    {
+        if (!HasInspector || _editingCategory) return true;
+        if (!force && scheduledRevision is not null && scheduledRevision != _autosaveRevision) return true;
+        if (!IsDirty)
+        {
+            AutosaveStatus = _creating ? "Start typing to create." : "Saved";
+            return true;
+        }
+        if (_autosaveInProgress) return false;
+        var revision = _autosaveRevision;
+        _autosaveInProgress = true;
+        AutosaveStatus = "Saving…";
+        var saved = SaveWork();
+        _autosaveInProgress = false;
+        if (saved)
+        {
+            HasAutosaveError = false;
+            AutosaveStatus = "Saved";
+        }
+        else
+        {
+            HasAutosaveError = true;
+            AutosaveStatus = string.IsNullOrEmpty(Message) ? "Could not save. Retry." : Message;
+        }
+        if (revision != _autosaveRevision && IsDirty) AutosaveRequested?.Invoke(this, new(_autosaveRevision));
+        return saved;
+    }
+
+    public bool FlushPendingAutosave() => _editingCategory || !IsDirty || RunScheduledAutosave(force: true);
+
+    public void CommitCalendarDate(DateTime? selectedDate)
+    {
+        if (!HasInspector || _editingCategory) return;
+        var value = selectedDate is null
+            ? string.Empty
+            : DateOnly.FromDateTime(selectedDate.Value).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        if (!string.Equals(_date, value, StringComparison.Ordinal))
+        {
+            _date = value;
+            DateValidationMessage = string.Empty;
+            Notify(nameof(Date));
+            DraftChanged(immediate: true);
+            return;
+        }
+        RunScheduledAutosave(force: true);
     }
 
     public void Navigate(Action destination)
     {
         ArgumentNullException.ThrowIfNull(destination);
         if (NeedsDecision) return;
-        if (IsDirty)
+        if (IsDirty && (_editingCategory || !FlushPendingAutosave()))
         {
             _pendingNavigation = destination;
             _pendingNavigationClosesInspector = true;
@@ -322,6 +495,83 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public void SelectProject(string id) => Navigate(() => LoadProject(id));
     public void SelectTask(string id) => Navigate(() => LoadTask(id));
     public void SelectCategory(string id) => Navigate(() => LoadCategory(id));
+
+    private void AddParticipant()
+    {
+        if (ParticipantToAdd is null || ParticipantToAdd.IsNew || ParticipantToAdd.Id is null) return;
+        if (SelectedParticipants.Any(item => item.Id == ParticipantToAdd.Id))
+        {
+            ParticipantSelectionMessage = "That Participant is already selected.";
+            return;
+        }
+        SelectedParticipants.Add(new(this, ParticipantToAdd.Id, ParticipantToAdd.Label,
+            ParticipantToAdd.Id!));
+        ParticipantAnnouncement = $"Added {ParticipantToAdd.Label} to the Task draft.";
+        ParticipantToAdd = null;
+        ParticipantSelectionMessage = string.Empty;
+        DraftChanged(immediate: true);
+        ParticipantFocusAutomationId = "participant-picker";
+    }
+
+    private void AddNewParticipant()
+    {
+        string label;
+        try { label = ParticipantLabel.Normalize(NewParticipantLabel); }
+        catch (ArgumentException)
+        {
+            NewParticipantValidationMessage = "Enter a Participant label.";
+            return;
+        }
+
+        var comparisonKey = ParticipantLabel.ComparisonKey(label);
+        var existing = _snapshot.Participants.FirstOrDefault(participant =>
+            string.Equals(ParticipantLabel.ComparisonKey(participant.Label), comparisonKey, StringComparison.Ordinal));
+        if (existing is not null)
+        {
+            if (SelectedParticipants.Any(item => item.Id == existing.Id))
+            {
+                NewParticipantValidationMessage = "This Participant is already on this Task.";
+                ParticipantFocusAutomationId = "new-participant-label";
+                return;
+            }
+
+            SelectedParticipants.Add(new(this, existing.Id, existing.Label, existing.Id));
+            ParticipantAnnouncement = $"Added existing Participant {existing.Label} to the Task draft.";
+            NewParticipantLabel = string.Empty;
+            ParticipantToAdd = null;
+            DraftChanged(immediate: true);
+            ParticipantFocusAutomationId = "participant-picker";
+            return;
+        }
+
+        if (SelectedParticipants.Any(item => item.Id is null
+            && string.Equals(ParticipantLabel.ComparisonKey(item.Label), comparisonKey, StringComparison.Ordinal)))
+        {
+            NewParticipantValidationMessage = "This Participant is already on this Task.";
+            ParticipantFocusAutomationId = "new-participant-label";
+            return;
+        }
+        var automationKey = $"draft-{_participantDraftSequence++}";
+        SelectedParticipants.Add(new(this, null, label, automationKey));
+        ParticipantAnnouncement = $"Created and added {label} to the Task draft.";
+        NewParticipantLabel = string.Empty;
+        NewParticipantValidationMessage = string.Empty;
+        ParticipantToAdd = null;
+        DraftChanged(immediate: true);
+        ParticipantFocusAutomationId = "participant-picker";
+    }
+
+    internal void RemoveParticipant(ParticipantDraftViewModel participant)
+    {
+        var index = SelectedParticipants.IndexOf(participant);
+        SelectedParticipants.Remove(participant);
+        ParticipantAnnouncement = $"Removed {participant.Label} from the Task draft.";
+        ParticipantFocusAutomationId = SelectedParticipants.Count == 0
+            ? "participant-picker"
+            : SelectedParticipants[Math.Min(index, SelectedParticipants.Count - 1)].RemoveAutomationId;
+        DraftChanged(immediate: true);
+    }
+
     public void SetBacklogActive(bool active) => _backlogActive = active;
     public void SetCompletedActive(bool active) => _completedActive = active;
 
@@ -343,6 +593,15 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
     public bool QuickAdd(string projectId, string title)
     {
+        if (IsDirty && _editingCategory)
+        {
+            _pendingNavigation = () => QuickAdd(projectId, title);
+            _pendingNavigationClosesInspector = false;
+            Notify(nameof(NeedsDecision));
+            Notify(nameof(HasBlockingDialog));
+            return false;
+        }
+        if (IsDirty && !_editingCategory && !FlushPendingAutosave()) return false;
         if (string.IsNullOrWhiteSpace(title)) return false;
         return Attempt(() => { _work.CreateTask(projectId, title); Reload(); Message = "Task created."; });
     }
@@ -361,6 +620,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
     public bool SubmitBacklogQuickAdd()
     {
+        if (IsDirty && (_editingCategory || !FlushPendingAutosave())) return false;
         if (string.IsNullOrWhiteSpace(BacklogQuickTitle)) return false;
         if (BacklogQuickCategory?.Id is null)
         {
@@ -494,7 +754,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private void ResolveDraftBeforeAction(Action action)
     {
         if (NeedsDecision) return;
-        if (IsDirty)
+        if (IsDirty && (_editingCategory || !FlushPendingAutosave()))
         {
             _pendingNavigation = action;
             _pendingNavigationClosesInspector = false;
@@ -593,7 +853,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         _editingCategory = false;
         _creating = false;
         _creatingStandaloneTask = false;
-        SetDraft(task.Title, task.Description, task.DueDate, task.ExplicitCategoryId);
+        SetDraft(task.Title, task.Description, task.DueDate, task.ExplicitCategoryId, task.Participants);
         RefreshTaskContextChoices(task);
     }
 
@@ -630,6 +890,9 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             _editingMarkdown = false;
             _date = string.Empty;
             _category = null;
+            SelectedParticipants.Clear();
+            _newParticipantLabel = string.Empty;
+            _participantToAdd = null;
             _original = Fingerprint();
             Notify(nameof(Title));
             Notify(nameof(Description));
@@ -639,9 +902,11 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             Notify(nameof(Date));
             Notify(nameof(Category));
             CategoryNameValidationMessage = string.Empty;
+            _workTitleValidationMessage = string.Empty;
             DateValidationMessage = string.Empty;
             HasInspector = true;
             Message = string.Empty;
+            ResetAutosavePresentation();
             NotifyInspectorPresentation();
         }
         finally
@@ -663,7 +928,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         TaskContextTarget = TaskContextChoices.Single(choice => choice.ProjectId == task.ProjectId);
     }
 
-    private void SetDraft(string title, string description, DateOnly? date, string? categoryId)
+    private void SetDraft(string title, string description, DateOnly? date, string? categoryId,
+        IReadOnlyList<string>? participantIds = null)
     {
         var dateText = date?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty;
         CategoryChoice? categoryChoice = null;
@@ -685,7 +951,19 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             _date = dateText;
             categoryChoice = Categories.FirstOrDefault(c => c.Id == categoryId);
             _category = categoryChoice;
-            _original = (title, description, dateText, categoryId);
+            SelectedParticipants.Clear();
+            foreach (var participantId in participantIds ?? [])
+            {
+                var participant = _snapshot.Participants.Single(item => item.Id == participantId);
+                SelectedParticipants.Add(new(this, participant.Id, participant.Label, participant.Id));
+            }
+            _newParticipantLabel = string.Empty;
+            _participantToAdd = null;
+            NewParticipantValidationMessage = string.Empty;
+            ParticipantSelectionMessage = string.Empty;
+            ParticipantAnnouncement = string.Empty;
+            RefreshParticipantChoices();
+            _original = Fingerprint();
             Notify(nameof(Title));
             Notify(nameof(Description));
             Notify(nameof(RenderedDescription));
@@ -693,10 +971,14 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             Notify(nameof(MarkdownPreviewAutomationName));
             Notify(nameof(Date));
             Notify(nameof(Category));
+            Notify(nameof(NewParticipantLabel));
+            Notify(nameof(ParticipantToAdd));
             Notify(nameof(CategoryHint));
             DateValidationMessage = string.Empty;
+            _workTitleValidationMessage = string.Empty;
             HasInspector = true;
             Message = string.Empty;
+            ResetAutosavePresentation();
             NotifyInspectorPresentation();
         }
         finally
@@ -713,10 +995,21 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     {
         Notify(nameof(InspectorHeading)); Notify(nameof(TitleAutomationName)); Notify(nameof(SaveLabel)); Notify(nameof(DateLabel));
         Notify(nameof(ShowWorkInspector)); Notify(nameof(ShowCategoryInspector)); Notify(nameof(ShowCategoryDelete));
+        Notify(nameof(ShowParticipants));
         Notify(nameof(ShowProjectSummary)); Notify(nameof(ProjectSummary));
         Notify(nameof(ShowTaskCompletionDate)); Notify(nameof(TaskCompletionDateText)); Notify(nameof(TaskCompletionDateAccessibleText));
         Notify(nameof(InspectorMetaLabel)); Notify(nameof(InspectorMetaValue));
         Notify(nameof(ShowMarkdownPreview)); Notify(nameof(ShowMarkdownEditor));
+        Notify(nameof(ShowExplicitInspectorActions)); Notify(nameof(ShowAutosaveStatus));
+        Notify(nameof(DecisionHeading)); Notify(nameof(DecisionBody)); Notify(nameof(DecisionSaveLabel));
+        Notify(nameof(TitleValidationMessage)); Notify(nameof(HasTitleValidationError));
+    }
+
+    private void ResetAutosavePresentation()
+    {
+        _autosaveRevision++;
+        HasAutosaveError = false;
+        AutosaveStatus = _editingCategory ? string.Empty : _creating ? "Start typing to create." : "Saved";
     }
 
     private void RefreshRenderedDescription()
@@ -731,7 +1024,19 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     {
         if (!HasInspector) return true;
         if (_editingCategory) return SaveCategory();
-        if (string.IsNullOrWhiteSpace(Title)) { Message = "Enter a title."; return false; }
+        return SaveWork();
+    }
+
+    private bool SaveWork()
+    {
+        if (string.IsNullOrWhiteSpace(Title))
+        {
+            _workTitleValidationMessage = "Enter a title.";
+            Notify(nameof(TitleValidationMessage));
+            Notify(nameof(HasTitleValidationError));
+            Message = _workTitleValidationMessage;
+            return false;
+        }
         DateOnly? date = null;
         if (!string.IsNullOrWhiteSpace(Date))
         {
@@ -745,18 +1050,66 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         }
         DateValidationMessage = string.Empty;
         if (Category is null || ((!_editingTask || IsStandaloneTaskDraft) && Category.Id is null)) { Message = "Choose a category."; return false; }
+        if (_editingTask) return SaveTask(date);
         return Attempt(() =>
         {
-            if (_creating && _editingTask) _editingId = _work.CreateStandaloneTask(Title, Description, Category.Id!, date).Id;
-            else if (_creating) _editingId = _work.CreateProject(Title, Description, Category.Id!, date).Id;
-            else if (_editingTask) _work.UpdateTask(_editingId!, Title, Description, Category.Id, date);
+            if (_creating) _editingId = _work.CreateProject(Title, Description, Category.Id!, date).Id;
             else _work.UpdateProject(_editingId!, Title, Description, Category.Id!, date);
             _creating = false;
             _creatingStandaloneTask = false;
-            Reload();
-            if (_editingTask) LoadTask(_editingId!); else LoadProject(_editingId!);
-            Message = "Changes saved.";
+            ReloadAndKeepInspector();
         });
+    }
+
+    private bool SaveTask(DateOnly? date)
+    {
+        var participantIds = SelectedParticipants.Where(item => item.Id is not null).Select(item => item.Id!).ToArray();
+        var newLabels = SelectedParticipants.Where(item => item.Id is null).Select(item => item.Label).ToArray();
+        var participantChange = new ParticipantDraftChange(participantIds, newLabels);
+        try
+        {
+            if (_creating)
+                _editingId = _work.CreateStandaloneTask(Title, Description, Category!.Id!, date,
+                    participantChange).Id;
+            else
+                _work.UpdateTask(_editingId!, Title, Description, Category!.Id, date,
+                    participantChange);
+            _creating = false;
+            _creatingStandaloneTask = false;
+            ReloadAndKeepInspector();
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            Message = "Check the Participant labels and selections. No changes were made.";
+            return false;
+        }
+        catch (WorkspaceWorkException)
+        {
+            Message = "Could not save workspace changes. Your draft is retained. Try again.";
+            return false;
+        }
+    }
+
+    private void ReloadAndKeepInspector()
+    {
+        Reload();
+        if (_editingTask && _editingId is not null)
+        {
+            var task = _snapshot.Tasks.Single(item => item.Id == _editingId);
+            SelectedParticipants.Clear();
+            foreach (var participantId in task.Participants)
+            {
+                var participant = _snapshot.Participants.Single(item => item.Id == participantId);
+                SelectedParticipants.Add(new(this, participant.Id, participant.Label, participant.Id));
+            }
+            RefreshParticipantChoices();
+            RefreshTaskContextChoices(task);
+        }
+        _original = Fingerprint();
+        Message = string.Empty;
+        Notify(nameof(IsDirty));
+        NotifyInspectorPresentation();
     }
 
     private bool SaveCategory()
@@ -818,8 +1171,12 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         _creatingStandaloneTask = false;
         _editingCategory = false;
         CategoryNameValidationMessage = string.Empty;
+        _workTitleValidationMessage = string.Empty;
+        Notify(nameof(TitleValidationMessage));
+        Notify(nameof(HasTitleValidationError));
         DateValidationMessage = string.Empty;
         Message = string.Empty;
+        HasAutosaveError = false;
     }
     private void Leave()
     {
@@ -832,13 +1189,16 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         if (closesInspector) CloseInspector();
         destination?.Invoke();
     }
-    private (string Title, string Description, string Date, string? CategoryId) Fingerprint() => (Title, Description, Date, Category?.Id);
+    private (string Title, string Description, string Date, string? CategoryId, string Participants) Fingerprint() =>
+        (Title, Description, Date, Category?.Id,
+            string.Join('\u001f', SelectedParticipants.Select(item => item.Id is null ? $"new:{item.Label}" : $"id:{item.Id}")));
     private string CategoryName(string id) => _snapshot.Categories.Single(c => c.Id == id).Name;
     private string EffectiveCategoryId(TaskRecord task) => task.ExplicitCategoryId
         ?? _snapshot.Projects.Single(project => project.Id == task.ProjectId).CategoryId;
     private void Reload()
     {
         _snapshot = _work.Read();
+        RefreshParticipantChoices();
         RefreshBacklogCategories();
         foreach (var removedId in _taskRows.Keys.Except(_snapshot.Tasks.Select(task => task.Id), StringComparer.Ordinal).ToArray())
             _taskRows.Remove(removedId);
@@ -888,6 +1248,23 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         Notify(nameof(CanChangeTaskContext));
         Notify(nameof(TaskContextActionLabel));
     }
+
+    private void RefreshParticipantChoices()
+    {
+        var selectedId = ParticipantToAdd?.Id;
+        var selectedNew = ParticipantToAdd?.IsNew == true;
+        AvailableParticipants.Clear();
+        foreach (var participant in _snapshot.Participants)
+            AvailableParticipants.Add(new(participant.Id, participant.Label));
+        AvailableParticipants.Add(ParticipantChoice.New);
+        ParticipantToAdd = selectedNew
+            ? AvailableParticipants.Single(item => item.IsNew)
+            : AvailableParticipants.FirstOrDefault(item => item.Id == selectedId && !item.IsNew);
+    }
+
+    private void RefreshAvailableParticipants() => RefreshParticipantChoices();
+
+    public void RefreshFromStore() => Reload();
     private TaskRowViewModel ToTaskRow(TaskRecord task)
     {
         var inherited = task.ProjectId is not null && task.ExplicitCategoryId is null;
@@ -956,6 +1333,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
     private bool MoveTask(string taskId, int targetPosition)
     {
+        if (IsDirty && (_editingCategory || !FlushPendingAutosave())) return false;
         var currentPosition = Backlog.IndexOf(Backlog.Single(task => task.Id == taskId));
         if (currentPosition < 0 || Backlog.Count == 0) return false;
         targetPosition = Math.Clamp(targetPosition, 0, Backlog.Count - 1);
@@ -986,12 +1364,23 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         var task = _snapshot.Tasks.Single(item => item.Id == taskId);
         Action action = () => ApplyCompletion(taskId, !task.IsComplete);
         var removesDraftFromCurrentView = (!task.IsComplete && _backlogActive) || (task.IsComplete && _completedActive);
-        if (removesDraftFromCurrentView && IsDirty && _editingTask && _editingId == taskId)
+        if (IsDirty && _editingCategory)
         {
             _pendingNavigation = action;
+            _pendingNavigationClosesInspector = removesDraftFromCurrentView && _editingTask && _editingId == taskId;
             Notify(nameof(NeedsDecision));
+            Notify(nameof(HasBlockingDialog));
             return;
         }
+        if (IsDirty && !FlushPendingAutosave())
+        {
+            _pendingNavigation = action;
+            _pendingNavigationClosesInspector = removesDraftFromCurrentView && _editingTask && _editingId == taskId;
+            Notify(nameof(NeedsDecision));
+            Notify(nameof(HasBlockingDialog));
+            return;
+        }
+        if (removesDraftFromCurrentView && _editingTask && _editingId == taskId) CloseInspector();
         action();
     }
 
@@ -1025,6 +1414,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
     internal bool MoveProject(string projectId, int targetPosition)
     {
+        if (IsDirty && (_editingCategory || !FlushPendingAutosave())) return false;
         if (Projects.Count == 0) return false;
         targetPosition = Math.Clamp(targetPosition, 0, Projects.Count - 1);
         if (!Attempt(() =>
@@ -1041,6 +1431,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
     internal bool MoveCategory(string categoryId, int targetPosition)
     {
+        if (IsDirty && (_editingCategory || !FlushPendingAutosave())) return false;
         if (CategoryGroups.Count == 0) return false;
         targetPosition = Math.Clamp(targetPosition, 0, CategoryGroups.Count - 1);
         if (!Attempt(() =>
@@ -1057,6 +1448,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
     internal bool MoveProjectTask(string projectId, string taskId, int targetPosition)
     {
+        if (IsDirty && (_editingCategory || !FlushPendingAutosave())) return false;
         var count = Projects.Single(project => project.Id == projectId).Tasks.Count;
         if (count == 0) return false;
         targetPosition = Math.Clamp(targetPosition, 0, count - 1);
@@ -1076,6 +1468,42 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
 public sealed record CategoryChoice(string? Id, string Name);
 public sealed record TaskContextChoice(string? ProjectId, string Name);
+public sealed record ParticipantChoice(string? Id, string Label, bool IsNew = false)
+{
+    public static ParticipantChoice New { get; } = new(null, "New participant…", true);
+}
+
+public sealed class AutosaveRequestEventArgs(long revision) : EventArgs
+{
+    public long Revision { get; } = revision;
+}
+
+public sealed class ParticipantDraftViewModel : INotifyPropertyChanged
+{
+    private readonly ProjectCaptureViewModel _owner;
+    private string _label;
+    public ParticipantDraftViewModel(ProjectCaptureViewModel owner, string? id, string label, string automationKey)
+    {
+        _owner = owner;
+        Id = id;
+        _label = label;
+        RemoveAutomationId = $"participant-remove-{automationKey}";
+        RemoveCommand = new(() => _owner.RemoveParticipant(this));
+    }
+    public string? Id { get; }
+    public string Label => _label;
+    public string RemoveAccessibleName => $"Remove {Label} from Task";
+    public string RemoveAutomationId { get; }
+    public RelayCommand RemoveCommand { get; }
+    public event PropertyChangedEventHandler? PropertyChanged;
+    internal void RefreshLabel(string label)
+    {
+        _label = label;
+        PropertyChanged?.Invoke(this, new(nameof(Label)));
+        PropertyChanged?.Invoke(this, new(nameof(RemoveAccessibleName)));
+    }
+}
+
 public sealed record CategoryProjectRowViewModel(ProjectRowViewModel Project, bool IsLast);
 public sealed record CategoryTaskRowViewModel(TaskRowViewModel Task, bool IsLast);
 

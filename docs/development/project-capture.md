@@ -1,10 +1,12 @@
 # Project capture
 
-Issue #7 adds the first persisted work slice. Projects opens a list of expandable Projects and a New project action. New project uses a transient inspector: Create commits it, and Cancel removes the draft. A Project requires a title and Category; its Markdown source and date-only target date are optional. Empty Projects display Not started, 0 of 0 Tasks, and no completion date. Status and completion date are derived, read-only information.
+Issue #7 adds the first persisted work slice. Projects opens a list of expandable Projects and a New project action. New project begins as a transient inspector draft; its first valid automatic save creates it, while leaving a blank draft creates nothing. A Project requires a title and Category; its Markdown source and date-only target date are optional. Empty Projects display Not started, 0 of 0 Tasks, and no completion date. Status and completion date are derived, read-only information.
 
-Each expanded Project has a Quick add task field. Enter or Tab on a non-empty title commits one attached title-only Task and returns focus to a fresh field. Empty Tab leaves the field; Escape clears unsubmitted text. Tasks inherit their Project Category, start at the top of shared Backlog order, and append to the Project's own Task order. Capture commits independently of any unsaved inspector draft.
+Each expanded Project has a Quick add task field. Enter or Tab on a non-empty title commits one attached title-only Task and returns focus to a fresh field. Empty Tab leaves the field; Escape clears unsubmitted text. Tasks inherit their Project Category, start at the top of shared Backlog order, and append to the Project's own Task order. Capture first flushes any pending valid Project or Task inspector changes.
 
-Selecting a Project or Task opens its editable title, Markdown source, date and Category. Task Category offers an explicit Inherit choice as well as overrides. Save commits all fields; Cancel restores the saved values. Navigating to another item or view, opening Recovery, or closing the window with a dirty draft requires Save and leave, Discard and leave, or Stay. A failed save keeps the draft and pending destination available for retry. Dates use YYYY-MM-DD and are validated as calendar dates.
+Selecting a Project or Task opens its editable title, Markdown source, date and Category. Task Category offers an explicit Inherit choice as well as overrides. Valid text changes save after 600 milliseconds of inactivity and discrete changes save immediately. Navigating to another item or view, opening Recovery, or closing the window flushes pending changes first. Invalid or failed changes stay visible and block leaving until corrected, retried, or explicitly discarded. Dates use YYYY-MM-DD and are validated as calendar dates. Category management retains explicit Save and Cancel.
+
+Task inspectors associate or remove Participants and can reveal a temporary New participant field. Equivalent labels reuse the existing Participant identity; global rename and delete actions live in the Settings Participants list. Recovery is launched from the Settings Recovery row.
 
 This slice excludes completion actions, Today membership, rendered Markdown, participants, archive/bin controls, category management, and reorder controls. Schema version 3 adds Project and Task storage through the existing recoverable migration path; existing workspaces migrate before the shell opens. No new dependencies are introduced.
 
@@ -14,18 +16,18 @@ These are test names, not a claim about an untested commit. Run the repository v
 
 | Requirement | Test evidence |
 | --- | --- |
-| Actual New project/Create/Save/Cancel button bindings, row refresh, failed-save focus and Stay focus | `ProjectCaptureWindowTests.ProjectButtonsCreateCancelEditAndResolveFailedNavigationThroughBindings` |
+| New Project automatic creation, row refresh, failed-autosave focus and retry/discard flow | `ProjectCaptureWindowTests.ProjectInspectorAutosavesCreationEditingAndFailedNavigationThroughBindings` |
 | Transient Project creation and cancellation | `ProjectCaptureViewModelTests.CreationIsTransientAndCancelLeavesNoProject` |
 | Required title and empty derived state | `ProjectCaptureViewModelTests.CreateRequiresTitleAndShowsEmptyDerivedSummary` |
 | Enter/Tab capture, fresh focus, empty Tab exit and Escape clear | `ProjectCaptureWindowTests.RapidCaptureKeysCreateOnceRetainFocusAndAllowEmptyTabExit` |
-| Independent capture while inspector is dirty, attached defaults and ordering | `ProjectCaptureViewModelTests.QuickAddPreservesDirtyDraftAndCreatesInheritedTasksInIndependentOrders` |
-| Saved fields, cancellation and invalid calendar date | `ProjectCaptureViewModelTests.EditingUsesDraftUntilSaveAndCancelDiscardsAllFields` |
+| Capture after flushing pending inspector changes, attached defaults and ordering | `ProjectCaptureViewModelTests.QuickAddFlushesPendingProjectChangesAndCreatesInheritedTasksInIndependentOrders` |
+| Automatic field persistence and retained invalid calendar date | `ProjectCaptureViewModelTests.ExistingProjectAutosavesValidChangesAndRetainsInvalidDateForCorrection` |
 | Task category override and return to inheritance | `ProjectCaptureViewModelTests.TaskCategoryCanBeOverriddenThenReturnedToInheritance` |
 | Project Category propagation and live navigation counts | `ProjectCaptureViewModelTests.ProjectCategoryChangesFlowToInheritedTasksAndLeaveOverridesStable` |
-| Save/discard/stay navigation decisions | `ProjectCaptureViewModelTests.NavigationRequiresExplicitDraftResolution` |
-| Dirty comparison across arbitrary text field boundaries | `ProjectCaptureViewModelTests.DraftComparisonCannotCollideAcrossFieldBoundaries` |
+| Automatic navigation flush | `ProjectCaptureViewModelTests.NavigationFlushesValidProjectChangesWithoutPrompting` |
+| Exact text persistence across arbitrary field boundaries | `ProjectCaptureViewModelTests.NavigationFlushesTextWhoseFieldBoundariesCouldOtherwiseCollide` |
 | Failed save retains draft and destination | `ProjectCaptureViewModelTests.FailedSaveRetainsDraftPendingDestinationAndAllowsRetry` |
-| Navigation radio selection remains consistent through decisions | `ProjectCaptureWindowTests.DirtyNavigationRetainsCheckedViewUntilDecision` |
+| Navigation selection remains consistent after failed automatic save | `ProjectCaptureWindowTests.FailedAutosaveNavigationRetainsCheckedViewUntilDecision` |
 | Close guard and keyboard focus | `ProjectCaptureWindowTests.ClosingDirtyCreationRequiresDecisionAndStayPreservesDraft` |
 | Failed capture retains text and focus | `ProjectCaptureWindowTests.FailedQuickAddKeepsEnteredTitleAndFocus` |
 | Real encrypted restart persistence and independent ordering | `WorkspaceWorkTests.CreateAndEditRoundTripsMarkdownDatesInheritanceAndIndependentOrders` |
