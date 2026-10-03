@@ -24,11 +24,12 @@ The candidate is an executable that reads the task from standard input and runs 
 ```sh
 node evaluations/agent-loop/run.mjs \
   --candidate codex \
-  --candidate-arg exec \
-  --candidate-arg --sandbox \
-  --candidate-arg workspace-write \
   --candidate-arg --ask-for-approval \
   --candidate-arg never \
+  --candidate-arg exec \
+  --candidate-arg --ephemeral \
+  --candidate-arg --sandbox \
+  --candidate-arg workspace-write \
   --candidate-arg - \
   --candidate-identity codex-local-default \
   --trials 2 \
