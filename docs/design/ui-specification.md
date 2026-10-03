@@ -66,8 +66,9 @@ Current list surfaces compose the same semantic row states rather than defining 
 - Project status and completion date are read-only derived fields.
 - An active, incomplete Project past its target date shows a warning icon with accessible Overdue text on its row. The Projects navigation item does not show an overdue badge.
 - Task Category indicates inherited versus overridden state.
-- Markdown source and rendered preview are visible together.
+- Markdown descriptions open as a rendered preview with semantic block spacing and an accessible name that includes the rendered plain-text content. Activating the preview with pointer, keyboard, or an accessibility Invoke action switches it to the source editor; moving focus away or clicking anywhere outside the editor returns to the rendered view without saving the inspector draft or stealing focus from the next control. Tab and Shift+Tab change Markdown list indentation; indenting a numeric or lower-alpha ordered item converts it to an unordered sub-point, while unordered markers and plain text retain their type. Enter continues the current marker outside code blocks, and Control+Tab preserves ordinary focus traversal. Ordered, unordered, and mixed nesting stays visibly distinct through at least four levels.
 - **Copy rendered** writes `text/html` and `text/plain` clipboard formats.
+- Approved absolute web and email links in the preview are pointer- and keyboard-operable. Unsafe destinations and local fragments without a preview navigation target remain inert text.
 
 ## Project status presentation
 

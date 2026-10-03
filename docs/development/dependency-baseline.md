@@ -1,6 +1,6 @@
 # Dependency and runner baseline
 
-Checked: 2026-09-29
+Checked: 2026-10-02
 
 Review by: 2026-10-29
 
@@ -14,12 +14,13 @@ This file records the support check for the runnable desktop shell, encrypted wo
 ## Direct packages
 
 - Avalonia desktop, Fluent theme, Inter font, and headless xUnit integration are pinned to 12.1.3. Avalonia 12.1 lists Windows 11 24H2, macOS 26, Ubuntu, and Debian 13 among its supported desktop targets. Source: [Avalonia supported platforms](https://docs.avaloniaui.net/docs/supported-platforms) and the [Avalonia.Desktop package](https://www.nuget.org/packages/Avalonia.Desktop/12.1.3).
+- Markdig is pinned to 1.4.0, the current stable BSD-2-Clause release published on 20 September 2026 with direct .NET 10 support. dot-orbit consumes its CommonMark parser and syntax tree only; the application owns URI allow-listing, raw-HTML removal, remote-image placeholders, preview rendering, and clipboard serialisation. Source: [Markdig 1.4.0 release](https://github.com/xoofx/markdig/releases/tag/1.4.0) and the [Markdig package](https://www.nuget.org/packages/Markdig/1.4.0).
 - `xunit.v3` is pinned to 3.2.2 because Avalonia.Headless.XUnit 12.1.3 is compiled against the xUnit 3.2 discovery API. xUnit 4.0.1 was evaluated and rejected after it caused `MissingMethodException` during Avalonia test discovery. This pin should be revisited when Avalonia publishes compatible headless integration.
 - `Microsoft.Data.Sqlite.Core` is pinned to 10.0.12, the current stable .NET 10 servicing release. The `.Core` package is required so the application can supply one SQLite native bundle rather than pulling in the default SQLitePCLRaw bundle. Source: [Microsoft.Data.Sqlite.Core 10.0.12](https://www.nuget.org/packages/Microsoft.Data.Sqlite.Core/10.0.12).
 - `SQLite3MC.PCLRaw.bundle` is pinned to 2.4.0, the current maintained NuGet release, published in July 2026 with SQLite3 Multiple Ciphers 2.4.0 based on SQLite 3.53.4. It is MIT licensed and supplies the native sqleet ChaCha20-Poly1305 implementation for the supported desktop runtimes. Source: [SQLite3MC.PCLRaw.bundle 2.4.0](https://www.nuget.org/packages/SQLite3MC.PCLRaw.bundle/2.4.0) and [SQLite3 Multiple Ciphers sqleet parameters](https://utelle.github.io/SQLite3MultipleCiphers/docs/ciphers/cipher_chacha20/).
 - The upstream SQLite3 Multiple Ciphers source project has since tagged 2.5.1 while the current .NET native bundle remains 2.4.0; both use SQLite 3.53.4. The application depends on the maintained .NET bundle and must re-evaluate this gap when a later bundle is published or the native changes affect a supported runtime. Source: [SQLite3 Multiple Ciphers 2.5.1](https://github.com/utelle/SQLite3MultipleCiphers/releases/tag/v2.5.1).
 - Central package management and per-project `packages.lock.json` files pin the complete graph. Root `NuGet.Config` clears inherited package and audit sources, permits only NuGet.org, and maps all packages to that source. NuGet audit is enabled for all dependencies and vulnerability severities fail the build.
-- The repository gate parses the JSON reports from `dotnet package list --project DotOrbit.slnx --vulnerable --include-transitive` and the separate `--deprecated` query after locked restore. A command failure, invalid report, vulnerability, or deprecation fails the gate. NuGet reported no known vulnerable or deprecated direct or transitive packages on 2026-09-29. Transitive packages inherit their support boundary from the current Avalonia and xUnit release lines and must be rechecked with those direct dependencies.
+- The repository gate parses the JSON reports from `dotnet package list --project DotOrbit.slnx --vulnerable --include-transitive` and the separate `--deprecated` query after locked restore. A command failure, invalid report, vulnerability, or deprecation fails the gate. NuGet reported no known vulnerable or deprecated direct or transitive packages, including Markdig, on 2026-10-02. Transitive packages inherit their support boundary from the current Avalonia and xUnit release lines and must be rechecked with those direct dependencies.
 
 ## Continuous integration
 

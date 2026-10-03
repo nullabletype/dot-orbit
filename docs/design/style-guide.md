@@ -70,6 +70,13 @@ The implemented recipes live in `src/DotOrbit.Desktop/Styles/ComponentRecipes.ax
 - Inspector fields reuse `inspector-title` and `inspector-field`. The editable title keeps a modest horizontal inset so glyphs remain inside its focus border, without recreating the original pronounced indent. Date controls use the same field surface, use 12px input and calendar typography, and remain keyboard operable.
 - Validation uses an error border plus nearby `validation-message` text that states the correction. Do not encode “invalid” only in red.
 
+### Markdown preview
+
+- `markdown-preview` is a full-width keyboard-operable edit surface with button semantics. It renders the sanitised model, never raw Markdown or remote image content, and uses the ordinary interaction colours and focus border. Native hyperlinks inside it own their pointer and keyboard activation and never also activate editing.
+- Activating the preview switches that inspector section to its multiline source field. Moving focus away or clicking anywhere outside the editor returns to the rendered state without saving the inspector draft or stealing focus from the next control; **Copy rendered** remains a separate explicit action.
+- Empty Markdown shows an instructional placeholder rather than an empty target. Approved `http`, `https`, and `mailto` links use a keyboard-focusable accent hyperlink; fragments and rejected destinations remain inert. Code uses monospace text, headings use font-derived line metrics so ascenders and descenders remain visible, and ordered, unordered, lower-alpha, and mixed lists retain visible indentation through at least four levels. Remote images appear only as explicit **Remote image not loaded** placeholders. Semantic block changes receive visible vertical space; consecutive items within one list remain compact. Repeated empty source lines follow normal Markdown collapsing rules; use an `&nbsp;`-only paragraph when an intentional extra spacer is needed.
+- In the source editor, Tab and Shift+Tab indent or outdent the current line by one four-space Markdown level. Indenting a numeric or lower-alpha ordered item converts it to an unordered sub-point; unordered markers and plain text keep their type. Enter continues the resulting marker at the same indentation. Control+Tab and Control+Shift+Tab move focus out of the editor.
+
 ## Component-state matrix
 
 “N/A” means that the state does not apply to that component; do not invent a cosmetic state solely to fill the matrix.
@@ -89,6 +96,7 @@ The implemented recipes live in `src/DotOrbit.Desktop/Styles/ComponentRecipes.ax
 | Status marker | neutral shape plus text | N/A | N/A | green completion or amber progress plus text | N/A | N/A |
 | Badge | accent surface plus short text | N/A unless actionable | Action owns focus if actionable | Count/state in text | Muted if unavailable | N/A |
 | Inspector field | input surface and strong border | framework hover | visible focus border | Selected value remains textual | Framework-disabled | error border plus correction text |
+| Markdown preview | input surface and sanitised rendered content | raised surface and strong border | pink 2px border | activation swaps to the source editor | copy is disabled when empty | unsafe content never becomes an active element |
 | Date control | input surface and visible value | framework hover | keyboard calendar opening and visible focus | selected date in text | Framework-disabled | error border plus correction text |
 
 Inspector date controls retain a fixed 150px width for empty, valid, and invalid input. Unparseable manual input remains a draft, cannot be saved as an empty date, and is identified at the field with correction text and accessible help.

@@ -8,6 +8,8 @@ using System.ComponentModel;
 using Avalonia.Markup.Xaml;
 using Avalonia.Interactivity;
 using DotOrbit.Core.Workspaces;
+using DotOrbit.Desktop.Clipboard;
+using DotOrbit.Desktop.Markdown;
 using DotOrbit.Desktop.ViewModels;
 
 namespace DotOrbit.Desktop.Views;
@@ -23,22 +25,35 @@ public sealed partial class MainWindow : Window
     private string? _draggedProjectId;
     private string? _pressedTaskRowId;
     private Border? _dragTarget;
+    private bool _markdownPointerStartedOutside;
     private ProjectCaptureViewModel? _subscribedWork;
     private readonly DispatcherTimer _dateRefreshTimer = new() { Interval = TimeSpan.FromMinutes(1) };
+    private readonly IMarkdownClipboard? _markdownClipboard;
 
     public MainWindow()
-        : this(null)
+        : this(null, null)
     {
     }
 
     internal MainWindow(IWorkspaceSession? session)
+        : this(session, null)
+    {
+    }
+
+    internal MainWindow(IWorkspaceSession? session, IMarkdownClipboard? markdownClipboard)
     {
         _session = session;
+        _markdownClipboard = markdownClipboard;
         AvaloniaXamlLoader.Load(this);
         DataContextChanged += OnDataContextChanged;
         AddHandler(PointerPressedEvent, OnTaskDragHandlePointerPressed, RoutingStrategies.Bubble, handledEventsToo: true);
         AddHandler(PointerMovedEvent, OnTaskDragPointerMoved, RoutingStrategies.Bubble, handledEventsToo: true);
         AddHandler(PointerReleasedEvent, OnBacklogTaskPointerReleased, RoutingStrategies.Bubble, handledEventsToo: true);
+        this.FindControl<TextBox>("MarkdownSource")?.AddHandler(
+            KeyDownEvent,
+            OnMarkdownSourceKeyDown,
+            RoutingStrategies.Tunnel,
+            handledEventsToo: true);
         AddHandler(
             PointerCaptureLostEvent,
             OnPointerCaptureLost,
@@ -133,6 +148,11 @@ public sealed partial class MainWindow : Window
         if (e.PropertyName == nameof(ProjectCaptureViewModel.DialogReturnFocusAutomationId)
             && sender is ProjectCaptureViewModel { DialogReturnFocusAutomationId.Length: > 0 } dialogWork)
             Dispatcher.UIThread.Post(() => FocusAutomationId(dialogWork.DialogReturnFocusAutomationId), DispatcherPriority.ApplicationIdle);
+        if (e.PropertyName == nameof(ProjectCaptureViewModel.IsEditingMarkdown)
+            && sender is ProjectCaptureViewModel { IsEditingMarkdown: true })
+            Dispatcher.UIThread.Post(
+                () => this.FindControl<TextBox>("MarkdownSource")?.Focus(),
+                DispatcherPriority.ApplicationIdle);
         if (e.PropertyName == nameof(ProjectCaptureViewModel.NeedsCategoryReplacement)
             && sender is ProjectCaptureViewModel categoryWork)
             Dispatcher.UIThread.Post(() =>
@@ -198,10 +218,57 @@ public sealed partial class MainWindow : Window
             Dispatcher.UIThread.Post(() => this.FindControl<TextBox>("BacklogQuickTitle")?.Focus());
     }
 
+    private async void OnCopyRendered(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not ShellViewModel { Work: { } work }) return;
+        var clipboard = _markdownClipboard ?? (Clipboard is null ? null : new AvaloniaMarkdownClipboard(Clipboard));
+        if (clipboard is null)
+        {
+            work.MarkdownCopyFailed();
+            return;
+        }
+
+        try
+        {
+            await clipboard.WriteAsync(work.RenderedDescription);
+            work.MarkdownCopySucceeded();
+        }
+        catch (Exception)
+        {
+            work.MarkdownCopyFailed();
+        }
+    }
+
+    private void OnMarkdownPreviewActivated(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is ShellViewModel { Work: { } work } && work.EditMarkdownCommand.CanExecute(null))
+            work.EditMarkdownCommand.Execute(null);
+    }
+
+    private void OnMarkdownSourceLostFocus(object? sender, RoutedEventArgs e)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (this.FindControl<TextBox>("MarkdownSource") is { IsKeyboardFocusWithin: false }
+                && DataContext is ShellViewModel { Work: { IsEditingMarkdown: true } work })
+                work.FinishMarkdownEditing();
+        }, DispatcherPriority.ApplicationIdle);
+    }
+
+    private void OnMarkdownSourceKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (sender is TextBox editor) MarkdownSourceEditor.TryHandleKeyDown(editor, e);
+    }
+
     private void OnTaskDragHandlePointerPressed(object? sender, PointerPressedEventArgs e)
     {
         ResetPointerGesture();
         var hit = this.InputHitTest(e.GetPosition(this)) as Control;
+        _markdownPointerStartedOutside = e.GetCurrentPoint(this).Properties.IsLeftButtonPressed
+            && DataContext is ShellViewModel { Work.IsEditingMarkdown: true }
+            && this.FindControl<TextBox>("MarkdownSource") is { } markdownSource
+            && hit != markdownSource
+            && hit?.GetVisualAncestors().Contains(markdownSource) != true;
         Button? handle = (hit as Button)?.Classes.Contains("drag-handle") == true
             ? (Button?)hit
             : hit?.GetVisualAncestors().OfType<Button>().FirstOrDefault(button => button.Classes.Contains("drag-handle"));
@@ -264,6 +331,12 @@ public sealed partial class MainWindow : Window
 
     private void OnBacklogTaskPointerReleased(object? sender, PointerReleasedEventArgs e)
     {
+        var finishMarkdownEditing = _markdownPointerStartedOutside
+            && e.InitialPressMouseButton == MouseButton.Left;
+        _markdownPointerStartedOutside = false;
+        if (finishMarkdownEditing && DataContext is ShellViewModel { Work: { IsEditingMarkdown: true } markdownWork })
+            markdownWork.FinishMarkdownEditing();
+
         if (DataContext is not ShellViewModel { Work: { } work }
             || e.InitialPressMouseButton != MouseButton.Left)
         {
@@ -306,8 +379,17 @@ public sealed partial class MainWindow : Window
         e.Handled = true;
     }
 
-    private void OnPointerCaptureLost(object? sender, PointerCaptureLostEventArgs e) => ResetPointerGesture();
-    private void OnDeactivated(object? sender, EventArgs e) => ResetPointerGesture();
+    private void OnPointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
+    {
+        _markdownPointerStartedOutside = false;
+        ResetPointerGesture();
+    }
+
+    private void OnDeactivated(object? sender, EventArgs e)
+    {
+        _markdownPointerStartedOutside = false;
+        ResetPointerGesture();
+    }
 
     private void ResetPointerGesture()
     {

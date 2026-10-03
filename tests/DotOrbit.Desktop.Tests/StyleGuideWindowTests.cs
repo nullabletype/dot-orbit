@@ -7,7 +7,9 @@ using Avalonia.Controls.Shapes;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using DotOrbit.Desktop.Views;
 using Xunit;
@@ -98,6 +100,20 @@ public sealed class StyleGuideWindowTests
         Assert.Equal(new DateTime(2026, 10, 2), date.SelectedDate?.Date);
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(),
             text => text.Classes.Contains("validation-message") && text.Text!.StartsWith("Required value", StringComparison.Ordinal));
+        var markdownPreview = window.FindControl<MarkdownPreviewSurface>("ReferenceMarkdownPreviewButton")!;
+        var markdownSource = window.FindControl<TextBox>("ReferenceMarkdownSource")!;
+        Assert.Contains("markdown-preview", markdownPreview.Classes);
+        Assert.True(markdownPreview.IsEffectivelyVisible);
+        Assert.False(markdownSource.IsEffectivelyVisible);
+        markdownPreview.RaiseEvent(new RoutedEventArgs(MarkdownPreviewSurface.ActivatedEvent));
+        Assert.True(markdownSource.IsEffectivelyVisible);
+        Assert.True(markdownSource.IsFocused);
+        var nextControl = window.FindControl<Button>("ReferenceRowTitle")!;
+        Assert.True(nextControl.Focus());
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(markdownPreview.IsEffectivelyVisible);
+        Assert.False(markdownSource.IsEffectivelyVisible);
+        Assert.True(nextControl.IsFocused);
         window.Close();
     }
 
@@ -128,6 +144,45 @@ public sealed class StyleGuideWindowTests
         Assert.True(title.Focus(NavigationMethod.Tab));
         Assert.Equal(Color.Parse("#FF4FA3"), Solid(title.BorderBrush).Color);
         Assert.Equal(Colors.Transparent, Solid(row.Background).Color);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void ClickingNonFocusableSpaceOutsideMarkdownEditorReturnsToPreview()
+    {
+        var window = new StyleGuideWindow();
+        window.Show();
+        var preview = window.FindControl<MarkdownPreviewSurface>("ReferenceMarkdownPreviewButton")!;
+        var editor = window.FindControl<TextBox>("ReferenceMarkdownSource")!;
+        preview.RaiseEvent(new RoutedEventArgs(MarkdownPreviewSurface.ActivatedEvent));
+        Assert.True(editor.IsFocused);
+
+        var heading = Assert.Single(
+            window.GetVisualDescendants().OfType<TextBlock>(),
+            text => text.Text == "MARKDOWN PREVIEW");
+        var point = CentreInWindow(heading, window);
+        window.MouseDown(point, MouseButton.Left, RawInputModifiers.LeftMouseButton);
+        window.MouseUp(point, MouseButton.Left, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(preview.IsEffectivelyVisible);
+        Assert.False(editor.IsEffectivelyVisible);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void MarkdownHeadingUsesAFontDerivedLineBoxThatPreservesDescenders()
+    {
+        var window = new StyleGuideWindow();
+        window.Show();
+        var preview = window.FindControl<MarkdownPreview>("ReferenceMarkdownPreview")!;
+        var heading = Assert.Single(
+            preview.GetVisualDescendants().OfType<TextBlock>(),
+            text => text.Inlines?.Text == "Prepare the garden");
+
+        Assert.True(
+            heading.Bounds.Height > heading.FontSize,
+            $"Heading line box {heading.Bounds.Height} must exceed font size {heading.FontSize} to preserve descenders.");
         window.Close();
     }
 

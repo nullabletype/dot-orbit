@@ -15,6 +15,25 @@
     <Setter Property="CornerRadius" Value="{StaticResource PanelRadius}" />
     <Setter Property="Padding" Value="44" />
   </Style>
+  <Style Selector=":is(ContentControl).markdown-preview">
+    <Setter Property="MinHeight" Value="122" />
+    <Setter Property="Padding" Value="12,10" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="VerticalContentAlignment" Value="Top" />
+    <Setter Property="Background" Value="{StaticResource PanelInputBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+    <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />
+    <Setter Property="CornerRadius" Value="{StaticResource ControlRadius}" />
+    <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+  </Style>
+  <Style Selector=":is(ContentControl).markdown-preview:pointerover">
+    <Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource ControlHoverBorderBrush}" />
+  </Style>
+  <Style Selector=":is(ContentControl).markdown-preview:focus-visible">
+    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+    <Setter Property="BorderThickness" Value="{StaticResource FocusBorder}" />
+  </Style>
 
   <Style Selector="Button.drag-handle">
     <Setter Property="MinWidth" Value="{StaticResource ControlHitSize}" />
@@ -205,6 +224,22 @@
   <Style Selector="TextBlock.validation-message">
     <Setter Property="Foreground" Value="{StaticResource ErrorBrush}" />
     <Setter Property="FontSize" Value="{StaticResource TypeSizeEyebrow}" />
+  </Style>
+  <Style Selector="HyperlinkButton.markdown-link">
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Margin" Value="0" />
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+  </Style>
+  <Style Selector="HyperlinkButton.markdown-link:pointerover">
+    <Setter Property="Foreground" Value="{StaticResource AccentHoverBrush}" />
+  </Style>
+  <Style Selector="HyperlinkButton.markdown-link:focus-visible">
+    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+    <Setter Property="BorderThickness" Value="{StaticResource FocusBorder}" />
   </Style>
   <Style Selector="TextBox.inspector-title.error, TextBox.inspector-field.error, ComboBox.inspector-field.error, :is(CalendarDatePicker).inspector-field.error">
     <Setter Property="BorderBrush" Value="{StaticResource ErrorBrush}" />
