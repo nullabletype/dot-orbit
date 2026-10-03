@@ -1,9 +1,9 @@
 {
   "schema": "dot-orbit-agent-evaluation:v1",
-  "recordedAt": "2026-10-03T19:39:42.448Z",
-  "sourceCommit": "969622f769b26ff55aadd7587d5dbbdb269ccb27",
-  "instructionVersion": "79eb035507a465ddf7c176404d4f5849b4ac1f5f215885b180248827205cb23d",
-  "harnessVersion": "66e3cc5b8e9ca78d87178089a19fd63a635520a3d39d99748b6b1bfd71575361",
+  "recordedAt": "2026-10-03T20:01:40.773Z",
+  "sourceCommit": "60365242b3e10af7912b93f812752e3d615c61c6",
+  "instructionVersion": "db05dfa1e1c572a5bc15a3d4340c92924de24ad6f8f195a48288c90395120f75",
+  "harnessVersion": "a8bc89d55f0d4bc7a9f9f450cfea8b0f2689d6aaf5e1801a80663eec13305923",
   "configuration": {
     "trials": 2,
     "maximumCorrectionCycles": 1,
@@ -15,10 +15,10 @@
     "totalRuns": 12,
     "successfulRuns": 12,
     "repeatedTrialSuccessRate": 1,
-    "firstPassGateRate": 0.75,
-    "correctionCycles": 3,
+    "firstPassGateRate": 0.6666666666666666,
+    "correctionCycles": 4,
     "unrelatedFileChurn": 0,
-    "elapsedMilliseconds": 916135,
+    "elapsedMilliseconds": 1000670,
     "toolFailures": 0,
     "independentReview": {
       "approved": 0,
@@ -33,7 +33,7 @@
       "category": "accessibility-verification",
       "trial": 1,
       "passed": true,
-      "firstPassPassed": true,
+      "firstPassPassed": false,
       "points": 100,
       "maximumPoints": 100,
       "checks": [
@@ -56,14 +56,14 @@
           "maximumPoints": 20
         }
       ],
-      "correctionCycles": 0,
+      "correctionCycles": 1,
       "unrelatedFileChurn": 0,
       "changedPathCount": 2,
-      "elapsedMilliseconds": 48011,
+      "elapsedMilliseconds": 111308,
       "toolFailures": 0,
       "candidateExitCode": 0,
       "candidateTimedOut": false,
-      "candidateOutputBytesDiscarded": 31957,
+      "candidateOutputBytesDiscarded": 49798,
       "independentReview": "unavailable"
     },
     {
@@ -91,11 +91,11 @@
       "correctionCycles": 0,
       "unrelatedFileChurn": 0,
       "changedPathCount": 1,
-      "elapsedMilliseconds": 32405,
+      "elapsedMilliseconds": 47388,
       "toolFailures": 0,
       "candidateExitCode": 0,
       "candidateTimedOut": false,
-      "candidateOutputBytesDiscarded": 18465,
+      "candidateOutputBytesDiscarded": 20353,
       "independentReview": "unavailable"
     },
     {
@@ -129,11 +129,11 @@
       "correctionCycles": 0,
       "unrelatedFileChurn": 0,
       "changedPathCount": 4,
-      "elapsedMilliseconds": 57083,
+      "elapsedMilliseconds": 57508,
       "toolFailures": 0,
       "candidateExitCode": 0,
       "candidateTimedOut": false,
-      "candidateOutputBytesDiscarded": 48810,
+      "candidateOutputBytesDiscarded": 38002,
       "independentReview": "unavailable"
     },
     {
@@ -167,11 +167,11 @@
       "correctionCycles": 0,
       "unrelatedFileChurn": 0,
       "changedPathCount": 1,
-      "elapsedMilliseconds": 57961,
+      "elapsedMilliseconds": 39749,
       "toolFailures": 0,
       "candidateExitCode": 0,
       "candidateTimedOut": false,
-      "candidateOutputBytesDiscarded": 244490,
+      "candidateOutputBytesDiscarded": 160707,
       "independentReview": "unavailable"
     },
     {
@@ -205,11 +205,11 @@
       "correctionCycles": 1,
       "unrelatedFileChurn": 0,
       "changedPathCount": 2,
-      "elapsedMilliseconds": 109680,
+      "elapsedMilliseconds": 144832,
       "toolFailures": 0,
       "candidateExitCode": 0,
       "candidateTimedOut": false,
-      "candidateOutputBytesDiscarded": 75155,
+      "candidateOutputBytesDiscarded": 99450,
       "independentReview": "unavailable"
     },
     {
@@ -237,11 +237,11 @@
       "correctionCycles": 0,
       "unrelatedFileChurn": 0,
       "changedPathCount": 1,
-      "elapsedMilliseconds": 108627,
+      "elapsedMilliseconds": 80631,
       "toolFailures": 0,
       "candidateExitCode": 0,
       "candidateTimedOut": false,
-      "candidateOutputBytesDiscarded": 159281,
+      "candidateOutputBytesDiscarded": 170195,
       "independentReview": "unavailable"
     },
     {
@@ -275,11 +275,11 @@
       "correctionCycles": 1,
       "unrelatedFileChurn": 0,
       "changedPathCount": 2,
-      "elapsedMilliseconds": 101553,
+      "elapsedMilliseconds": 124915,
       "toolFailures": 0,
       "candidateExitCode": 0,
       "candidateTimedOut": false,
-      "candidateOutputBytesDiscarded": 48173,
+      "candidateOutputBytesDiscarded": 82339,
       "independentReview": "unavailable"
     },
     {
@@ -307,11 +307,11 @@
       "correctionCycles": 0,
       "unrelatedFileChurn": 0,
       "changedPathCount": 1,
-      "elapsedMilliseconds": 43504,
+      "elapsedMilliseconds": 34774,
       "toolFailures": 0,
       "candidateExitCode": 0,
       "candidateTimedOut": false,
-      "candidateOutputBytesDiscarded": 20716,
+      "candidateOutputBytesDiscarded": 21383,
       "independentReview": "unavailable"
     },
     {
@@ -345,11 +345,11 @@
       "correctionCycles": 0,
       "unrelatedFileChurn": 0,
       "changedPathCount": 4,
-      "elapsedMilliseconds": 51271,
+      "elapsedMilliseconds": 51754,
       "toolFailures": 0,
       "candidateExitCode": 0,
       "candidateTimedOut": false,
-      "candidateOutputBytesDiscarded": 36164,
+      "candidateOutputBytesDiscarded": 35625,
       "independentReview": "unavailable"
     },
     {
@@ -383,11 +383,11 @@
       "correctionCycles": 0,
       "unrelatedFileChurn": 0,
       "changedPathCount": 1,
-      "elapsedMilliseconds": 47689,
+      "elapsedMilliseconds": 51370,
       "toolFailures": 0,
       "candidateExitCode": 0,
       "candidateTimedOut": false,
-      "candidateOutputBytesDiscarded": 161748,
+      "candidateOutputBytesDiscarded": 91001,
       "independentReview": "unavailable"
     },
     {
@@ -395,7 +395,7 @@
       "category": "regression-repair",
       "trial": 2,
       "passed": true,
-      "firstPassPassed": false,
+      "firstPassPassed": true,
       "points": 100,
       "maximumPoints": 100,
       "checks": [
@@ -418,14 +418,14 @@
           "maximumPoints": 20
         }
       ],
-      "correctionCycles": 1,
+      "correctionCycles": 0,
       "unrelatedFileChurn": 0,
       "changedPathCount": 2,
-      "elapsedMilliseconds": 160176,
+      "elapsedMilliseconds": 86754,
       "toolFailures": 0,
       "candidateExitCode": 0,
       "candidateTimedOut": false,
-      "candidateOutputBytesDiscarded": 106061,
+      "candidateOutputBytesDiscarded": 58061,
       "independentReview": "unavailable"
     },
     {
@@ -433,7 +433,7 @@
       "category": "specification",
       "trial": 2,
       "passed": true,
-      "firstPassPassed": true,
+      "firstPassPassed": false,
       "points": 100,
       "maximumPoints": 100,
       "checks": [
@@ -450,14 +450,14 @@
           "maximumPoints": 20
         }
       ],
-      "correctionCycles": 0,
+      "correctionCycles": 1,
       "unrelatedFileChurn": 0,
       "changedPathCount": 1,
-      "elapsedMilliseconds": 98175,
+      "elapsedMilliseconds": 169687,
       "toolFailures": 0,
       "candidateExitCode": 0,
       "candidateTimedOut": false,
-      "candidateOutputBytesDiscarded": 120893,
+      "candidateOutputBytesDiscarded": 110844,
       "independentReview": "unavailable"
     }
   ],
