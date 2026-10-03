@@ -1,0 +1,7 @@
+<UserControl xmlns="https://github.com/avaloniaui">
+  <StackPanel>
+    <TextBlock Text="Recovery needs attention" />
+    <Button Content="↻" Command="{Binding RetryCommand}" />
+    <Border Background="Red" Width="12" Height="12" />
+  </StackPanel>
+</UserControl>

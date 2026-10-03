@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "id": "bounded-ordering",
+  "category": "bounded-code-change",
+  "title": "Implement one manual-ordering operation",
+  "startingState": {
+    "description": "A dependency-free ordering helper has a deliberately incomplete move operation and focused tests.",
+    "files": [
+      "evaluations/agent-loop/cases/bounded-ordering/workspace/order.mjs",
+      "evaluations/agent-loop/cases/bounded-ordering/workspace/order.test.mjs"
+    ]
+  },
+  "allowedPaths": [
+    "evaluations/agent-loop/cases/bounded-ordering/workspace/order.mjs"
+  ],
+  "prompt": "Implement moveItem in evaluations/agent-loop/cases/bounded-ordering/workspace/order.mjs. Preserve the input array, preserve relative order of unaffected values, clamp the destination to the valid range after removal, and return an unchanged copy when the source index is invalid. Use the existing focused tests and edit only order.mjs.",
+  "expectedObservableResult": [
+    "Moving forward and backward produces stable manual ordering.",
+    "Out-of-range destinations are clamped and invalid sources do not mutate input.",
+    "No unrelated file changes are present."
+  ],
+  "checks": [
+    {
+      "id": "ordering-behaviour",
+      "type": "command",
+      "command": [
+        "node",
+        "--test",
+        "evaluations/agent-loop/cases/bounded-ordering/workspace/order.test.mjs"
+      ],
+      "points": 80
+    },
+    {
+      "id": "allowed-scope",
+      "type": "scope",
+      "points": 20
+    }
+  ],
+  "rubric": {
+    "totalPoints": 100,
+    "passPoints": 100
+  }
+}
