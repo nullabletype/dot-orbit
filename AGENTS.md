@@ -36,6 +36,7 @@ If these disagree, stop and surface the conflict rather than silently choosing o
 - For decomposable work, the parent agent acts as the orchestrator: it defines task boundaries and acceptance criteria, delegates execution and independent review, evaluates the returned evidence, resolves conflicts, and makes the final integration decisions. It should not duplicate implementation already assigned to a sub-agent.
 - Keep each sub-agent's scope explicit and non-overlapping. The parent remains responsible for inspecting the integrated diff and ensuring the repository-wide result satisfies the issue.
 - Never let multiple mutating sub-agents work concurrently in the same checkout. Give each writer a separate worktree and branch, or designate one writer and keep every other concurrent agent read-only.
+- When changing agent instructions, skills, templates, evaluation cases, or orchestration, follow the reevaluation triggers and privacy boundary in `evaluations/agent-loop/README.md`.
 
 ## Testing
 

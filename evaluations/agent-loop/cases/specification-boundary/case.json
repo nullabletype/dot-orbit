@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "id": "specification-boundary",
+  "category": "specification",
+  "title": "Restore a bounded local-first issue specification",
+  "startingState": {
+    "description": "A synthetic issue draft omits readiness sections and contradicts the local-only encrypted product boundary.",
+    "files": [
+      "evaluations/agent-loop/cases/specification-boundary/workspace/issue.md"
+    ]
+  },
+  "allowedPaths": [
+    "evaluations/agent-loop/cases/specification-boundary/workspace/issue.md"
+  ],
+  "prompt": "Repair the synthetic issue specification in evaluations/agent-loop/cases/specification-boundary/workspace/issue.md. Use the repository product, domain, issue-tracker, and delivery documents as sources of truth. Make the issue agent-ready: preserve the bounded task-capture outcome, restore every readiness-contract section, state the local-only encrypted single-context boundary, add concrete deterministic verification, resolve open decisions, and exclude sync/accounts/cloud work. Edit only the allowed file. Do not implement product code.",
+  "expectedObservableResult": [
+    "The issue contains the complete readiness contract.",
+    "The local-only, encrypted, single-context boundary and explicit non-goals are visible.",
+    "Verification is deterministic and open decisions are resolved."
+  ],
+  "checks": [
+    {
+      "id": "agent-ready-specification",
+      "type": "command",
+      "command": [
+        "node",
+        "evaluations/agent-loop/cases/specification-boundary/specification-grader.mjs"
+      ],
+      "points": 80
+    },
+    {
+      "id": "allowed-scope",
+      "type": "scope",
+      "points": 20
+    }
+  ],
+  "rubric": {
+    "totalPoints": 100,
+    "passPoints": 100
+  }
+}

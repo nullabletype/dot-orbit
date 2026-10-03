@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "id": "regression-date-validation",
+  "category": "regression-repair",
+  "title": "Reject calendar dates that JavaScript normalises",
+  "startingState": {
+    "description": "A synthetic persisted-date parser accepts impossible dates because Date normalises them, and its tests cover only syntax.",
+    "files": [
+      "evaluations/agent-loop/cases/regression-date-validation/workspace/date.mjs",
+      "evaluations/agent-loop/cases/regression-date-validation/workspace/date.test.mjs"
+    ]
+  },
+  "allowedPaths": [
+    "evaluations/agent-loop/cases/regression-date-validation/workspace/date.mjs",
+    "evaluations/agent-loop/cases/regression-date-validation/workspace/date.test.mjs"
+  ],
+  "prompt": "Fix the persisted-date regression in evaluations/agent-loop/cases/regression-date-validation/workspace. parseDate must accept a real YYYY-MM-DD calendar date and return its canonical string, while rejecting malformed or impossible dates without timezone-dependent behaviour. Add regression coverage for the original impossible-date defect and a leap-year boundary. Keep changes inside the allowed workspace.",
+  "expectedObservableResult": [
+    "Impossible calendar dates are rejected rather than normalised.",
+    "Leap-year boundaries have explicit regression coverage.",
+    "The focused test suite passes without timezone dependence."
+  ],
+  "checks": [
+    {
+      "id": "date-behaviour",
+      "type": "command",
+      "command": [
+        "node",
+        "--test",
+        "evaluations/agent-loop/cases/regression-date-validation/workspace/date.test.mjs"
+      ],
+      "points": 60
+    },
+    {
+      "id": "regression-cases",
+      "type": "file-contains",
+      "path": "evaluations/agent-loop/cases/regression-date-validation/workspace/date.test.mjs",
+      "fragments": [
+        "2026-02-29",
+        "2024-02-29",
+        "2026-02-31"
+      ],
+      "points": 20
+    },
+    {
+      "id": "allowed-scope",
+      "type": "scope",
+      "points": 20
+    }
+  ],
+  "rubric": {
+    "totalPoints": 100,
+    "passPoints": 100
+  }
+}

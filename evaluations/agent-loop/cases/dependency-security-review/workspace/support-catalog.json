@@ -1,0 +1,14 @@
+{
+  "checkedAt": "2026-10-03",
+  "nextReview": "2027-01-03",
+  "package": {
+    "name": "safe-json",
+    "supportedVersion": "2.4.1",
+    "status": "supported"
+  },
+  "action": {
+    "name": "vendor/supported-action",
+    "supportedCommit": "0123456789abcdef0123456789abcdef01234567",
+    "status": "supported"
+  }
+}

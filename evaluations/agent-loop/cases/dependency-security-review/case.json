@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "id": "dependency-security-review",
+  "category": "dependency-security-review",
+  "title": "Restore a pinned supported dependency baseline",
+  "startingState": {
+    "description": "A synthetic manifest and workflow use an unsupported package version and a floating action despite a local support catalogue.",
+    "files": [
+      "evaluations/agent-loop/cases/dependency-security-review/workspace/package.json",
+      "evaluations/agent-loop/cases/dependency-security-review/workspace/package-lock.json",
+      "evaluations/agent-loop/cases/dependency-security-review/workspace/action.yml",
+      "evaluations/agent-loop/cases/dependency-security-review/workspace/support-catalog.json",
+      "evaluations/agent-loop/cases/dependency-security-review/workspace/review.md",
+      "evaluations/agent-loop/cases/dependency-security-review/workspace/security.test.mjs"
+    ]
+  },
+  "allowedPaths": [
+    "evaluations/agent-loop/cases/dependency-security-review/workspace/package.json",
+    "evaluations/agent-loop/cases/dependency-security-review/workspace/package-lock.json",
+    "evaluations/agent-loop/cases/dependency-security-review/workspace/action.yml",
+    "evaluations/agent-loop/cases/dependency-security-review/workspace/review.md"
+  ],
+  "prompt": "Audit the synthetic dependency baseline under evaluations/agent-loop/cases/dependency-security-review/workspace using support-catalog.json as the supplied upstream evidence. Replace the unsupported package pin with the catalogued supported version, keep the lockfile reproducible, pin the workflow action to the supplied full commit SHA, and record the checked date, sources, findings, and next review date in review.md. Do not use the network or edit the catalogue/tests.",
+  "expectedObservableResult": [
+    "Direct and locked package versions match the supported catalogue exactly.",
+    "The workflow action is pinned to the supplied full commit SHA.",
+    "The review records dated support evidence without credentials or raw logs."
+  ],
+  "checks": [
+    {
+      "id": "supported-pins",
+      "type": "command",
+      "command": [
+        "node",
+        "--test",
+        "evaluations/agent-loop/cases/dependency-security-review/workspace/security.test.mjs"
+      ],
+      "points": 70
+    },
+    {
+      "id": "review-record",
+      "type": "file-contains",
+      "path": "evaluations/agent-loop/cases/dependency-security-review/workspace/review.md",
+      "fragments": [
+        "2026-10-03",
+        "support-catalog.json",
+        "Next review"
+      ],
+      "points": 10
+    },
+    {
+      "id": "allowed-scope",
+      "type": "scope",
+      "points": 20
+    }
+  ],
+  "rubric": {
+    "totalPoints": 100,
+    "passPoints": 100
+  }
+}

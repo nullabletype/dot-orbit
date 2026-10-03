@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "id": "accessibility-verification",
+  "category": "accessibility-verification",
+  "title": "Restore an accessible recovery action and state",
+  "startingState": {
+    "description": "A synthetic Avalonia recovery panel uses an icon-only button and a colour-only status, with no verification record.",
+    "files": [
+      "evaluations/agent-loop/cases/accessibility-verification/workspace/RecoveryPanel.axaml",
+      "evaluations/agent-loop/cases/accessibility-verification/workspace/verification.md",
+      "evaluations/agent-loop/cases/accessibility-verification/workspace/accessibility.test.mjs"
+    ]
+  },
+  "allowedPaths": [
+    "evaluations/agent-loop/cases/accessibility-verification/workspace/RecoveryPanel.axaml",
+    "evaluations/agent-loop/cases/accessibility-verification/workspace/verification.md"
+  ],
+  "prompt": "Repair the synthetic recovery panel under evaluations/agent-loop/cases/accessibility-verification/workspace. Give the icon-only retry action a meaningful accessible name, expose the current recovery state in text rather than colour alone, preserve logical keyboard order, and update verification.md with what the deterministic check proves plus the rendered and assistive-technology checks that remain human work. Edit only the allowed XAML and verification files.",
+  "expectedObservableResult": [
+    "The retry action has a meaningful accessible name and remains keyboard reachable.",
+    "Recovery state is communicated in text and not only by colour.",
+    "Verification distinguishes automation from rendered and assistive-technology review."
+  ],
+  "checks": [
+    {
+      "id": "accessible-markup",
+      "type": "command",
+      "command": [
+        "node",
+        "--test",
+        "evaluations/agent-loop/cases/accessibility-verification/workspace/accessibility.test.mjs"
+      ],
+      "points": 60
+    },
+    {
+      "id": "verification-boundary",
+      "type": "file-contains",
+      "path": "evaluations/agent-loop/cases/accessibility-verification/workspace/verification.md",
+      "fragments": [
+        "keyboard",
+        "rendered",
+        "assistive technology"
+      ],
+      "caseSensitive": false,
+      "points": 20
+    },
+    {
+      "id": "allowed-scope",
+      "type": "scope",
+      "points": 20
+    }
+  ],
+  "rubric": {
+    "totalPoints": 100,
+    "passPoints": 100
+  }
+}

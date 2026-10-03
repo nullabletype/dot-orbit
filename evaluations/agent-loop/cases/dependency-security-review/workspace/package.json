@@ -1,0 +1,7 @@
+{
+  "name": "orbit-evaluation-fixture",
+  "private": true,
+  "dependencies": {
+    "safe-json": "1.9.0"
+  }
+}
