@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
-import { evaluateChecks, runEvaluation, summarize, validateCase } from "./harness.mjs";
+import { evaluateChecks, runEvaluation, runProcess, summarize, validateCase } from "./harness.mjs";
+import { gradeSpecification } from "./cases/specification-boundary/specification-grader.mjs";
 
 const exec = promisify(execFile);
 
@@ -93,6 +94,31 @@ test("summarize records every required aggregate metric", () => {
   });
 });
 
+test("runProcess force-terminates a child that ignores graceful timeout", async () => {
+  const startedAt = Date.now();
+  const result = await runProcess(process.execPath, [
+    "-e",
+    "process.on('SIGTERM',()=>{}); setInterval(()=>{}, 1000);",
+  ], {
+    timeoutMilliseconds: 50,
+    terminationGraceMilliseconds: 100,
+  });
+  assert.equal(result.timedOut, true);
+  assert.ok(Date.now() - startedAt < 2_000);
+});
+
+test("specification grader rejects empty or keyword-only sections", () => {
+  const headings = [
+    "Readiness contract", "User-visible outcome", "Acceptance criteria", "Non-goals",
+    "Domain and decision context", "Known constraints", "Verification", "Open decisions", "Blocked by",
+  ];
+  const empty = headings.map((heading) => `## ${heading}\n`).join("\n");
+  assert.equal(gradeSpecification(empty), false);
+
+  const keywordOnly = headings.map((heading) => `## ${heading}\n\nlocal-only encrypted single context accounts sync cloud`).join("\n\n");
+  assert.equal(gradeSpecification(keywordOnly), false);
+});
+
 test("runEvaluation uses detached worktrees and leaves the source checkout unchanged", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "dot-orbit-eval-source-"));
   const resultPath = join(tmpdir(), `dot-orbit-eval-result-${process.pid}-${Date.now()}.json`);
@@ -106,6 +132,8 @@ test("runEvaluation uses detached worktrees and leaves the source checkout uncha
   await writeFile(join(root, "docs/development/agent-loop.md"), "# Loop\n");
   await writeFile(join(root, "docs/development/definition-of-done.md"), "# Done\n");
   const casesRoot = join(root, "evaluations/agent-loop/cases");
+  await mkdir(join(root, "evaluations/agent-loop"), { recursive: true });
+  await writeFile(join(root, "evaluations/agent-loop/harness.mjs"), "// harness identity fixture\n");
   for (let index = 1; index <= 5; index += 1) {
     const id = `case-${index}`;
     const caseRoot = join(casesRoot, id);

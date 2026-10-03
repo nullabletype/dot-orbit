@@ -96,9 +96,12 @@ export async function runProcess(command, args, options = {}) {
     let outputBytes = 0;
     let timedOut = false;
     let timer;
+    let forceTimer;
+    let settleTimer;
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env ?? process.env,
+      detached: true,
       shell: false,
       stdio: [options.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     });
@@ -106,6 +109,8 @@ export async function runProcess(command, args, options = {}) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearTimeout(forceTimer);
+      clearTimeout(settleTimer);
       resolvePromise({ ...value, elapsedMilliseconds: Date.now() - startedAt, outputBytes, timedOut });
     };
     child.stdout.on("data", (chunk) => { outputBytes += chunk.length; });
@@ -113,9 +118,36 @@ export async function runProcess(command, args, options = {}) {
     child.on("error", (error) => finish({ exitCode: null, errorCode: error.code ?? "spawn-error" }));
     child.on("close", (code, signal) => finish({ exitCode: code, signal: signal ?? null }));
     if (options.stdin !== undefined) child.stdin.end(options.stdin);
+    const terminate = (signal) => {
+      if (child.pid === undefined) return;
+      try {
+        if (process.platform === "win32") {
+          if (signal === "SIGKILL") {
+            const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+              shell: false,
+              stdio: "ignore",
+            });
+            killer.unref();
+          } else {
+            child.kill(signal);
+          }
+        } else {
+          process.kill(-child.pid, signal);
+        }
+      } catch {
+        try { child.kill(signal); } catch { /* best effort; bounded settlement still applies */ }
+      }
+    };
+    const grace = options.terminationGraceMilliseconds ?? 2_000;
     timer = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGTERM");
+      terminate("SIGTERM");
+      forceTimer = setTimeout(() => terminate("SIGKILL"), grace);
+      settleTimer = setTimeout(() => {
+        child.stdout.destroy();
+        child.stderr.destroy();
+        finish({ exitCode: null, signal: "SIGKILL", errorCode: "timeout" });
+      }, grace * 2);
     }, options.timeoutMilliseconds ?? 600_000);
   });
 }
@@ -215,10 +247,11 @@ export function summarize(runs) {
   };
 }
 
-async function fingerprint(paths) {
+async function fingerprint(root, paths) {
   const hash = createHash("sha256");
   for (const path of [...paths].sort()) {
-    hash.update(path);
+    const normalized = relative(root, path).replaceAll("\\", "/");
+    hash.update(normalized);
     hash.update("\0");
     hash.update(await readFile(path));
     hash.update("\0");
@@ -272,12 +305,23 @@ export async function runEvaluation(options) {
   }
 
   const definitions = await loadCases(casesRoot);
-  const instructionPaths = [
-    join(repoRoot, "AGENTS.md"),
-    join(repoRoot, "docs/development/agent-loop.md"),
-    join(repoRoot, "docs/development/definition-of-done.md"),
-  ];
-  const harnessPaths = [new URL(import.meta.url).pathname, ...definitions.map((definition) => definition.manifestPath)];
+  const trackedPaths = (await gitText(repoRoot, ["ls-files"]))
+    .split("\n")
+    .filter(Boolean);
+  const instructionRelativePaths = trackedPaths.filter((path) => path === "AGENTS.md"
+    || path === ".github/HANDOFF_TEMPLATE.md"
+    || path === ".github/PULL_REQUEST_TEMPLATE.md"
+    || path.startsWith(".github/ISSUE_TEMPLATE/")
+    || path.startsWith("docs/agents/")
+    || path === "docs/development/agent-loop.md"
+    || path === "docs/development/definition-of-done.md");
+  const harnessRelativePaths = trackedPaths.filter((path) => path.startsWith("evaluations/agent-loop/")
+    && !path.startsWith("evaluations/agent-loop/baselines/"));
+  const instructionPaths = instructionRelativePaths.map((path) => join(repoRoot, path));
+  const harnessPaths = harnessRelativePaths.map((path) => join(repoRoot, path));
+  if (!harnessRelativePaths.includes("evaluations/agent-loop/harness.mjs")) {
+    throw new Error("harness-version-input-missing");
+  }
   const root = await mkdtemp(join(tmpdir(), "dot-orbit-agent-eval-"));
   const runs = [];
   try {
@@ -346,8 +390,8 @@ export async function runEvaluation(options) {
     schema: resultSchema,
     recordedAt: new Date().toISOString(),
     sourceCommit: before.head,
-    instructionVersion: await fingerprint(instructionPaths),
-    harnessVersion: await fingerprint(harnessPaths),
+    instructionVersion: await fingerprint(repoRoot, instructionPaths),
+    harnessVersion: await fingerprint(repoRoot, harnessPaths),
     configuration: {
       trials: options.trials,
       maximumCorrectionCycles: options.maxCorrections,
@@ -363,6 +407,7 @@ export async function runEvaluation(options) {
         ? "Independent review is process-exit based; review prose and raw traces are not retained."
         : "No independent reviewer was configured; every run records independentReview as unavailable.",
       "The suite is a small regression signal for repository-agent behaviour, not a product-quality or model leaderboard score.",
+      "instructionVersion hashes repository-owned instructions and templates only; external user instructions, installed skills, and model configuration are represented only by the manually supplied candidateIdentity.",
     ],
   };
   await mkdir(dirname(resultPath), { recursive: true });

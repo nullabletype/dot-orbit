@@ -57,7 +57,7 @@ An optional independent reviewer follows the same stdin/cwd contract. Add `--rev
 
 ## Recorded metrics
 
-The machine-readable JSON records the exact source commit, hashes of the current instruction set and harness manifests, candidate identity label, repeated-trial successes, first-pass gate rate, harness-owned correction cycles, unrelated-file churn, elapsed time, failed/timed-out candidate invocations, and independent-review outcome. Elapsed time is noisy and non-scoring. Candidate output byte count is retained only to confirm output was discarded.
+The machine-readable JSON records the exact source commit; location-independent content hashes of repository-owned agent instructions/templates and every tracked suite input except prior baselines; the candidate identity label; repeated-trial successes; first-pass gate rate; harness-owned correction cycles; unrelated-file churn; elapsed time; failed/timed-out candidate invocations; and independent-review outcome. Elapsed time is noisy and non-scoring. Candidate output byte count is retained only to confirm output was discarded. External user instructions, installed skills, and model configuration are not repository inputs, so the operator must represent them in a non-sensitive candidate identity and interpret comparisons accordingly.
 
 The initial real-agent baseline is checked in at [`baselines/2026-10-03-codex-gpt-5.5.json`](baselines/2026-10-03-codex-gpt-5.5.json). It records 12/12 eventual successes, 7/12 first-pass successes, five correction cycles, zero unrelated-file changes, zero candidate-process failures, and unavailable independent review. The candidate model is part of that baseline identity, not a permanent recommendation; select and label the supported candidate being measured when recording a later baseline.
 
@@ -67,7 +67,7 @@ The runner never serializes prompts, stdout, stderr, diffs, file contents, envir
 
 ## Isolation and failure handling
 
-The runner refuses a dirty source checkout, records its branch and exact commit, creates one detached OS-temporary worktree per case and trial, and rechecks the source checkout before writing results. Candidate commands use argument arrays with `shell: false`. Manifests accept only fixed built-in grader kinds. Paths must be repository-relative and may not escape with `..`.
+The runner refuses a dirty source checkout, records its branch and exact commit, creates one detached OS-temporary worktree per case and trial, and rechecks the source checkout before writing results. Candidate commands use argument arrays with `shell: false`. A timeout first terminates the candidate process group, then force-kills it after a bounded grace period and records the timeout even if the child ignores both signals. Manifests accept only fixed built-in grader kinds. Paths must be repository-relative and may not escape with `..`.
 
 Infrastructure failures must be rerun and must not be interpreted as candidate quality. Failed deterministic checks may trigger only the configured bounded correction cycles. Raw candidate output is discarded even on failure.
 

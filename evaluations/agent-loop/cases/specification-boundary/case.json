@@ -20,39 +20,13 @@
   ],
   "checks": [
     {
-      "id": "complete-contract",
-      "type": "file-contains",
-      "path": "evaluations/agent-loop/cases/specification-boundary/workspace/issue.md",
-      "fragments": [
-        "## Readiness contract",
-        "dot-orbit-issue-readiness:v1",
-        "## User-visible outcome",
-        "## Acceptance criteria",
-        "## Non-goals",
-        "## Domain and decision context",
-        "## Known constraints",
-        "## Verification",
-        "## Open decisions",
-        "## Blocked by"
+      "id": "agent-ready-specification",
+      "type": "command",
+      "command": [
+        "node",
+        "evaluations/agent-loop/cases/specification-boundary/specification-grader.mjs"
       ],
-      "points": 40
-    },
-    {
-      "id": "product-boundary",
-      "type": "file-contains",
-      "path": "evaluations/agent-loop/cases/specification-boundary/workspace/issue.md",
-      "fragments": [
-        "local-only",
-        "encrypted",
-        "single context",
-        "accounts",
-        "sync",
-        "cloud",
-        "Open decisions\n\nNone",
-        "Blocked by\n\nNone"
-      ],
-      "caseSensitive": false,
-      "points": 40
+      "points": 80
     },
     {
       "id": "allowed-scope",
