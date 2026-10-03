@@ -623,13 +623,29 @@
           <Border Margin="0,22,0,0" Padding="0,20,0,0" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0">
             <StackPanel Spacing="9">
               <TextBlock Classes="inspector-label" Text="DESCRIPTION · MARKDOWN" />
+              <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
+                <Button Classes="view-action" Content="Copy rendered" Click="OnCopyRendered"
+                    IsEnabled="{Binding Work.HasRenderedDescription}" AutomationProperties.Name="Copy rendered description" />
+              </StackPanel>
+              <views:MarkdownPreviewSurface
+                  x:Name="MarkdownPreviewButton"
+                  Classes="markdown-preview"
+                  IsVisible="{Binding Work.ShowMarkdownPreview}"
+                  Activated="OnMarkdownPreviewActivated"
+                  AutomationProperties.ControlTypeOverride="Button"
+                  AutomationProperties.Name="{Binding Work.MarkdownPreviewAutomationName}">
+                <views:MarkdownPreview Document="{Binding Work.RenderedDescription}" />
+              </views:MarkdownPreviewSurface>
               <TextBox
+                  x:Name="MarkdownSource"
                   Classes="inspector-field"
+                  IsVisible="{Binding Work.ShowMarkdownEditor}"
                   Text="{Binding Work.Description, Mode=TwoWay}"
                   AcceptsReturn="True"
                   MinHeight="122"
                   LineHeight="20"
                   TextWrapping="Wrap"
+                  LostFocus="OnMarkdownSourceLostFocus"
                   AutomationProperties.Name="Description, Markdown source" />
             </StackPanel>
           </Border>

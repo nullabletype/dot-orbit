@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using DotOrbit.Core.Workspaces;
+using DotOrbit.Desktop.Markdown;
 
 namespace DotOrbit.Desktop.ViewModels;
 
@@ -44,6 +45,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private bool _pendingNavigationClosesInspector = true;
     private string _dialogReturnFocusAutomationId = string.Empty;
     private bool _loadingDraft;
+    private bool _editingMarkdown;
+    private SanitisedMarkdownDocument _renderedDescription = SanitisedMarkdownDocument.Empty;
 
     public ProjectCaptureViewModel(IWorkspaceWork work, TimeProvider? timeProvider = null)
     {
@@ -62,6 +65,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         PreserveTaskCategoryCommand = new(() => CompletePendingAttachment(TaskAttachmentCategoryChoice.PreserveEffectiveCategory));
         AdoptProjectCategoryCommand = new(() => CompletePendingAttachment(TaskAttachmentCategoryChoice.AdoptProjectCategory));
         CancelAttachmentCommand = new(CancelPendingAttachment);
+        EditMarkdownCommand = new(() => IsEditingMarkdown = true);
         SaveCommand = new(() => Save());
         CancelCommand = new(Cancel);
         SaveAndLeaveCommand = new(() => { if (Save()) Leave(); });
@@ -97,6 +101,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public RelayCommand PreserveTaskCategoryCommand { get; }
     public RelayCommand AdoptProjectCategoryCommand { get; }
     public RelayCommand CancelAttachmentCommand { get; }
+    public RelayCommand EditMarkdownCommand { get; }
     public RelayCommand SaveCommand { get; }
     public RelayCommand CancelCommand { get; }
     public RelayCommand SaveAndLeaveCommand { get; }
@@ -116,6 +121,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             Notify(nameof(ShowWorkInspector));
             Notify(nameof(ShowCategoryInspector));
             Notify(nameof(ShowCategoryDelete));
+            Notify(nameof(ShowMarkdownPreview));
+            Notify(nameof(ShowMarkdownEditor));
         }
     }
     public bool HasNoInspector => !HasInspector;
@@ -129,6 +136,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public bool HasBlockingDialog => NeedsDecision || NeedsCategoryReplacement || NeedsAttachmentChoice;
     public bool IsDirty => HasInspector && _original != Fingerprint();
     public bool ShowWorkInspector => HasInspector && !_editingCategory;
+    public bool ShowMarkdownPreview => ShowWorkInspector && !IsEditingMarkdown;
+    public bool ShowMarkdownEditor => ShowWorkInspector && IsEditingMarkdown;
     public bool ShowCategoryInspector => HasInspector && _editingCategory;
     public bool ShowCategoryDelete => ShowCategoryInspector && !_creating;
     public string InspectorHeading => _editingCategory
@@ -165,6 +174,23 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         : "Project category";
     public bool HasMessage => !string.IsNullOrEmpty(Message);
     public string Message { get => _message; private set { _message = value; Notify(); Notify(nameof(HasMessage)); } }
+    public SanitisedMarkdownDocument RenderedDescription => _renderedDescription;
+    public bool HasRenderedDescription => !_renderedDescription.IsEmpty;
+    public string MarkdownPreviewAutomationName => _renderedDescription.IsEmpty
+        ? "Empty rendered description. Activate to edit Markdown."
+        : $"Rendered description: {_renderedDescription.ToPlainText().ReplaceLineEndings(" ")}. Activate to edit Markdown.";
+    public bool IsEditingMarkdown
+    {
+        get => _editingMarkdown;
+        private set
+        {
+            if (_editingMarkdown == value) return;
+            _editingMarkdown = value;
+            Notify();
+            Notify(nameof(ShowMarkdownPreview));
+            Notify(nameof(ShowMarkdownEditor));
+        }
+    }
     public string Title
     {
         get => _title;
@@ -176,7 +202,17 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             Notify();
         }
     }
-    public string Description { get => _description; set { if (_loadingDraft) { _description = value; return; } _description = value; Notify(); } }
+    public string Description
+    {
+        get => _description;
+        set
+        {
+            if (_loadingDraft) { _description = value; return; }
+            _description = value;
+            RefreshRenderedDescription();
+            Notify();
+        }
+    }
     public string Date
     {
         get => _date;
@@ -214,6 +250,9 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         }
     }
     public bool HasDateValidationError => !string.IsNullOrEmpty(DateValidationMessage);
+    internal void MarkdownCopySucceeded() => Message = "Rendered description copied as rich text and plain text.";
+    internal void MarkdownCopyFailed() => Message = "Could not copy the rendered description. Try again.";
+    internal void FinishMarkdownEditing() => IsEditingMarkdown = false;
     public CategoryChoice? CategoryReplacement { get => _categoryReplacement; set { _categoryReplacement = value; Notify(); } }
     public TaskContextChoice? TaskContextTarget
     {
@@ -587,11 +626,16 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             Categories.Clear();
             _title = name;
             _description = string.Empty;
+            _renderedDescription = SanitisedMarkdownDocument.Empty;
+            _editingMarkdown = false;
             _date = string.Empty;
             _category = null;
             _original = Fingerprint();
             Notify(nameof(Title));
             Notify(nameof(Description));
+            Notify(nameof(RenderedDescription));
+            Notify(nameof(HasRenderedDescription));
+            Notify(nameof(MarkdownPreviewAutomationName));
             Notify(nameof(Date));
             Notify(nameof(Category));
             CategoryNameValidationMessage = string.Empty;
@@ -636,12 +680,17 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             foreach (var category in _snapshot.Categories) Categories.Add(new(category.Id, category.Name));
             _title = title;
             _description = description;
+            _renderedDescription = SanitisedMarkdownRenderer.Render(description);
+            _editingMarkdown = false;
             _date = dateText;
             categoryChoice = Categories.FirstOrDefault(c => c.Id == categoryId);
             _category = categoryChoice;
             _original = (title, description, dateText, categoryId);
             Notify(nameof(Title));
             Notify(nameof(Description));
+            Notify(nameof(RenderedDescription));
+            Notify(nameof(HasRenderedDescription));
+            Notify(nameof(MarkdownPreviewAutomationName));
             Notify(nameof(Date));
             Notify(nameof(Category));
             Notify(nameof(CategoryHint));
@@ -667,6 +716,15 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         Notify(nameof(ShowProjectSummary)); Notify(nameof(ProjectSummary));
         Notify(nameof(ShowTaskCompletionDate)); Notify(nameof(TaskCompletionDateText)); Notify(nameof(TaskCompletionDateAccessibleText));
         Notify(nameof(InspectorMetaLabel)); Notify(nameof(InspectorMetaValue));
+        Notify(nameof(ShowMarkdownPreview)); Notify(nameof(ShowMarkdownEditor));
+    }
+
+    private void RefreshRenderedDescription()
+    {
+        _renderedDescription = SanitisedMarkdownRenderer.Render(_description);
+        Notify(nameof(RenderedDescription));
+        Notify(nameof(HasRenderedDescription));
+        Notify(nameof(MarkdownPreviewAutomationName));
     }
 
     public bool Save()
@@ -755,6 +813,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private void CloseInspector()
     {
         HasInspector = false;
+        IsEditingMarkdown = false;
         _creating = false;
         _creatingStandaloneTask = false;
         _editingCategory = false;

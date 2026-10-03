@@ -2,6 +2,7 @@
     x:Class="DotOrbit.Desktop.Views.StyleGuideWindow"
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:views="using:DotOrbit.Desktop.Views"
     Title="dot-orbit component reference"
     Width="1180"
     Height="760"
@@ -128,6 +129,23 @@
             </Border>
           </StackPanel>
         </Grid>
+
+        <Border Classes="list-panel">
+          <StackPanel Spacing="10">
+            <TextBlock Classes="eyebrow" Text="MARKDOWN PREVIEW" />
+            <views:MarkdownPreviewSurface x:Name="ReferenceMarkdownPreviewButton" Classes="markdown-preview"
+                Activated="OnReferenceMarkdownEdit"
+                AutomationProperties.ControlTypeOverride="Button"
+                AutomationProperties.Name="Rendered description. Activate to edit Markdown">
+              <views:MarkdownPreview x:Name="ReferenceMarkdownPreview" />
+            </views:MarkdownPreviewSurface>
+            <TextBox x:Name="ReferenceMarkdownSource" Classes="inspector-field" IsVisible="False"
+                AcceptsReturn="True" MinHeight="122" LineHeight="20" TextWrapping="Wrap"
+                LostFocus="OnReferenceMarkdownSourceLostFocus"
+                Text="# Prepare the garden&#x0a;&#x0a;Use **native plants** and review [the plan](https://example.test).&#x0a;&#x0a;- Order bulbs&#x0a;&#x20;&#x20;&#x20;&#x20;- Tulips&#x0a;&#x20;&#x20;&#x20;&#x20;- Daffodils&#x0a;- Check soil&#x0a;&#x0a;3. Prepare beds&#x0a;&#x20;&#x20;&#x20;&#x20;a. North bed&#x0a;&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- Loosen soil&#x0a;&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;1. First pass&#x0a;&#x20;&#x20;&#x20;&#x20;b. South bed&#x0a;4. Add compost&#x0a;&#x0a;![Plot sketch](https://example.test/plot.png)"
+                AutomationProperties.Name="Reference description, Markdown source" />
+          </StackPanel>
+        </Border>
       </StackPanel>
     </Grid>
   </ScrollViewer>

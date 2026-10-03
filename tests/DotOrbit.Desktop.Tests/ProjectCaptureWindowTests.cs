@@ -9,6 +9,7 @@ using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Input.Raw;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -147,6 +148,36 @@ public sealed class ProjectCaptureWindowTests
         shell.Work.DiscardAndLeaveCommand.Execute(null);
         Assert.True(projects.IsChecked);
         Assert.False(today.IsChecked);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void DirtyDecisionDoesNotHighlightDisabledRowTitles()
+    {
+        var work = new MemoryWorkspaceWork();
+        var first = work.CreateStandaloneTask("First task", "", "home", null);
+        work.CreateStandaloneTask("Second task", "", "home", null);
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Backlog").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+        shell.Work!.SelectTask(first.Id);
+        shell.Work.Title = "Unsaved first task";
+
+        Activate(window, NamedButton(window, "Second task"));
+
+        Assert.True(shell.Work.NeedsDecision);
+        var disabledRowTitle = NamedButton(window, "Second task");
+        Assert.False(disabledRowTitle.IsEffectivelyEnabled);
+        Assert.Equal(
+            Colors.Transparent,
+            Assert.IsAssignableFrom<ISolidColorBrush>(disabledRowTitle.Background).Color);
+        var presenter = Assert.Single(
+            disabledRowTitle.GetVisualDescendants().OfType<ContentPresenter>(),
+            candidate => candidate.Name == "PART_ContentPresenter");
+        Assert.Equal(
+            Colors.Transparent,
+            Assert.IsAssignableFrom<ISolidColorBrush>(presenter.Background).Color);
         window.Close();
     }
 
@@ -1057,6 +1088,9 @@ public sealed class ProjectCaptureWindowTests
                 Assert.False(shell.Work.IsDirty, $"Selection of {title} produced an untouched dirty draft on iteration {iteration}.");
 
                 Assert.True(window.FindControl<TextBox>("DraftTitle")!.Focus());
+                var markdownPreview = window.FindControl<MarkdownPreviewSurface>("MarkdownPreviewButton")!;
+                Assert.Equal(shell.Work.MarkdownPreviewAutomationName, AutomationProperties.GetName(markdownPreview));
+                markdownPreview.RaiseEvent(new RoutedEventArgs(MarkdownPreviewSurface.ActivatedEvent));
                 var description = window.GetVisualDescendants().OfType<TextBox>()
                     .Single(text => AutomationProperties.GetName(text) == "Description, Markdown source");
                 Assert.True(description.Focus());
