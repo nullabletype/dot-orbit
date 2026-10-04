@@ -1069,6 +1069,139 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
+    public void ArchivingCompletedTaskRequiresAccessibleConfirmationAndMovesFocusDeterministically()
+    {
+        var work = new MemoryWorkspaceWork();
+        var first = work.CreateStandaloneTask("First receipt", "", "home", null);
+        var second = work.CreateStandaloneTask("Second receipt", "", "home", null);
+        work.CompleteTask(first.Id);
+        work.CompleteTask(second.Id);
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Completed").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+
+        var archive = ButtonByAutomationId(window, $"task-archive-{second.Id}");
+        Assert.Equal("Archive Second receipt", AutomationProperties.GetName(archive));
+        Activate(window, archive);
+
+        Assert.True(shell.Work!.NeedsArchiveConfirmation);
+        var confirm = ButtonByAutomationId(window, "archive-confirm");
+        Assert.True(confirm.IsFocused);
+        Assert.Equal("Archive task", AutomationProperties.GetName(confirm));
+        Assert.Equal("Cancel task archival", AutomationProperties.GetName(ButtonByAutomationId(window, "archive-cancel")));
+        Assert.Contains("available to restore from Archive", shell.Work.ArchiveConfirmationBody, StringComparison.Ordinal);
+        Assert.Contains(window.GetVisualDescendants().OfType<StackPanel>(), panel =>
+            panel.IsEffectivelyVisible && AutomationProperties.GetLiveSetting(panel) == AutomationLiveSetting.Assertive);
+        Assert.False(work.Read().Tasks.Single(task => task.Id == second.Id).IsArchived);
+
+        window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+        window.KeyReleaseQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(shell.Work.NeedsArchiveConfirmation);
+        Assert.True(ButtonByAutomationId(window, $"task-archive-{second.Id}").IsFocused);
+
+        Activate(window, ButtonByAutomationId(window, $"task-archive-{second.Id}"));
+        Activate(window, ButtonByAutomationId(window, "archive-confirm"));
+
+        Assert.True(work.Read().Tasks.Single(task => task.Id == second.Id).IsArchived);
+        Assert.Equal("Task archived.", shell.Work.Message);
+        Assert.True(ButtonByAutomationId(window, $"task-archive-{first.Id}").IsFocused);
+        Assert.Equal("1", shell.PrimaryNavigation.Single(item => item.Title == "Archive").CountText);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void ArchivedProjectTaskDisablesCompletionAndOffersAccessibleRestore()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var task = work.CreateTask(project.Id, "Plant bulbs");
+        work.CompleteTask(task.Id);
+        work.ArchiveTask(task.Id);
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Projects").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+
+        var completion = ToggleByAutomationId(window, $"task-completion-{task.Id}");
+        Assert.False(completion.IsEnabled);
+        Assert.Equal("Plant bulbs is archived. Restore it before reopening.", AutomationProperties.GetName(completion));
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.IsEffectivelyVisible && text.Text == "Archived");
+        var restore = ButtonByAutomationId(window, $"task-restore-{task.Id}");
+        Assert.Equal("Restore Plant bulbs to Completed", AutomationProperties.GetName(restore));
+
+        Activate(window, restore);
+
+        Assert.False(work.Read().Tasks.Single().IsArchived);
+        Assert.True(work.Read().Tasks.Single().IsComplete);
+        Assert.Empty(shell.Work!.TodayPlanned);
+        Assert.Empty(shell.Work.TodayInProgress);
+        Assert.Equal(task.Id, Assert.Single(shell.Work.Completed).Id);
+        Assert.True(ToggleByAutomationId(window, $"task-completion-{task.Id}").IsEnabled);
+        Assert.True(ToggleByAutomationId(window, $"task-completion-{task.Id}").IsFocused);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void ArchiveViewRestoresStandaloneTaskAndMovesFocusToNavigationWhenEmpty()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Filed receipt", "", "home", null);
+        work.CompleteTask(task.Id);
+        work.ArchiveTask(task.Id);
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Archive").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+
+        var restore = ButtonByAutomationId(window, $"task-restore-{task.Id}");
+        Assert.True(restore.IsEffectivelyVisible);
+        Assert.Equal("Restore Filed receipt to Completed", AutomationProperties.GetName(restore));
+        Assert.Contains(window.GetVisualDescendants().OfType<Border>(), row => row.Classes.Contains("archive-row"));
+
+        Activate(window, restore);
+
+        Assert.False(work.Read().Tasks.Single().IsArchived);
+        Assert.True(work.Read().Tasks.Single().IsComplete);
+        Assert.Empty(shell.Work!.Archived);
+        Assert.Equal(task.Id, Assert.Single(shell.Work.Completed).Id);
+        Assert.Empty(shell.Work.CompletedToday);
+        Assert.True(window.GetVisualDescendants().OfType<RadioButton>()
+            .Single(button => AutomationProperties.GetAutomationId(button) == "navigation-archive").IsFocused);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void ArchiveViewGroupsRowsByCapturedArchiveDate()
+    {
+        var work = new MemoryWorkspaceWork();
+        var today = work.CreateStandaloneTask("Today archive", "", "home", null);
+        var yesterday = work.CreateStandaloneTask("Yesterday archive", "", "home", null);
+        work.SetCompletion(today.Id, new DateTimeOffset(2026, 9, 20, 10, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 20));
+        work.SetCompletion(yesterday.Id, new DateTimeOffset(2026, 9, 20, 9, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 20));
+        work.SetArchive(today.Id, new DateTimeOffset(2026, 9, 29, 12, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 29));
+        work.SetArchive(yesterday.Id, new DateTimeOffset(2026, 9, 28, 12, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 28));
+        var shell = new ShellViewModel(
+            work,
+            new FixedTimeProvider(new DateTimeOffset(2026, 9, 29, 18, 0, 0, TimeSpan.Zero)));
+        shell.PrimaryNavigation.Single(item => item.Title == "Archive").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+
+        Assert.Equal(["Today", "Yesterday"], shell.Work!.ArchivedGroups.Select(group => group.Heading));
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.IsEffectivelyVisible && text.Text == "Today");
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.IsEffectivelyVisible && text.Text == "Yesterday");
+        var rows = window.GetVisualDescendants().OfType<Border>()
+            .Where(border => border.Classes.Contains("archive-row"))
+            .ToArray();
+        Assert.Equal(2, rows.Length);
+        Assert.All(rows, row => Assert.True(Assert.IsType<ArchivedTaskRowViewModel>(row.DataContext).IsLast));
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public void ProjectHeaderSurfaceSelectsProject()
     {
         var work = new MemoryWorkspaceWork();
@@ -2701,7 +2834,9 @@ public sealed class ProjectCaptureWindowTests
     {
         var title = NamedButton(window, taskTitle);
         var row = title.GetVisualAncestors().OfType<Border>().First(border => border.Classes.Contains(rowClass));
-        var point = RowSurfacePoint(row, window);
+        var translated = row.TranslatePoint(new Point(row.Bounds.Width / 2, 2), window);
+        Assert.True(translated.HasValue);
+        var point = translated.Value;
         var touch = window.TouchBegin(point, RawInputModifiers.None);
         window.TouchEnd(touch, point, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();

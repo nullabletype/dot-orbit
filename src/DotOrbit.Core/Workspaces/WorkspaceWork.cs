@@ -21,6 +21,8 @@ public interface IWorkspaceWork
         ParticipantDraftChange? participantChange = null);
     TaskRecord CompleteTask(string id);
     TaskRecord ReopenTask(string id);
+    TaskRecord ArchiveTask(string id);
+    TaskRecord RestoreTask(string id);
     TaskRecord SetTaskTodayLane(string id, TodayLane? lane);
     int ClearToday();
     TodayLaneOrderChange MoveTaskInTodayLane(string id, int targetPosition);
@@ -61,10 +63,13 @@ public sealed record TaskRecord(
     DateTimeOffset? CompletedAt = null,
     DateOnly? CompletionDate = null,
     IReadOnlyList<string>? ParticipantIds = null,
-    TodayLane? TodayLane = null)
+    TodayLane? TodayLane = null,
+    DateTimeOffset? ArchivedAt = null,
+    DateOnly? ArchiveDate = null)
 {
     public bool IsComplete => CompletedAt is not null && CompletionDate is not null;
     public bool IsInToday => TodayLane is not null;
+    public bool IsArchived => ArchivedAt is not null && ArchiveDate is not null;
     public IReadOnlyList<string> Participants => ParticipantIds ?? [];
 }
 public sealed record WorkspaceWorkSnapshot(

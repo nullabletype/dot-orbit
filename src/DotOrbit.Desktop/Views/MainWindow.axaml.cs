@@ -66,6 +66,7 @@ public sealed partial class MainWindow : Window
         AddHandler(PointerPressedEvent, OnWorkPointerPressed, RoutingStrategies.Bubble, handledEventsToo: true);
         AddHandler(PointerMovedEvent, OnWorkDragPointerMoved, RoutingStrategies.Bubble, handledEventsToo: true);
         AddHandler(PointerReleasedEvent, OnWorkPointerReleased, RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         this.FindControl<TextBox>("MarkdownSource")?.AddHandler(
             KeyDownEvent,
             OnMarkdownSourceKeyDown,
@@ -277,6 +278,18 @@ public sealed partial class MainWindow : Window
             Dispatcher.UIThread.Post(
                 () => this.FindControl<TextBox>("MarkdownSource")?.Focus(),
                 DispatcherPriority.ApplicationIdle);
+        if (e.PropertyName == nameof(ProjectCaptureViewModel.NeedsArchiveConfirmation)
+            && sender is ProjectCaptureViewModel archiveConfirmation)
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (archiveConfirmation.NeedsArchiveConfirmation)
+                    this.FindControl<Button>("ConfirmArchiveTaskButton")?.Focus();
+                else
+                    FocusAutomationId(archiveConfirmation.DialogReturnFocusAutomationId);
+            }, DispatcherPriority.ApplicationIdle);
+        if (e.PropertyName == nameof(ProjectCaptureViewModel.ArchiveFocusAutomationId)
+            && sender is ProjectCaptureViewModel { ArchiveFocusAutomationId.Length: > 0 } archiveWork)
+            Dispatcher.UIThread.Post(() => FocusAutomationId(archiveWork.ArchiveFocusAutomationId), DispatcherPriority.ApplicationIdle);
         if (e.PropertyName == nameof(ProjectCaptureViewModel.NeedsCategoryReplacement)
             && sender is ProjectCaptureViewModel categoryWork)
             Dispatcher.UIThread.Post(() =>
@@ -416,6 +429,14 @@ public sealed partial class MainWindow : Window
     private void OnMarkdownSourceKeyDown(object? sender, KeyEventArgs e)
     {
         if (sender is TextBox editor) MarkdownSourceEditor.TryHandleKeyDown(editor, e);
+    }
+
+    private void OnWindowKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Escape
+            || DataContext is not ShellViewModel { Work: { NeedsArchiveConfirmation: true } work }) return;
+        work.CancelArchiveTaskCommand.Execute(null);
+        e.Handled = true;
     }
 
     private void OnWorkPointerPressed(object? sender, PointerPressedEventArgs e)
@@ -583,6 +604,7 @@ public sealed partial class MainWindow : Window
         TaskRowViewModel task => task.SelectCommand,
         CategoryTaskRowViewModel categoryTask => categoryTask.Task.SelectCommand,
         CompletedTaskRowViewModel completedTask => completedTask.Task.SelectCommand,
+        ArchivedTaskRowViewModel archivedTask => archivedTask.Task.SelectCommand,
         UpcomingTaskRowViewModel upcomingTask => upcomingTask.Task.SelectCommand,
         TodayTaskRowViewModel todayTask => todayTask.Task.SelectCommand,
         ProjectRowViewModel project => project.SelectCommand,

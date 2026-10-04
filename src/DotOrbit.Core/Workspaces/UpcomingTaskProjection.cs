@@ -8,6 +8,7 @@ public static class UpcomingTaskProjection
         var lastIncludedDayNumber = Math.Min(DateOnly.MaxValue.DayNumber, today.DayNumber + 7);
         return tasks
             .Where(task => !task.IsComplete
+                && !task.IsArchived
                 && task.DueDate is { } dueDate
                 && dueDate.DayNumber <= lastIncludedDayNumber)
             .OrderBy(task => task.DueDate)

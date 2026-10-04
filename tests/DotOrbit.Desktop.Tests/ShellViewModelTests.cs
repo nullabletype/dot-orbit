@@ -86,4 +86,27 @@ public sealed class ShellViewModelTests
         Assert.Equal("0", upcoming.CountText);
         Assert.Equal("0 items", upcoming.AccessibleCount);
     }
+
+    [Fact]
+    public void ArchiveSelectionUsesItsRealSurfaceAndBadgeTracksRestoration()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Filed receipt", "", "home", null);
+        work.CompleteTask(task.Id);
+        work.ArchiveTask(task.Id);
+        var shell = new ShellViewModel(work);
+        var archive = shell.PrimaryNavigation.Single(item => item.Title == "Archive");
+
+        Assert.Equal("1", archive.CountText);
+        Assert.Equal("1 item", archive.AccessibleCount);
+        Assert.Contains("restore", archive.EmptyStateBody, StringComparison.OrdinalIgnoreCase);
+
+        archive.SelectCommand.Execute(null);
+
+        Assert.True(shell.ShowArchive);
+        Assert.False(shell.ShowEmpty);
+        shell.Work!.Archived.Single().Task.RestoreCommand.Execute(null);
+        Assert.Equal("0", archive.CountText);
+        Assert.Equal("0 items", archive.AccessibleCount);
+    }
 }

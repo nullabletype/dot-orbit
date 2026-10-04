@@ -33,6 +33,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private bool _backlogActive;
     private bool _upcomingActive;
     private bool _completedActive;
+    private bool _archiveActive;
     private bool _todayActive;
     private string _completionFocusAutomationId = string.Empty;
     private string _reorderFocusAutomationId = string.Empty;
@@ -64,6 +65,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private bool _hasAutosaveError;
     private string _todayAnnouncement = string.Empty;
     private string _todayFocusAutomationId = string.Empty;
+    private string _archiveFocusAutomationId = string.Empty;
+    private string? _pendingArchiveTaskId;
 
     public static TimeSpan AutosaveDelay { get; } = TimeSpan.FromMilliseconds(600);
 
@@ -91,6 +94,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         });
         ConfirmDeleteCategoryCommand = new(ConfirmDeleteCategory);
         CancelDeleteCategoryCommand = new(CancelDeleteCategory);
+        ConfirmArchiveTaskCommand = new(ConfirmArchiveTask);
+        CancelArchiveTaskCommand = new(CancelArchiveTask);
         ChangeTaskContextCommand = new(RequestTaskContextChange);
         PreserveTaskCategoryCommand = new(() => CompletePendingAttachment(TaskAttachmentCategoryChoice.PreserveEffectiveCategory));
         AdoptProjectCategoryCommand = new(() => CompletePendingAttachment(TaskAttachmentCategoryChoice.AdoptProjectCategory));
@@ -116,6 +121,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public ObservableCollection<TaskRowViewModel> Backlog { get; } = [];
     public ObservableCollection<UpcomingTaskGroupViewModel> UpcomingGroups { get; } = [];
     public ObservableCollection<TaskRowViewModel> Completed { get; } = [];
+    public ObservableCollection<ArchivedTaskRowViewModel> Archived { get; } = [];
+    public ObservableCollection<ArchivedTaskGroupViewModel> ArchivedGroups { get; } = [];
     public ObservableCollection<TodayTaskRowViewModel> TodayPlanned { get; } = [];
     public ObservableCollection<TodayTaskRowViewModel> TodayInProgress { get; } = [];
     public ObservableCollection<CompletedTaskRowViewModel> CompletedToday { get; } = [];
@@ -139,6 +146,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public RelayCommand DeleteCategoryCommand { get; }
     public RelayCommand ConfirmDeleteCategoryCommand { get; }
     public RelayCommand CancelDeleteCategoryCommand { get; }
+    public RelayCommand ConfirmArchiveTaskCommand { get; }
+    public RelayCommand CancelArchiveTaskCommand { get; }
     public RelayCommand ChangeTaskContextCommand { get; }
     public RelayCommand PreserveTaskCategoryCommand { get; }
     public RelayCommand AdoptProjectCategoryCommand { get; }
@@ -177,13 +186,16 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public bool HasNoUpcoming => !HasUpcoming;
     public bool HasCompleted => Completed.Count > 0;
     public bool HasNoCompleted => !HasCompleted;
+    public bool HasArchived => Archived.Count > 0;
+    public bool HasNoArchived => !HasArchived;
     public bool HasTodayTasks => TodayPlanned.Count + TodayInProgress.Count > 0;
     public bool HasNoTodayTasks => !HasTodayTasks;
     public bool HasCompletedToday => CompletedToday.Count > 0;
     public bool NeedsDecision => _pendingNavigation is not null;
     public bool NeedsCategoryReplacement => _pendingCategoryDeleteId is not null;
     public bool NeedsAttachmentChoice => _pendingAttachmentTaskId is not null;
-    public bool HasBlockingDialog => NeedsDecision || NeedsCategoryReplacement || NeedsAttachmentChoice;
+    public bool NeedsArchiveConfirmation => _pendingArchiveTaskId is not null;
+    public bool HasBlockingDialog => NeedsDecision || NeedsCategoryReplacement || NeedsAttachmentChoice || NeedsArchiveConfirmation;
     public bool IsDirty => HasInspector && _original != Fingerprint();
     public bool ShowExplicitInspectorActions => HasInspector && _editingCategory;
     public bool ShowAutosaveStatus => HasInspector && !_editingCategory;
@@ -411,6 +423,14 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public string CategoryDeleteHeading => _pendingCategoryDeleteId is null
         ? string.Empty
         : $"Replace {_snapshot.Categories.Single(category => category.Id == _pendingCategoryDeleteId).Name}";
+    public string ArchiveConfirmationHeading => _pendingArchiveTaskId is null
+        ? string.Empty
+        : $"Archive “{_snapshot.Tasks.Single(task => task.Id == _pendingArchiveTaskId).Title}”?";
+    public string ArchiveConfirmationBody => _pendingArchiveTaskId is null
+        ? string.Empty
+        : _snapshot.Tasks.Single(task => task.Id == _pendingArchiveTaskId).ProjectId is null
+            ? "This Task will leave Completed and remain available to restore from Archive."
+            : "This Task will leave Completed, remain under its Project, and stay available to restore from Archive.";
     public string PreserveCategoryLabel => _pendingAttachmentTaskId is null || _pendingAttachmentProjectId is null
         ? "Keep current category"
         : $"Keep {CategoryName(EffectiveCategoryId(_snapshot.Tasks.Single(task => task.Id == _pendingAttachmentTaskId)))} as override";
@@ -423,6 +443,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public string CompletionFocusAutomationId { get => _completionFocusAutomationId; private set { _completionFocusAutomationId = value; Notify(); } }
     public string ReorderFocusAutomationId { get => _reorderFocusAutomationId; private set { _reorderFocusAutomationId = value; Notify(); } }
     public string DialogReturnFocusAutomationId { get => _dialogReturnFocusAutomationId; private set { _dialogReturnFocusAutomationId = value; Notify(); } }
+    public string ArchiveFocusAutomationId { get => _archiveFocusAutomationId; private set { _archiveFocusAutomationId = value; Notify(); } }
     internal DateOnly Today => DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime);
     private bool IsStandaloneTaskDraft => _editingTask && ((_creatingStandaloneTask && (!_creatingTodayTask || TaskContextTarget?.ProjectId is null))
         || (_editingId is not null && _snapshot.Tasks.Single(task => task.Id == _editingId).ProjectId is null));
@@ -599,6 +620,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public void SetBacklogActive(bool active) => _backlogActive = active;
     public void SetUpcomingActive(bool active) => _upcomingActive = active;
     public void SetCompletedActive(bool active) => _completedActive = active;
+
+    public void SetArchiveActive(bool active) => _archiveActive = active;
     public void SetTodayActive(bool active) => _todayActive = active;
 
     public bool RefreshDatePresentation()
@@ -738,6 +761,73 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         Notify(nameof(NeedsCategoryReplacement));
         Notify(nameof(CategoryDeleteHeading));
         Notify(nameof(HasBlockingDialog));
+    }
+
+    internal void RequestArchiveTask(string id)
+    {
+        if (HasBlockingDialog) return;
+        ResolveDraftBeforeAction(() =>
+        {
+            var task = _snapshot.Tasks.Single(item => item.Id == id);
+            if (!task.IsComplete || task.IsArchived) return;
+            DialogReturnFocusAutomationId = $"task-archive-{id}";
+            _pendingArchiveTaskId = id;
+            Notify(nameof(NeedsArchiveConfirmation));
+            Notify(nameof(ArchiveConfirmationHeading));
+            Notify(nameof(ArchiveConfirmationBody));
+            Notify(nameof(HasBlockingDialog));
+        });
+    }
+
+    private void ConfirmArchiveTask()
+    {
+        if (_pendingArchiveTaskId is null) return;
+        var id = _pendingArchiveTaskId;
+        var completedIndex = Completed.IndexOf(Completed.FirstOrDefault(row => row.Id == id)!);
+        if (!Attempt(() =>
+            {
+                _work.ArchiveTask(id);
+                if (_editingTask && _editingId == id) CloseInspector();
+                ClearArchiveConfirmation();
+                Reload();
+                ArchiveFocusAutomationId = Completed.Count == 0
+                    ? "navigation-completed"
+                    : Completed[Math.Min(Math.Max(completedIndex, 0), Completed.Count - 1)].ArchiveAutomationId;
+                Message = "Task archived.";
+            }, "Could not archive the Task. No changes were made.")) return;
+    }
+
+    private void CancelArchiveTask() => ClearArchiveConfirmation();
+
+    private void ClearArchiveConfirmation()
+    {
+        _pendingArchiveTaskId = null;
+        Notify(nameof(NeedsArchiveConfirmation));
+        Notify(nameof(ArchiveConfirmationHeading));
+        Notify(nameof(ArchiveConfirmationBody));
+        Notify(nameof(HasBlockingDialog));
+    }
+
+    internal void RestoreTask(string id)
+    {
+        if (HasBlockingDialog) return;
+        ResolveDraftBeforeAction(() =>
+        {
+            var task = _snapshot.Tasks.Single(item => item.Id == id);
+            if (!task.IsArchived) return;
+            var archivedIndex = Archived.IndexOf(Archived.FirstOrDefault(row => row.Task.Id == id)!);
+            if (!Attempt(() =>
+                {
+                    _work.RestoreTask(id);
+                    Reload();
+                    ArchiveFocusAutomationId = _archiveActive
+                        ? Archived.Count == 0
+                            ? "navigation-archive"
+                            : Archived[Math.Min(Math.Max(archivedIndex, 0), Archived.Count - 1)].Task.RestoreAutomationId
+                        : $"task-completion-{id}";
+                    Message = "Task restored to Completed.";
+                }, "Could not restore the Task. No changes were made.")) return;
+        });
     }
 
     private void RequestTaskContextChange()
@@ -1309,7 +1399,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
                 .Select((project, index) => new CategoryProjectRowViewModel(project, index == projectsInCategory.Length - 1))
                 .ToArray();
             var standaloneTasks = _snapshot.Tasks
-                .Where(task => task.ProjectId is null && task.ExplicitCategoryId == category.Id)
+                .Where(task => task.ProjectId is null && task.ExplicitCategoryId == category.Id && !task.IsArchived)
                 .OrderBy(task => task.SharedPosition)
                 .Select(ToTaskRow)
                 .ToArray();
@@ -1322,21 +1412,29 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
                 _snapshot.Categories.Count,
                 categoryExpansion.GetValueOrDefault(category.Id, true)));
         }
-        var desiredBacklog = _snapshot.Tasks.Where(task => !task.IsComplete).OrderBy(t => t.SharedPosition).Select(ToTaskRow).ToArray();
+        var desiredBacklog = _snapshot.Tasks.Where(task => !task.IsComplete && !task.IsArchived).OrderBy(t => t.SharedPosition).Select(ToTaskRow).ToArray();
         SynchroniseBacklog(desiredBacklog);
         for (var index = 0; index < Backlog.Count; index++) Backlog[index].SetPosition(index + 1, Backlog.Count);
         RefreshUpcomingGroups();
-        var desiredCompleted = _snapshot.Tasks.Where(task => task.IsComplete)
+        var desiredCompleted = _snapshot.Tasks.Where(task => task.IsComplete && !task.IsArchived)
             .OrderByDescending(task => task.CompletedAt).ThenBy(task => task.SharedPosition).Select(ToTaskRow).ToArray();
         Synchronise(Completed, desiredCompleted);
+        var desiredArchived = _snapshot.Tasks.Where(task => task.IsArchived)
+            .OrderByDescending(task => task.ArchiveDate).ThenByDescending(task => task.ArchivedAt)
+            .ThenByDescending(task => task.CompletedAt).ThenBy(task => task.SharedPosition)
+            .Select(ToTaskRow).ToArray();
+        Archived.Clear();
+        for (var index = 0; index < desiredArchived.Length; index++)
+            Archived.Add(new(desiredArchived[index], index == desiredArchived.Length - 1));
+        RefreshArchivedGroups();
         SynchroniseToday(TodayPlanned, _snapshot.Tasks
-            .Where(task => !task.IsComplete && task.TodayLane == TodayLane.Planned)
+            .Where(task => !task.IsComplete && !task.IsArchived && task.TodayLane == TodayLane.Planned)
             .OrderBy(task => task.SharedPosition).Select(ToTaskRow).ToArray(), TodayLane.Planned);
         SynchroniseToday(TodayInProgress, _snapshot.Tasks
-            .Where(task => !task.IsComplete && task.TodayLane == TodayLane.InProgress)
+            .Where(task => !task.IsComplete && !task.IsArchived && task.TodayLane == TodayLane.InProgress)
             .OrderBy(task => task.SharedPosition).Select(ToTaskRow).ToArray(), TodayLane.InProgress);
         var completedToday = _snapshot.Tasks
-            .Where(task => task.IsComplete && task.CompletionDate == Today)
+            .Where(task => task.IsComplete && !task.IsArchived && task.CompletionDate == Today)
             .OrderByDescending(task => task.CompletedAt).ThenBy(task => task.SharedPosition).Select(ToTaskRow).ToArray();
         CompletedToday.Clear();
         for (var index = 0; index < completedToday.Length; index++)
@@ -1354,6 +1452,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         Notify(nameof(HasNoUpcoming));
         Notify(nameof(HasCompleted));
         Notify(nameof(HasNoCompleted));
+        Notify(nameof(HasArchived));
+        Notify(nameof(HasNoArchived));
         Notify(nameof(HasTodayTasks));
         Notify(nameof(HasNoTodayTasks));
         Notify(nameof(HasCompletedToday));
@@ -1438,6 +1538,15 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             CompletedGroups.Add(new(group.Key.Heading, group.ToArray()));
     }
 
+    private void RefreshArchivedGroups()
+    {
+        ArchivedGroups.Clear();
+        foreach (var group in Archived.GroupBy(row => DateGroupFor(
+                     _snapshot.Tasks.Single(task => task.Id == row.Task.Id).ArchiveDate!.Value))
+                 .OrderByDescending(group => group.Key.Start))
+            ArchivedGroups.Add(new(group.Key.Heading, group.Select(row => row.Task).ToArray()));
+    }
+
     private void RefreshUpcomingGroups()
     {
         UpcomingGroups.Clear();
@@ -1455,24 +1564,26 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         }
     }
 
-    private (DateOnly Start, string Heading) CompletedGroupFor(DateOnly completionDate)
+    private (DateOnly Start, string Heading) CompletedGroupFor(DateOnly completionDate) => DateGroupFor(completionDate);
+
+    private (DateOnly Start, string Heading) DateGroupFor(DateOnly date)
     {
-        var age = Today.DayNumber - completionDate.DayNumber;
+        var age = Today.DayNumber - date.DayNumber;
         if (age < 0)
-            return (completionDate, completionDate.ToString("dddd, d MMMM yyyy", CultureInfo.InvariantCulture));
+            return (date, date.ToString("dddd, d MMMM yyyy", CultureInfo.InvariantCulture));
         if (age is >= 0 and <= 2)
         {
             var heading = age switch
             {
                 0 => "Today",
                 1 => "Yesterday",
-                _ => completionDate.ToString("dddd, d MMMM yyyy", CultureInfo.InvariantCulture),
+                _ => date.ToString("dddd, d MMMM yyyy", CultureInfo.InvariantCulture),
             };
-            return (completionDate, heading);
+            return (date, heading);
         }
 
-        var daysSinceMonday = ((int)completionDate.DayOfWeek + 6) % 7;
-        var weekStart = completionDate.AddDays(-daysSinceMonday);
+        var daysSinceMonday = ((int)date.DayOfWeek + 6) % 7;
+        var weekStart = date.AddDays(-daysSinceMonday);
         return (weekStart, $"Week of {weekStart.ToString("d MMM yyyy", CultureInfo.InvariantCulture)}");
     }
 
@@ -1594,6 +1705,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     internal void ToggleCompletion(string taskId)
     {
         var task = _snapshot.Tasks.Single(item => item.Id == taskId);
+        if (task.IsArchived) return;
         Action action = () => ApplyCompletion(taskId, !task.IsComplete);
         var removesDraftFromCurrentView = (!task.IsComplete && _backlogActive)
             || (!task.IsComplete && _upcomingActive)
@@ -1839,6 +1951,13 @@ public sealed record CompletedTaskGroupViewModel(string Heading, IReadOnlyList<T
 }
 
 public sealed record CompletedTaskRowViewModel(TaskRowViewModel Task, bool IsLast);
+public sealed record ArchivedTaskRowViewModel(TaskRowViewModel Task, bool IsLast);
+public sealed record ArchivedTaskGroupViewModel(string Heading, IReadOnlyList<TaskRowViewModel> Tasks)
+{
+    public IReadOnlyList<ArchivedTaskRowViewModel> Rows { get; } = Tasks
+        .Select((task, index) => new ArchivedTaskRowViewModel(task, index == Tasks.Count - 1))
+        .ToArray();
+}
 public sealed record UpcomingTaskGroupViewModel(string Heading, IReadOnlyList<TaskRowViewModel> Tasks)
 {
     public IReadOnlyList<UpcomingTaskRowViewModel> Rows { get; } = Tasks
@@ -1915,6 +2034,7 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
     private int _projectPosition;
     private int _projectCount;
     private TodayLane? _todayLane;
+    private bool _isArchived;
 
     public TaskRowViewModel(ProjectCaptureViewModel owner, string id)
     {
@@ -1927,6 +2047,8 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
         MoveToBottomCommand = new(() => owner.MoveToBottom(id));
         ToggleCompletionCommand = new(() => owner.ToggleCompletion(id));
         ToggleTodayCommand = new(() => owner.ToggleToday(id));
+        ArchiveCommand = new(() => owner.RequestArchiveTask(id));
+        RestoreCommand = new(() => owner.RestoreTask(id));
         MoveProjectTaskUpCommand = new(() => MoveInProject(_projectPosition - 1));
         MoveProjectTaskDownCommand = new(() => MoveInProject(_projectPosition + 1));
         MoveProjectTaskToTopCommand = new(() => MoveInProject(0));
@@ -1944,8 +2066,16 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
     public string ReorderAccessibleName => $"Reorder {Title} in Backlog";
     public string ReorderAutomationId => $"backlog-reorder-{Id}";
     public string CompletionAutomationId => $"task-completion-{Id}";
-    public string CompletionAccessibleName => $"{(IsComplete ? "Reopen" : "Complete")} {Title}";
+    public string CompletionAccessibleName => IsArchived
+        ? $"{Title} is archived. Restore it before reopening."
+        : $"{(IsComplete ? "Reopen" : "Complete")} {Title}";
     public bool IsComplete => _isComplete;
+    public bool IsArchived => _isArchived;
+    public bool CanArchive => IsComplete && !IsArchived;
+    public string ArchiveAutomationId => $"task-archive-{Id}";
+    public string RestoreAutomationId => $"task-restore-{Id}";
+    public string ArchiveAccessibleName => $"Archive {Title}";
+    public string RestoreAccessibleName => $"Restore {Title} to Completed";
     public bool IsToday => _todayLane is not null;
     public string TodayAutomationId => $"task-today-{Id}";
     public string TodayAccessibleName => $"{(IsToday ? "Remove" : "Add")} {Title} {(IsToday ? "from" : "to")} Today";
@@ -1971,6 +2101,8 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
     public RelayCommand MoveToBottomCommand { get; }
     public RelayCommand ToggleCompletionCommand { get; }
     public RelayCommand ToggleTodayCommand { get; }
+    public RelayCommand ArchiveCommand { get; }
+    public RelayCommand RestoreCommand { get; }
     public RelayCommand MoveProjectTaskUpCommand { get; }
     public RelayCommand MoveProjectTaskDownCommand { get; }
     public RelayCommand MoveProjectTaskToTopCommand { get; }
@@ -1983,6 +2115,7 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
         _categoryDisplay = $"{categoryName} · {categoryBehaviour}";
         _projectId = task.ProjectId;
         _isComplete = task.IsComplete;
+        _isArchived = task.IsArchived;
         _todayLane = task.TodayLane;
         _dateText = WorkDatePresentation.Relative(task.DueDate, today);
         _dateAccessibleText = WorkDatePresentation.Accessible(task.DueDate, "Due");
@@ -1997,6 +2130,10 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
         Notify(nameof(MoveToBottomAccessibleName));
         Notify(nameof(CompletionAccessibleName));
         Notify(nameof(IsComplete));
+        Notify(nameof(IsArchived));
+        Notify(nameof(CanArchive));
+        Notify(nameof(ArchiveAccessibleName));
+        Notify(nameof(RestoreAccessibleName));
         Notify(nameof(IsToday));
         Notify(nameof(TodayAccessibleName));
         Notify(nameof(DateText));
