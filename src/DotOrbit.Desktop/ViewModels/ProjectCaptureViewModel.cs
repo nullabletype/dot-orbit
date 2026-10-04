@@ -1212,6 +1212,10 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             row.SetPosition(projectIndex + 1, _snapshot.Projects.Count);
             Projects.Add(row);
         }
+        var categoryExpansion = CategoryGroups.ToDictionary(
+            category => category.Id,
+            category => category.IsExpanded,
+            StringComparer.Ordinal);
         CategoryGroups.Clear();
         for (var categoryIndex = 0; categoryIndex < _snapshot.Categories.Count; categoryIndex++)
         {
@@ -1227,7 +1231,14 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
                 .OrderBy(task => task.SharedPosition)
                 .Select(ToTaskRow)
                 .ToArray();
-            CategoryGroups.Add(new(this, category, categoryProjects, standaloneTasks, categoryIndex + 1, _snapshot.Categories.Count));
+            CategoryGroups.Add(new(
+                this,
+                category,
+                categoryProjects,
+                standaloneTasks,
+                categoryIndex + 1,
+                _snapshot.Categories.Count,
+                categoryExpansion.GetValueOrDefault(category.Id, true)));
         }
         var desiredBacklog = _snapshot.Tasks.Where(task => !task.IsComplete).OrderBy(t => t.SharedPosition).Select(ToTaskRow).ToArray();
         SynchroniseBacklog(desiredBacklog);
@@ -1507,11 +1518,12 @@ public sealed class ParticipantDraftViewModel : INotifyPropertyChanged
 public sealed record CategoryProjectRowViewModel(ProjectRowViewModel Project, bool IsLast);
 public sealed record CategoryTaskRowViewModel(TaskRowViewModel Task, bool IsLast);
 
-public sealed class CategoryGroupViewModel
+public sealed class CategoryGroupViewModel : INotifyPropertyChanged
 {
     private readonly ProjectCaptureViewModel _owner;
     private readonly int _position;
     private readonly int _count;
+    private bool _isExpanded;
 
     public CategoryGroupViewModel(
         ProjectCaptureViewModel owner,
@@ -1519,13 +1531,15 @@ public sealed class CategoryGroupViewModel
         IReadOnlyList<CategoryProjectRowViewModel> projects,
         IReadOnlyList<TaskRowViewModel> standaloneTasks,
         int position,
-        int count)
+        int count,
+        bool isExpanded)
     {
         _owner = owner;
         Id = category.Id;
         Name = category.Name;
         _position = position;
         _count = count;
+        _isExpanded = isExpanded;
         Projects = projects;
         StandaloneTasks = standaloneTasks
             .Select((task, index) => new CategoryTaskRowViewModel(task, index == standaloneTasks.Count - 1))
@@ -1537,6 +1551,7 @@ public sealed class CategoryGroupViewModel
         MoveToBottomCommand = new(() => owner.MoveCategory(Id, _count - 1));
     }
 
+    public event PropertyChangedEventHandler? PropertyChanged;
     public string Id { get; }
     public string Name { get; }
     public int ProjectCount => Projects.Count;
@@ -1555,6 +1570,18 @@ public sealed class CategoryGroupViewModel
     public string MoveToTopAccessibleName => $"Move {Name} to top of Categories";
     public string MoveToBottomAccessibleName => $"Move {Name} to bottom of Categories";
     public string SelectionAccessibleName => $"Edit {Name} category";
+    public bool IsExpanded
+    {
+        get => _isExpanded;
+        set
+        {
+            if (_isExpanded == value) return;
+            _isExpanded = value;
+            PropertyChanged?.Invoke(this, new(nameof(IsExpanded)));
+            PropertyChanged?.Invoke(this, new(nameof(ExpansionAccessibleName)));
+        }
+    }
+    public string ExpansionAccessibleName => $"{(IsExpanded ? "Collapse" : "Expand")} {Name} category";
     public string Summary => $"{ProjectCount} {(ProjectCount == 1 ? "project" : "projects")} · {StandaloneTaskCount} standalone {(StandaloneTaskCount == 1 ? "task" : "tasks")}";
     public RelayCommand SelectCommand { get; }
     public RelayCommand MoveUpCommand { get; }

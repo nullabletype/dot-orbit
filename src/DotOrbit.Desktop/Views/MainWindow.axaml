@@ -227,7 +227,7 @@
                     Background="{StaticResource PanelBrush}"
                     CornerRadius="10">
                   <Grid RowDefinitions="Auto,Auto">
-                    <Border Classes="interactive-row project-header-row" Classes.expanded="{Binding IsExpanded}" Padding="10,8,12,8">
+                    <Border Classes="interactive-row expandable-header-row project-header-row selectable-row" Classes.expanded="{Binding IsExpanded}" Padding="10,8,12,8">
                       <Grid ColumnDefinitions="30,4,30,*,Auto">
                         <Button
                             Classes="drag-handle project-drag-handle"
@@ -292,7 +292,7 @@
                         <ItemsControl ItemsSource="{Binding Tasks}">
                           <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:TaskRowViewModel">
-                              <Border Classes="interactive-row separated-row reorder-target project-task-row" Classes.last="{Binding IsProjectLast}" MinHeight="{StaticResource CompactRowHeight}">
+                              <Border Classes="interactive-row separated-row reorder-target task-row selectable-row project-task-row" Classes.last="{Binding IsProjectLast}" MinHeight="{StaticResource CompactRowHeight}">
                                 <Grid VerticalAlignment="Center" ColumnDefinitions="34,34,*,Auto">
                                   <Button Classes="drag-handle project-task-drag-handle" AutomationProperties.AutomationId="{Binding ProjectReorderAutomationId}"
                                       AutomationProperties.Name="{Binding ProjectReorderAccessibleName}"
@@ -383,7 +383,7 @@
           <ItemsControl x:Name="BacklogItems" ItemsSource="{Binding Work.Backlog}">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:TaskRowViewModel">
-                <Border Classes="interactive-row separated-row reorder-target backlog-row" Classes.last="{Binding IsLast}" MinHeight="{StaticResource StandardRowHeight}">
+                <Border Classes="interactive-row separated-row reorder-target task-row selectable-row backlog-row" Classes.last="{Binding IsLast}" MinHeight="{StaticResource StandardRowHeight}">
                   <Grid VerticalAlignment="Center" ColumnDefinitions="34,34,*,Auto">
                     <Button
                         Classes="drag-handle backlog-drag-handle"
@@ -433,76 +433,87 @@
           <ItemsControl ItemsSource="{Binding Work.CategoryGroups}">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:CategoryGroupViewModel">
-                <Border Classes="category-row list-panel reorder-target" Margin="0,0,0,10">
-                  <StackPanel Spacing="10">
-                    <Grid ColumnDefinitions="30,2,*,12,Auto">
-                      <Button Classes="drag-handle category-drag-handle"
-                          AutomationProperties.AutomationId="{Binding ReorderAutomationId}"
-                          AutomationProperties.Name="{Binding ReorderAccessibleName}"
-                          AutomationProperties.HelpText="Drag to another Category, or activate for keyboard reorder actions.">
-                        <Button.Flyout>
-                          <MenuFlyout Closed="OnReorderMenuClosed">
-                            <MenuItem Header="Move to top" Command="{Binding MoveToTopCommand}" AutomationProperties.Name="{Binding MoveToTopAccessibleName}" />
-                            <MenuItem Header="Move up" Command="{Binding MoveUpCommand}" AutomationProperties.Name="{Binding MoveUpAccessibleName}" />
-                            <MenuItem Header="Move down" Command="{Binding MoveDownCommand}" AutomationProperties.Name="{Binding MoveDownAccessibleName}" />
-                            <MenuItem Header="Move to bottom" Command="{Binding MoveToBottomCommand}" AutomationProperties.Name="{Binding MoveToBottomAccessibleName}" />
-                          </MenuFlyout>
-                        </Button.Flyout>
-                      </Button>
-                      <Button Grid.Column="2" Classes="project-title row-title" Command="{Binding SelectCommand}"
-                          AutomationProperties.AutomationId="{Binding SelectionAutomationId}"
-                          AutomationProperties.Name="{Binding SelectionAccessibleName}">
-                        <TextBlock FontSize="15" FontWeight="Bold" Text="{Binding Name}" />
-                      </Button>
-                      <TextBlock Grid.Column="4" VerticalAlignment="Center" FontSize="12"
-                          Foreground="{StaticResource MutedTextBrush}" Text="{Binding Summary}" />
-                    </Grid>
-                    <TextBlock Classes="eyebrow" Text="PROJECTS" />
-                    <ItemsControl ItemsSource="{Binding Projects}">
-                      <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="vm:CategoryProjectRowViewModel">
-                          <Border Classes="interactive-row separated-row category-project-row" Classes.last="{Binding IsLast}"
-                              HorizontalAlignment="Stretch" MinHeight="{StaticResource StandardRowHeight}">
-                            <Button Classes="project-title row-title" Command="{Binding Project.SelectCommand}"
-                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                                AutomationProperties.Name="{Binding Project.Title}" AutomationProperties.ItemStatus="{Binding Project.AccessibleStatus}">
-                              <Grid ColumnDefinitions="*,12,Auto">
-                                <TextBlock Text="{Binding Project.Title}" />
-                                <TextBlock Grid.Column="2" HorizontalAlignment="Right" TextAlignment="Right" FontSize="12"
-                                    Foreground="{StaticResource MutedTextBrush}" Text="{Binding Project.ProgressText}" />
-                              </Grid>
-                            </Button>
-                          </Border>
-                        </DataTemplate>
-                      </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                    <TextBlock IsVisible="{Binding !HasProjects}" Foreground="{StaticResource QuietTextBrush}" Text="No projects" />
-                    <TextBlock Classes="eyebrow" Margin="0,6,0,0" Text="STANDALONE TASKS" />
-                    <ItemsControl ItemsSource="{Binding StandaloneTasks}">
-                      <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="vm:CategoryTaskRowViewModel">
-                          <Border Classes="interactive-row separated-row category-task-row" Classes.last="{Binding IsLast}" MinHeight="{StaticResource StandardRowHeight}">
-                            <Grid VerticalAlignment="Center" ColumnDefinitions="34,*,Auto">
-                              <ToggleButton Classes="completion-toggle"
-                                  IsChecked="{Binding Task.IsComplete, Mode=OneWay}" Command="{Binding Task.ToggleCompletionCommand}"
-                                  AutomationProperties.AutomationId="{Binding Task.CompletionAutomationId}"
-                                  AutomationProperties.Name="{Binding Task.CompletionAccessibleName}" />
-                              <Button Grid.Column="1" Classes="task-title row-title" Command="{Binding Task.SelectCommand}"
-                                  AutomationProperties.Name="{Binding Task.Title}" AutomationProperties.ItemStatus="{Binding Task.CategoryDisplay}">
-                                <StackPanel Spacing="3">
-                                  <TextBlock Text="{Binding Task.Title}" />
-                                  <TextBlock Text="{Binding Task.CategoryDisplay}" Foreground="{StaticResource QuietTextBrush}" FontSize="12" />
-                                </StackPanel>
-                              </Button>
-                              <TextBlock Grid.Column="2" Margin="12,0,6,0" VerticalAlignment="Center"
-                                  Foreground="{StaticResource MutedTextBrush}" FontSize="12" Text="{Binding Task.DateText}" />
-                            </Grid>
-                          </Border>
-                        </DataTemplate>
-                      </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                    <TextBlock IsVisible="{Binding !HasStandaloneTasks}" Foreground="{StaticResource QuietTextBrush}" Text="No standalone tasks" />
-                  </StackPanel>
+                <Border Classes="category-row reorder-target" Margin="0,0,0,10" Background="{StaticResource PanelBrush}" CornerRadius="10">
+                  <Grid RowDefinitions="Auto,Auto">
+                    <Border Classes="interactive-row expandable-header-row category-header-row selectable-row"
+                        Classes.expanded="{Binding IsExpanded}" Padding="10,8,12,8">
+                      <Grid ColumnDefinitions="30,4,30,*,Auto">
+                        <Button Classes="drag-handle category-drag-handle"
+                            AutomationProperties.AutomationId="{Binding ReorderAutomationId}"
+                            AutomationProperties.Name="{Binding ReorderAccessibleName}"
+                            AutomationProperties.HelpText="Drag to another Category, or activate for keyboard reorder actions.">
+                          <Button.Flyout>
+                            <MenuFlyout Closed="OnReorderMenuClosed">
+                              <MenuItem Header="Move to top" Command="{Binding MoveToTopCommand}" AutomationProperties.Name="{Binding MoveToTopAccessibleName}" />
+                              <MenuItem Header="Move up" Command="{Binding MoveUpCommand}" AutomationProperties.Name="{Binding MoveUpAccessibleName}" />
+                              <MenuItem Header="Move down" Command="{Binding MoveDownCommand}" AutomationProperties.Name="{Binding MoveDownAccessibleName}" />
+                              <MenuItem Header="Move to bottom" Command="{Binding MoveToBottomCommand}" AutomationProperties.Name="{Binding MoveToBottomAccessibleName}" />
+                            </MenuFlyout>
+                          </Button.Flyout>
+                        </Button>
+                        <ToggleButton Grid.Column="2" Classes="disclosure"
+                            AutomationProperties.Name="{Binding ExpansionAccessibleName}"
+                            IsChecked="{Binding IsExpanded, Mode=TwoWay}" />
+                        <Button Grid.Column="3" Classes="project-title row-title" Command="{Binding SelectCommand}"
+                            AutomationProperties.AutomationId="{Binding SelectionAutomationId}"
+                            AutomationProperties.Name="{Binding SelectionAccessibleName}">
+                          <TextBlock FontSize="15" FontWeight="Bold" Text="{Binding Name}" />
+                        </Button>
+                        <TextBlock Grid.Column="4" VerticalAlignment="Center" FontSize="12"
+                            Foreground="{StaticResource MutedTextBrush}" Text="{Binding Summary}" />
+                      </Grid>
+                    </Border>
+                    <Border Grid.Row="1" IsVisible="{Binding IsExpanded}" Background="{StaticResource PanelBrush}"
+                        BorderBrush="{StaticResource LineSoftBrush}" BorderThickness="0,1,0,0" Padding="10">
+                      <StackPanel Spacing="10">
+                        <TextBlock Classes="eyebrow" Text="PROJECTS" />
+                        <ItemsControl ItemsSource="{Binding Projects}">
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:CategoryProjectRowViewModel">
+                              <Border Classes="interactive-row separated-row selectable-row category-project-row" Classes.last="{Binding IsLast}"
+                                  HorizontalAlignment="Stretch" MinHeight="{StaticResource StandardRowHeight}">
+                                <Button Classes="project-title row-title" Command="{Binding Project.SelectCommand}"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" VerticalAlignment="Stretch" VerticalContentAlignment="Center"
+                                    AutomationProperties.Name="{Binding Project.Title}" AutomationProperties.ItemStatus="{Binding Project.AccessibleStatus}">
+                                  <Grid ColumnDefinitions="*,12,Auto">
+                                    <TextBlock Text="{Binding Project.Title}" />
+                                    <TextBlock Grid.Column="2" HorizontalAlignment="Right" TextAlignment="Right" FontSize="12"
+                                        Foreground="{StaticResource MutedTextBrush}" Text="{Binding Project.ProgressText}" />
+                                  </Grid>
+                                </Button>
+                              </Border>
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock IsVisible="{Binding !HasProjects}" Foreground="{StaticResource QuietTextBrush}" Text="No projects" />
+                        <TextBlock Classes="eyebrow" Margin="0,6,0,0" Text="STANDALONE TASKS" />
+                        <ItemsControl ItemsSource="{Binding StandaloneTasks}">
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:CategoryTaskRowViewModel">
+                              <Border Classes="interactive-row separated-row task-row selectable-row category-task-row" Classes.last="{Binding IsLast}" MinHeight="{StaticResource StandardRowHeight}">
+                                <Grid VerticalAlignment="Center" ColumnDefinitions="34,*,Auto">
+                                  <ToggleButton Classes="completion-toggle"
+                                      IsChecked="{Binding Task.IsComplete, Mode=OneWay}" Command="{Binding Task.ToggleCompletionCommand}"
+                                      AutomationProperties.AutomationId="{Binding Task.CompletionAutomationId}"
+                                      AutomationProperties.Name="{Binding Task.CompletionAccessibleName}" />
+                                  <Button Grid.Column="1" Classes="task-title row-title" Command="{Binding Task.SelectCommand}"
+                                      AutomationProperties.Name="{Binding Task.Title}" AutomationProperties.ItemStatus="{Binding Task.CategoryDisplay}">
+                                    <StackPanel Spacing="3">
+                                      <TextBlock Text="{Binding Task.Title}" />
+                                      <TextBlock Text="{Binding Task.CategoryDisplay}" Foreground="{StaticResource QuietTextBrush}" FontSize="12" />
+                                    </StackPanel>
+                                  </Button>
+                                  <TextBlock Grid.Column="2" Margin="12,0,6,0" VerticalAlignment="Center"
+                                      Foreground="{StaticResource MutedTextBrush}" FontSize="12" Text="{Binding Task.DateText}" />
+                                </Grid>
+                              </Border>
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock IsVisible="{Binding !HasStandaloneTasks}" Foreground="{StaticResource QuietTextBrush}" Text="No standalone tasks" />
+                      </StackPanel>
+                    </Border>
+                  </Grid>
                 </Border>
               </DataTemplate>
             </ItemsControl.ItemTemplate>
@@ -534,7 +545,7 @@
                     <ItemsControl ItemsSource="{Binding Rows}">
                       <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:CompletedTaskRowViewModel">
-                          <Border Classes="interactive-row separated-row completed-row" Classes.last="{Binding IsLast}" MinHeight="{StaticResource StandardRowHeight}">
+                          <Border Classes="interactive-row separated-row task-row selectable-row completed-row" Classes.last="{Binding IsLast}" MinHeight="{StaticResource StandardRowHeight}">
                             <Grid VerticalAlignment="Center" ColumnDefinitions="34,*,Auto">
                               <ToggleButton Classes="completion-toggle"
                                   IsChecked="{Binding Task.IsComplete, Mode=OneWay}" Command="{Binding Task.ToggleCompletionCommand}"

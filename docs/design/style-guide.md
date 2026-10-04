@@ -44,11 +44,11 @@ The implemented recipes live in `src/DotOrbit.Desktop/Styles/ComponentRecipes.ax
 
 ### Rows and titles
 
-- `interactive-row` owns full-row hover, including while the pointer is over its completion control, handle, disclosure, title, metadata or date.
+- `interactive-row` owns full-row hover, including while the pointer is over its completion control, handle, disclosure, title, metadata or date. When that hover surface represents a selectable work item, its non-control area is also the activation target; embedded controls keep their own actions.
 - `row-title` remains transparent and borderless on hover and press. Keyboard focus retains the visible pink border.
 - `separated-row` uses a soft bottom rule only between peers. Add `last` to the final row of each independent list or Completed group. There is no trailing divider or trailing group margin.
 - Settings lists use the same `list-panel`, `interactive-row`, `separated-row`, and `last` recipe as work lists. Global reusable-data actions belong there rather than in every contextual inspector; an active inline rename uses `inspector-field` plus the ordinary primary and secondary actions.
-- A Project header owns hover independently of its expanded child region. Equal panel insets apply to Backlog and Completed list panels; Project cards retain their accepted header/child geometry.
+- Project and Category headers own hover independently of their expanded child regions and use the same disclosure and card geometry. Equal panel insets apply to Backlog and Completed list panels.
 - Expanded Project Tasks use the same leading columns, two-line text rhythm, and vertically centred drag and completion controls as Backlog Tasks. The nested block has a small additional left inset so its handle and title sit to the right of the parent Project equivalents. Adjacent Project drag and disclosure controls retain a visible 4px gap. Project and Task date metadata, including “No date”, uses 12px type. Category Project progress counts occupy a right-aligned trailing column rather than following titles of different lengths.
 
 ### Reordering
