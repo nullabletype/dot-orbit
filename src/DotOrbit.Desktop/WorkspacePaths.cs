@@ -29,16 +29,25 @@ internal sealed class SystemWorkspacePathProvider : IWorkspacePathProvider
         string? applicationDirectory = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(currentDirectory);
-        if (arguments?.Contains(DefaultWorkspaceArgument, StringComparer.Ordinal) == true)
+        var useSampleWorkspace = arguments?.Contains(SampleWorkspaceArgument, StringComparer.Ordinal) == true;
+        var useDefaultWorkspace = arguments?.Contains(DefaultWorkspaceArgument, StringComparer.Ordinal) == true;
+        if (useSampleWorkspace && useDefaultWorkspace)
+        {
+            throw new InvalidOperationException(
+                $"{SampleWorkspaceArgument} and {DefaultWorkspaceArgument} cannot be used together.");
+        }
+        if (useDefaultWorkspace)
         {
             return new SystemWorkspacePathProvider();
         }
 
-        var repositoryRoot = FindRepositoryRoot(currentDirectory)
-            ?? FindRepositoryRoot(applicationDirectory ?? AppContext.BaseDirectory);
+        var repositoryRoot = useSampleWorkspace
+            ? FindRepositoryRoot(currentDirectory)
+                ?? FindRepositoryRoot(applicationDirectory ?? AppContext.BaseDirectory)
+            : FindRepositoryRoot(applicationDirectory ?? AppContext.BaseDirectory);
         if (repositoryRoot is null)
         {
-            if (arguments?.Contains(SampleWorkspaceArgument, StringComparer.Ordinal) == true)
+            if (useSampleWorkspace)
             {
                 throw new InvalidOperationException(
                     $"{SampleWorkspaceArgument} must launch a dot-orbit build from its repository checkout.");

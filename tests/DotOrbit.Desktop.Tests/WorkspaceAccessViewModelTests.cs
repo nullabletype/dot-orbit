@@ -36,10 +36,12 @@ public sealed class WorkspaceAccessViewModelTests
     public void LocalRepositoryLaunchDefaultsToTheSampleWorkspace()
     {
         using var repository = TemporaryDirectory.CreateRepository();
+        using var unrelated = TemporaryDirectory.CreateRepository(createSolution: false);
 
         var workspacePath = SystemWorkspacePathProvider.FromArguments(
             ["--unrelated"],
-            repository.Path)
+            unrelated.Path,
+            Path.Combine(repository.Path, "src", "DotOrbit.Desktop", "bin", "Debug", "net10.0"))
             .GetDefaultWorkspacePath();
 
         Assert.Equal(
@@ -50,15 +52,30 @@ public sealed class WorkspaceAccessViewModelTests
     [Fact]
     public void PackagedLaunchKeepsThePlatformWorkspace()
     {
+        using var repository = TemporaryDirectory.CreateRepository();
         using var unrelated = TemporaryDirectory.CreateRepository(createSolution: false);
 
         var workspacePath = SystemWorkspacePathProvider.FromArguments(
             [],
-            unrelated.Path,
+            repository.Path,
             unrelated.Path)
             .GetDefaultWorkspacePath();
 
         Assert.Equal(WorkspacePathDefaults.GetDefaultWorkspacePath(), workspacePath);
+    }
+
+    [Fact]
+    public void ConflictingWorkspaceArgumentsAreRejected()
+    {
+        using var repository = TemporaryDirectory.CreateRepository();
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            SystemWorkspacePathProvider.FromArguments(
+                ["--sample-workspace", "--default-workspace"],
+                repository.Path,
+                repository.Path));
+
+        Assert.Contains("cannot be used together", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]
