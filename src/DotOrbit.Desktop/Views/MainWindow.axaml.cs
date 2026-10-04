@@ -18,7 +18,7 @@ namespace DotOrbit.Desktop.Views;
 
 public sealed partial class MainWindow : Window
 {
-    private enum DragScope { None, Backlog, Projects, ProjectTasks, Categories }
+    private enum DragScope { None, TodayPlanned, TodayInProgress, Backlog, Projects, ProjectTasks, Categories }
 
     private IWorkspaceSession? _session;
     private bool _closingApproved;
@@ -255,6 +255,9 @@ public sealed partial class MainWindow : Window
             Dispatcher.UIThread.Post(() => this.GetVisualDescendants().OfType<Control>()
                 .FirstOrDefault(control => AutomationProperties.GetAutomationId(control) == reordered.ReorderFocusAutomationId)?.Focus(),
                 DispatcherPriority.ApplicationIdle);
+        if (e.PropertyName == nameof(ProjectCaptureViewModel.TodayFocusAutomationId)
+            && sender is ProjectCaptureViewModel { TodayFocusAutomationId.Length: > 0 } todayWork)
+            Dispatcher.UIThread.Post(() => FocusAutomationId(todayWork.TodayFocusAutomationId), DispatcherPriority.ApplicationIdle);
         if (e.PropertyName == nameof(ProjectCaptureViewModel.DialogReturnFocusAutomationId)
             && sender is ProjectCaptureViewModel { DialogReturnFocusAutomationId.Length: > 0 } dialogWork)
             Dispatcher.UIThread.Post(() => FocusAutomationId(dialogWork.DialogReturnFocusAutomationId), DispatcherPriority.ApplicationIdle);
@@ -426,6 +429,18 @@ public sealed partial class MainWindow : Window
             _draggedId = backlogTask.Id;
             return;
         }
+        if (handle?.Classes.Contains("today-planned-drag-handle") == true && handle.DataContext is TodayTaskRowViewModel plannedTask)
+        {
+            _dragScope = DragScope.TodayPlanned;
+            _draggedId = plannedTask.Task.Id;
+            return;
+        }
+        if (handle?.Classes.Contains("today-in-progress-drag-handle") == true && handle.DataContext is TodayTaskRowViewModel activeTask)
+        {
+            _dragScope = DragScope.TodayInProgress;
+            _draggedId = activeTask.Task.Id;
+            return;
+        }
         if (handle?.Classes.Contains("project-drag-handle") == true && handle.DataContext is ProjectRowViewModel project)
         {
             _dragScope = DragScope.Projects;
@@ -457,6 +472,8 @@ public sealed partial class MainWindow : Window
         var targetClass = _dragScope switch
         {
             DragScope.Backlog => "backlog-row",
+            DragScope.TodayPlanned => "today-planned-row",
+            DragScope.TodayInProgress => "today-in-progress-row",
             DragScope.Projects => "project-row",
             DragScope.ProjectTasks => "project-task-row",
             DragScope.Categories => "category-row",
@@ -503,6 +520,7 @@ public sealed partial class MainWindow : Window
             return;
         }
         var target = _dragTarget?.DataContext as TaskRowViewModel;
+        var targetToday = _dragTarget?.DataContext as TodayTaskRowViewModel;
         var targetProject = _dragTarget?.DataContext as ProjectRowViewModel;
         var targetCategory = _dragTarget?.DataContext as CategoryGroupViewModel;
         _dragTarget?.Classes.Remove("drag-target");
@@ -513,6 +531,8 @@ public sealed partial class MainWindow : Window
         ResetPointerGesture();
         if (dragScope == DragScope.Backlog && target is not null)
             work.DragTask(draggedId, target.Id);
+        else if ((dragScope == DragScope.TodayPlanned || dragScope == DragScope.TodayInProgress) && targetToday is not null)
+            work.DragTodayTask(draggedId, targetToday.Task.Id);
         else if (dragScope == DragScope.Projects && targetProject is not null)
             work.DragProject(draggedId, targetProject.Id);
         else if (dragScope == DragScope.ProjectTasks && target is not null && draggedProjectId is not null)
@@ -555,6 +575,7 @@ public sealed partial class MainWindow : Window
         TaskRowViewModel task => task.SelectCommand,
         CategoryTaskRowViewModel categoryTask => categoryTask.Task.SelectCommand,
         CompletedTaskRowViewModel completedTask => completedTask.Task.SelectCommand,
+        TodayTaskRowViewModel todayTask => todayTask.Task.SelectCommand,
         ProjectRowViewModel project => project.SelectCommand,
         CategoryProjectRowViewModel categoryProject => categoryProject.Project.SelectCommand,
         CategoryGroupViewModel category => category.SelectCommand,

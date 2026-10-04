@@ -12,6 +12,8 @@ public interface IWorkspaceWork
     CategoryOrderChange MoveCategory(string id, int targetPosition);
     ProjectRecord CreateProject(string title, string description, string categoryId, DateOnly? targetDate);
     TaskRecord CreateTask(string projectId, string title);
+    TaskRecord CreateTaskDraft(string? projectId, string title, string description, string? categoryId,
+        DateOnly? dueDate, ParticipantDraftChange? participantChange = null, TodayLane? todayLane = null);
     TaskRecord CreateStandaloneTask(string title, string description, string categoryId, DateOnly? dueDate,
         ParticipantDraftChange? participantChange = null);
     ProjectRecord UpdateProject(string id, string title, string description, string categoryId, DateOnly? targetDate);
@@ -19,6 +21,9 @@ public interface IWorkspaceWork
         ParticipantDraftChange? participantChange = null);
     TaskRecord CompleteTask(string id);
     TaskRecord ReopenTask(string id);
+    TaskRecord SetTaskTodayLane(string id, TodayLane? lane);
+    int ClearToday();
+    TodayLaneOrderChange MoveTaskInTodayLane(string id, int targetPosition);
     SharedTaskOrderChange MoveTaskInSharedOrder(string id, int targetPosition);
     ProjectOrderChange MoveProject(string id, int targetPosition);
     ProjectTaskOrderChange MoveTaskInProject(string projectId, string taskId, int targetPosition);
@@ -30,6 +35,12 @@ public enum TaskAttachmentCategoryChoice
 {
     PreserveEffectiveCategory,
     AdoptProjectCategory,
+}
+
+public enum TodayLane
+{
+    Planned,
+    InProgress,
 }
 
 public sealed record WorkspaceCategory(string Id, string Name, long Position);
@@ -49,9 +60,11 @@ public sealed record TaskRecord(
     long? ProjectPosition,
     DateTimeOffset? CompletedAt = null,
     DateOnly? CompletionDate = null,
-    IReadOnlyList<string>? ParticipantIds = null)
+    IReadOnlyList<string>? ParticipantIds = null,
+    TodayLane? TodayLane = null)
 {
     public bool IsComplete => CompletedAt is not null && CompletionDate is not null;
+    public bool IsInToday => TodayLane is not null;
     public IReadOnlyList<string> Participants => ParticipantIds ?? [];
 }
 public sealed record WorkspaceWorkSnapshot(
@@ -63,6 +76,7 @@ public sealed record WorkspaceWorkSnapshot(
     public IReadOnlyList<ParticipantRecord> Participants => ParticipantRecords ?? [];
 }
 public sealed record SharedTaskOrderChange(string TaskId, int Position, int Count);
+public sealed record TodayLaneOrderChange(string TaskId, TodayLane Lane, int Position, int Count);
 public sealed record ProjectOrderChange(string ProjectId, int Position, int Count);
 public sealed record ProjectTaskOrderChange(string ProjectId, string TaskId, int Position, int Count);
 public sealed record CategoryOrderChange(string CategoryId, int Position, int Count);

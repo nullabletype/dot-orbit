@@ -124,6 +124,71 @@
     <Setter Property="BoxShadow" Value="{StaticResource CheckedFocusShadow}" />
   </Style>
 
+  <Style Selector="ToggleButton.today-toggle">
+    <Setter Property="Width" Value="{StaticResource ControlHitSize}" />
+    <Setter Property="Height" Value="{StaticResource ControlHitSize}" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />
+    <Setter Property="CornerRadius" Value="{StaticResource CompactControlRadius}" />
+    <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border
+            x:Name="TodayFocusBorder"
+            Width="{TemplateBinding Width}"
+            Height="{TemplateBinding Height}"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            Background="Transparent"
+            BorderBrush="{TemplateBinding BorderBrush}"
+            BorderThickness="{TemplateBinding BorderThickness}"
+            CornerRadius="{TemplateBinding CornerRadius}">
+          <Grid>
+            <Path
+                x:Name="TodayStarOutline"
+                Width="18"
+                Height="18"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Data="M12,17.27 18.18,21 16.54,13.97 22,9.24 14.81,8.62 12,2 9.19,8.62 2,9.24 7.45,13.97 5.82,21Z"
+                Fill="Transparent"
+                Stroke="{TemplateBinding Foreground}"
+                StrokeThickness="1.6"
+                Stretch="Uniform" />
+            <Path
+                x:Name="TodayStarFill"
+                Width="18"
+                Height="18"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Data="M12,17.27 18.18,21 16.54,13.97 22,9.24 14.81,8.62 12,2 9.19,8.62 2,9.24 7.45,13.97 5.82,21Z"
+                Fill="{TemplateBinding Foreground}"
+                IsVisible="False"
+                Stretch="Uniform" />
+          </Grid>
+        </Border>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="ToggleButton.today-toggle:pointerover">
+    <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+  </Style>
+  <Style Selector="ToggleButton.today-toggle:checked">
+    <Setter Property="Foreground" Value="{StaticResource AmberBrush}" />
+  </Style>
+  <Style Selector="ToggleButton.today-toggle:checked /template/ Path#TodayStarOutline">
+    <Setter Property="IsVisible" Value="False" />
+  </Style>
+  <Style Selector="ToggleButton.today-toggle:checked /template/ Path#TodayStarFill">
+    <Setter Property="IsVisible" Value="True" />
+  </Style>
+  <Style Selector="ToggleButton.today-toggle:focus-visible">
+    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+    <Setter Property="BorderThickness" Value="{StaticResource FocusBorder}" />
+  </Style>
+
   <Style Selector="Border.interactive-row"><Setter Property="Background" Value="Transparent" /></Style>
   <Style Selector="Border.interactive-row:pointerover"><Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" /></Style>
   <Style Selector="Border.separated-row">
@@ -131,6 +196,22 @@
     <Setter Property="BorderThickness" Value="0,0,0,1" />
   </Style>
   <Style Selector="Border.separated-row.last"><Setter Property="BorderThickness" Value="0" /></Style>
+  <Style Selector="TextBlock.task-date">
+    <Setter Property="Margin" Value="8,0" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="HorizontalAlignment" Value="Right" />
+    <Setter Property="TextAlignment" Value="Right" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+  </Style>
+  <Style Selector="TextBlock.task-completion-date">
+    <Setter Property="Margin" Value="8,0" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="HorizontalAlignment" Value="Right" />
+    <Setter Property="TextAlignment" Value="Right" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Foreground" Value="{StaticResource SuccessBrush}" />
+  </Style>
   <Style Selector="Border.project-row">
     <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
     <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />

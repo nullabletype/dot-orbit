@@ -14,6 +14,54 @@ public sealed class WorkspaceWorkTests : IDisposable
     private string WorkspacePath => Path.Combine(_directory, "workspace.db");
 
     [Fact]
+    public void CreateTaskDraftPersistsOptionalProjectContentParticipantsAndTodayLaneAtomically()
+    {
+        var created = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!);
+        using var session = created.Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        var project = session.Work.CreateProject("Garden", "", category.Id, null);
+        var participant = session.Work.CreateParticipant("SD");
+
+        var task = session.Work.CreateTaskDraft(project.Id, " Plant bulbs ", "Near the fence", null,
+            new DateOnly(2026, 10, 8), new([participant.Id], []), TodayLane.Planned);
+
+        var persisted = session.Work.Read().Tasks.Single(item => item.Id == task.Id);
+        Assert.Equal("Plant bulbs", persisted.Title);
+        Assert.Equal(project.Id, persisted.ProjectId);
+        Assert.Null(persisted.ExplicitCategoryId);
+        Assert.Equal("Near the fence", persisted.Description);
+        Assert.Equal(new DateOnly(2026, 10, 8), persisted.DueDate);
+        Assert.Equal([participant.Id], persisted.Participants);
+        Assert.Equal(TodayLane.Planned, persisted.TodayLane);
+    }
+
+    [Fact]
+    public void CreateTaskDraftRollsBackEveryWriteWhenTodayPlacementFails()
+    {
+        var created = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!);
+        using var session = created.Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        var project = session.Work.CreateProject("Garden", "", category.Id, null);
+        session.Work.CreateTask(project.Id, "Existing");
+        var before = session.Work.Read();
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "CREATE TRIGGER reject_today BEFORE INSERT ON today_tasks BEGIN SELECT RAISE(ABORT, 'private'); END;";
+            command.ExecuteNonQuery();
+        }
+
+        Assert.Throws<WorkspaceWorkException>(() => session.Work.CreateTaskDraft(project.Id, "Private title",
+            "Private description", null, null, new([], ["SD"]), TodayLane.Planned));
+
+        var unchanged = session.Work.Read();
+        Assert.Equal(before.Tasks.Select(task => (task.Id, task.SharedPosition, task.ProjectPosition, task.TodayLane)),
+            unchanged.Tasks.Select(task => (task.Id, task.SharedPosition, task.ProjectPosition, task.TodayLane)));
+        Assert.Equal(before.Participants, unchanged.Participants);
+        Assert.All(unchanged.Tasks, task => Assert.Empty(task.Participants));
+    }
+
+    [Fact]
     public void CreateAndEditRoundTripsMarkdownDatesInheritanceAndIndependentOrders()
     {
         var created = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!);
@@ -162,11 +210,81 @@ public sealed class WorkspaceWorkTests : IDisposable
     }
 
     [Fact]
+    public void TodayMembershipLaneAndOrderPersistWithoutFollowingDatesOrCalendarRollover()
+    {
+        var time = new ManualTimeProvider(
+            new DateTimeOffset(2026, 9, 29, 23, 55, 0, TimeSpan.Zero),
+            TimeZoneInfo.Utc);
+        var store = new EncryptedWorkspaceStore(new SystemIdentifierGenerator(), new WorkspaceFileOperations(), time);
+        string plannedId;
+        string activeId;
+
+        using (var session = store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!)
+        {
+            var category = session.Work.Read().Categories[0];
+            var project = session.Work.CreateProject("Garden", "", category.Id, null);
+            plannedId = session.Work.CreateTask(project.Id, "Planned").Id;
+            activeId = session.Work.CreateStandaloneTask("Active", "", category.Id, new DateOnly(2026, 9, 29)).Id;
+            session.Work.SetTaskTodayLane(plannedId, TodayLane.Planned);
+            session.Work.SetTaskTodayLane(activeId, TodayLane.InProgress);
+            session.Work.UpdateTask(activeId, "Active", "", category.Id, new DateOnly(2027, 1, 1));
+            Assert.Equal([activeId, plannedId], session.Work.Read().Tasks.Select(task => task.Id));
+        }
+
+        time.SetUtcNow(new DateTimeOffset(2026, 9, 30, 0, 5, 0, TimeSpan.Zero));
+        using var reopened = store.Open(WorkspacePath, _passphrase).Session!;
+        var tasks = reopened.Work.Read().Tasks;
+        Assert.Equal(TodayLane.Planned, tasks.Single(task => task.Id == plannedId).TodayLane);
+        Assert.Equal(TodayLane.InProgress, tasks.Single(task => task.Id == activeId).TodayLane);
+        Assert.Equal(new DateOnly(2027, 1, 1), tasks.Single(task => task.Id == activeId).DueDate);
+        Assert.Equal([activeId, plannedId], tasks.Select(task => task.Id));
+    }
+
+    [Fact]
+    public void TodayLaneMovementClearCompletionAndReopenPreserveIndependentState()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var category = session.Work.Read().Categories[0];
+        var project = session.Work.CreateProject("Garden", "", category.Id, null);
+        var hidden = session.Work.CreateTask(project.Id, "Hidden");
+        var plannedOlder = session.Work.CreateTask(project.Id, "Planned older");
+        var active = session.Work.CreateTask(project.Id, "Active");
+        var plannedNewer = session.Work.CreateTask(project.Id, "Planned newer");
+        session.Work.MoveTaskInSharedOrder(hidden.Id, 1);
+        session.Work.SetTaskTodayLane(plannedOlder.Id, TodayLane.Planned);
+        session.Work.SetTaskTodayLane(active.Id, TodayLane.InProgress);
+        session.Work.SetTaskTodayLane(plannedNewer.Id, TodayLane.Planned);
+
+        var beforeLaneMove = session.Work.Read().Tasks.Select(task => task.Id).ToArray();
+        session.Work.SetTaskTodayLane(active.Id, TodayLane.Planned);
+        Assert.Equal(beforeLaneMove, session.Work.Read().Tasks.Select(task => task.Id));
+
+        var change = session.Work.MoveTaskInTodayLane(plannedOlder.Id, 0);
+        Assert.Equal(new TodayLaneOrderChange(plannedOlder.Id, TodayLane.Planned, 1, 3), change);
+        Assert.Equal([plannedOlder.Id, hidden.Id, plannedNewer.Id, active.Id], session.Work.Read().Tasks.Select(task => task.Id));
+
+        session.Work.CompleteTask(active.Id);
+        Assert.Null(session.Work.Read().Tasks.Single(task => task.Id == active.Id).TodayLane);
+        session.Work.ReopenTask(active.Id);
+        Assert.Null(session.Work.Read().Tasks.Single(task => task.Id == active.Id).TodayLane);
+        Assert.Throws<InvalidOperationException>(() =>
+        {
+            session.Work.CompleteTask(active.Id);
+            session.Work.SetTaskTodayLane(active.Id, TodayLane.Planned);
+        });
+        session.Work.ReopenTask(active.Id);
+
+        Assert.Equal(2, session.Work.ClearToday());
+        Assert.All(session.Work.Read().Tasks, task => Assert.Null(task.TodayLane));
+    }
+
+    [Fact]
     public void CompletionFailureRollsBackBothCapturedFieldsWithoutExposingPrivateDatabaseDetails()
     {
         using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
         var project = session.Work.CreateProject("Garden", "", session.Work.Read().Categories[0].Id, null);
         var task = session.Work.CreateTask(project.Id, "Private task");
+        session.Work.SetTaskTodayLane(task.Id, TodayLane.Planned);
         using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
         {
             using var command = connection.CreateCommand();
@@ -179,6 +297,7 @@ public sealed class WorkspaceWorkTests : IDisposable
         var unchanged = Assert.Single(session.Work.Read().Tasks);
         Assert.Null(unchanged.CompletedAt);
         Assert.Null(unchanged.CompletionDate);
+        Assert.Equal(TodayLane.Planned, unchanged.TodayLane);
 
         using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
         {
@@ -187,6 +306,7 @@ public sealed class WorkspaceWorkTests : IDisposable
             command.ExecuteNonQuery();
         }
         var completed = session.Work.CompleteTask(task.Id);
+        Assert.Null(completed.TodayLane);
         using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
         {
             using var command = connection.CreateCommand();
@@ -423,7 +543,7 @@ public sealed class WorkspaceWorkTests : IDisposable
         }
         using (var session = _store.Open(WorkspacePath, _passphrase).Session!)
         {
-            Assert.Equal(6, session.SchemaVersion);
+            Assert.Equal(7, session.SchemaVersion);
             Assert.Equal("original", Assert.Single(session.Work.Read().Categories).Id);
             var project = session.Work.CreateProject("Migrated project", "", "original", null);
             session.Work.CreateTask(project.Id, "Migrated task");
@@ -486,14 +606,14 @@ public sealed class WorkspaceWorkTests : IDisposable
     [InlineData("participant_id TEXT NOT NULL REFERENCES participants(id)", "participant_id TEXT NOT NULL")]
     [InlineData("PRIMARY KEY(task_id, participant_id)", "UNIQUE(task_id, participant_id)")]
     [InlineData("UNIQUE(task_id, position)", "UNIQUE(participant_id, position)")]
-    public void OpenRejectsSchemaSixWithMissingConstraintsOrChangedTypes(string original, string replacement)
+    public void OpenRejectsSchemaSevenWithMissingConstraintsOrChangedTypes(string original, string replacement)
     {
         _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!.Dispose();
         using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
         {
             using var command = connection.CreateCommand();
             // Rebuild the empty work tables with valid SQL that weakens one schema guarantee.
-            command.CommandText = "DROP TABLE task_participants; DROP TABLE participants; DROP TABLE tasks; DROP TABLE projects;" +
+            command.CommandText = "DROP TABLE today_tasks; DROP TABLE task_participants; DROP TABLE participants; DROP TABLE tasks; DROP TABLE projects;" +
                 SqliteWorkspaceWork.Schema.Replace(original, replacement, StringComparison.Ordinal);
             command.ExecuteNonQuery();
             Assert.Equal("ok", EncryptedWorkspaceStore.ExecuteScalar<string>(connection, "PRAGMA integrity_check;"));
@@ -503,6 +623,34 @@ public sealed class WorkspaceWorkTests : IDisposable
         Assert.Equal(WorkspaceOpenStatus.InvalidPassphraseOrStore, result.Status);
         Assert.Null(result.Session);
         Assert.Equal(before, File.ReadAllBytes(WorkspacePath));
+    }
+
+    [Fact]
+    public void OpenRejectsCompletedTaskThatStillHasTodayMembership()
+    {
+        string taskId;
+        using (var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!)
+        {
+            var project = session.Work.CreateProject("Garden", "", session.Work.Read().Categories[0].Id, null);
+            taskId = session.Work.CreateTask(project.Id, "Dig").Id;
+            session.Work.SetTaskTodayLane(taskId, TodayLane.Planned);
+        }
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                UPDATE tasks
+                SET completion_instant='2026-09-29T12:00:00.0000000+00:00', completion_date='2026-09-29'
+                WHERE id=$id;
+                """;
+            command.Parameters.AddWithValue("$id", taskId);
+            Assert.Equal(1, command.ExecuteNonQuery());
+        }
+
+        var result = _store.Open(WorkspacePath, _passphrase);
+
+        Assert.Equal(WorkspaceOpenStatus.InvalidPassphraseOrStore, result.Status);
+        Assert.Null(result.Session);
     }
 
     [Theory]
@@ -743,7 +891,7 @@ public sealed class WorkspaceWorkTests : IDisposable
         }
 
         using var session = _store.Open(WorkspacePath, _passphrase).Session!;
-        Assert.Equal(6, session.SchemaVersion);
+        Assert.Equal(7, session.SchemaVersion);
         Assert.Equal("Dig", Assert.Single(session.Work.Read().Tasks).Title);
         using var migrated = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadOnly);
         Assert.Equal("id,label,comparison_key", EncryptedWorkspaceStore.ExecuteScalar<string>(migrated,

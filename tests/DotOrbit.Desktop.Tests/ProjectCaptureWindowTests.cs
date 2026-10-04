@@ -14,6 +14,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using DotOrbit.Core.Workspaces;
 using DotOrbit.Desktop.ViewModels;
 using DotOrbit.Desktop.Views;
 using Xunit;
@@ -22,6 +23,175 @@ namespace DotOrbit.Desktop.Tests;
 
 public sealed class ProjectCaptureWindowTests
 {
+    [AvaloniaFact]
+    public void TodayStarLaneMovementAndClearAreKeyboardOperableAndAccessible()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("File receipt", "", "home", null);
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Backlog").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell, Width = 1200, Height = 760 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var star = Assert.IsType<ToggleButton>(ButtonByAutomationId(window, $"task-today-{task.Id}"));
+        Assert.False(star.IsChecked);
+        Assert.Equal("Add File receipt to Today", AutomationProperties.GetName(star));
+        Assert.True(star.Focus());
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(star.IsChecked);
+        Assert.Equal("Remove File receipt from Today", AutomationProperties.GetName(star));
+        Assert.Equal(TodayLane.Planned, work.Read().Tasks.Single().TodayLane);
+
+        shell.PrimaryNavigation.Single(item => item.Title == "Today").SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var start = NamedButton(window, "Move File receipt to In progress");
+        Assert.True(start.Focus());
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(TodayLane.InProgress, work.Read().Tasks.Single().TodayLane);
+        Assert.Single(window.GetVisualDescendants().OfType<Border>(), row => row.Classes.Contains("today-in-progress-row"));
+        Assert.True(window.GetVisualDescendants().OfType<ToggleButton>().Single(control =>
+            AutomationProperties.GetAutomationId(control) == $"task-today-{task.Id}" && control.IsEffectivelyVisible).IsFocused);
+        Assert.Equal("Moved File receipt to In progress.", shell.Work!.TodayAnnouncement);
+
+        var clear = window.FindControl<Button>("TodayClearButton")!;
+        Assert.Equal("Clear incomplete Tasks from Today", AutomationProperties.GetName(clear));
+        Assert.True(clear.Focus());
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Null(work.Read().Tasks.Single().TodayLane);
+        Assert.True(shell.Work!.HasNoTodayTasks);
+        Assert.True(clear.IsKeyboardFocusWithin);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void TodayCreationAndReorderAlternativesExposeContextHelpFocusAnnouncementAndDrag()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var first = work.CreateTask(project.Id, "First");
+        var second = work.CreateTask(project.Id, "Second");
+        work.SetTaskTodayLane(first.Id, TodayLane.Planned);
+        work.SetTaskTodayLane(second.Id, TodayLane.Planned);
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Today").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell, Width = 1200, Height = 760 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var create = window.FindControl<Button>("NewTodayTaskButton")!;
+        Assert.Equal("New task in Today", AutomationProperties.GetName(create));
+        Assert.True(create.IsVisible);
+
+        var handle = ButtonByAutomationId(window, $"today-reorder-{second.Id}");
+        Assert.Equal("Drag within Planned, or activate for keyboard reorder actions.", AutomationProperties.GetHelpText(handle));
+        Activate(window, handle);
+        var menu = Assert.IsType<MenuFlyout>(handle.Flyout);
+        var items = menu.Items.OfType<MenuItem>().ToArray();
+        Assert.Equal(4, items.Length);
+        var moveToTop = items.Single(item => item.Header?.ToString() == "Move to top");
+        Assert.Equal("Move Second to top of Planned", AutomationProperties.GetName(moveToTop));
+        moveToTop.Command!.Execute(null);
+        menu.Hide();
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(ButtonByAutomationId(window, $"today-reorder-{second.Id}").IsFocused);
+        Assert.Equal([second.Id, first.Id], shell.Work!.TodayPlanned.Select(row => row.Task.Id));
+        Assert.Equal("Moved Second to position 1 of 2 in Planned.", shell.Work.TodayAnnouncement);
+
+        handle = ButtonByAutomationId(window, $"today-reorder-{second.Id}");
+        var target = ButtonByAutomationId(window, $"today-reorder-{first.Id}");
+        DragToTarget(window, handle, target);
+        window.MouseUp(CentreInWindow(target, window), MouseButton.Left, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal([first.Id, second.Id], shell.Work.TodayPlanned.Select(row => row.Task.Id));
+        Assert.True(ButtonByAutomationId(window, $"today-reorder-{second.Id}").IsFocused);
+        Assert.Equal("Moved Second to position 2 of 2 in Planned.", shell.Work.TodayAnnouncement);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void CompletedTodayMarksOnlyItsFinalRowAsLast()
+    {
+        var work = new MemoryWorkspaceWork();
+        var first = work.CreateStandaloneTask("First", "", "home", null);
+        var second = work.CreateStandaloneTask("Second", "", "home", null);
+        work.SetCompletion(first.Id, new DateTimeOffset(2026, 9, 29, 9, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 29));
+        work.SetCompletion(second.Id, new DateTimeOffset(2026, 9, 29, 10, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 29));
+        var shell = new ShellViewModel(work, new FixedTimeProvider(new DateTimeOffset(2026, 9, 29, 12, 0, 0, TimeSpan.Zero)));
+        shell.PrimaryNavigation.Single(item => item.Title == "Today").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var rows = window.GetVisualDescendants().OfType<Border>()
+            .Where(row => row.Classes.Contains("completed-today-row")).ToArray();
+        Assert.Equal(2, rows.Length);
+        Assert.Single(rows, row => row.Classes.Contains("last"));
+        Assert.Contains("last", rows[^1].Classes);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void IncompleteTaskRowsKeepCompletionLeadingDateRightAndTodayTrailingAcrossViews()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var attached = work.CreateTask(project.Id, "Plant bulbs");
+        var standalone = work.CreateStandaloneTask("File receipt", "", "home", new DateOnly(2026, 9, 30));
+        work.UpdateTask(attached.Id, attached.Title, attached.Description, attached.ExplicitCategoryId,
+            new DateOnly(2026, 9, 30));
+        work.SetTaskTodayLane(attached.Id, TodayLane.Planned);
+        work.SetTaskTodayLane(standalone.Id, TodayLane.Planned);
+        var shell = new ShellViewModel(work,
+            new FixedTimeProvider(new DateTimeOffset(2026, 9, 29, 12, 0, 0, TimeSpan.Zero)));
+        var window = new MainWindow { DataContext = shell, Width = 1200, Height = 760 };
+        window.Show();
+
+        AssertIncompleteTaskRowContract(window,
+            RowForTask(window, "today-planned-row", attached.Id), attached.Id, "Plant bulbs", "Home · inherited", "Tomorrow");
+
+        shell.PrimaryNavigation.Single(item => item.Title == "Backlog").SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        AssertIncompleteTaskRowContract(window,
+            RowForTask(window, "backlog-row", attached.Id), attached.Id, "Plant bulbs", "Home · inherited", "Tomorrow");
+
+        shell.PrimaryNavigation.Single(item => item.Title == "Projects").SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        AssertIncompleteTaskRowContract(window,
+            RowForTask(window, "project-task-row", attached.Id), attached.Id, "Plant bulbs", "Home · inherited", "Tomorrow");
+
+        shell.PrimaryNavigation.Single(item => item.Title == "Categories").SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        AssertIncompleteTaskRowContract(window,
+            RowForTask(window, "category-task-row", standalone.Id), standalone.Id, "File receipt", "Home · standalone", "Tomorrow");
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void CompletedCategoryTaskShowsCompletionDateInTheSharedRightMetadataColumn()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("File receipt", "", "home", new DateOnly(2026, 9, 30));
+        work.CompleteTask(task.Id);
+        var shell = new ShellViewModel(work,
+            new FixedTimeProvider(new DateTimeOffset(2026, 9, 29, 12, 0, 0, TimeSpan.Zero)));
+        shell.PrimaryNavigation.Single(item => item.Title == "Categories").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+
+        var row = RowForTask(window, "category-task-row", task.Id);
+        var title = Assert.Single(row.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "File receipt");
+        var completionDate = Assert.Single(row.GetVisualDescendants().OfType<TextBlock>(), text =>
+            text.Classes.Contains("task-completion-date") && text.Text == "Completed 29 Sep 2026");
+        Assert.True(CentreInWindow(completionDate, window).X > CentreInWindow(title, window).X);
+        Assert.DoesNotContain(row.GetVisualDescendants().OfType<ToggleButton>(), toggle =>
+            AutomationProperties.GetAutomationId(toggle) == $"task-today-{task.Id}" && toggle.IsEffectivelyVisible);
+        window.Close();
+    }
+
     [AvaloniaFact]
     public void TextAutosaveDebounceRestartsAndRejectsAStaleScheduledRevision()
     {
@@ -995,8 +1165,9 @@ public sealed class ProjectCaptureWindowTests
         var taskTitle = Assert.Single(child.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Plant bulbs");
         var taskMetadata = Assert.Single(child.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Home · inherited");
         var emptyCompletionDate = Assert.Single(child.GetVisualDescendants().OfType<TextBlock>(),
-            text => string.IsNullOrEmpty(text.Text) && text.FontSize == 11);
+            text => string.IsNullOrEmpty(text.Text) && text.Classes.Contains("task-completion-date"));
         Assert.False(emptyCompletionDate.IsVisible);
+        Assert.Equal(12, emptyCompletionDate.FontSize);
         Assert.Equal(0, emptyCompletionDate.Bounds.Height);
         var handle = ButtonByAutomationId(window, $"project-task-reorder-{task.Id}");
         var dots = Assert.Single(handle.GetVisualDescendants().OfType<Grid>(),
@@ -2468,6 +2639,39 @@ public sealed class ProjectCaptureWindowTests
     }
 
     private static TextBox QuickField(Window window) => Assert.Single(window.GetVisualDescendants().OfType<TextBox>(), b => b.Classes.Contains("quick-add"));
+
+    private static Border RowForTask(Window window, string rowClass, string taskId) => Assert.Single(
+        window.GetVisualDescendants().OfType<Border>(),
+        row => row.Classes.Contains(rowClass) && row.GetVisualDescendants().OfType<ToggleButton>().Any(toggle =>
+            AutomationProperties.GetAutomationId(toggle) == $"task-completion-{taskId}"));
+
+    private static void AssertIncompleteTaskRowContract(
+        Window window,
+        Border row,
+        string taskId,
+        string titleText,
+        string categoryDisplay,
+        string dateText)
+    {
+        var completion = Assert.Single(row.GetVisualDescendants().OfType<ToggleButton>(), toggle =>
+            AutomationProperties.GetAutomationId(toggle) == $"task-completion-{taskId}");
+        var title = Assert.Single(row.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == titleText);
+        var titleButton = Assert.Single(row.GetVisualDescendants().OfType<Button>(), button =>
+            AutomationProperties.GetName(button) == titleText);
+        Assert.Equal(categoryDisplay, AutomationProperties.GetItemStatus(titleButton));
+        var date = Assert.Single(row.GetVisualDescendants().OfType<TextBlock>(), text =>
+            text.Classes.Contains("task-date") && text.Text == dateText);
+        var today = Assert.Single(row.GetVisualDescendants().OfType<ToggleButton>(), toggle =>
+            AutomationProperties.GetAutomationId(toggle) == $"task-today-{taskId}");
+        var completionX = CentreInWindow(completion, window).X;
+        var titleX = CentreInWindow(title, window).X;
+        var dateX = CentreInWindow(date, window).X;
+        var todayX = CentreInWindow(today, window).X;
+        Assert.True(completionX < titleX, $"Completion {completionX} should lead title {titleX}.");
+        Assert.True(titleX < dateX, $"Title {titleX} should lead date {dateX}.");
+        Assert.True(dateX < todayX, $"Date {dateX} should lead trailing Today action {todayX}.");
+        Assert.Equal(12, date.FontSize);
+    }
 
     private static Point CentreInWindow(Control control, Window window)
     {

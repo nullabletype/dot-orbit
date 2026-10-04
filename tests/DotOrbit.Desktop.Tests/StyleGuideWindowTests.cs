@@ -74,6 +74,17 @@ public sealed class StyleGuideWindowTests
         Assert.Equal("Reopen reference task", AutomationProperties.GetName(uncheckedCompletion));
         Assert.Equal("Complete reference task", AutomationProperties.GetName(checkedCompletion));
 
+        var todayUnchecked = window.FindControl<ToggleButton>("ReferenceTodayUnchecked")!;
+        var todayChecked = window.FindControl<ToggleButton>("ReferenceTodayChecked")!;
+        Assert.Equal("Add reference task to Today", AutomationProperties.GetName(todayUnchecked));
+        Assert.Equal("Remove reference task from Today", AutomationProperties.GetName(todayChecked));
+        Assert.False(todayUnchecked.IsChecked);
+        Assert.True(todayChecked.IsChecked);
+        Assert.Equal(30, todayUnchecked.Bounds.Width);
+        Assert.Equal(30, todayUnchecked.Bounds.Height);
+        AssertTodayStarGeometry(todayUnchecked, filled: false);
+        AssertTodayStarGeometry(todayChecked, filled: true);
+
         var disclosure = window.FindControl<ToggleButton>("ReferenceDisclosure")!;
         Assert.True(disclosure.IsChecked);
         Assert.Equal("Collapse reference details", AutomationProperties.GetName(disclosure));
@@ -115,6 +126,23 @@ public sealed class StyleGuideWindowTests
         Assert.False(markdownSource.IsEffectivelyVisible);
         Assert.True(nextControl.IsFocused);
         window.Close();
+    }
+
+    private static void AssertTodayStarGeometry(ToggleButton toggle, bool filled)
+    {
+        var outline = Assert.Single(toggle.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>(),
+            path => path.Name == "TodayStarOutline");
+        var fill = Assert.Single(toggle.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>(),
+            path => path.Name == "TodayStarFill");
+        Assert.Equal(!filled, outline.IsVisible);
+        Assert.Equal(filled, fill.IsVisible);
+        Assert.Equal(18, outline.Width);
+        Assert.Equal(18, outline.Height);
+        Assert.Equal(Avalonia.Layout.HorizontalAlignment.Center, outline.HorizontalAlignment);
+        Assert.Equal(Avalonia.Layout.VerticalAlignment.Center, outline.VerticalAlignment);
+        Assert.Equal(Avalonia.Layout.HorizontalAlignment.Center, fill.HorizontalAlignment);
+        Assert.Equal(Avalonia.Layout.VerticalAlignment.Center, fill.VerticalAlignment);
+        Assert.Equal(0, Solid(toggle.Background).Color.A);
     }
 
     [AvaloniaFact]

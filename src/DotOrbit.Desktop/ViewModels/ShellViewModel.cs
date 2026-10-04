@@ -80,6 +80,8 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             Work.Projects.CollectionChanged += (_, _) => UpdateCounts();
             Work.Backlog.CollectionChanged += (_, _) => UpdateCounts();
             Work.Completed.CollectionChanged += (_, _) => UpdateCounts();
+            Work.TodayPlanned.CollectionChanged += (_, _) => UpdateCounts();
+            Work.TodayInProgress.CollectionChanged += (_, _) => UpdateCounts();
             Work.CategoryGroups.CollectionChanged += (_, _) => UpdateCounts();
             UpdateCounts();
         }
@@ -106,6 +108,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(ViewTitle));
             OnPropertyChanged(nameof(ShowProjects));
+            OnPropertyChanged(nameof(ShowToday));
             OnPropertyChanged(nameof(ShowBacklog));
             OnPropertyChanged(nameof(ShowCompleted));
             OnPropertyChanged(nameof(ShowCategories));
@@ -121,11 +124,12 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     public SettingsViewModel? Settings { get; }
 
     public bool ShowProjects => Work is not null && ViewTitle == "Projects";
+    public bool ShowToday => Work is not null && ViewTitle == "Today";
     public bool ShowBacklog => Work is not null && ViewTitle == "Backlog";
     public bool ShowCompleted => Work is not null && ViewTitle == "Completed";
     public bool ShowCategories => Work is not null && ViewTitle == "Categories";
     public bool ShowSettings => ViewTitle == "Settings";
-    public bool ShowEmpty => !ShowProjects && !ShowBacklog && !ShowCompleted && !ShowCategories && !ShowSettings;
+    public bool ShowEmpty => !ShowToday && !ShowProjects && !ShowBacklog && !ShowCompleted && !ShowCategories && !ShowSettings;
 
     public string ViewTitle => SelectedItem.Title;
 
@@ -162,6 +166,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     {
         var wasBacklog = _selectedItem is not null && _selectedItem.Title == "Backlog";
         var wasCompleted = _selectedItem is not null && _selectedItem.Title == "Completed";
+        var wasToday = _selectedItem is not null && _selectedItem.Title == "Today";
         if (_selectedItem is not null)
         {
             _selectedItem.IsSelected = false;
@@ -171,6 +176,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         SelectedItem = item;
         var isBacklog = item.Title == "Backlog";
         var isCompleted = item.Title == "Completed";
+        var isToday = item.Title == "Today";
         if (Work is not null && wasBacklog != isBacklog)
         {
             if (isBacklog) Work.BeginBacklogEntrySession();
@@ -178,12 +184,15 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         }
         Work?.SetBacklogActive(isBacklog);
         if (Work is not null && wasCompleted != isCompleted) Work.SetCompletedActive(isCompleted);
+        if (Work is not null && wasToday != isToday) Work.SetTodayActive(isToday);
         if (item.Title == "Settings") Settings?.Refresh();
     }
 
     private void UpdateCounts()
     {
-        PrimaryNavigation.Single(n => n.Title == "Projects").CountText = Work!.Projects.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        PrimaryNavigation.Single(n => n.Title == "Today").CountText =
+            (Work!.TodayPlanned.Count + Work.TodayInProgress.Count).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        PrimaryNavigation.Single(n => n.Title == "Projects").CountText = Work.Projects.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
         PrimaryNavigation.Single(n => n.Title == "Backlog").CountText = Work.Backlog.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
         PrimaryNavigation.Single(n => n.Title == "Completed").CountText = Work.Completed.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
         PrimaryNavigation.Single(n => n.Title == "Categories").CountText = Work.CategoryGroups.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
