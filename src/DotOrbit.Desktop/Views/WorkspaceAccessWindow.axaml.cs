@@ -11,6 +11,7 @@ namespace DotOrbit.Desktop.Views;
 public sealed partial class WorkspaceAccessWindow : Window
 {
     private WorkspaceAccessViewModel _viewModel = null!;
+    private IWorkspacePathProvider? _workspacePathProvider;
 
     public WorkspaceAccessWindow()
         : this(new EncryptedWorkspaceStore(), new SystemWorkspacePathProvider())
@@ -23,6 +24,7 @@ public sealed partial class WorkspaceAccessWindow : Window
     {
         ArgumentNullException.ThrowIfNull(workspaceStore);
         ArgumentNullException.ThrowIfNull(workspacePathProvider);
+        _workspacePathProvider = workspacePathProvider;
         Initialise(new WorkspaceAccessViewModel(
             workspaceStore,
             workspacePathProvider.GetDefaultWorkspacePath(),
@@ -47,7 +49,9 @@ public sealed partial class WorkspaceAccessWindow : Window
 
     private void OpenDefaultShell(IWorkspaceSession session)
     {
-        var mainWindow = new MainWindow(session);
+        var mainWindow = _workspacePathProvider is null
+            ? new MainWindow(session)
+            : new MainWindow(session, null, null, ReturnToWorkspaceAccess);
         if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             desktop.MainWindow = mainWindow;
@@ -55,6 +59,19 @@ public sealed partial class WorkspaceAccessWindow : Window
 
         mainWindow.Show();
         Close();
+    }
+
+    private void ReturnToWorkspaceAccess()
+    {
+        var access = new WorkspaceAccessWindow(
+            new EncryptedWorkspaceStore(),
+            _workspacePathProvider ?? new SystemWorkspacePathProvider());
+        if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            desktop.MainWindow = access;
+        }
+
+        access.Show();
     }
 
     private void OnOpened(object? sender, EventArgs e) => FocusInitialField();

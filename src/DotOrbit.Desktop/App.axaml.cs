@@ -49,7 +49,12 @@ public sealed partial class App : Application
                 }
                 else
                 {
-                    desktop.MainWindow = new WorkspaceAccessWindow();
+                    desktop.MainWindow = new WorkspaceAccessWindow(
+                        new EncryptedWorkspaceStore(),
+                        SystemWorkspacePathProvider.FromArguments(
+                            desktop.Args,
+                            Environment.CurrentDirectory,
+                            AppContext.BaseDirectory));
                 }
             }
         }

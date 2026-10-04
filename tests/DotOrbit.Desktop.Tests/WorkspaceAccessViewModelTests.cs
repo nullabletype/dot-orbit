@@ -1,5 +1,6 @@
 using DotOrbit.Core.Workspaces;
 using DotOrbit.Desktop.ViewModels;
+using DotOrbit.Storage.Sqlite;
 using Xunit;
 
 namespace DotOrbit.Desktop.Tests;
@@ -14,6 +15,51 @@ public sealed class WorkspaceAccessViewModelTests
         Assert.True(Path.IsPathFullyQualified(workspacePath));
         Assert.Equal("workspace.db", Path.GetFileName(workspacePath));
         Assert.Equal("dot-orbit", Path.GetFileName(Path.GetDirectoryName(workspacePath)));
+    }
+
+    [Fact]
+    public void SampleWorkspaceLaunchUsesTheRepositoryArtifact()
+    {
+        using var repository = TemporaryDirectory.CreateRepository();
+
+        var workspacePath = SystemWorkspacePathProvider.FromArguments(
+            ["--sample-workspace"],
+            Path.Combine(repository.Path, "src", "DotOrbit.Desktop"))
+            .GetDefaultWorkspacePath();
+
+        Assert.Equal(
+            Path.Combine(repository.Path, "artifacts", "sample-workspace", "workspace.db"),
+            workspacePath);
+    }
+
+    [Fact]
+    public void OrdinaryLaunchArgumentsKeepThePlatformWorkspace()
+    {
+        using var repository = TemporaryDirectory.CreateRepository();
+
+        var workspacePath = SystemWorkspacePathProvider.FromArguments(
+            ["--unrelated"],
+            repository.Path)
+            .GetDefaultWorkspacePath();
+
+        Assert.Equal(WorkspacePathDefaults.GetDefaultWorkspacePath(), workspacePath);
+    }
+
+    [Fact]
+    public void SampleWorkspaceLaunchFallsBackToTheApplicationDirectory()
+    {
+        using var repository = TemporaryDirectory.CreateRepository();
+        using var unrelated = TemporaryDirectory.CreateRepository(createSolution: false);
+
+        var workspacePath = SystemWorkspacePathProvider.FromArguments(
+            ["--sample-workspace"],
+            unrelated.Path,
+            Path.Combine(repository.Path, "src", "DotOrbit.Desktop", "bin", "Debug", "net10.0"))
+            .GetDefaultWorkspacePath();
+
+        Assert.Equal(
+            Path.Combine(repository.Path, "artifacts", "sample-workspace", "workspace.db"),
+            workspacePath);
     }
 
     [Fact]
@@ -271,6 +317,38 @@ public sealed class WorkspaceAccessViewModelTests
 
         public void Dispose()
         {
+        }
+    }
+
+    private sealed class TemporaryDirectory : IDisposable
+    {
+        private TemporaryDirectory(string path)
+        {
+            Path = path;
+        }
+
+        public string Path { get; }
+
+        public static TemporaryDirectory CreateRepository(bool createSolution = true)
+        {
+            var path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                "dot-orbit-workspace-path-tests",
+                Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(path);
+            if (createSolution)
+            {
+                File.WriteAllText(System.IO.Path.Combine(path, "DotOrbit.slnx"), "<Solution />");
+            }
+            return new TemporaryDirectory(path);
+        }
+
+        public void Dispose()
+        {
+            if (Directory.Exists(Path))
+            {
+                Directory.Delete(Path, recursive: true);
+            }
         }
     }
 }
