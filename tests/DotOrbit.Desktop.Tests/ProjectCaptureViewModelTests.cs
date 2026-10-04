@@ -702,6 +702,150 @@ public sealed class ProjectCaptureViewModelTests
     }
 
     [Fact]
+    public void ProjectArchiveHidesAggregateWorkAndRestoreReturnsEligibleTasksWithoutToday()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var incomplete = work.CreateTask(project.Id, "Plant bulbs");
+        var complete = work.CreateTask(project.Id, "Buy compost");
+        var individuallyArchived = work.CreateTask(project.Id, "File receipt");
+        work.SetTaskTodayLane(incomplete.Id, TodayLane.InProgress);
+        work.CompleteTask(complete.Id);
+        work.CompleteTask(individuallyArchived.Id);
+        work.ArchiveTask(individuallyArchived.Id);
+        var model = new ProjectCaptureViewModel(work);
+        model.Projects.Single().Tasks.Single(task => task.Id == incomplete.Id).SelectCommand.Execute(null);
+        Assert.True(model.HasInspector);
+
+        model.Projects.Single().ArchiveCommand.Execute(null);
+
+        Assert.False(model.HasInspector);
+        Assert.Empty(model.Projects);
+        var archivedProject = Assert.Single(model.ArchivedProjects).Project;
+        Assert.Equal(project.Id, archivedProject.Id);
+        Assert.Equal("In progress", archivedProject.Status);
+        Assert.Empty(model.Backlog);
+        Assert.Empty(model.Completed);
+        Assert.Empty(model.Archived);
+        Assert.Empty(model.TodayInProgress);
+        Assert.Equal("Project archived.", model.Message);
+        Assert.Null(work.Read().Tasks.Single(task => task.Id == incomplete.Id).TodayLane);
+        Assert.True(work.Read().Tasks.Single(task => task.Id == individuallyArchived.Id).IsArchived);
+        var reloaded = new ProjectCaptureViewModel(work);
+        reloaded.NewTodayTaskCommand.Execute(null);
+        Assert.DoesNotContain(reloaded.TaskContextChoices, choice => choice.ProjectId == project.Id);
+
+        archivedProject.RestoreCommand.Execute(null);
+
+        Assert.Empty(model.ArchivedProjects);
+        Assert.Equal(project.Id, Assert.Single(model.Projects).Id);
+        Assert.Equal(incomplete.Id, Assert.Single(model.Backlog).Id);
+        Assert.Equal(complete.Id, Assert.Single(model.Completed).Id);
+        Assert.Equal(individuallyArchived.Id, Assert.Single(model.Archived).Task.Id);
+        Assert.Empty(model.TodayPlanned);
+        Assert.Empty(model.TodayInProgress);
+        Assert.Equal("Project restored.", model.Message);
+    }
+
+    [Fact]
+    public void BulkArchivePreviewConfirmationCancellationAndExecutionUseSelectedThreshold()
+    {
+        var work = new MemoryWorkspaceWork();
+        var old = work.CreateStandaloneTask("Old", "", "home", null);
+        var atCutoff = work.CreateStandaloneTask("At cutoff", "", "home", null);
+        work.SetCompletion(old.Id, new DateTimeOffset(2026, 9, 25, 12, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 25));
+        work.SetCompletion(atCutoff.Id, new DateTimeOffset(2026, 9, 26, 12, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 26));
+        var model = new ProjectCaptureViewModel(work,
+            new FixedTimeProvider(new DateTimeOffset(2026, 9, 29, 18, 0, 0, TimeSpan.Zero)));
+
+        model.BulkArchiveCompletedAgeDays = 3;
+
+        Assert.Equal(1, model.BulkArchiveAffectedCount);
+        Assert.Equal("1 completed Task is older than 3 calendar days.", model.BulkArchiveThresholdSummary);
+        model.RequestBulkTaskArchiveCommand.Execute(null);
+        Assert.True(model.NeedsBulkTaskArchiveConfirmation);
+        Assert.Equal("Archive 1 completed Task?", model.BulkArchiveConfirmationHeading);
+        Assert.Contains("Projects will not be archived", model.BulkArchiveConfirmationBody, StringComparison.Ordinal);
+        model.CancelBulkTaskArchiveCommand.Execute(null);
+        Assert.False(model.NeedsBulkTaskArchiveConfirmation);
+        Assert.False(work.Read().Tasks.Single(task => task.Id == old.Id).IsArchived);
+
+        model.RequestBulkTaskArchiveCommand.Execute(null);
+        model.ConfirmBulkTaskArchiveCommand.Execute(null);
+
+        Assert.False(model.NeedsBulkTaskArchiveConfirmation);
+        Assert.True(work.Read().Tasks.Single(task => task.Id == old.Id).IsArchived);
+        Assert.False(work.Read().Tasks.Single(task => task.Id == atCutoff.Id).IsArchived);
+        Assert.Equal(0, model.BulkArchiveAffectedCount);
+        Assert.Equal("1 completed Task archived.", model.Message);
+    }
+
+    [Fact]
+    public void BulkArchiveRequiresFreshConfirmationWhenAffectedCountChangesAcrossMidnight()
+    {
+        var work = new MemoryWorkspaceWork { CurrentDate = new DateOnly(2026, 9, 29) };
+        var old = work.CreateStandaloneTask("Old", "", "home", null);
+        var boundary = work.CreateStandaloneTask("Boundary", "", "home", null);
+        var nextBoundary = work.CreateStandaloneTask("Next boundary", "", "home", null);
+        work.SetCompletion(old.Id, new DateTimeOffset(2026, 9, 25, 12, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 25));
+        work.SetCompletion(boundary.Id, new DateTimeOffset(2026, 9, 26, 12, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 26));
+        work.SetCompletion(nextBoundary.Id, new DateTimeOffset(2026, 9, 27, 12, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 27));
+        var model = new ProjectCaptureViewModel(work) { BulkArchiveCompletedAgeDays = 3 };
+        model.RequestBulkTaskArchiveCommand.Execute(null);
+        Assert.Equal(1, model.BulkArchiveAffectedCount);
+
+        work.CurrentDate = new DateOnly(2026, 9, 30);
+        model.ConfirmBulkTaskArchiveCommand.Execute(null);
+
+        Assert.True(model.NeedsBulkTaskArchiveConfirmation);
+        Assert.Equal(2, model.BulkArchiveAffectedCount);
+        Assert.Equal("The affected count changed. Review it and confirm again.", model.Message);
+        Assert.All(work.Read().Tasks, task => Assert.False(task.IsArchived));
+
+        work.BeforeBulkArchive = () => work.CurrentDate = new DateOnly(2026, 10, 1);
+        model.ConfirmBulkTaskArchiveCommand.Execute(null);
+
+        Assert.True(model.NeedsBulkTaskArchiveConfirmation);
+        Assert.Equal(3, model.BulkArchiveAffectedCount);
+        Assert.Equal("The affected Tasks changed. Review them and confirm again.", model.Message);
+        Assert.All(work.Read().Tasks, task => Assert.False(task.IsArchived));
+
+        work.BeforeBulkArchive = null;
+        model.ConfirmBulkTaskArchiveCommand.Execute(null);
+
+        Assert.False(model.NeedsBulkTaskArchiveConfirmation);
+        Assert.All(work.Read().Tasks, task => Assert.True(task.IsArchived));
+    }
+
+    [Fact]
+    public void BulkArchiveNamesSameCountEligibilityChangesAndRequiresFreshConfirmation()
+    {
+        var work = new MemoryWorkspaceWork { CurrentDate = new DateOnly(2026, 9, 29) };
+        var first = work.CreateStandaloneTask("First", "", "home", null);
+        var replacement = work.CreateStandaloneTask("Replacement", "", "home", null);
+        work.SetCompletion(first.Id, new DateTimeOffset(2026, 9, 25, 12, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 25));
+        work.SetCompletion(replacement.Id, new DateTimeOffset(2026, 9, 26, 12, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 26));
+        var model = new ProjectCaptureViewModel(work) { BulkArchiveCompletedAgeDays = 3 };
+        model.RequestBulkTaskArchiveCommand.Execute(null);
+        Assert.Equal(1, model.BulkArchiveAffectedCount);
+
+        work.ReopenTask(first.Id);
+        work.CurrentDate = new DateOnly(2026, 9, 30);
+        model.ConfirmBulkTaskArchiveCommand.Execute(null);
+
+        Assert.True(model.NeedsBulkTaskArchiveConfirmation);
+        Assert.Equal(1, model.BulkArchiveAffectedCount);
+        Assert.Equal("The affected Tasks changed. Review them and confirm again.", model.Message);
+        Assert.All(work.Read().Tasks, task => Assert.False(task.IsArchived));
+
+        model.ConfirmBulkTaskArchiveCommand.Execute(null);
+
+        Assert.False(model.NeedsBulkTaskArchiveConfirmation);
+        Assert.True(work.Read().Tasks.Single(task => task.Id == replacement.Id).IsArchived);
+        Assert.False(work.Read().Tasks.Single(task => task.Id == first.Id).IsArchived);
+    }
+
+    [Fact]
     public void CompletedGroupsUseThreeDailyBucketsThenCalendarWeeks()
     {
         var work = new MemoryWorkspaceWork();
@@ -821,20 +965,46 @@ public sealed class ProjectCaptureViewModelTests
 
         Assert.Equal(
             ["Today", "Yesterday", "Sunday, 27 September 2026", "Week of 21 Sep 2026", "Week of 14 Sep 2026"],
-            model.ArchivedGroups.Select(group => group.Heading));
-        Assert.Equal([today.Id], model.ArchivedGroups[0].Tasks.Select(task => task.Id));
-        Assert.Equal([yesterday.Id], model.ArchivedGroups[1].Tasks.Select(task => task.Id));
-        Assert.Equal([twoDaysAgo.Id], model.ArchivedGroups[2].Tasks.Select(task => task.Id));
-        Assert.Equal([weekNewer.Id, weekOlder.Id], model.ArchivedGroups[3].Tasks.Select(task => task.Id));
-        Assert.Equal([priorWeek.Id], model.ArchivedGroups[4].Tasks.Select(task => task.Id));
+            model.ArchiveGroups.Select(group => group.Heading));
+        Assert.Equal([today.Id], model.ArchiveGroups[0].Rows.Select(row => row.Task!.Id));
+        Assert.Equal([yesterday.Id], model.ArchiveGroups[1].Rows.Select(row => row.Task!.Id));
+        Assert.Equal([twoDaysAgo.Id], model.ArchiveGroups[2].Rows.Select(row => row.Task!.Id));
+        Assert.Equal([weekNewer.Id, weekOlder.Id], model.ArchiveGroups[3].Rows.Select(row => row.Task!.Id));
+        Assert.Equal([priorWeek.Id], model.ArchiveGroups[4].Rows.Select(row => row.Task!.Id));
 
-        var before = model.ArchivedGroups.Select(group => (group.Heading, Ids: group.Tasks.Select(task => task.Id).ToArray())).ToArray();
+        var before = model.ArchiveGroups.Select(group =>
+            (group.Heading, Ids: group.Rows.Select(row => row.Task!.Id).ToArray())).ToArray();
         var plusEight = TimeZoneInfo.CreateCustomTimeZone("UTC+08-archive", TimeSpan.FromHours(8), "UTC+08", "UTC+08");
         time.Set(time.GetUtcNow(), plusEight);
 
         Assert.True(model.RefreshDatePresentation());
-        Assert.Equal(before.Select(group => group.Heading), model.ArchivedGroups.Select(group => group.Heading));
-        Assert.Equal(before.SelectMany(group => group.Ids), model.ArchivedGroups.SelectMany(group => group.Tasks).Select(task => task.Id));
+        Assert.Equal(before.Select(group => group.Heading), model.ArchiveGroups.Select(group => group.Heading));
+        Assert.Equal(before.SelectMany(group => group.Ids),
+            model.ArchiveGroups.SelectMany(group => group.Rows).Select(row => row.Task!.Id));
+    }
+
+    [Fact]
+    public void MixedArchiveGroupsProjectsAndTasksUnderOneChronologicalHeadingSequence()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        work.ArchiveProject(project.Id);
+        var todayTask = work.CreateStandaloneTask("Today Task", "", "home", null);
+        var yesterdayTask = work.CreateStandaloneTask("Yesterday Task", "", "home", null);
+        work.SetCompletion(todayTask.Id, new DateTimeOffset(2026, 9, 20, 12, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 20));
+        work.SetCompletion(yesterdayTask.Id, new DateTimeOffset(2026, 9, 20, 11, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 20));
+        work.SetArchive(todayTask.Id, new DateTimeOffset(2026, 9, 29, 14, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 29));
+        work.SetArchive(yesterdayTask.Id, new DateTimeOffset(2026, 9, 28, 14, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 28));
+
+        var model = new ProjectCaptureViewModel(work,
+            new FixedTimeProvider(new DateTimeOffset(2026, 9, 29, 18, 0, 0, TimeSpan.Zero)));
+
+        Assert.Equal(["Today", "Yesterday"], model.ArchiveGroups.Select(group => group.Heading));
+        Assert.Equal(2, model.ArchiveGroups[0].Rows.Count);
+        Assert.Contains(model.ArchiveGroups[0].Rows, row => row.Task?.Id == todayTask.Id && row.IsTask);
+        Assert.Contains(model.ArchiveGroups[0].Rows, row => row.Project?.Id == project.Id && row.IsProject);
+        Assert.Equal(yesterdayTask.Id, Assert.Single(model.ArchiveGroups[1].Rows).Task?.Id);
+        Assert.All(model.ArchiveGroups, group => Assert.True(group.Rows[^1].IsLast));
     }
 
     [Fact]
@@ -1268,6 +1438,8 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
     private readonly List<TaskRecord> _tasks = [];
     private readonly List<ParticipantRecord> _participants = [];
     public bool FailWrites { get; set; }
+    public DateOnly CurrentDate { get; set; } = new(2026, 9, 29);
+    public Action? BeforeBulkArchive { get; set; }
     public int WriteCount { get; private set; }
     public WorkspaceWorkSnapshot Read() => new(_categories.OrderBy(category => category.Position).ToArray(), _projects.OrderBy(project => project.Position).ToArray(), _tasks.OrderBy(t => t.SharedPosition).ToArray(), _participants.ToArray());
     public ParticipantRecord CreateParticipant(string label)
@@ -1350,6 +1522,7 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
     public TaskRecord CreateTask(string projectId, string title)
     {
         Check();
+        if (_projects.Single(project => project.Id == projectId).IsArchived) throw new InvalidOperationException();
         ShiftForNewTask();
         var task = new TaskRecord($"task-{_tasks.Count}", projectId, title.Trim(), "", null, null, 0, _tasks.Count(t => t.ProjectId == projectId));
         _tasks.Add(task); return task;
@@ -1360,6 +1533,7 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
         Check();
         if (projectId is null && categoryId is null) throw new ArgumentException("Category required.", nameof(categoryId));
         if (projectId is not null && _projects.All(project => project.Id != projectId)) throw new ArgumentException("Project missing.", nameof(projectId));
+        if (projectId is not null && _projects.Single(project => project.Id == projectId).IsArchived) throw new InvalidOperationException();
         var taskBackup = _tasks.ToList();
         var participantBackup = _participants.ToList();
         ShiftForNewTask();
@@ -1472,6 +1646,51 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
         if (!_tasks[index].IsArchived) throw new InvalidOperationException();
         return _tasks[index] = _tasks[index] with { ArchivedAt = null, ArchiveDate = null };
     }
+    public ProjectRecord ArchiveProject(string id)
+    {
+        Check();
+        var index = _projects.FindIndex(project => project.Id == id);
+        if (_projects[index].IsArchived) throw new InvalidOperationException();
+        for (var taskIndex = 0; taskIndex < _tasks.Count; taskIndex++)
+            if (_tasks[taskIndex].ProjectId == id)
+                _tasks[taskIndex] = _tasks[taskIndex] with { TodayLane = null };
+        return _projects[index] = _projects[index] with
+        {
+            ArchivedAt = new DateTimeOffset(2026, 9, 29, 13, 0, 0, TimeSpan.Zero),
+            ArchiveDate = new DateOnly(2026, 9, 29),
+        };
+    }
+    public ProjectRecord RestoreProject(string id)
+    {
+        Check();
+        var index = _projects.FindIndex(project => project.Id == id);
+        if (!_projects[index].IsArchived) throw new InvalidOperationException();
+        return _projects[index] = _projects[index] with { ArchivedAt = null, ArchiveDate = null };
+    }
+    public BulkTaskArchivePreview PreviewBulkTaskArchive(int completedAgeDays)
+    {
+        var tasks = BulkTaskArchivePolicy.EligibleTasks(Read(), CurrentDate, completedAgeDays);
+        return new(completedAgeDays, CurrentDate, tasks.Select(task => task.Id).ToArray());
+    }
+    public BulkTaskArchiveResult BulkArchiveTasks(BulkTaskArchivePreview confirmedPreview)
+    {
+        Check();
+        BeforeBulkArchive?.Invoke();
+        var currentPreview = PreviewBulkTaskArchive(confirmedPreview.CompletedAgeDays);
+        if (!confirmedPreview.Matches(currentPreview))
+            return new(false, currentPreview, 0);
+        var tasks = _tasks.Where(task => currentPreview.EligibleTaskIds.Contains(task.Id, StringComparer.Ordinal)).ToArray();
+        foreach (var task in tasks)
+        {
+            var index = _tasks.FindIndex(item => item.Id == task.Id);
+            _tasks[index] = _tasks[index] with
+            {
+                ArchivedAt = new DateTimeOffset(2026, 9, 29, 13, 0, 0, TimeSpan.Zero),
+                ArchiveDate = new DateOnly(2026, 9, 29),
+            };
+        }
+        return new(true, confirmedPreview, tasks.Length);
+    }
     public TaskRecord SetArchive(string id, DateTimeOffset instant, DateOnly date)
     {
         int index = _tasks.FindIndex(task => task.Id == id);
@@ -1526,13 +1745,17 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
     {
         Check();
         var ordered = _tasks.OrderBy(task => task.SharedPosition).ToList();
-        var visible = ordered.Where(task => !task.IsComplete).ToList();
+        var archivedProjectIds = _projects.Where(project => project.IsArchived)
+            .Select(project => project.Id).ToHashSet(StringComparer.Ordinal);
+        var visible = ordered.Where(task => !task.IsComplete && !task.IsArchived
+            && (task.ProjectId is null || !archivedProjectIds.Contains(task.ProjectId))).ToList();
         if ((uint)targetPosition >= (uint)visible.Count) throw new ArgumentOutOfRangeException(nameof(targetPosition));
         var task = visible.Single(task => task.Id == id);
         visible.Remove(task);
         visible.Insert(targetPosition, task);
         var visibleIndex = 0;
-        ordered = ordered.Select(item => item.IsComplete ? item : visible[visibleIndex++]).ToList();
+        var visibleIds = visible.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
+        ordered = ordered.Select(item => visibleIds.Contains(item.Id) ? visible[visibleIndex++] : item).ToList();
         for (var index = 0; index < ordered.Count; index++)
         {
             var storedIndex = _tasks.FindIndex(candidate => candidate.Id == ordered[index].Id);
@@ -1543,17 +1766,21 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
     public ProjectOrderChange MoveProject(string id, int targetPosition)
     {
         Check();
-        if ((uint)targetPosition >= (uint)_projects.Count) throw new ArgumentOutOfRangeException(nameof(targetPosition));
         var ordered = _projects.OrderBy(project => project.Position).ToList();
-        var project = ordered.Single(project => project.Id == id);
-        ordered.Remove(project);
-        ordered.Insert(targetPosition, project);
+        var visible = ordered.Where(project => !project.IsArchived).ToList();
+        if ((uint)targetPosition >= (uint)visible.Count) throw new ArgumentOutOfRangeException(nameof(targetPosition));
+        var project = visible.Single(project => project.Id == id);
+        visible.Remove(project);
+        visible.Insert(targetPosition, project);
+        var visibleIds = visible.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
+        var visibleIndex = 0;
+        ordered = ordered.Select(item => visibleIds.Contains(item.Id) ? visible[visibleIndex++] : item).ToList();
         for (var index = 0; index < ordered.Count; index++)
         {
             var storedIndex = _projects.FindIndex(candidate => candidate.Id == ordered[index].Id);
             _projects[storedIndex] = _projects[storedIndex] with { Position = index };
         }
-        return new(id, targetPosition + 1, ordered.Count);
+        return new(id, targetPosition + 1, visible.Count);
     }
     public ProjectTaskOrderChange MoveTaskInProject(string projectId, string taskId, int targetPosition)
     {
@@ -1585,6 +1812,7 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
     public TaskRecord AttachTask(string id, string projectId, TaskAttachmentCategoryChoice? categoryChoice = null)
     {
         Check();
+        if (_projects.Single(project => project.Id == projectId).IsArchived) throw new InvalidOperationException();
         var index = _tasks.FindIndex(task => task.Id == id);
         var task = _tasks[index];
         var effectiveCategoryId = EffectiveCategoryId(task);

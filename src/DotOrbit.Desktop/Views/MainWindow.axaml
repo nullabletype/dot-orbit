@@ -371,9 +371,10 @@
               </ItemsControl>
             </Border>
           </StackPanel>
-          <TextBlock Height="1" Opacity="0" Text="{Binding Work.TodayAnnouncement}" AutomationProperties.LiveSetting="Polite" />
         </StackPanel>
       </ScrollViewer>
+      <TextBlock Grid.Row="2" Height="1" Opacity="0" IsHitTestVisible="False" IsVisible="{Binding ShowToday}"
+          Text="{Binding Work.TodayAnnouncement}" AutomationProperties.LiveSetting="Polite" />
       <ScrollViewer x:Name="UpcomingView" Grid.Row="2" IsVisible="{Binding ShowUpcoming}">
         <StackPanel Margin="{StaticResource ScrollContentInset}" Spacing="14">
           <Border Classes="empty-state" IsVisible="{Binding Work.HasNoUpcoming}" Padding="44">
@@ -415,16 +416,18 @@
             </StackPanel>
           </Border>
           <ItemsControl ItemsSource="{Binding Work.Projects}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate><StackPanel Spacing="10" /></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:ProjectRowViewModel">
                 <Border
                     Classes="project-row reorder-target"
-                    Margin="0,0,0,10"
                     Background="{StaticResource PanelBrush}"
                     CornerRadius="10">
                   <Grid RowDefinitions="Auto,Auto">
                     <Border Classes="interactive-row expandable-header-row project-header-row selectable-row" Classes.expanded="{Binding IsExpanded}" Padding="10,8,12,8">
-                      <Grid ColumnDefinitions="30,4,30,*,Auto">
+                      <Grid ColumnDefinitions="30,4,30,*,Auto,Auto">
                         <Button
                             Classes="drag-handle project-drag-handle"
                             AutomationProperties.AutomationId="{Binding ReorderAutomationId}"
@@ -475,6 +478,10 @@
                           <TextBlock IsVisible="{Binding HasCompletionDate}"
                               FontSize="11" Foreground="{StaticResource SuccessBrush}" Text="{Binding CompletionDateText}" />
                         </StackPanel>
+                        <Button Grid.Column="5" Classes="view-action task-row-action" Margin="8,0,0,0" Content="Archive"
+                            Command="{Binding ArchiveCommand}"
+                            AutomationProperties.AutomationId="{Binding ArchiveAutomationId}"
+                            AutomationProperties.Name="{Binding ArchiveAccessibleName}" />
                       </Grid>
                     </Border>
                     <Border
@@ -639,15 +646,19 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
         </Border>
-        <TextBlock Height="1" Opacity="0" Text="{Binding Work.ReorderAnnouncement}" AutomationProperties.LiveSetting="Polite" />
         </StackPanel>
       </ScrollViewer>
+      <TextBlock Grid.Row="2" Height="1" Opacity="0" IsHitTestVisible="False" IsVisible="{Binding ShowBacklog}"
+          Text="{Binding Work.ReorderAnnouncement}" AutomationProperties.LiveSetting="Polite" />
       <ScrollViewer Grid.Row="2" IsVisible="{Binding ShowCategories}">
         <StackPanel Margin="{StaticResource ScrollContentInset}" Spacing="10">
           <ItemsControl ItemsSource="{Binding Work.CategoryGroups}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate><StackPanel Spacing="10" /></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:CategoryGroupViewModel">
-                <Border Classes="category-row reorder-target" Margin="0,0,0,10" Background="{StaticResource PanelBrush}" CornerRadius="10">
+                <Border Classes="category-row reorder-target" Background="{StaticResource PanelBrush}" CornerRadius="10">
                   <Grid RowDefinitions="Auto,Auto">
                     <Border Classes="interactive-row expandable-header-row category-header-row selectable-row"
                         Classes.expanded="{Binding IsExpanded}" Padding="10,8,12,8">
@@ -740,11 +751,32 @@
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
-          <TextBlock Height="1" Opacity="0" Text="{Binding Work.ReorderAnnouncement}" AutomationProperties.LiveSetting="Polite" />
         </StackPanel>
       </ScrollViewer>
+      <TextBlock Grid.Row="2" Height="1" Opacity="0" IsHitTestVisible="False" IsVisible="{Binding ShowCategories}"
+          Text="{Binding Work.ReorderAnnouncement}" AutomationProperties.LiveSetting="Polite" />
       <ScrollViewer Grid.Row="2" IsVisible="{Binding ShowCompleted}">
         <StackPanel Margin="{StaticResource ScrollContentInset}" Spacing="10">
+          <Border Classes="list-panel">
+            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+              <StackPanel Spacing="3">
+                <TextBlock FontWeight="SemiBold" Text="Archive older completed Tasks" />
+                <TextBlock FontSize="12" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"
+                    Text="{Binding Work.BulkArchiveThresholdSummary}"
+                    AutomationProperties.LiveSetting="Polite" />
+              </StackPanel>
+              <ComboBox Grid.Column="1" Width="76" VerticalAlignment="Center"
+                  ItemsSource="{Binding Work.BulkArchiveThresholdChoices}"
+                  SelectedItem="{Binding Work.BulkArchiveCompletedAgeDays, Mode=TwoWay}"
+                  AutomationProperties.AutomationId="bulk-archive-threshold"
+                  AutomationProperties.Name="Completed age threshold in calendar days" />
+              <Button Grid.Column="2" Classes="view-action" VerticalAlignment="Center"
+                  Content="Archive Tasks" Command="{Binding Work.RequestBulkTaskArchiveCommand}"
+                  IsEnabled="{Binding Work.CanBulkArchive}"
+                  AutomationProperties.AutomationId="bulk-archive-request"
+                  AutomationProperties.Name="Archive older completed Tasks" />
+            </Grid>
+          </Border>
           <Border Classes="empty-state" IsVisible="{Binding Work.HasNoCompleted}" Padding="44">
             <StackPanel HorizontalAlignment="Center" Spacing="8">
               <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Text="No completed tasks yet" />
@@ -803,28 +835,32 @@
             <StackPanel HorizontalAlignment="Center" Spacing="8">
               <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Text="Your archive is empty" />
               <TextBlock MaxWidth="420" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}"
-                  Text="Tasks you archive will remain available to restore here."
+                  Text="Projects and Tasks you archive will remain available to restore here."
                   TextAlignment="Center" TextWrapping="Wrap" />
             </StackPanel>
           </Border>
-          <Border x:Name="ArchiveListPanel" Classes="list-panel" IsVisible="{Binding Work.HasArchived}">
-            <ItemsControl ItemsSource="{Binding Work.ArchivedGroups}">
-              <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate>
-                  <StackPanel Spacing="12" />
-                </ItemsPanelTemplate>
-              </ItemsControl.ItemsPanel>
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="vm:ArchivedTaskGroupViewModel">
-                  <StackPanel Spacing="4">
-                    <TextBlock Classes="eyebrow" Margin="6,4" Text="{Binding Heading}" />
+          <ItemsControl ItemsSource="{Binding Work.ArchiveGroups}" IsVisible="{Binding Work.HasArchived}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate><StackPanel Spacing="12" /></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:ArchivedWorkGroupViewModel">
+                <StackPanel Spacing="4">
+                  <TextBlock Classes="eyebrow" Margin="6,4" Text="{Binding Heading}" />
+                  <Border Classes="list-panel">
                     <ItemsControl ItemsSource="{Binding Rows}">
                       <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="vm:ArchivedTaskRowViewModel">
-                          <Border Classes="interactive-row separated-row task-row selectable-row archive-row"
-                              Classes.last="{Binding IsLast}" MinHeight="{StaticResource StandardRowHeight}">
-                            <Grid VerticalAlignment="Center" ColumnDefinitions="*,Auto,Auto,Auto">
-                              <Button Classes="task-title row-title" Command="{Binding Task.SelectCommand}"
+                        <DataTemplate x:DataType="vm:ArchivedWorkRowViewModel">
+                          <Border Classes="interactive-row separated-row archive-row"
+                              Classes.task-row="{Binding IsTask}" Classes.selectable-row="{Binding IsTask}"
+                              Classes.last="{Binding IsLast}"
+                              MinHeight="{StaticResource StandardRowHeight}">
+                            <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+                              <StackPanel IsVisible="{Binding IsProject}" VerticalAlignment="Center" Spacing="3">
+                                <TextBlock FontWeight="SemiBold" Text="{Binding Project.Title}" />
+                                <TextBlock FontSize="12" Foreground="{StaticResource QuietTextBrush}" Text="{Binding Project.Summary}" />
+                              </StackPanel>
+                              <Button IsVisible="{Binding IsTask}" Classes="task-title row-title" Command="{Binding Task.SelectCommand}"
                                   AutomationProperties.Name="{Binding Task.Title}"
                                   AutomationProperties.ItemStatus="{Binding Task.CategoryDisplay}">
                                 <StackPanel Spacing="3">
@@ -832,10 +868,21 @@
                                   <TextBlock Text="{Binding Task.CategoryDisplay}" Foreground="{StaticResource QuietTextBrush}" FontSize="12" />
                                 </StackPanel>
                               </Button>
-                              <TextBlock Grid.Column="1" Classes="task-completion-date" Text="{Binding Task.CompletionDateText}" />
+                              <TextBlock Grid.Column="1" Classes="task-completion-date" IsVisible="{Binding IsTask}"
+                                  Text="{Binding Task.CompletionDateText}" />
                               <TextBlock Grid.Column="2" Margin="8,0,0,0" VerticalAlignment="Center" FontSize="12"
-                                  Foreground="{StaticResource MutedTextBrush}" Text="Archived" />
+                                  Foreground="{StaticResource MutedTextBrush}"
+                                  Text="Archived Project" IsVisible="{Binding IsProject}" />
+                              <TextBlock Grid.Column="2" Margin="8,0,0,0" VerticalAlignment="Center" FontSize="12"
+                                  Foreground="{StaticResource MutedTextBrush}"
+                                  Text="Archived Task" IsVisible="{Binding IsTask}" />
                               <Button Grid.Column="3" Classes="view-action task-row-action" Margin="8,0,0,0"
+                                  IsVisible="{Binding IsProject}"
+                                  Content="Restore" Command="{Binding Project.RestoreCommand}"
+                                  AutomationProperties.AutomationId="{Binding Project.RestoreAutomationId}"
+                                  AutomationProperties.Name="{Binding Project.RestoreAccessibleName}" />
+                              <Button Grid.Column="3" Classes="view-action task-row-action" Margin="8,0,0,0"
+                                  IsVisible="{Binding IsTask}"
                                   Content="Restore" Command="{Binding Task.RestoreCommand}"
                                   AutomationProperties.AutomationId="{Binding Task.RestoreAutomationId}"
                                   AutomationProperties.Name="{Binding Task.RestoreAccessibleName}" />
@@ -844,11 +891,11 @@
                         </DataTemplate>
                       </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                  </StackPanel>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-          </Border>
+                  </Border>
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
         </StackPanel>
       </ScrollViewer>
     </Grid>
@@ -1296,6 +1343,23 @@
           <Button Classes="view-action" Content="Cancel" Command="{Binding Work.CancelArchiveTaskCommand}"
               AutomationProperties.AutomationId="archive-cancel"
               AutomationProperties.Name="Cancel task archival" />
+        </StackPanel>
+      </StackPanel>
+    </Border>
+    <Border Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Classes="decision-overlay" IsVisible="{Binding Work.NeedsBulkTaskArchiveConfirmation}">
+      <StackPanel Width="470" Spacing="16" AutomationProperties.LiveSetting="Assertive">
+        <StackPanel Spacing="5">
+          <TextBlock Text="{Binding Work.BulkArchiveConfirmationHeading}" FontSize="20" FontWeight="Bold" />
+          <TextBlock Text="{Binding Work.BulkArchiveConfirmationBody}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Spacing="12">
+          <Button x:Name="ConfirmBulkTaskArchiveButton" Classes="primary-action" Content="Archive Tasks"
+              Command="{Binding Work.ConfirmBulkTaskArchiveCommand}"
+              AutomationProperties.AutomationId="bulk-archive-confirm"
+              AutomationProperties.Name="Confirm bulk Task archive" />
+          <Button Classes="view-action" Content="Cancel" Command="{Binding Work.CancelBulkTaskArchiveCommand}"
+              AutomationProperties.AutomationId="bulk-archive-cancel"
+              AutomationProperties.Name="Cancel bulk Task archive" />
         </StackPanel>
       </StackPanel>
     </Border>

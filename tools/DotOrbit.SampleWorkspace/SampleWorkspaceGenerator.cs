@@ -12,6 +12,7 @@ internal static class SampleWorkspaceGenerator
     private const int ExpectedTaskCount = 33;
     private const int ExpectedParticipantCount = 7;
     private const int ExpectedArchivedTaskCount = 6;
+    private const int ExpectedArchivedProjectCount = 1;
 
     public static SampleWorkspaceSummary Generate(string outputPath, DateOnly anchorDate)
     {
@@ -210,6 +211,11 @@ internal static class SampleWorkspaceGenerator
             timeProvider.SetDate(anchorDate.AddDays(archived.ArchiveDateOffset), completionMinute++);
             work.ArchiveTask(taskIds[archived.TaskKey]);
         }
+        foreach (var archived in ArchivedProjects)
+        {
+            timeProvider.SetDate(anchorDate.AddDays(archived.ArchiveDateOffset), completionMinute++);
+            work.ArchiveProject(projectIds[archived.ProjectKey]);
+        }
     }
 
     private static SampleWorkspaceSummary Validate(
@@ -221,9 +227,13 @@ internal static class SampleWorkspaceGenerator
         var incomplete = snapshot.Tasks.Count(task => !task.IsComplete);
         var completed = snapshot.Tasks.Count(task => task.IsComplete);
         var archived = snapshot.Tasks.Count(task => task.IsArchived);
+        var archivedProjects = snapshot.Projects.Count(project => project.IsArchived);
+        var archivedProjectIds = snapshot.Projects.Where(project => project.IsArchived)
+            .Select(project => project.Id).ToHashSet(StringComparer.Ordinal);
         var today = snapshot.Tasks.Count(task => task.IsInToday);
         var upcoming = snapshot.Tasks.Count(task =>
             !task.IsComplete
+            && (task.ProjectId is null || !archivedProjectIds.Contains(task.ProjectId))
             && task.DueDate is { } dueDate
             && dueDate <= anchorDate.AddDays(7));
         var isValid = session.SchemaVersion == EncryptedWorkspaceStore.CurrentSchemaVersion
@@ -235,8 +245,9 @@ internal static class SampleWorkspaceGenerator
             && incomplete == 21
             && completed == 12
             && archived == ExpectedArchivedTaskCount
-            && today == 9
-            && upcoming == 13;
+            && archivedProjects == ExpectedArchivedProjectCount
+            && today == 8
+            && upcoming == 11;
         if (!isValid)
         {
             throw new SampleWorkspaceException("invalid-scenario");
@@ -252,6 +263,7 @@ internal static class SampleWorkspaceGenerator
             incomplete,
             completed,
             archived,
+            archivedProjects,
             today,
             upcoming);
     }
@@ -364,6 +376,11 @@ internal static class SampleWorkspaceGenerator
         new("file-warranty", -30),
     ];
 
+    private static readonly ArchivedProjectDefinition[] ArchivedProjects =
+    [
+        new("garden", 0),
+    ];
+
     private static TaskDefinition Attached(
         string key,
         string projectKey,
@@ -393,6 +410,7 @@ internal static class SampleWorkspaceGenerator
     private sealed record CategoryDefinition(string Key, string Name);
     private sealed record ParticipantDefinition(string Key, string Label);
     private sealed record ArchivedTaskDefinition(string TaskKey, int ArchiveDateOffset);
+    private sealed record ArchivedProjectDefinition(string ProjectKey, int ArchiveDateOffset);
     private sealed record ProjectDefinition(
         string Key,
         string Title,
@@ -422,5 +440,6 @@ internal sealed record SampleWorkspaceSummary(
     int IncompleteTaskCount,
     int CompletedTaskCount,
     int ArchivedTaskCount,
+    int ArchivedProjectCount,
     int TodayTaskCount,
     int UpcomingTaskCount);

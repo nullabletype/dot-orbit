@@ -15,7 +15,7 @@ internal static class Program
                 $"sample-workspace: result=passed output={summary.OutputPath} schema={summary.SchemaVersion} "
                 + $"categories={summary.CategoryCount} projects={summary.ProjectCount} "
                 + $"tasks={summary.TaskCount} participants={summary.ParticipantCount} "
-                + $"archived={summary.ArchivedTaskCount}");
+                + $"archived-projects={summary.ArchivedProjectCount} archived-tasks={summary.ArchivedTaskCount}");
             return 0;
         }
         catch (SampleWorkspaceException exception)

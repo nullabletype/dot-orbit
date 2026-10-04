@@ -53,9 +53,9 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             CreateNavigationItem(
                 "Archive",
                 "M3,4H21V8H3V4M5,10H19V21H5V10M9,12V14H15V12H9",
-                "Archived tasks retained outside active work.",
+                "Archived projects and tasks retained outside active work.",
                 "Your archive is empty",
-                "Tasks you archive will remain available to restore here."),
+                "Projects and tasks you archive will remain available to restore here."),
         ];
 
         BinNavigation = CreateNavigationItem(
@@ -82,6 +82,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             Work.Backlog.CollectionChanged += (_, _) => UpdateCounts();
             Work.Completed.CollectionChanged += (_, _) => UpdateCounts();
             Work.Archived.CollectionChanged += (_, _) => UpdateCounts();
+            Work.ArchivedProjects.CollectionChanged += (_, _) => UpdateCounts();
             Work.TodayPlanned.CollectionChanged += (_, _) => UpdateCounts();
             Work.TodayInProgress.CollectionChanged += (_, _) => UpdateCounts();
             Work.CategoryGroups.CollectionChanged += (_, _) => UpdateCounts();
@@ -208,7 +209,8 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         PrimaryNavigation.Single(n => n.Title == "Projects").CountText = Work.Projects.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
         PrimaryNavigation.Single(n => n.Title == "Backlog").CountText = Work.Backlog.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
         PrimaryNavigation.Single(n => n.Title == "Completed").CountText = Work.Completed.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        PrimaryNavigation.Single(n => n.Title == "Archive").CountText = Work.Archived.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        PrimaryNavigation.Single(n => n.Title == "Archive").CountText =
+            (Work.Archived.Count + Work.ArchivedProjects.Count).ToString(System.Globalization.CultureInfo.InvariantCulture);
         PrimaryNavigation.Single(n => n.Title == "Categories").CountText = Work.CategoryGroups.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
 

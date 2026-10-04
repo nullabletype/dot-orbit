@@ -24,6 +24,107 @@ namespace DotOrbit.Desktop.Tests;
 public sealed class ProjectCaptureWindowTests
 {
     [AvaloniaFact]
+    public void CanvasViewsReserveConsistentBottomScrollClearance()
+    {
+        var shell = new ShellViewModel(new MemoryWorkspaceWork());
+        var window = new MainWindow { DataContext = shell, Width = 1200, Height = 760 };
+        window.Show();
+
+        var bottomInsets = new List<(string View, double Bottom)>();
+        foreach (var navigation in shell.PrimaryNavigation)
+        {
+            navigation.SelectCommand.Execute(null);
+            Dispatcher.UIThread.RunJobs();
+
+            var content = Assert.Single(window.GetVisualDescendants().OfType<ScrollViewer>(), scroll =>
+                scroll.IsEffectivelyVisible
+                && scroll.Content is StackPanel panel
+                && panel.Margin.Right == 32).Content;
+            bottomInsets.Add((navigation.Title, Assert.IsType<StackPanel>(content).Margin.Bottom));
+        }
+
+        shell.SettingsNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var settingsContent = Assert.Single(window.GetVisualDescendants().OfType<ScrollViewer>(), scroll =>
+            scroll.IsEffectivelyVisible
+            && scroll.Content is StackPanel panel
+            && panel.Margin.Right == 32).Content;
+        bottomInsets.Add(("Settings", Assert.IsType<StackPanel>(settingsContent).Margin.Bottom));
+
+        Assert.Equal(["Today", "Upcoming", "Backlog", "Projects", "Categories", "Completed", "Archive", "Settings"],
+            bottomInsets.Select(inset => inset.View));
+        Assert.All(bottomInsets, inset => Assert.Equal(16, inset.Bottom));
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void PrimaryWorkViewsHaveTheSameRenderedBottomClearance()
+    {
+        var work = new MemoryWorkspaceWork();
+        var today = new DateOnly(2026, 10, 4);
+        for (var index = 0; index < 12; index++)
+        {
+            var completed = work.CreateStandaloneTask($"Completed {index}", "", "home", null);
+            work.SetCompletion(completed.Id,
+                new DateTimeOffset(today.ToDateTime(new TimeOnly(12, 0)), TimeSpan.Zero), today);
+            var archived = work.CreateStandaloneTask($"Archived {index}", "", "home", null);
+            work.SetCompletion(archived.Id,
+                new DateTimeOffset(today.AddDays(-1).ToDateTime(new TimeOnly(12, 0)), TimeSpan.Zero), today.AddDays(-1));
+            work.SetArchive(archived.Id,
+                new DateTimeOffset(today.ToDateTime(new TimeOnly(13, 0)), TimeSpan.Zero), today);
+            work.CreateStandaloneTask($"Upcoming {index}", "", "home", today);
+            work.CreateProject($"Project {index}", "", "home", null);
+        }
+        for (var index = 0; index < 9; index++) work.CreateCategory($"Category {index}");
+
+        var shell = new ShellViewModel(work,
+            new FixedTimeProvider(new DateTimeOffset(2026, 10, 4, 18, 0, 0, TimeSpan.Zero)));
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+
+        var clearances = new[]
+        {
+            Measure("Today", () => window.FindControl<Border>("CompletedTodayPanel")!),
+            Measure("Upcoming", () => window.GetVisualDescendants().OfType<Border>()
+                .Last(border => border.Classes.Contains("list-panel")
+                    && border.DataContext is UpcomingTaskGroupViewModel)),
+            Measure("Backlog", () => window.FindControl<Border>("BacklogListPanel")!),
+            Measure("Projects", () => window.GetVisualDescendants().OfType<Border>()
+                .Last(border => border.Classes.Contains("project-row"))),
+            Measure("Categories", () => window.GetVisualDescendants().OfType<Border>()
+                .Last(border => border.Classes.Contains("category-row"))),
+            Measure("Completed", () => window.FindControl<Border>("CompletedListPanel")!),
+            Measure("Archive", () => window.GetVisualDescendants().OfType<Border>()
+                .Last(border => border.Classes.Contains("list-panel")
+                    && border.DataContext is ArchivedWorkGroupViewModel)),
+        };
+
+        Assert.All(clearances, item => Assert.InRange(item.Clearance, 15.99, 16.01));
+        Assert.InRange(clearances.Max(item => item.Clearance) - clearances.Min(item => item.Clearance), 0, 0.01);
+        window.Close();
+
+        (string View, double Clearance) Measure(string view, Func<Border> panel)
+        {
+            shell.PrimaryNavigation.Single(item => item.Title == view).SelectCommand.Execute(null);
+            Dispatcher.UIThread.RunJobs();
+            return (view, BottomClearance(window, panel()));
+        }
+
+        static double BottomClearance(Window window, Border panel)
+        {
+            var viewer = Assert.Single(window.GetVisualDescendants().OfType<ScrollViewer>(), scroll =>
+                scroll.IsEffectivelyVisible
+                && scroll.Content is StackPanel content
+                && content.Margin.Right == 32);
+            viewer.Offset = new Vector(0, viewer.Extent.Height);
+            Dispatcher.UIThread.RunJobs();
+            var viewportOrigin = viewer.TranslatePoint(default, window)!.Value;
+            var panelOrigin = panel.TranslatePoint(default, window)!.Value;
+            return viewportOrigin.Y + viewer.Bounds.Height - panelOrigin.Y - panel.Bounds.Height;
+        }
+    }
+
+    [AvaloniaFact]
     public void UpcomingShowsBadgeDateGroupsSharedRowActionsAndNoReorderAffordance()
     {
         var work = new MemoryWorkspaceWork();
@@ -1174,6 +1275,114 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
+    public void RestoringLastArchivedTaskMovesFocusToRemainingArchivedProject()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        work.ArchiveProject(project.Id);
+        var task = work.CreateStandaloneTask("Filed receipt", "", "home", null);
+        work.CompleteTask(task.Id);
+        work.ArchiveTask(task.Id);
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Archive").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+
+        Activate(window, ButtonByAutomationId(window, $"task-restore-{task.Id}"));
+
+        Assert.Empty(shell.Work!.Archived);
+        Assert.Single(shell.Work.ArchivedProjects);
+        Assert.True(ButtonByAutomationId(window, $"project-restore-{project.Id}").IsFocused);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void ProjectArchiveAndRestoreUseAccessibleActionsAndMoveFocusDeterministically()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var task = work.CreateTask(project.Id, "Plant bulbs");
+        work.SetTaskTodayLane(task.Id, TodayLane.Planned);
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Projects").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+        shell.Work!.Projects.Single().Tasks.Single().SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(shell.Work.HasInspector);
+
+        var archive = ButtonByAutomationId(window, $"project-archive-{project.Id}");
+        Assert.Equal("Archive Project Garden", AutomationProperties.GetName(archive));
+        Activate(window, archive);
+
+        Assert.True(work.Read().Projects.Single().IsArchived);
+        Assert.False(shell.Work.HasInspector);
+        Assert.Null(work.Read().Tasks.Single().TodayLane);
+        Assert.Equal("1", shell.PrimaryNavigation.Single(item => item.Title == "Archive").CountText);
+        Assert.True(window.GetVisualDescendants().OfType<RadioButton>()
+            .Single(button => AutomationProperties.GetAutomationId(button) == "navigation-projects").IsFocused);
+
+        shell.PrimaryNavigation.Single(item => item.Title == "Archive").SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var restore = ButtonByAutomationId(window, $"project-restore-{project.Id}");
+        Assert.Equal("Restore Project Garden to Projects", AutomationProperties.GetName(restore));
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Archived Project");
+        Activate(window, restore);
+
+        Assert.False(work.Read().Projects.Single().IsArchived);
+        Assert.Equal(task.Id, Assert.Single(shell.Work!.Backlog).Id);
+        Assert.Empty(shell.Work.ArchivedProjects);
+        Assert.True(window.GetVisualDescendants().OfType<RadioButton>()
+            .Single(button => AutomationProperties.GetAutomationId(button) == "navigation-archive").IsFocused);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void BulkArchiveThresholdCountConfirmationAndCancellationAreAccessible()
+    {
+        var work = new MemoryWorkspaceWork();
+        var old = work.CreateStandaloneTask("Old receipt", "", "home", null);
+        var recent = work.CreateStandaloneTask("Recent receipt", "", "home", null);
+        work.SetCompletion(old.Id, new DateTimeOffset(2026, 9, 25, 12, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 25));
+        work.SetCompletion(recent.Id, new DateTimeOffset(2026, 9, 29, 12, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 29));
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Completed").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+        var threshold = Assert.Single(window.GetVisualDescendants().OfType<ComboBox>(),
+            combo => AutomationProperties.GetAutomationId(combo) == "bulk-archive-threshold");
+
+        threshold.SelectedItem = 3;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(3, shell.Work!.BulkArchiveCompletedAgeDays);
+        Assert.Equal(1, shell.Work.BulkArchiveAffectedCount);
+        Assert.Equal("Completed age threshold in calendar days", AutomationProperties.GetName(threshold));
+        var request = ButtonByAutomationId(window, "bulk-archive-request");
+        Assert.Equal("Archive older completed Tasks", AutomationProperties.GetName(request));
+        Activate(window, request);
+        Assert.True(shell.Work.NeedsBulkTaskArchiveConfirmation);
+        Assert.True(ButtonByAutomationId(window, "bulk-archive-confirm").IsFocused);
+        Assert.Equal("Confirm bulk Task archive", AutomationProperties.GetName(ButtonByAutomationId(window, "bulk-archive-confirm")));
+        Assert.Equal("Cancel bulk Task archive", AutomationProperties.GetName(ButtonByAutomationId(window, "bulk-archive-cancel")));
+
+        Activate(window, ButtonByAutomationId(window, "bulk-archive-cancel"));
+        Assert.False(shell.Work.NeedsBulkTaskArchiveConfirmation);
+        Assert.True(ButtonByAutomationId(window, "bulk-archive-request").IsFocused);
+        Assert.False(work.Read().Tasks.Single(task => task.Id == old.Id).IsArchived);
+
+        Activate(window, ButtonByAutomationId(window, "bulk-archive-request"));
+        Activate(window, ButtonByAutomationId(window, "bulk-archive-confirm"));
+
+        Assert.True(work.Read().Tasks.Single(task => task.Id == old.Id).IsArchived);
+        Assert.False(work.Read().Tasks.Single(task => task.Id == recent.Id).IsArchived);
+        Assert.False(shell.Work.NeedsBulkTaskArchiveConfirmation);
+        Assert.Equal("1 completed Task archived.", shell.Work.Message);
+        Assert.True(ButtonByAutomationId(window, $"task-archive-{recent.Id}").IsFocused);
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public void ArchiveViewGroupsRowsByCapturedArchiveDate()
     {
         var work = new MemoryWorkspaceWork();
@@ -1190,14 +1399,14 @@ public sealed class ProjectCaptureWindowTests
         var window = new MainWindow { DataContext = shell };
         window.Show();
 
-        Assert.Equal(["Today", "Yesterday"], shell.Work!.ArchivedGroups.Select(group => group.Heading));
+        Assert.Equal(["Today", "Yesterday"], shell.Work!.ArchiveGroups.Select(group => group.Heading));
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.IsEffectivelyVisible && text.Text == "Today");
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.IsEffectivelyVisible && text.Text == "Yesterday");
         var rows = window.GetVisualDescendants().OfType<Border>()
             .Where(border => border.Classes.Contains("archive-row"))
             .ToArray();
         Assert.Equal(2, rows.Length);
-        Assert.All(rows, row => Assert.True(Assert.IsType<ArchivedTaskRowViewModel>(row.DataContext).IsLast));
+        Assert.All(rows, row => Assert.True(Assert.IsType<ArchivedWorkRowViewModel>(row.DataContext).IsLast));
         window.Close();
     }
 

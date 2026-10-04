@@ -23,6 +23,10 @@ public interface IWorkspaceWork
     TaskRecord ReopenTask(string id);
     TaskRecord ArchiveTask(string id);
     TaskRecord RestoreTask(string id);
+    ProjectRecord ArchiveProject(string id);
+    ProjectRecord RestoreProject(string id);
+    BulkTaskArchivePreview PreviewBulkTaskArchive(int completedAgeDays);
+    BulkTaskArchiveResult BulkArchiveTasks(BulkTaskArchivePreview confirmedPreview);
     TaskRecord SetTaskTodayLane(string id, TodayLane? lane);
     int ClearToday();
     TodayLaneOrderChange MoveTaskInTodayLane(string id, int targetPosition);
@@ -50,7 +54,18 @@ public sealed record ParticipantRecord(string Id, string Label);
 public sealed record ParticipantDraftChange(
     IReadOnlyCollection<string> ParticipantIds,
     IReadOnlyCollection<string> NewParticipantLabels);
-public sealed record ProjectRecord(string Id, string Title, string Description, string CategoryId, DateOnly? TargetDate, long Position);
+public sealed record ProjectRecord(
+    string Id,
+    string Title,
+    string Description,
+    string CategoryId,
+    DateOnly? TargetDate,
+    long Position,
+    DateTimeOffset? ArchivedAt = null,
+    DateOnly? ArchiveDate = null)
+{
+    public bool IsArchived => ArchivedAt is not null && ArchiveDate is not null;
+}
 public sealed record TaskRecord(
     string Id,
     string? ProjectId,
@@ -85,6 +100,59 @@ public sealed record TodayLaneOrderChange(string TaskId, TodayLane Lane, int Pos
 public sealed record ProjectOrderChange(string ProjectId, int Position, int Count);
 public sealed record ProjectTaskOrderChange(string ProjectId, string TaskId, int Position, int Count);
 public sealed record CategoryOrderChange(string CategoryId, int Position, int Count);
+public sealed record BulkTaskArchivePreview(
+    int CompletedAgeDays,
+    DateOnly EvaluatedOn,
+    IReadOnlyList<string> EligibleTaskIds)
+{
+    public int AffectedCount => EligibleTaskIds.Count;
+    public bool Matches(BulkTaskArchivePreview? other) =>
+        other is not null
+        && CompletedAgeDays == other.CompletedAgeDays
+        && EvaluatedOn == other.EvaluatedOn
+        && EligibleTaskIds.SequenceEqual(other.EligibleTaskIds, StringComparer.Ordinal);
+}
+public sealed record BulkTaskArchiveResult(
+    bool Applied,
+    BulkTaskArchivePreview Preview,
+    int ArchivedCount);
+
+public static class BulkTaskArchiveThreshold
+{
+    public const int MinimumDays = 1;
+    public const int MaximumDays = 30;
+
+    public static int Validate(int completedAgeDays)
+    {
+        if (completedAgeDays is < MinimumDays or > MaximumDays)
+            throw new ArgumentOutOfRangeException(nameof(completedAgeDays));
+        return completedAgeDays;
+    }
+}
+
+public static class BulkTaskArchivePolicy
+{
+    public static IReadOnlyList<TaskRecord> EligibleTasks(
+        WorkspaceWorkSnapshot snapshot,
+        DateOnly today,
+        int completedAgeDays)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        var threshold = BulkTaskArchiveThreshold.Validate(completedAgeDays);
+        var cutoffDayNumber = today.DayNumber - threshold;
+        var archivedProjectIds = snapshot.Projects
+            .Where(project => project.IsArchived)
+            .Select(project => project.Id)
+            .ToHashSet(StringComparer.Ordinal);
+        return snapshot.Tasks
+            .Where(task => task.IsComplete
+                && !task.IsArchived
+                && task.CompletionDate is { } completionDate
+                && completionDate.DayNumber < cutoffDayNumber
+                && (task.ProjectId is null || !archivedProjectIds.Contains(task.ProjectId)))
+            .ToArray();
+    }
+}
 
 public sealed class WorkspaceWorkException : Exception
 {

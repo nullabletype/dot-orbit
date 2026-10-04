@@ -1,0 +1,9 @@
+# Project and bulk archive
+
+Issue #16 extends the existing individual Task archive boundary without conflating Project and Task state. Schema version 9 adds `project_archives`, which stores the captured archive instant and local calendar date separately from `task_archives`. Project completion remains derived from every child Task, including individually archived Tasks.
+
+Archiving a Project is one transaction: it records Project archive metadata and removes Today membership from every child Task. It does not complete, reopen, individually archive, or restore any Task. Restoring removes only the Project archive record, so incomplete non-archived Tasks return to Backlog through the ordinary projection while no Task is added to Today. An individually archived Task stays archived.
+
+The Completed bulk action accepts 1 through 30 whole calendar days. Eligibility uses captured completion dates and a strict older-than cutoff; Tasks completed on the cutoff date are not selected. Already archived Tasks, incomplete Tasks, and Tasks hidden inside archived Projects are excluded. Preview and execution use the same policy. Confirmation refreshes the preview and requires a second confirmation if its local evaluation date or eligible Task IDs changed. Execution validates that exact preview inside its transaction before inserting every selected Task archive record. Projects are never selected.
+
+The desktop treats an archived Project as an aggregate visibility boundary. It and its Tasks leave active projections and selectable Task contexts, the Archive badge counts Project and visible Task archive entries, and Archive combines both record types into one captured-date chronology with distinct labels and explicit Restore actions. Archive search, Bin, permanent deletion, and background automatic archive remain outside this slice.
