@@ -1,3 +1,5 @@
+using DotOrbit.Storage.Sqlite;
+
 namespace DotOrbit.Desktop;
 
 internal interface IWorkspacePathProvider
@@ -7,8 +9,5 @@ internal interface IWorkspacePathProvider
 
 internal sealed class SystemWorkspacePathProvider : IWorkspacePathProvider
 {
-    public string GetDefaultWorkspacePath() => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "dot-orbit",
-        "workspace.db");
+    public string GetDefaultWorkspacePath() => WorkspacePathDefaults.GetDefaultWorkspacePath();
 }

@@ -10,9 +10,11 @@
     <Project Path="tests/DotOrbit.Storage.Sqlite.Tests/DotOrbit.Storage.Sqlite.Tests.csproj" />
     <Project Path="tests/DotOrbit.Packaging.Tests/DotOrbit.Packaging.Tests.csproj" />
     <Project Path="tests/DotOrbit.Verification.Tests/DotOrbit.Verification.Tests.csproj" />
+    <Project Path="tests/DotOrbit.SampleWorkspace.Tests/DotOrbit.SampleWorkspace.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/DotOrbit.Packaging/DotOrbit.Packaging.csproj" />
     <Project Path="tools/DotOrbit.Verification/DotOrbit.Verification.csproj" />
+    <Project Path="tools/DotOrbit.SampleWorkspace/DotOrbit.SampleWorkspace.csproj" />
   </Folder>
 </Solution>

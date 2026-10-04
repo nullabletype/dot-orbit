@@ -39,6 +39,16 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
     {
     }
 
+    public EncryptedWorkspaceStore(
+        IIdentifierGenerator identifierGenerator,
+        TimeProvider timeProvider)
+        : this(
+            identifierGenerator,
+            new WorkspaceFileOperations(),
+            timeProvider ?? throw new ArgumentNullException(nameof(timeProvider)))
+    {
+    }
+
     internal EncryptedWorkspaceStore(
         IIdentifierGenerator identifierGenerator,
         IWorkspaceFileOperations fileOperations,
