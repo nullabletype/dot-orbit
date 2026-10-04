@@ -292,7 +292,7 @@
                         <ItemsControl ItemsSource="{Binding Tasks}">
                           <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:TaskRowViewModel">
-                              <Border Classes="interactive-row separated-row reorder-target project-task-row" Classes.last="{Binding IsProjectLast}" MinHeight="{StaticResource CompactRowHeight}">
+                              <Border Classes="interactive-row separated-row reorder-target task-row project-task-row" Classes.last="{Binding IsProjectLast}" MinHeight="{StaticResource CompactRowHeight}">
                                 <Grid VerticalAlignment="Center" ColumnDefinitions="34,34,*,Auto">
                                   <Button Classes="drag-handle project-task-drag-handle" AutomationProperties.AutomationId="{Binding ProjectReorderAutomationId}"
                                       AutomationProperties.Name="{Binding ProjectReorderAccessibleName}"
@@ -383,7 +383,7 @@
           <ItemsControl x:Name="BacklogItems" ItemsSource="{Binding Work.Backlog}">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:TaskRowViewModel">
-                <Border Classes="interactive-row separated-row reorder-target backlog-row" Classes.last="{Binding IsLast}" MinHeight="{StaticResource StandardRowHeight}">
+                <Border Classes="interactive-row separated-row reorder-target task-row backlog-row" Classes.last="{Binding IsLast}" MinHeight="{StaticResource StandardRowHeight}">
                   <Grid VerticalAlignment="Center" ColumnDefinitions="34,34,*,Auto">
                     <Button
                         Classes="drag-handle backlog-drag-handle"
@@ -481,7 +481,7 @@
                     <ItemsControl ItemsSource="{Binding StandaloneTasks}">
                       <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:CategoryTaskRowViewModel">
-                          <Border Classes="interactive-row separated-row category-task-row" Classes.last="{Binding IsLast}" MinHeight="{StaticResource StandardRowHeight}">
+                          <Border Classes="interactive-row separated-row task-row category-task-row" Classes.last="{Binding IsLast}" MinHeight="{StaticResource StandardRowHeight}">
                             <Grid VerticalAlignment="Center" ColumnDefinitions="34,*,Auto">
                               <ToggleButton Classes="completion-toggle"
                                   IsChecked="{Binding Task.IsComplete, Mode=OneWay}" Command="{Binding Task.ToggleCompletionCommand}"
@@ -534,7 +534,7 @@
                     <ItemsControl ItemsSource="{Binding Rows}">
                       <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:CompletedTaskRowViewModel">
-                          <Border Classes="interactive-row separated-row completed-row" Classes.last="{Binding IsLast}" MinHeight="{StaticResource StandardRowHeight}">
+                          <Border Classes="interactive-row separated-row task-row completed-row" Classes.last="{Binding IsLast}" MinHeight="{StaticResource StandardRowHeight}">
                             <Grid VerticalAlignment="Center" ColumnDefinitions="34,*,Auto">
                               <ToggleButton Classes="completion-toggle"
                                   IsChecked="{Binding Task.IsComplete, Mode=OneWay}" Command="{Binding Task.ToggleCompletionCommand}"

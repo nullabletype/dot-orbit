@@ -703,6 +703,84 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
+    public void ExpandedProjectTaskRowSurfaceSelectsTaskWithoutCompletionToggleActivation()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var controlTask = work.CreateTask(project.Id, "Plant bulbs");
+        var selectedTask = work.CreateTask(project.Id, "Order compost");
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Projects").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+
+        Click(window, ToggleByAutomationId(window, $"task-completion-{controlTask.Id}"));
+        Assert.False(shell.Work!.HasInspector);
+        Assert.True(work.Read().Tasks.Single(task => task.Id == controlTask.Id).IsComplete);
+
+        var reorder = ButtonByAutomationId(window, $"project-task-reorder-{selectedTask.Id}");
+        Click(window, reorder);
+        Assert.True(Assert.IsType<MenuFlyout>(reorder.Flyout).IsOpen);
+        Assert.False(shell.Work.HasInspector);
+        reorder.Flyout.Hide();
+
+        ClickTaskRowSurface(window, "project-task-row", "Order compost");
+
+        Assert.True(shell.Work.HasInspector);
+        Assert.Equal("Order compost", shell.Work.Title);
+        Assert.False(work.Read().Tasks.Single(task => task.Id == selectedTask.Id).IsComplete);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void CategoryTaskRowSurfaceSelectsTaskWithoutCompletionToggleActivation()
+    {
+        var work = new MemoryWorkspaceWork();
+        var controlTask = work.CreateStandaloneTask("Plant bulbs", "", "home", null);
+        var selectedTask = work.CreateStandaloneTask("Order compost", "", "home", null);
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Categories").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+
+        Click(window, ToggleByAutomationId(window, $"task-completion-{controlTask.Id}"));
+        Assert.False(shell.Work!.HasInspector);
+        Assert.True(work.Read().Tasks.Single(task => task.Id == controlTask.Id).IsComplete);
+
+        ClickTaskRowSurface(window, "category-task-row", "Order compost");
+
+        Assert.True(shell.Work.HasInspector);
+        Assert.Equal("Order compost", shell.Work.Title);
+        Assert.False(work.Read().Tasks.Single(task => task.Id == selectedTask.Id).IsComplete);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void CompletedTaskRowSurfaceTapSelectsTaskWithoutReopenToggleActivation()
+    {
+        var work = new MemoryWorkspaceWork();
+        var controlTask = work.CreateStandaloneTask("Plant bulbs", "", "home", null);
+        var selectedTask = work.CreateStandaloneTask("Order compost", "", "home", null);
+        work.CompleteTask(controlTask.Id);
+        work.CompleteTask(selectedTask.Id);
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Completed").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+
+        Click(window, ToggleByAutomationId(window, $"task-completion-{controlTask.Id}"));
+        Assert.False(shell.Work!.HasInspector);
+        Assert.False(work.Read().Tasks.Single(task => task.Id == controlTask.Id).IsComplete);
+
+        TapTaskRowSurface(window, "completed-row", "Order compost");
+
+        Assert.True(shell.Work.HasInspector);
+        Assert.Equal("Order compost", shell.Work.Title);
+        Assert.True(work.Read().Tasks.Single(task => task.Id == selectedTask.Id).IsComplete);
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public void BacklogHoverHighlightsTheWholeSelectableRowSurface()
     {
         var work = new MemoryWorkspaceWork();
@@ -2229,6 +2307,34 @@ public sealed class ProjectCaptureWindowTests
     {
         window.MouseDown(CentreInWindow(source, window), MouseButton.Left, RawInputModifiers.LeftMouseButton);
         window.MouseMove(CentreInWindow(target, window), RawInputModifiers.LeftMouseButton);
+    }
+
+    private static void ClickTaskRowSurface(Window window, string rowClass, string taskTitle)
+    {
+        var title = NamedButton(window, taskTitle);
+        var row = title.GetVisualAncestors().OfType<Border>().First(border => border.Classes.Contains(rowClass));
+        var point = RowSurfacePoint(row, window);
+        window.MouseDown(point, MouseButton.Left, RawInputModifiers.LeftMouseButton);
+        window.MouseUp(point, MouseButton.Left, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    private static void TapTaskRowSurface(Window window, string rowClass, string taskTitle)
+    {
+        var title = NamedButton(window, taskTitle);
+        var row = title.GetVisualAncestors().OfType<Border>().First(border => border.Classes.Contains(rowClass));
+        var point = RowSurfacePoint(row, window);
+        var touch = window.TouchBegin(point, RawInputModifiers.None);
+        window.TouchEnd(touch, point, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    private static void Click(Window window, Control control)
+    {
+        var point = CentreInWindow(control, window);
+        window.MouseDown(point, MouseButton.Left, RawInputModifiers.LeftMouseButton);
+        window.MouseUp(point, MouseButton.Left, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
     }
 
     private static Button NamedButton(Window window, string name) => Assert.Single(

@@ -58,9 +58,9 @@ public sealed partial class MainWindow : Window
         _autosaveScheduler = autosaveScheduler ?? new DispatcherInspectorAutosaveScheduler();
         AvaloniaXamlLoader.Load(this);
         DataContextChanged += OnDataContextChanged;
-        AddHandler(PointerPressedEvent, OnTaskDragHandlePointerPressed, RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(PointerPressedEvent, OnTaskPointerPressed, RoutingStrategies.Bubble, handledEventsToo: true);
         AddHandler(PointerMovedEvent, OnTaskDragPointerMoved, RoutingStrategies.Bubble, handledEventsToo: true);
-        AddHandler(PointerReleasedEvent, OnBacklogTaskPointerReleased, RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(PointerReleasedEvent, OnTaskPointerReleased, RoutingStrategies.Bubble, handledEventsToo: true);
         this.FindControl<TextBox>("MarkdownSource")?.AddHandler(
             KeyDownEvent,
             OnMarkdownSourceKeyDown,
@@ -355,7 +355,7 @@ public sealed partial class MainWindow : Window
         if (sender is TextBox editor) MarkdownSourceEditor.TryHandleKeyDown(editor, e);
     }
 
-    private void OnTaskDragHandlePointerPressed(object? sender, PointerPressedEventArgs e)
+    private void OnTaskPointerPressed(object? sender, PointerPressedEventArgs e)
     {
         ResetPointerGesture();
         var hit = this.InputHitTest(e.GetPosition(this)) as Control;
@@ -395,10 +395,7 @@ public sealed partial class MainWindow : Window
             return;
         }
         if (hit is Button || hit?.GetVisualAncestors().OfType<Button>().Any() == true) return;
-        var row = (hit as Border)?.Classes.Contains("backlog-row") == true
-            ? (Border?)hit
-            : hit?.GetVisualAncestors().OfType<Border>().FirstOrDefault(border => border.Classes.Contains("backlog-row"));
-        if (row?.DataContext is TaskRowViewModel pressedTask) _pressedTaskRowId = pressedTask.Id;
+        if (TaskForRow(FindRow(hit, "task-row")) is { } pressedTask) _pressedTaskRowId = pressedTask.Id;
     }
 
     private void OnTaskDragPointerMoved(object? sender, PointerEventArgs e)
@@ -424,7 +421,7 @@ public sealed partial class MainWindow : Window
         _dragTarget?.Classes.Add("drag-target");
     }
 
-    private void OnBacklogTaskPointerReleased(object? sender, PointerReleasedEventArgs e)
+    private void OnTaskPointerReleased(object? sender, PointerReleasedEventArgs e)
     {
         var finishMarkdownEditing = _markdownPointerStartedOutside
             && e.InitialPressMouseButton == MouseButton.Left;
@@ -445,10 +442,7 @@ public sealed partial class MainWindow : Window
             if (pressedTaskRowId is null) return;
             var hit = this.InputHitTest(e.GetPosition(this)) as Control;
             if (hit is Button || hit?.GetVisualAncestors().OfType<Button>().Any() == true) return;
-            var row = (hit as Border)?.Classes.Contains("backlog-row") == true
-                ? (Border?)hit
-                : hit?.GetVisualAncestors().OfType<Border>().FirstOrDefault(border => border.Classes.Contains("backlog-row"));
-            if (row?.DataContext is not TaskRowViewModel task || task.Id != pressedTaskRowId) return;
+            if (TaskForRow(FindRow(hit, "task-row")) is not { } task || task.Id != pressedTaskRowId) return;
             task.SelectCommand.Execute(null);
             e.Handled = true;
             return;
@@ -500,6 +494,14 @@ public sealed partial class MainWindow : Window
         (hit as Border)?.Classes.Contains(rowClass) == true
             ? (Border?)hit
             : hit?.GetVisualAncestors().OfType<Border>().FirstOrDefault(border => border.Classes.Contains(rowClass));
+
+    private static TaskRowViewModel? TaskForRow(Border? row) => row?.DataContext switch
+    {
+        TaskRowViewModel task => task,
+        CategoryTaskRowViewModel categoryTask => categoryTask.Task,
+        CompletedTaskRowViewModel completedTask => completedTask.Task,
+        _ => null,
+    };
 
     private void OnReorderMenuClosed(object? sender, EventArgs e)
     {
