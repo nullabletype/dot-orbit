@@ -18,6 +18,19 @@ namespace DotOrbit.Desktop.Tests;
 public sealed class MainWindowTests
 {
     [AvaloniaFact]
+    public void WorkspaceUnavailableShowsReplacementAndClosesTheShell()
+    {
+        var replacementShown = 0;
+        var window = new MainWindow();
+        window.Show();
+
+        window.HandleWorkspaceUnavailable(() => replacementShown++);
+
+        Assert.Equal(1, replacementShown);
+        Assert.False(window.IsVisible);
+    }
+
+    [AvaloniaFact]
     public void NavigationControlsExposeNamesFocusAndSelectedState()
     {
         var window = new MainWindow();

@@ -60,7 +60,7 @@ public sealed partial class MainWindow : Window
         _session = session;
         _markdownClipboard = markdownClipboard;
         _autosaveScheduler = autosaveScheduler ?? new DispatcherInspectorAutosaveScheduler();
-        _workspaceUnavailable = workspaceUnavailable ?? ReturnToWorkspaceAccess;
+        _workspaceUnavailable = () => HandleWorkspaceUnavailable(workspaceUnavailable);
         AvaloniaXamlLoader.Load(this);
         DataContextChanged += OnDataContextChanged;
         AddHandler(PointerPressedEvent, OnWorkPointerPressed, RoutingStrategies.Bubble, handledEventsToo: true);
@@ -136,16 +136,24 @@ public sealed partial class MainWindow : Window
         shell.Settings.ConfirmPassphraseChanged();
     }
 
-    private void ReturnToWorkspaceAccess()
+    internal void HandleWorkspaceUnavailable(Action? showWorkspaceAccess = null)
     {
-        var access = new WorkspaceAccessWindow();
-        if (Application.Current?.ApplicationLifetime
-            is IClassicDesktopStyleApplicationLifetime desktop)
+        if (showWorkspaceAccess is not null)
         {
-            desktop.MainWindow = access;
+            showWorkspaceAccess();
+        }
+        else
+        {
+            var access = new WorkspaceAccessWindow();
+            if (Application.Current?.ApplicationLifetime
+                is IClassicDesktopStyleApplicationLifetime desktop)
+            {
+                desktop.MainWindow = access;
+            }
+
+            access.Show();
         }
 
-        access.Show();
         _closingApproved = true;
         Close();
     }
