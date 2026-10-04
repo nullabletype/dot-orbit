@@ -16,6 +16,7 @@
       <RadioButton
           AutomationProperties.AutomationId="{Binding AutomationId}"
           AutomationProperties.HelpText="{Binding AccessibleHelpText}"
+          AutomationProperties.ItemStatus="{Binding AccessibleCount}"
           AutomationProperties.Name="{Binding AccessibleName}"
           Classes="nav-item"
           Command="{Binding SelectCommand}"
@@ -82,6 +83,31 @@
           <TextBlock Grid.Column="5" Margin="8,0" VerticalAlignment="Center" FontSize="11"
               Foreground="{StaticResource QuietTextBrush}" Text="{Binding PositionText}" />
           <ToggleButton Grid.Column="6" Classes="today-toggle"
+              IsChecked="{Binding Task.IsToday, Mode=OneWay}" Command="{Binding Task.ToggleTodayCommand}"
+              AutomationProperties.AutomationId="{Binding Task.TodayAutomationId}"
+              AutomationProperties.Name="{Binding Task.TodayAccessibleName}" />
+        </Grid>
+      </Border>
+    </DataTemplate>
+    <DataTemplate x:Key="UpcomingTaskRowTemplate" x:DataType="vm:UpcomingTaskRowViewModel">
+      <Border Classes="interactive-row separated-row task-row selectable-row upcoming-row"
+          Classes.last="{Binding IsLast}"
+          MinHeight="{StaticResource StandardRowHeight}">
+        <Grid VerticalAlignment="Center" ColumnDefinitions="34,*,Auto,34">
+          <ToggleButton Classes="completion-toggle"
+              IsChecked="{Binding Task.IsComplete, Mode=OneWay}" Command="{Binding Task.ToggleCompletionCommand}"
+              AutomationProperties.AutomationId="{Binding Task.CompletionAutomationId}"
+              AutomationProperties.Name="{Binding Task.CompletionAccessibleName}" />
+          <Button Grid.Column="1" Classes="task-title row-title" Command="{Binding Task.SelectCommand}"
+              AutomationProperties.Name="{Binding Task.Title}" AutomationProperties.ItemStatus="{Binding Task.CategoryDisplay}">
+            <StackPanel Spacing="3">
+              <TextBlock Text="{Binding Task.Title}" />
+              <TextBlock FontSize="12" Foreground="{StaticResource QuietTextBrush}" Text="{Binding Task.CategoryDisplay}" />
+            </StackPanel>
+          </Button>
+          <TextBlock Grid.Column="2" Classes="task-date" Text="{Binding Task.DateText}"
+              AutomationProperties.Name="{Binding Task.DateAccessibleText}" />
+          <ToggleButton Grid.Column="3" Classes="today-toggle"
               IsChecked="{Binding Task.IsToday, Mode=OneWay}" Command="{Binding Task.ToggleTodayCommand}"
               AutomationProperties.AutomationId="{Binding Task.TodayAutomationId}"
               AutomationProperties.Name="{Binding Task.TodayAccessibleName}" />
@@ -318,6 +344,37 @@
             </Border>
           </StackPanel>
           <TextBlock Height="1" Opacity="0" Text="{Binding Work.TodayAnnouncement}" AutomationProperties.LiveSetting="Polite" />
+        </StackPanel>
+      </ScrollViewer>
+      <ScrollViewer x:Name="UpcomingView" Grid.Row="2" IsVisible="{Binding ShowUpcoming}">
+        <StackPanel Margin="{StaticResource ScrollContentInset}" Spacing="14">
+          <Border Classes="empty-state" IsVisible="{Binding Work.HasNoUpcoming}" Padding="44">
+            <StackPanel HorizontalAlignment="Center" Spacing="8">
+              <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Text="No upcoming tasks" />
+              <TextBlock MaxWidth="440" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}"
+                  Text="Overdue tasks and tasks due through the same weekday next week will appear here."
+                  TextAlignment="Center" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+          <ItemsControl x:Name="UpcomingGroups" ItemsSource="{Binding Work.UpcomingGroups}" IsVisible="{Binding Work.HasUpcoming}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <StackPanel Spacing="8" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:UpcomingTaskGroupViewModel">
+                <StackPanel Spacing="6">
+                  <TextBlock Classes="eyebrow" Margin="6,0" Text="{Binding Heading}" />
+                  <Border Classes="list-panel">
+                    <ItemsControl ItemsSource="{Binding Rows}" ItemTemplate="{StaticResource UpcomingTaskRowTemplate}" />
+                  </Border>
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <TextBlock Height="1" Opacity="0" Text="{Binding Work.Message}"
+              AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Upcoming action status" />
         </StackPanel>
       </ScrollViewer>
       <ScrollViewer Grid.Row="2" IsVisible="{Binding ShowProjects}">

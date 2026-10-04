@@ -64,4 +64,26 @@ public sealed class ShellViewModelTests
         Assert.Equal(archive.EmptyStateHeading, shell.EmptyStateHeading);
         Assert.Equal(archive.EmptyStateBody, shell.EmptyStateBody);
     }
+
+    [Fact]
+    public void UpcomingSelectionUsesItsRealSurfaceAndBadgeTracksQualifyingTasks()
+    {
+        var work = new MemoryWorkspaceWork();
+        var included = work.CreateStandaloneTask("Included", "", "home", new DateOnly(2026, 10, 11));
+        work.CreateStandaloneTask("Outside", "", "home", new DateOnly(2026, 10, 12));
+        var shell = new ShellViewModel(work,
+            new FixedTimeProvider(new DateTimeOffset(2026, 10, 4, 12, 0, 0, TimeSpan.Zero)));
+        var upcoming = shell.PrimaryNavigation.Single(item => item.Title == "Upcoming");
+
+        Assert.Equal("1", upcoming.CountText);
+        Assert.Equal("1 item", upcoming.AccessibleCount);
+        upcoming.SelectCommand.Execute(null);
+        Assert.True(shell.ShowUpcoming);
+        Assert.False(shell.ShowEmpty);
+
+        shell.Work!.UpcomingGroups.SelectMany(group => group.Rows).Single(row => row.Task.Id == included.Id)
+            .Task.ToggleCompletionCommand.Execute(null);
+        Assert.Equal("0", upcoming.CountText);
+        Assert.Equal("0 items", upcoming.AccessibleCount);
+    }
 }

@@ -31,6 +31,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private CategoryChoice? _backlogQuickCategory;
     private string _reorderAnnouncement = string.Empty;
     private bool _backlogActive;
+    private bool _upcomingActive;
     private bool _completedActive;
     private bool _todayActive;
     private string _completionFocusAutomationId = string.Empty;
@@ -113,6 +114,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
     public ObservableCollection<ProjectRowViewModel> Projects { get; } = [];
     public ObservableCollection<TaskRowViewModel> Backlog { get; } = [];
+    public ObservableCollection<UpcomingTaskGroupViewModel> UpcomingGroups { get; } = [];
     public ObservableCollection<TaskRowViewModel> Completed { get; } = [];
     public ObservableCollection<TodayTaskRowViewModel> TodayPlanned { get; } = [];
     public ObservableCollection<TodayTaskRowViewModel> TodayInProgress { get; } = [];
@@ -170,6 +172,9 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public bool HasNoInspector => !HasInspector;
     public bool HasProjects => Projects.Count > 0;
     public bool HasNoProjects => !HasProjects;
+    public int UpcomingCount => UpcomingGroups.Sum(group => group.Rows.Count);
+    public bool HasUpcoming => UpcomingCount > 0;
+    public bool HasNoUpcoming => !HasUpcoming;
     public bool HasCompleted => Completed.Count > 0;
     public bool HasNoCompleted => !HasCompleted;
     public bool HasTodayTasks => TodayPlanned.Count + TodayInProgress.Count > 0;
@@ -592,6 +597,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     }
 
     public void SetBacklogActive(bool active) => _backlogActive = active;
+    public void SetUpcomingActive(bool active) => _upcomingActive = active;
     public void SetCompletedActive(bool active) => _completedActive = active;
     public void SetTodayActive(bool active) => _todayActive = active;
 
@@ -1319,6 +1325,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         var desiredBacklog = _snapshot.Tasks.Where(task => !task.IsComplete).OrderBy(t => t.SharedPosition).Select(ToTaskRow).ToArray();
         SynchroniseBacklog(desiredBacklog);
         for (var index = 0; index < Backlog.Count; index++) Backlog[index].SetPosition(index + 1, Backlog.Count);
+        RefreshUpcomingGroups();
         var desiredCompleted = _snapshot.Tasks.Where(task => task.IsComplete)
             .OrderByDescending(task => task.CompletedAt).ThenBy(task => task.SharedPosition).Select(ToTaskRow).ToArray();
         Synchronise(Completed, desiredCompleted);
@@ -1342,6 +1349,9 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         Notify(nameof(TaskCompletionDateAccessibleText));
         Notify(nameof(HasProjects));
         Notify(nameof(HasNoProjects));
+        Notify(nameof(UpcomingCount));
+        Notify(nameof(HasUpcoming));
+        Notify(nameof(HasNoUpcoming));
         Notify(nameof(HasCompleted));
         Notify(nameof(HasNoCompleted));
         Notify(nameof(HasTodayTasks));
@@ -1426,6 +1436,23 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
                      _snapshot.Tasks.Single(task => task.Id == row.Id).CompletionDate!.Value))
                  .OrderByDescending(group => group.Key.Start))
             CompletedGroups.Add(new(group.Key.Heading, group.ToArray()));
+    }
+
+    private void RefreshUpcomingGroups()
+    {
+        UpcomingGroups.Clear();
+        var tasks = UpcomingTaskProjection.Create(_snapshot.Tasks, Today);
+        var overdue = tasks.Where(task => task.DueDate < Today).Select(ToTaskRow).ToArray();
+        if (overdue.Length > 0) UpcomingGroups.Add(new("Overdue", overdue));
+        foreach (var group in tasks.Where(task => task.DueDate >= Today).GroupBy(task => task.DueDate!.Value))
+        {
+            var heading = group.Key == Today
+                ? "Today"
+                : group.Key.DayNumber == Today.DayNumber + 1
+                    ? "Tomorrow"
+                    : group.Key.ToString("dddd, d MMMM yyyy", CultureInfo.InvariantCulture);
+            UpcomingGroups.Add(new(heading, group.Select(ToTaskRow).ToArray()));
+        }
     }
 
     private (DateOnly Start, string Heading) CompletedGroupFor(DateOnly completionDate)
@@ -1569,6 +1596,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         var task = _snapshot.Tasks.Single(item => item.Id == taskId);
         Action action = () => ApplyCompletion(taskId, !task.IsComplete);
         var removesDraftFromCurrentView = (!task.IsComplete && _backlogActive)
+            || (!task.IsComplete && _upcomingActive)
             || (task.IsComplete && _completedActive)
             || (task.IsComplete && _todayActive && task.CompletionDate == Today);
         if (IsDirty && _editingCategory)
@@ -1594,6 +1622,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private void ApplyCompletion(string taskId, bool complete)
     {
         var backlogIndex = Backlog.IndexOf(Backlog.FirstOrDefault(row => row.Id == taskId)!);
+        var upcomingRows = UpcomingGroups.SelectMany(group => group.Rows).ToArray();
+        var upcomingIndex = Array.FindIndex(upcomingRows, row => row.Task.Id == taskId);
         var completedIndex = Completed.IndexOf(Completed.FirstOrDefault(row => row.Id == taskId)!);
         var completedTodayIndex = CompletedToday.IndexOf(CompletedToday.FirstOrDefault(row => row.Task.Id == taskId)!);
         if (!Attempt(() =>
@@ -1605,6 +1635,14 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
                     CompletionFocusAutomationId = Backlog.Count == 0
                         ? "backlog-quick-title"
                         : Backlog[Math.Min(Math.Max(backlogIndex, 0), Backlog.Count - 1)].CompletionAutomationId;
+                }
+                else if (complete && _upcomingActive)
+                {
+                    var remainingUpcoming = UpcomingGroups.SelectMany(group => group.Rows).ToArray();
+                    CompletionFocusAutomationId = remainingUpcoming.Length == 0
+                        ? "navigation-upcoming"
+                        : remainingUpcoming[Math.Min(Math.Max(upcomingIndex, 0), remainingUpcoming.Length - 1)]
+                            .Task.CompletionAutomationId;
                 }
                 else if (!complete && _completedActive)
                 {
@@ -1801,6 +1839,14 @@ public sealed record CompletedTaskGroupViewModel(string Heading, IReadOnlyList<T
 }
 
 public sealed record CompletedTaskRowViewModel(TaskRowViewModel Task, bool IsLast);
+public sealed record UpcomingTaskGroupViewModel(string Heading, IReadOnlyList<TaskRowViewModel> Tasks)
+{
+    public IReadOnlyList<UpcomingTaskRowViewModel> Rows { get; } = Tasks
+        .Select((task, index) => new UpcomingTaskRowViewModel(task, index == Tasks.Count - 1))
+        .ToArray();
+}
+
+public sealed record UpcomingTaskRowViewModel(TaskRowViewModel Task, bool IsLast);
 public sealed class TodayTaskRowViewModel
 {
     private readonly ProjectCaptureViewModel _owner;
