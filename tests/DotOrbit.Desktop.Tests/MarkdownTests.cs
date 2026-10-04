@@ -445,7 +445,10 @@ public sealed class MarkdownTests
         Assert.Equal("<h2>Changed</h2>", clipboard.Document.ToHtml());
         Assert.Equal("Changed", clipboard.Document.ToPlainText());
         Assert.Equal("Rendered description copied as rich text and plain text.", shell.Work.Message);
-        var status = window.GetVisualDescendants().OfType<TextBlock>().Single(text => text.Text == shell.Work.Message);
+        var status = Assert.IsType<TextBlock>(window.FindControl<TextBlock>("TopBarStatusMessage"));
+        Assert.Equal(shell.Work.Message, status.Text);
+        Assert.True(status.IsEffectivelyVisible);
+        Assert.Contains(window.FindControl<Border>("TopBar"), status.GetVisualAncestors());
         Assert.Equal(AutomationLiveSetting.Polite, AutomationProperties.GetLiveSetting(status));
         window.Close();
     }

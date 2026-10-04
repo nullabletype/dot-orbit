@@ -465,7 +465,7 @@ public sealed class ProjectCaptureWindowTests
 
         var settingsRegion = window.FindControl<ScrollViewer>("SettingsRegion")!;
         Assert.True(settingsRegion.IsVisible);
-        Assert.Equal(new Thickness(32, 30, 32, 60), settingsRegion.Margin);
+        Assert.Equal(new Thickness(32, 30, 32, 0), settingsRegion.Margin);
         Assert.Equal(window.FindControl<Grid>("CurrentViewRegion")!.Margin, settingsRegion.Margin);
         Assert.False(window.FindControl<Border>("InspectorRegion")!.IsVisible);
         Assert.Null(window.FindControl<Button>("OpenRecoveryButton"));

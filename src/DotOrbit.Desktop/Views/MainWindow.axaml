@@ -119,7 +119,6 @@
   <Grid ColumnDefinitions="228,*,320" RowDefinitions="64,*">
     <Border
         x:Name="TopBar"
-        IsEnabled="{Binding !Work.HasBlockingDialog, FallbackValue=True}"
         Grid.Row="0"
         Grid.ColumnSpan="3"
         Background="{StaticResource BackgroundBrush}"
@@ -145,6 +144,35 @@
               FontWeight="Bold"
               Text="dot-orbit" />
         </StackPanel>
+        <Border
+            x:Name="TopBarStatus"
+            Grid.Column="1"
+            Classes="transient-status"
+            Margin="24,0,20,0"
+            MaxWidth="620"
+            Padding="10,4"
+            HorizontalAlignment="Left"
+            VerticalAlignment="Center"
+            IsVisible="{Binding Work.HasMessage, FallbackValue=False}">
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="7">
+            <TextBlock
+                x:Name="TopBarStatusIcon"
+                Classes="transient-status-icon"
+                VerticalAlignment="Center"
+                Text="•" />
+            <TextBlock
+                x:Name="TopBarStatusMessage"
+                Grid.Column="1"
+                VerticalAlignment="Center"
+                AutomationProperties.LiveSetting="Polite"
+                FontSize="{StaticResource TypeSizeEyebrow}"
+                Foreground="{StaticResource MutedTextBrush}"
+                MaxLines="2"
+                Text="{Binding Work.Message}"
+                TextTrimming="CharacterEllipsis"
+                TextWrapping="Wrap" />
+          </Grid>
+        </Border>
       </Grid>
     </Border>
 
@@ -196,7 +224,7 @@
         IsEnabled="{Binding !Work.HasBlockingDialog, FallbackValue=True}"
         Grid.Row="1"
         Grid.Column="1"
-        Margin="32,30,32,60"
+        Margin="32,30,32,0"
         AutomationProperties.LiveSetting="Polite"
         RowDefinitions="Auto,28,*">
       <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
@@ -373,8 +401,6 @@
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
-          <TextBlock Height="1" Opacity="0" Text="{Binding Work.Message}"
-              AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Upcoming action status" />
         </StackPanel>
       </ScrollViewer>
       <ScrollViewer Grid.Row="2" IsVisible="{Binding ShowProjects}">
@@ -832,7 +858,7 @@
         Grid.Row="1"
         Grid.Column="1"
         Grid.ColumnSpan="2"
-        Margin="32,30,32,60"
+        Margin="32,30,32,0"
         IsVisible="{Binding ShowSettings}">
       <StackPanel Margin="{StaticResource ScrollContentInset}" Spacing="24">
         <StackPanel Spacing="7">
@@ -1223,9 +1249,6 @@
         </StackPanel>
       </ScrollViewer>
       </Grid>
-    </Border>
-    <Border Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Bottom" Padding="12" Background="{StaticResource PanelBrush}" IsVisible="{Binding Work.HasMessage}">
-      <TextBlock Text="{Binding Work.Message}" AutomationProperties.LiveSetting="Polite" TextWrapping="Wrap" />
     </Border>
     <Border Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Classes="decision-overlay" IsVisible="{Binding Work.NeedsDecision}">
       <StackPanel Width="470" Spacing="16" AutomationProperties.LiveSetting="Assertive">
