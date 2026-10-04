@@ -23,7 +23,7 @@ public sealed partial class MainWindow : Window
     private DragScope _dragScope;
     private string? _draggedId;
     private string? _draggedProjectId;
-    private string? _pressedTaskRowId;
+    private Border? _pressedSelectableRow;
     private Border? _dragTarget;
     private bool _markdownPointerStartedOutside;
     private DateTime? _calendarDateAtOpen;
@@ -58,9 +58,9 @@ public sealed partial class MainWindow : Window
         _autosaveScheduler = autosaveScheduler ?? new DispatcherInspectorAutosaveScheduler();
         AvaloniaXamlLoader.Load(this);
         DataContextChanged += OnDataContextChanged;
-        AddHandler(PointerPressedEvent, OnTaskPointerPressed, RoutingStrategies.Bubble, handledEventsToo: true);
-        AddHandler(PointerMovedEvent, OnTaskDragPointerMoved, RoutingStrategies.Bubble, handledEventsToo: true);
-        AddHandler(PointerReleasedEvent, OnTaskPointerReleased, RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(PointerPressedEvent, OnWorkPointerPressed, RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(PointerMovedEvent, OnWorkDragPointerMoved, RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(PointerReleasedEvent, OnWorkPointerReleased, RoutingStrategies.Bubble, handledEventsToo: true);
         this.FindControl<TextBox>("MarkdownSource")?.AddHandler(
             KeyDownEvent,
             OnMarkdownSourceKeyDown,
@@ -355,7 +355,7 @@ public sealed partial class MainWindow : Window
         if (sender is TextBox editor) MarkdownSourceEditor.TryHandleKeyDown(editor, e);
     }
 
-    private void OnTaskPointerPressed(object? sender, PointerPressedEventArgs e)
+    private void OnWorkPointerPressed(object? sender, PointerPressedEventArgs e)
     {
         ResetPointerGesture();
         var hit = this.InputHitTest(e.GetPosition(this)) as Control;
@@ -395,10 +395,10 @@ public sealed partial class MainWindow : Window
             return;
         }
         if (hit is Button || hit?.GetVisualAncestors().OfType<Button>().Any() == true) return;
-        if (TaskForRow(FindRow(hit, "task-row")) is { } pressedTask) _pressedTaskRowId = pressedTask.Id;
+        _pressedSelectableRow = FindRow(hit, "selectable-row");
     }
 
-    private void OnTaskDragPointerMoved(object? sender, PointerEventArgs e)
+    private void OnWorkDragPointerMoved(object? sender, PointerEventArgs e)
     {
         if (_dragScope == DragScope.None || _draggedId is null) return;
         var hit = this.InputHitTest(e.GetPosition(this)) as Control;
@@ -421,7 +421,7 @@ public sealed partial class MainWindow : Window
         _dragTarget?.Classes.Add("drag-target");
     }
 
-    private void OnTaskPointerReleased(object? sender, PointerReleasedEventArgs e)
+    private void OnWorkPointerReleased(object? sender, PointerReleasedEventArgs e)
     {
         var finishMarkdownEditing = _markdownPointerStartedOutside
             && e.InitialPressMouseButton == MouseButton.Left;
@@ -437,13 +437,16 @@ public sealed partial class MainWindow : Window
         }
         if (_dragScope == DragScope.None || _draggedId is null)
         {
-            var pressedTaskRowId = _pressedTaskRowId;
+            var pressedSelectableRow = _pressedSelectableRow;
             ResetPointerGesture();
-            if (pressedTaskRowId is null) return;
+            if (pressedSelectableRow is null) return;
             var hit = this.InputHitTest(e.GetPosition(this)) as Control;
             if (hit is Button || hit?.GetVisualAncestors().OfType<Button>().Any() == true) return;
-            if (TaskForRow(FindRow(hit, "task-row")) is not { } task || task.Id != pressedTaskRowId) return;
-            task.SelectCommand.Execute(null);
+            var releasedSelectableRow = FindRow(hit, "selectable-row");
+            if (!ReferenceEquals(releasedSelectableRow, pressedSelectableRow)
+                || SelectionCommandForRow(releasedSelectableRow) is not { } selectionCommand)
+                return;
+            selectionCommand.Execute(null);
             e.Handled = true;
             return;
         }
@@ -487,7 +490,7 @@ public sealed partial class MainWindow : Window
         _dragScope = DragScope.None;
         _draggedId = null;
         _draggedProjectId = null;
-        _pressedTaskRowId = null;
+        _pressedSelectableRow = null;
     }
 
     private static Border? FindRow(Control? hit, string rowClass) =>
@@ -495,11 +498,14 @@ public sealed partial class MainWindow : Window
             ? (Border?)hit
             : hit?.GetVisualAncestors().OfType<Border>().FirstOrDefault(border => border.Classes.Contains(rowClass));
 
-    private static TaskRowViewModel? TaskForRow(Border? row) => row?.DataContext switch
+    private static RelayCommand? SelectionCommandForRow(Border? row) => row?.DataContext switch
     {
-        TaskRowViewModel task => task,
-        CategoryTaskRowViewModel categoryTask => categoryTask.Task,
-        CompletedTaskRowViewModel completedTask => completedTask.Task,
+        TaskRowViewModel task => task.SelectCommand,
+        CategoryTaskRowViewModel categoryTask => categoryTask.Task.SelectCommand,
+        CompletedTaskRowViewModel completedTask => completedTask.Task.SelectCommand,
+        ProjectRowViewModel project => project.SelectCommand,
+        CategoryProjectRowViewModel categoryProject => categoryProject.Project.SelectCommand,
+        CategoryGroupViewModel category => category.SelectCommand,
         _ => null,
     };
 

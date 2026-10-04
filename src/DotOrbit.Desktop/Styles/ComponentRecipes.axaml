@@ -139,8 +139,8 @@
     <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
     <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />
   </Style>
-  <Style Selector="Border.project-header-row"><Setter Property="CornerRadius" Value="9" /></Style>
-  <Style Selector="Border.project-header-row.expanded"><Setter Property="CornerRadius" Value="9,9,0,0" /></Style>
+  <Style Selector="Border.expandable-header-row"><Setter Property="CornerRadius" Value="9" /></Style>
+  <Style Selector="Border.expandable-header-row.expanded"><Setter Property="CornerRadius" Value="9,9,0,0" /></Style>
   <Style Selector="Border.reorder-target.drag-target">
     <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
     <Setter Property="BorderThickness" Value="0,0,0,2" />
