@@ -277,6 +277,11 @@ public sealed class RecoveryViewModelTests
 
         public IWorkspaceRecovery Recovery { get; } = recovery;
 
+        public PassphraseRotationResult RotatePassphrase(
+            WorkspacePassphrase currentPassphrase,
+            WorkspacePassphrase newPassphrase) =>
+            PassphraseRotationResult.Failed();
+
         public void Dispose()
         {
         }

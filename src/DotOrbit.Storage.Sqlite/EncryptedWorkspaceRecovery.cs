@@ -258,6 +258,22 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
         }
     }
 
+    internal RecoveryPointCreationResult CreatePassphraseRotationRecoveryPoint()
+    {
+        lock (_gate)
+        {
+            ThrowIfClosed();
+            var directoryPath = _automaticRecoveryDirectoryPath
+                ?? Path.GetDirectoryName(_workspacePath);
+            return string.IsNullOrEmpty(directoryPath)
+                ? RecoveryPointCreationResult.Failed()
+                : CreateRecoveryPointCore(
+                    directoryPath,
+                    "dot-orbit-pre-passphrase-rotation-",
+                    includePointIdentifier: true);
+        }
+    }
+
     public WorkspaceRestoreResult Restore(
         string recoveryPointPath,
         string preRestoreRecoveryDirectoryPath)

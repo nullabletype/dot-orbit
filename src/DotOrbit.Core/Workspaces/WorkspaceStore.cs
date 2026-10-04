@@ -25,7 +25,73 @@ public interface IWorkspaceSession : IDisposable
 
     IWorkspaceRecovery Recovery { get; }
 
+    PassphraseRotationResult RotatePassphrase(
+        WorkspacePassphrase currentPassphrase,
+        WorkspacePassphrase newPassphrase);
+
     IWorkspaceWork Work { get; }
+}
+
+public enum PassphraseRotationStatus
+{
+    Rotated,
+    InvalidCurrentPassphraseOrStore,
+    InvalidNewPassphrase,
+    NewPassphraseMatchesCurrent,
+    RecoveryPointCreationFailed,
+    Failed,
+    WorkspaceUnavailable,
+}
+
+public sealed class PassphraseRotationResult
+{
+    private PassphraseRotationResult(
+        PassphraseRotationStatus status,
+        IWorkspaceSession? session,
+        string? recoveryPointPath)
+    {
+        Status = status;
+        Session = session;
+        RecoveryPointPath = recoveryPointPath;
+    }
+
+    public PassphraseRotationStatus Status { get; }
+
+    public IWorkspaceSession? Session { get; }
+
+    public string? RecoveryPointPath { get; }
+
+    public static PassphraseRotationResult Rotated(
+        IWorkspaceSession session,
+        string recoveryPointPath)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentException.ThrowIfNullOrWhiteSpace(recoveryPointPath);
+        return new(PassphraseRotationStatus.Rotated, session, recoveryPointPath);
+    }
+
+    public static PassphraseRotationResult InvalidCurrentPassphraseOrStore() =>
+        new(PassphraseRotationStatus.InvalidCurrentPassphraseOrStore, null, null);
+
+    public static PassphraseRotationResult InvalidNewPassphrase() =>
+        new(PassphraseRotationStatus.InvalidNewPassphrase, null, null);
+
+    public static PassphraseRotationResult NewPassphraseMatchesCurrent() =>
+        new(PassphraseRotationStatus.NewPassphraseMatchesCurrent, null, null);
+
+    public static PassphraseRotationResult RecoveryPointCreationFailed() =>
+        new(PassphraseRotationStatus.RecoveryPointCreationFailed, null, null);
+
+    public static PassphraseRotationResult Failed(
+        IWorkspaceSession? session = null,
+        string? recoveryPointPath = null) =>
+        new(PassphraseRotationStatus.Failed, session, recoveryPointPath);
+
+    public static PassphraseRotationResult WorkspaceUnavailable(string recoveryPointPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(recoveryPointPath);
+        return new(PassphraseRotationStatus.WorkspaceUnavailable, null, recoveryPointPath);
+    }
 }
 
 public interface IWorkspaceRecovery

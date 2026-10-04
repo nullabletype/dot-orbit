@@ -264,6 +264,11 @@ public sealed class WorkspaceAccessViewModelTests
 
         public IWorkspaceRecovery Recovery => throw new NotSupportedException();
 
+        public PassphraseRotationResult RotatePassphrase(
+            WorkspacePassphrase currentPassphrase,
+            WorkspacePassphrase newPassphrase) =>
+            PassphraseRotationResult.Failed();
+
         public void Dispose()
         {
         }

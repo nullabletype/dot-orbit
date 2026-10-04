@@ -1,4 +1,6 @@
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Controls.Primitives;
 using Avalonia.Automation;
 using Avalonia.Input;
@@ -32,30 +34,33 @@ public sealed partial class MainWindow : Window
     private readonly DispatcherTimer _dateRefreshTimer = new() { Interval = TimeSpan.FromMinutes(1) };
     private readonly IInspectorAutosaveScheduler _autosaveScheduler;
     private readonly IMarkdownClipboard? _markdownClipboard;
+    private readonly Action _workspaceUnavailable;
 
     public MainWindow()
-        : this(null, null, null)
+        : this(null, null, null, null)
     {
     }
 
     internal MainWindow(IWorkspaceSession? session)
-        : this(session, null, null)
+        : this(session, null, null, null)
     {
     }
 
     internal MainWindow(IWorkspaceSession? session, IMarkdownClipboard? markdownClipboard)
-        : this(session, markdownClipboard, null)
+        : this(session, markdownClipboard, null, null)
     {
     }
 
     internal MainWindow(
         IWorkspaceSession? session,
         IMarkdownClipboard? markdownClipboard,
-        IInspectorAutosaveScheduler? autosaveScheduler)
+        IInspectorAutosaveScheduler? autosaveScheduler,
+        Action? workspaceUnavailable = null)
     {
         _session = session;
         _markdownClipboard = markdownClipboard;
         _autosaveScheduler = autosaveScheduler ?? new DispatcherInspectorAutosaveScheduler();
+        _workspaceUnavailable = workspaceUnavailable ?? ReturnToWorkspaceAccess;
         AvaloniaXamlLoader.Load(this);
         DataContextChanged += OnDataContextChanged;
         AddHandler(PointerPressedEvent, OnWorkPointerPressed, RoutingStrategies.Bubble, handledEventsToo: true);
@@ -78,6 +83,8 @@ public sealed partial class MainWindow : Window
         SetSessionContext();
         if (this.FindControl<Button>("SettingsRecoveryButton") is { } recoveryButton)
             recoveryButton.IsVisible = session is not null;
+        if (this.FindControl<Button>("SettingsPassphraseButton") is { } passphraseButton)
+            passphraseButton.IsVisible = session is not null;
         Closed += OnClosed;
         Closing += OnClosing;
     }
@@ -96,6 +103,51 @@ public sealed partial class MainWindow : Window
             recovery.Closed += (_, _) => Dispatcher.UIThread.Post(() => launcher?.Focus());
             recovery.Show(this);
         });
+    }
+
+    private void OnOpenPassphraseRotation(object? sender, RoutedEventArgs e)
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        var launcher = sender as Control;
+        Navigate(() =>
+        {
+            var rotation = new PassphraseRotationWindow(
+                _session!,
+                ReplaceSession,
+                _workspaceUnavailable);
+            rotation.PassphraseChanged += OnPassphraseChanged;
+            rotation.Closed += (_, _) => Dispatcher.UIThread.Post(() => launcher?.Focus());
+            _ = rotation.ShowDialog(this);
+        });
+    }
+
+    private void OnPassphraseChanged(object? sender, EventArgs e)
+    {
+        if (DataContext is not ShellViewModel shell || shell.Settings is null)
+        {
+            return;
+        }
+
+        shell.SettingsNavigation.SelectCommand.Execute(null);
+        shell.Settings.ConfirmPassphraseChanged();
+    }
+
+    private void ReturnToWorkspaceAccess()
+    {
+        var access = new WorkspaceAccessWindow();
+        if (Application.Current?.ApplicationLifetime
+            is IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            desktop.MainWindow = access;
+        }
+
+        access.Show();
+        _closingApproved = true;
+        Close();
     }
 
     private void ReplaceSession(IWorkspaceSession session)

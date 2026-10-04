@@ -42,13 +42,16 @@ public sealed class WorkspacePassphrase
 
     private readonly string _normalisedValue;
 
-    private WorkspacePassphrase(string normalisedValue)
+    private WorkspacePassphrase(string normalisedValue, bool isCreationValidated)
     {
         _normalisedValue = normalisedValue;
         CharacterCount = StringInfo.ParseCombiningCharacters(normalisedValue).Length;
+        IsCreationValidated = isCreationValidated;
     }
 
     public int CharacterCount { get; }
+
+    public bool IsCreationValidated { get; }
 
     public static PassphraseValidationResult Create(string? passphrase, string? confirmation)
     {
@@ -57,7 +60,9 @@ public sealed class WorkspacePassphrase
             return PassphraseValidationResult.Failure(PassphraseValidationError.Required);
         }
 
-        var candidate = new WorkspacePassphrase(Normalise(passphrase));
+        var candidate = new WorkspacePassphrase(
+            Normalise(passphrase),
+            isCreationValidated: true);
         if (candidate.CharacterCount < MinimumCharacterCount)
         {
             return PassphraseValidationResult.Failure(PassphraseValidationError.TooShort);
@@ -75,7 +80,9 @@ public sealed class WorkspacePassphrase
     public static WorkspacePassphrase? ForUnlock(string? passphrase) =>
         string.IsNullOrEmpty(passphrase)
             ? null
-            : new WorkspacePassphrase(Normalise(passphrase));
+            : new WorkspacePassphrase(
+                Normalise(passphrase),
+                isCreationValidated: false);
 
     public bool Matches(string candidate) =>
         string.Equals(_normalisedValue, Normalise(candidate), StringComparison.Ordinal);

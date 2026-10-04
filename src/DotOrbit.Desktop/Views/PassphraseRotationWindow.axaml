@@ -1,0 +1,116 @@
+<Window
+    x:Class="DotOrbit.Desktop.Views.PassphraseRotationWindow"
+    x:DataType="vm:PassphraseRotationViewModel"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:DotOrbit.Desktop.ViewModels"
+    Title="dot-orbit passphrase"
+    Width="560"
+    Height="700"
+    MinWidth="500"
+    MinHeight="640"
+    Background="{StaticResource BackgroundBrush}"
+    WindowStartupLocation="CenterOwner">
+  <ScrollViewer>
+    <StackPanel Margin="36" Spacing="14">
+      <TextBlock Classes="eyebrow" Text="WORKSPACE SECURITY" />
+      <TextBlock FontSize="28" FontWeight="Bold" Text="Change passphrase" />
+      <TextBlock
+          Foreground="{StaticResource MutedTextBrush}"
+          LineHeight="21"
+          Text="Prove the current passphrase, then choose the passphrase that will protect the working workspace from now on."
+          TextWrapping="Wrap" />
+
+      <TextBlock Margin="0,8,0,0" Text="Current passphrase" />
+      <TextBox
+          x:Name="CurrentPassphraseTextBox"
+          AutomationProperties.HelpText="Paste or type the current workspace passphrase."
+          AutomationProperties.Name="Current passphrase"
+          IsEnabled="{Binding CanEdit}"
+          PasswordChar="{Binding PasswordCharacter}"
+          TabIndex="0"
+          Text="{Binding CurrentPassphrase, Mode=TwoWay}" />
+
+      <TextBlock Text="New passphrase" />
+      <TextBox
+          x:Name="NewPassphraseTextBox"
+          AutomationProperties.HelpText="Paste or type a new passphrase. Password-manager generated values are supported."
+          AutomationProperties.Name="New passphrase"
+          IsEnabled="{Binding CanEdit}"
+          PasswordChar="{Binding PasswordCharacter}"
+          TabIndex="1"
+          Text="{Binding NewPassphrase, Mode=TwoWay}" />
+
+      <TextBlock Text="Confirm new passphrase" />
+      <TextBox
+          x:Name="ConfirmationTextBox"
+          AutomationProperties.HelpText="Enter the same new passphrase again."
+          AutomationProperties.Name="Confirm new passphrase"
+          IsEnabled="{Binding CanEdit}"
+          PasswordChar="{Binding PasswordCharacter}"
+          TabIndex="2"
+          Text="{Binding Confirmation, Mode=TwoWay}" />
+
+      <ToggleButton
+          x:Name="PassphraseVisibilityToggle"
+          HorizontalAlignment="Left"
+          AutomationProperties.HelpText="Change whether all passphrase fields display their text."
+          AutomationProperties.Name="{Binding PassphraseVisibilityActionName}"
+          Command="{Binding TogglePassphraseVisibilityCommand}"
+          IsEnabled="{Binding CanEdit}"
+          IsChecked="{Binding IsPassphraseVisible, Mode=OneWay}"
+          TabIndex="3">
+        <TextBlock Text="{Binding PassphraseVisibilityActionName}" />
+      </ToggleButton>
+
+      <Border
+          Margin="0,4,0,0"
+          Padding="14"
+          Background="{StaticResource PanelBrush}"
+          BorderBrush="{StaticResource LineBrush}"
+          BorderThickness="1"
+          CornerRadius="8">
+        <StackPanel Spacing="6">
+          <TextBlock
+              x:Name="PassphraseGuidance"
+              FontWeight="SemiBold"
+              Text="Use 16 or more characters, or a multi-word passphrase."
+              TextWrapping="Wrap" />
+          <TextBlock
+              x:Name="NoRecoveryWarning"
+              Foreground="{StaticResource MutedTextBrush}"
+              Text="There is no recovery mechanism. If you lose the new passphrase, the workspace cannot be opened. Existing recovery points keep their current passphrase."
+              TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
+
+      <TextBlock
+          x:Name="ValidationMessage"
+          AutomationProperties.LiveSetting="Assertive"
+          AutomationProperties.Name="Passphrase rotation error"
+          Foreground="{StaticResource ErrorBrush}"
+          IsVisible="{Binding HasValidationMessage}"
+          Text="{Binding ValidationMessage}"
+          TextWrapping="Wrap" />
+
+      <StackPanel Margin="0,8,0,0" Orientation="Horizontal" Spacing="10">
+        <Button
+            x:Name="ChangePassphraseButton"
+            AutomationProperties.Name="Change workspace passphrase"
+            Command="{Binding SubmitCommand}"
+            IsEnabled="{Binding CanEdit}"
+            IsDefault="True"
+            TabIndex="4">
+          Change passphrase
+        </Button>
+        <Button
+            x:Name="CancelPassphraseButton"
+            AutomationProperties.Name="{Binding CancelActionName}"
+            Command="{Binding CancelCommand}"
+            Content="{Binding CancelActionName}"
+            IsCancel="True"
+            TabIndex="5" />
+      </StackPanel>
+    </StackPanel>
+  </ScrollViewer>
+</Window>
