@@ -38,10 +38,23 @@ public sealed class NavigationItemViewModel : INotifyPropertyChanged
     public string? CountText
     {
         get => _countText;
-        internal set { _countText = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasCount)); }
+        internal set
+        {
+            _countText = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasCount));
+            OnPropertyChanged(nameof(AccessibleCount));
+        }
     }
 
     public bool HasCount => CountText is not null;
+
+    public string AccessibleCount => CountText switch
+    {
+        null => string.Empty,
+        "1" => "1 item",
+        _ => $"{CountText} items",
+    };
 
     public string AccessibleName => $"Open {Title}";
 

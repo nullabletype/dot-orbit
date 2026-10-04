@@ -583,6 +583,7 @@ public sealed partial class MainWindow : Window
         TaskRowViewModel task => task.SelectCommand,
         CategoryTaskRowViewModel categoryTask => categoryTask.Task.SelectCommand,
         CompletedTaskRowViewModel completedTask => completedTask.Task.SelectCommand,
+        UpcomingTaskRowViewModel upcomingTask => upcomingTask.Task.SelectCommand,
         TodayTaskRowViewModel todayTask => todayTask.Task.SelectCommand,
         ProjectRowViewModel project => project.SelectCommand,
         CategoryProjectRowViewModel categoryProject => categoryProject.Project.SelectCommand,

@@ -888,6 +888,67 @@ public sealed class ProjectCaptureViewModelTests
     }
 
     [Fact]
+    public void UpcomingGroupsOverdueFirstThenDatesWithSharedOrderTieBreaks()
+    {
+        var work = new MemoryWorkspaceWork();
+        var today = new DateOnly(2026, 10, 4);
+        var sameDateLater = work.CreateStandaloneTask("Same date later", "", "home", today.AddDays(2));
+        var outside = work.CreateStandaloneTask("Outside", "", "home", today.AddDays(8));
+        var sameDateEarlier = work.CreateStandaloneTask("Same date earlier", "", "home", today.AddDays(2));
+        var tomorrow = work.CreateStandaloneTask("Tomorrow", "", "home", today.AddDays(1));
+        var todayTask = work.CreateStandaloneTask("Today", "", "home", today);
+        var recentOverdue = work.CreateStandaloneTask("Recent overdue", "", "home", today.AddDays(-1));
+        var oldestOverdue = work.CreateStandaloneTask("Oldest overdue", "", "home", today.AddDays(-5));
+        var undated = work.CreateStandaloneTask("Undated", "", "home", null);
+        var completed = work.CreateStandaloneTask("Completed", "", "home", today);
+        work.SetCompletion(completed.Id, new DateTimeOffset(2026, 10, 4, 9, 0, 0, TimeSpan.Zero), today);
+        var project = work.CreateProject("Target only", "", "home", today.AddDays(1));
+        work.MoveTaskInSharedOrder(sameDateLater.Id, 0);
+        var model = new ProjectCaptureViewModel(work,
+            new FixedTimeProvider(new DateTimeOffset(2026, 10, 4, 12, 0, 0, TimeSpan.Zero)));
+
+        Assert.Equal(["Overdue", "Today", "Tomorrow", "Tuesday, 6 October 2026"],
+            model.UpcomingGroups.Select(group => group.Heading));
+        Assert.Equal([oldestOverdue.Id, recentOverdue.Id], model.UpcomingGroups[0].Rows.Select(row => row.Task.Id));
+        Assert.Equal([sameDateLater.Id, sameDateEarlier.Id], model.UpcomingGroups[^1].Rows.Select(row => row.Task.Id));
+        Assert.Equal(6, model.UpcomingCount);
+        var excludedIds = new[] { outside.Id, undated.Id, completed.Id };
+        Assert.DoesNotContain(model.UpcomingGroups.SelectMany(group => group.Rows), row => excludedIds.Contains(row.Task.Id));
+        Assert.DoesNotContain(model.UpcomingGroups.SelectMany(group => group.Rows), row => row.Task.Title == project.Title);
+    }
+
+    [Fact]
+    public void UpcomingActionsAndClockRefreshPreserveSharedOrderAndRegroupImmediately()
+    {
+        var work = new MemoryWorkspaceWork();
+        var due = work.CreateStandaloneTask("Due", "", "home", new DateOnly(2026, 10, 5));
+        var other = work.CreateStandaloneTask("Other", "", "home", new DateOnly(2026, 10, 6));
+        var enteringBoundary = work.CreateStandaloneTask("Entering boundary", "", "home", new DateOnly(2026, 10, 12));
+        var time = new FixedTimeProvider(new DateTimeOffset(2026, 10, 4, 23, 30, 0, TimeSpan.Zero));
+        var model = new ProjectCaptureViewModel(work, time);
+        var originalOrder = work.Read().Tasks.Select(task => (task.Id, task.SharedPosition)).ToArray();
+
+        model.UpcomingGroups.SelectMany(group => group.Rows).Single(row => row.Task.Id == due.Id)
+            .Task.ToggleTodayCommand.Execute(null);
+        Assert.Equal(TodayLane.Planned, work.Read().Tasks.Single(task => task.Id == due.Id).TodayLane);
+        Assert.Equal(originalOrder, work.Read().Tasks.Select(task => (task.Id, task.SharedPosition)));
+
+        model.SelectTask(due.Id);
+        model.Date = "2026-10-20";
+        Assert.True(model.RunScheduledAutosave());
+        Assert.DoesNotContain(model.UpcomingGroups.SelectMany(group => group.Rows), row => row.Task.Id == due.Id);
+        Assert.Equal(originalOrder, work.Read().Tasks.Select(task => (task.Id, task.SharedPosition)));
+
+        var plusTwo = TimeZoneInfo.CreateCustomTimeZone("UTC+02-upcoming", TimeSpan.FromHours(2), "UTC+02", "UTC+02");
+        time.Set(time.GetUtcNow(), plusTwo);
+        Assert.True(model.RefreshDatePresentation());
+        Assert.Equal(["Tomorrow", "Monday, 12 October 2026"], model.UpcomingGroups.Select(group => group.Heading));
+        Assert.Equal([other.Id, enteringBoundary.Id],
+            model.UpcomingGroups.SelectMany(group => group.Rows).Select(row => row.Task.Id));
+        Assert.Equal(2, model.UpcomingCount);
+    }
+
+    [Fact]
     public void TodayStarDefaultsToPlannedLaneMovementPreservesOrderAndClearRemovesMembership()
     {
         var work = new MemoryWorkspaceWork();

@@ -24,6 +24,124 @@ namespace DotOrbit.Desktop.Tests;
 public sealed class ProjectCaptureWindowTests
 {
     [AvaloniaFact]
+    public void UpcomingShowsBadgeDateGroupsSharedRowActionsAndNoReorderAffordance()
+    {
+        var work = new MemoryWorkspaceWork();
+        var today = new DateOnly(2026, 10, 4);
+        var overdue = work.CreateStandaloneTask("Overdue task", "", "home", today.AddDays(-1));
+        var dueToday = work.CreateStandaloneTask("Due today", "", "work", today);
+        var shell = new ShellViewModel(work,
+            new FixedTimeProvider(new DateTimeOffset(2026, 10, 4, 12, 0, 0, TimeSpan.Zero)));
+        var upcomingNavigation = shell.PrimaryNavigation.Single(item => item.Title == "Upcoming");
+        upcomingNavigation.SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell, Width = 1200, Height = 760 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("2", upcomingNavigation.CountText);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Overdue");
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Today");
+        var upcomingGroups = window.FindControl<ItemsControl>("UpcomingGroups")!;
+        var groupStacks = upcomingGroups.GetVisualDescendants().OfType<StackPanel>()
+            .Where(panel => panel.DataContext is UpcomingTaskGroupViewModel
+                && panel.Children.OfType<TextBlock>().Any(text => text.Classes.Contains("eyebrow"))).ToArray();
+        Assert.Equal(2, groupStacks.Length);
+        Assert.All(groupStacks, panel => Assert.Equal(default, panel.Margin));
+        Assert.Contains(upcomingGroups.GetVisualDescendants().OfType<StackPanel>(), panel => panel.Spacing == 8);
+        var navigation = ToggleByAutomationId(window, "navigation-upcoming");
+        Assert.Equal("2 items", AutomationProperties.GetItemStatus(navigation));
+        var overdueRow = RowForTask(window, "upcoming-row", overdue.Id);
+        var todayRow = RowForTask(window, "upcoming-row", dueToday.Id);
+        AssertIncompleteTaskRowContract(window, overdueRow, overdue.Id, "Overdue task", "Home · standalone", "3 Oct 2026");
+        AssertIncompleteTaskRowContract(window, todayRow, dueToday.Id, "Due today", "Work · standalone", "Today");
+        Assert.DoesNotContain(overdueRow.GetVisualDescendants().OfType<Button>(),
+            button => button.Classes.Contains("drag-handle"));
+        Assert.DoesNotContain("reorder-target", overdueRow.Classes);
+
+        ClickTaskRowSurface(window, "upcoming-row", "Overdue task");
+        Assert.True(shell.Work!.HasInspector);
+        Assert.Equal("Overdue task", shell.Work.Title);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void UpcomingCompletionAndAddToTodayAreKeyboardOperableAndPreserveLogicalFocusAndOrder()
+    {
+        var work = new MemoryWorkspaceWork();
+        var today = new DateOnly(2026, 10, 4);
+        var first = work.CreateStandaloneTask("First", "", "home", today);
+        var second = work.CreateStandaloneTask("Second", "", "home", today.AddDays(1));
+        var originalOrder = work.Read().Tasks.Select(task => (task.Id, task.SharedPosition)).ToArray();
+        var shell = new ShellViewModel(work,
+            new FixedTimeProvider(new DateTimeOffset(2026, 10, 4, 12, 0, 0, TimeSpan.Zero)));
+        shell.PrimaryNavigation.Single(item => item.Title == "Upcoming").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell, Width = 1200, Height = 760 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var completion = ToggleByAutomationId(window, $"task-completion-{first.Id}");
+        Assert.Equal("Complete First", AutomationProperties.GetName(completion));
+        Assert.True(completion.Focus());
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(work.Read().Tasks.Single(task => task.Id == first.Id).IsComplete);
+        Assert.True(ToggleByAutomationId(window, $"task-completion-{second.Id}").IsFocused);
+        Assert.Equal("1", shell.PrimaryNavigation.Single(item => item.Title == "Upcoming").CountText);
+        Assert.Equal("1 item", AutomationProperties.GetItemStatus(ToggleByAutomationId(window, "navigation-upcoming")));
+
+        var todayToggle = ToggleByAutomationId(window, $"task-today-{second.Id}");
+        Assert.Equal("Add Second to Today", AutomationProperties.GetName(todayToggle));
+        Assert.True(todayToggle.Focus());
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(TodayLane.Planned, work.Read().Tasks.Single(task => task.Id == second.Id).TodayLane);
+        Assert.True(ToggleByAutomationId(window, $"task-today-{second.Id}").IsFocused);
+        Assert.Equal(originalOrder, work.Read().Tasks.Select(task => (task.Id, task.SharedPosition)));
+
+        completion = ToggleByAutomationId(window, $"task-completion-{second.Id}");
+        Assert.True(completion.Focus());
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(ToggleByAutomationId(window, "navigation-upcoming").IsFocused);
+        Assert.Equal("0", shell.PrimaryNavigation.Single(item => item.Title == "Upcoming").CountText);
+        Assert.Equal("0 items", AutomationProperties.GetItemStatus(ToggleByAutomationId(window, "navigation-upcoming")));
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void UpcomingDueDateEditImmediatelyMovesTheTaskOutOfTheProjection()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Move me", "", "home", new DateOnly(2026, 10, 5));
+        var originalPosition = task.SharedPosition;
+        var shell = new ShellViewModel(work,
+            new FixedTimeProvider(new DateTimeOffset(2026, 10, 4, 12, 0, 0, TimeSpan.Zero)));
+        shell.PrimaryNavigation.Single(item => item.Title == "Upcoming").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell, Width = 1200, Height = 760 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        ClickTaskRowSurface(window, "upcoming-row", "Move me");
+        shell.Work!.Date = "2026-10-06";
+        Assert.True(shell.Work.RunScheduledAutosave());
+        Dispatcher.UIThread.RunJobs();
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Tuesday, 6 October 2026");
+        Assert.Single(window.GetVisualDescendants().OfType<Border>(), row => row.Classes.Contains("upcoming-row"));
+
+        shell.Work.Date = "2026-10-12";
+        Assert.True(shell.Work.RunScheduledAutosave());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<Border>(), row => row.Classes.Contains("upcoming-row"));
+        Assert.True(shell.Work.HasNoUpcoming);
+        Assert.Equal("0", shell.PrimaryNavigation.Single(item => item.Title == "Upcoming").CountText);
+        var saved = work.Read().Tasks.Single(item => item.Id == task.Id);
+        Assert.Equal(new DateOnly(2026, 10, 12), saved.DueDate);
+        Assert.Equal(originalPosition, saved.SharedPosition);
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public void TodayStarLaneMovementAndClearAreKeyboardOperableAndAccessible()
     {
         var work = new MemoryWorkspaceWork();
