@@ -396,6 +396,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public bool HasDateValidationError => !string.IsNullOrEmpty(DateValidationMessage);
     internal void MarkdownCopySucceeded() => Message = "Rendered description copied as rich text and plain text.";
     internal void MarkdownCopyFailed() => Message = "Could not copy the rendered description. Try again.";
+    internal void ClearMessage() => Message = string.Empty;
     internal void FinishMarkdownEditing() => IsEditingMarkdown = false;
     public CategoryChoice? CategoryReplacement { get => _categoryReplacement; set { _categoryReplacement = value; Notify(); } }
     public TaskContextChoice? TaskContextTarget

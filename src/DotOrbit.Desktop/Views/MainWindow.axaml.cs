@@ -33,21 +33,25 @@ public sealed partial class MainWindow : Window
     private SettingsViewModel? _subscribedSettings;
     private readonly DispatcherTimer _dateRefreshTimer = new() { Interval = TimeSpan.FromMinutes(1) };
     private readonly IInspectorAutosaveScheduler _autosaveScheduler;
+    private readonly ITransientMessageScheduler _transientMessageScheduler;
     private readonly IMarkdownClipboard? _markdownClipboard;
     private readonly Action _workspaceUnavailable;
+    private long _transientMessageRevision;
+
+    internal static TimeSpan TransientMessageDuration { get; } = TimeSpan.FromSeconds(5);
 
     public MainWindow()
-        : this(null, null, null, null)
+        : this(null, null, null, null, null)
     {
     }
 
     internal MainWindow(IWorkspaceSession? session)
-        : this(session, null, null, null)
+        : this(session, null, null, null, null)
     {
     }
 
     internal MainWindow(IWorkspaceSession? session, IMarkdownClipboard? markdownClipboard)
-        : this(session, markdownClipboard, null, null)
+        : this(session, markdownClipboard, null, null, null)
     {
     }
 
@@ -55,11 +59,13 @@ public sealed partial class MainWindow : Window
         IWorkspaceSession? session,
         IMarkdownClipboard? markdownClipboard,
         IInspectorAutosaveScheduler? autosaveScheduler,
-        Action? workspaceUnavailable = null)
+        Action? workspaceUnavailable = null,
+        ITransientMessageScheduler? transientMessageScheduler = null)
     {
         _session = session;
         _markdownClipboard = markdownClipboard;
         _autosaveScheduler = autosaveScheduler ?? new DispatcherInspectorAutosaveScheduler();
+        _transientMessageScheduler = transientMessageScheduler ?? new DispatcherTransientMessageScheduler();
         _workspaceUnavailable = () => HandleWorkspaceUnavailable(workspaceUnavailable);
         AvaloniaXamlLoader.Load(this);
         DataContextChanged += OnDataContextChanged;
@@ -174,6 +180,7 @@ public sealed partial class MainWindow : Window
     private void OnDataContextChanged(object? sender, EventArgs e)
     {
         _autosaveScheduler.Cancel();
+        CancelTransientMessageDismissal();
         if (_subscribedWork is not null)
         {
             _subscribedWork.PropertyChanged -= OnWorkChanged;
@@ -187,6 +194,7 @@ public sealed partial class MainWindow : Window
         {
             _subscribedWork.PropertyChanged += OnWorkChanged;
             _subscribedWork.AutosaveRequested += OnAutosaveRequested;
+            ScheduleTransientMessageDismissal(_subscribedWork);
         }
         if (_subscribedSettings is not null)
             _subscribedSettings.PropertyChanged += OnSettingsChanged;
@@ -206,6 +214,33 @@ public sealed partial class MainWindow : Window
             ProjectCaptureViewModel.AutosaveDelay,
             e.Revision,
             revision => work.RunScheduledAutosave(revision));
+    }
+
+    private void ScheduleTransientMessageDismissal(ProjectCaptureViewModel work)
+    {
+        var revision = ++_transientMessageRevision;
+        if (!work.HasMessage)
+        {
+            _transientMessageScheduler.Cancel();
+            return;
+        }
+
+        _transientMessageScheduler.Schedule(
+            TransientMessageDuration,
+            revision,
+            scheduledRevision =>
+            {
+                if (scheduledRevision == _transientMessageRevision
+                    && DataContext is ShellViewModel { Work: { } currentWork }
+                    && ReferenceEquals(work, currentWork))
+                    currentWork.ClearMessage();
+            });
+    }
+
+    private void CancelTransientMessageDismissal()
+    {
+        _transientMessageRevision++;
+        _transientMessageScheduler.Cancel();
     }
 
     private void OnOpened(object? sender, EventArgs e)
@@ -239,6 +274,9 @@ public sealed partial class MainWindow : Window
 
     private void OnWorkChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(ProjectCaptureViewModel.Message)
+            && sender is ProjectCaptureViewModel messageWork)
+            ScheduleTransientMessageDismissal(messageWork);
         if (e.PropertyName == nameof(ProjectCaptureViewModel.NeedsDecision)
             && DataContext is ShellViewModel { Work.NeedsDecision: true })
             Dispatcher.UIThread.Post(() =>
@@ -633,6 +671,7 @@ public sealed partial class MainWindow : Window
         _dateRefreshTimer.Stop();
         _dateRefreshTimer.Tick -= OnDateRefreshTick;
         _autosaveScheduler.Dispose();
+        _transientMessageScheduler.Dispose();
         if (_subscribedWork is not null)
         {
             _subscribedWork.PropertyChanged -= OnWorkChanged;

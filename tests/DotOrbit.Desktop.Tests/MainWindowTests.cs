@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Headless;
@@ -98,12 +99,137 @@ public sealed class MainWindowTests
             "Select a project, task, or category\nto see its details",
             window.FindControl<TextBlock>("InspectorEmptyText")?.Text);
         Assert.NotNull(window.FindControl<Border>("TopBar"));
+        Assert.False(window.FindControl<Border>("TopBarStatus")?.IsEffectivelyVisible);
         Assert.NotNull(window.FindControl<Border>("InspectorRegion"));
         Assert.All(window.GetVisualDescendants().OfType<RadioButton>(), button =>
             Assert.Single(button.GetVisualDescendants().OfType<PathIcon>()));
         Assert.Single(
             window.GetVisualDescendants().OfType<Border>(),
             border => border.Name == "SelectionIndicator" && border.IsVisible);
+    }
+
+    [AvaloniaFact]
+    public void TransientStatusUsesTheTopBarWithoutReservingContentSpaceOrMovingFocus()
+    {
+        var work = new MemoryWorkspaceWork();
+        var longTitle = $"Review {new string('W', 160)}";
+        var task = work.CreateStandaloneTask(longTitle, "", "home", null);
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var topBar = Assert.IsType<Border>(window.FindControl<Border>("TopBar"));
+        var status = Assert.IsType<Border>(window.FindControl<Border>("TopBarStatus"));
+        var statusIcon = Assert.IsType<TextBlock>(window.FindControl<TextBlock>("TopBarStatusIcon"));
+        var statusMessage = Assert.IsType<TextBlock>(window.FindControl<TextBlock>("TopBarStatusMessage"));
+        var brand = Assert.IsType<TextBlock>(window.FindControl<TextBlock>("BrandNameText"));
+        var currentView = Assert.IsType<Grid>(window.FindControl<Grid>("CurrentViewRegion"));
+        var settings = Assert.IsType<ScrollViewer>(window.FindControl<ScrollViewer>("SettingsRegion"));
+        var inspector = Assert.IsType<Border>(window.FindControl<Border>("InspectorRegion"));
+        var archive = window.GetVisualDescendants().OfType<RadioButton>().Single(control =>
+            AutomationProperties.GetAutomationId(control) == "navigation-archive");
+        var brandOrigin = brand.TranslatePoint(default, window);
+        var contentHeightWithoutStatus = currentView.Bounds.Height;
+
+        Assert.False(status.IsEffectivelyVisible);
+        Assert.Equal("•", statusIcon.Text);
+        Assert.DoesNotContain(status.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "STATUS");
+        Assert.Equal(new Thickness(32, 30, 32, 0), currentView.Margin);
+        Assert.Equal(currentView.Margin, settings.Margin);
+        Assert.Equal(AutomationLiveSetting.Polite, AutomationProperties.GetLiveSetting(statusMessage));
+        Assert.Equal(TextWrapping.Wrap, statusMessage.TextWrapping);
+        Assert.Equal(TextTrimming.CharacterEllipsis, statusMessage.TextTrimming);
+        Assert.Equal(2, statusMessage.MaxLines);
+        Assert.True(archive.Focus());
+
+        shell.Work!.ToggleCompletion(task.Id);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("Task completed.", statusMessage.Text);
+        Assert.True(status.IsEffectivelyVisible);
+        Assert.True(status.Bounds.Width < 300);
+        Assert.True(status.Bounds.Height < 48);
+
+        shell.Work.ToggleCompletion(task.Id);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("Task reopened.", statusMessage.Text);
+
+        Assert.True(archive.Focus());
+        shell.Work.MarkdownCopyFailed();
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("Could not copy the rendered description. Try again.", statusMessage.Text);
+        Assert.True(archive.IsFocused);
+        Assert.Equal(contentHeightWithoutStatus, currentView.Bounds.Height);
+        Assert.Equal(brandOrigin, brand.TranslatePoint(default, window));
+        Assert.Contains(topBar, status.GetVisualAncestors());
+        Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(), text =>
+            text.IsEffectivelyVisible && text.Text == shell.Work.Message);
+
+        shell.Work.ToggleToday(task.Id);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal($"Added {longTitle} to Today in Planned.", statusMessage.Text);
+        Assert.True(status.Bounds.Width <= 620);
+        Assert.True(status.Bounds.Height <= topBar.Bounds.Height);
+
+        foreach (var width in new[] { 1120d, 1440d })
+        {
+            window.Width = width;
+            Dispatcher.UIThread.RunJobs();
+            var topBarOrigin = Assert.IsType<Point>(topBar.TranslatePoint(default, window));
+            var statusOrigin = Assert.IsType<Point>(status.TranslatePoint(default, window));
+            var brandPosition = Assert.IsType<Point>(brand.TranslatePoint(default, window));
+            var inspectorOrigin = Assert.IsType<Point>(inspector.TranslatePoint(default, window));
+            Assert.True(brandPosition.X + brand.Bounds.Width < statusOrigin.X);
+            Assert.True(statusOrigin.X + status.Bounds.Width <= topBarOrigin.X + topBar.Bounds.Width);
+            Assert.True(statusOrigin.Y + status.Bounds.Height <= inspectorOrigin.Y);
+        }
+
+        shell.Work.NewTaskCommand.Execute(null);
+        shell.Work.SaveCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("Enter a title.", statusMessage.Text);
+        Assert.True(status.IsEffectivelyVisible);
+
+        shell.Work.NewProjectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(status.IsEffectivelyVisible);
+        Assert.Equal(contentHeightWithoutStatus, currentView.Bounds.Height);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void TransientStatusDismissesFiveSecondsAfterTheLatestMessage()
+    {
+        var scheduler = new ManualTransientMessageScheduler();
+        var shell = new ShellViewModel(new MemoryWorkspaceWork());
+        var window = new MainWindow(null, null, null, null, scheduler) { DataContext = shell };
+        window.Show();
+        var status = Assert.IsType<Border>(window.FindControl<Border>("TopBarStatus"));
+
+        shell.Work!.MarkdownCopySucceeded();
+        Dispatcher.UIThread.RunJobs();
+        var stale = Assert.Single(scheduler.Pending);
+        Assert.Equal(MainWindow.TransientMessageDuration, scheduler.Delay);
+        Assert.Equal(TimeSpan.FromSeconds(5), scheduler.Delay);
+        Assert.True(status.IsEffectivelyVisible);
+
+        shell.Work.MarkdownCopyFailed();
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(2, scheduler.ScheduleCount);
+        Assert.Equal("Could not copy the rendered description. Try again.", shell.Work.Message);
+
+        stale.Callback(stale.Revision);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("Could not copy the rendered description. Try again.", shell.Work.Message);
+        Assert.True(status.IsEffectivelyVisible);
+
+        scheduler.FireCurrent();
+        Dispatcher.UIThread.RunJobs();
+        Assert.Empty(shell.Work.Message);
+        Assert.False(status.IsEffectivelyVisible);
+
+        window.Close();
+        Assert.True(scheduler.IsDisposed);
     }
 
     [AvaloniaFact]
@@ -249,5 +375,40 @@ public sealed class MainWindowTests
         Assert.Equal(
             "Passphrase changed. Use the new passphrase the next time you unlock this workspace.",
             updatedShell.Settings?.SecurityConfirmation);
+    }
+
+    private sealed class ManualTransientMessageScheduler : ITransientMessageScheduler
+    {
+        private ScheduledMessage? _current;
+
+        public List<ScheduledMessage> Pending { get; } = [];
+        public int ScheduleCount { get; private set; }
+        public TimeSpan Delay { get; private set; }
+        public bool IsDisposed { get; private set; }
+
+        public void Schedule(TimeSpan delay, long revision, Action<long> callback)
+        {
+            Delay = delay;
+            ScheduleCount++;
+            _current = new(revision, callback);
+            Pending.Add(_current);
+        }
+
+        public void Cancel() => _current = null;
+
+        public void FireCurrent()
+        {
+            var current = _current;
+            _current = null;
+            current?.Callback(current.Revision);
+        }
+
+        public void Dispose()
+        {
+            Cancel();
+            IsDisposed = true;
+        }
+
+        public sealed record ScheduledMessage(long Revision, Action<long> Callback);
     }
 }

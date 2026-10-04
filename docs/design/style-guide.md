@@ -69,6 +69,7 @@ The implemented recipes live in `src/DotOrbit.Desktop/Styles/ComponentRecipes.ax
 ### Status, badges, fields and feedback
 
 - Status markers combine a dot or other shape with text. Neutral means not started, amber means in progress or attention, and green means complete or positive.
+- Transient `Work.Message` action and validation feedback belongs in a content-sized, capped-width quiet capsule in the fixed top bar beside the brand. The neutral panel surface and border keep it subordinate to the work, while a small marker and explicit message preserve a non-colour cue. It is a non-interactive polite live region, uses at most two lines with character ellipsis for long messages, clears five seconds after the latest message, and never reserves space in the main content area when empty. Surface-specific feedback such as inspector autosave and Settings confirmations keeps its existing local presentation.
 - `status-badge` is compact supplementary information, never the only announcement of important state.
 - Inspector fields reuse `inspector-title` and `inspector-field`. The editable title keeps a modest horizontal inset so glyphs remain inside its focus border, without recreating the original pronounced indent. Date controls use the same field surface, use 12px input and calendar typography, and remain keyboard operable.
 - Validation uses an error border plus nearby `validation-message` text that states the correction. Do not encode “invalid” only in red.
@@ -98,6 +99,7 @@ The implemented recipes live in `src/DotOrbit.Desktop/Styles/ComponentRecipes.ax
 | Reorder handle | centred six dots | raised surface and strong border | pink border | N/A | Framework-disabled | N/A |
 | Insertion rule | Absent | pink bottom rule only on valid target | N/A | cleared after drop/cancel/loss/deactivation | N/A | invalid targets remain absent |
 | Status marker | neutral shape plus text | N/A | N/A | green completion or amber progress plus text | N/A | N/A |
+| Transient status | quiet neutral capsule, small marker plus message | N/A | N/A | content-sized and visible for five seconds after the latest message | N/A | wording carries the failure or correction; colour is supplementary |
 | Badge | accent surface plus short text | N/A unless actionable | Action owns focus if actionable | Count/state in text | Muted if unavailable | N/A |
 | Inspector field | input surface and strong border | framework hover | visible focus border | Selected value remains textual | Framework-disabled | error border plus correction text |
 | Markdown preview | input surface and sanitised rendered content | raised surface and strong border | pink 2px border | activation swaps to the source editor | copy is disabled when empty | unsafe content never becomes an active element |

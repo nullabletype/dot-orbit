@@ -307,6 +307,17 @@
     <Setter Property="FontSize" Value="{StaticResource TypeSizeEyebrow}" />
     <Setter Property="FontWeight" Value="Bold" />
   </Style>
+  <Style Selector="Border.transient-status">
+    <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+    <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />
+    <Setter Property="CornerRadius" Value="{StaticResource CompactControlRadius}" />
+  </Style>
+  <Style Selector="TextBlock.transient-status-icon">
+    <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+    <Setter Property="FontSize" Value="{StaticResource TypeSizeEyebrow}" />
+    <Setter Property="FontWeight" Value="Bold" />
+  </Style>
   <Style Selector="TextBlock.validation-message">
     <Setter Property="Foreground" Value="{StaticResource ErrorBrush}" />
     <Setter Property="FontSize" Value="{StaticResource TypeSizeEyebrow}" />
