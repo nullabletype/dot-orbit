@@ -16,14 +16,13 @@ dot-orbit sample only
 
 This phrase protects no confidential data and must never be reused for a real workspace. The tool does not print it in runtime diagnostics.
 
-Launch the desktop application against this repository-local sample without moving or replacing the normal application workspace:
+Once generated, a desktop build launched from this repository automatically uses the repository-local sample without moving or replacing the normal application workspace:
 
 ```sh
-dotnet run --project src/DotOrbit.Desktop/DotOrbit.Desktop.csproj -- \
-  --sample-workspace
+dotnet run --project src/DotOrbit.Desktop/DotOrbit.Desktop.csproj
 ```
 
-Use this launch mode for local implementation and visual testing. It keeps the selected sample path when a workflow returns to the unlock screen. Normal packaged launches continue to use the platform application-data workspace.
+Use local repository launches for implementation and visual testing. They keep the selected sample path when a workflow returns to the unlock screen. Normal packaged launches continue to use the platform application-data workspace. Pass `-- --default-workspace` only when you intentionally need a repository build to open the normal application workspace.
 
 Use a different output file or a fixed date when repeatable date labels and screenshots matter:
 

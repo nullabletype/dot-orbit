@@ -10,6 +10,7 @@ internal interface IWorkspacePathProvider
 internal sealed class SystemWorkspacePathProvider : IWorkspacePathProvider
 {
     private const string SampleWorkspaceArgument = "--sample-workspace";
+    private const string DefaultWorkspaceArgument = "--default-workspace";
 
     private readonly string? _workspacePath;
 
@@ -28,15 +29,24 @@ internal sealed class SystemWorkspacePathProvider : IWorkspacePathProvider
         string? applicationDirectory = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(currentDirectory);
-        if (arguments?.Contains(SampleWorkspaceArgument, StringComparer.Ordinal) != true)
+        if (arguments?.Contains(DefaultWorkspaceArgument, StringComparer.Ordinal) == true)
         {
             return new SystemWorkspacePathProvider();
         }
 
         var repositoryRoot = FindRepositoryRoot(currentDirectory)
-            ?? FindRepositoryRoot(applicationDirectory ?? AppContext.BaseDirectory)
-            ?? throw new InvalidOperationException(
-                $"{SampleWorkspaceArgument} must launch a dot-orbit build from its repository checkout.");
+            ?? FindRepositoryRoot(applicationDirectory ?? AppContext.BaseDirectory);
+        if (repositoryRoot is null)
+        {
+            if (arguments?.Contains(SampleWorkspaceArgument, StringComparer.Ordinal) == true)
+            {
+                throw new InvalidOperationException(
+                    $"{SampleWorkspaceArgument} must launch a dot-orbit build from its repository checkout.");
+            }
+
+            return new SystemWorkspacePathProvider();
+        }
+
         return new SystemWorkspacePathProvider(Path.Combine(
             repositoryRoot,
             "artifacts",

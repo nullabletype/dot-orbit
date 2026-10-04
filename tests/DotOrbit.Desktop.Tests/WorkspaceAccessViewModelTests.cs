@@ -33,12 +33,41 @@ public sealed class WorkspaceAccessViewModelTests
     }
 
     [Fact]
-    public void OrdinaryLaunchArgumentsKeepThePlatformWorkspace()
+    public void LocalRepositoryLaunchDefaultsToTheSampleWorkspace()
     {
         using var repository = TemporaryDirectory.CreateRepository();
 
         var workspacePath = SystemWorkspacePathProvider.FromArguments(
             ["--unrelated"],
+            repository.Path)
+            .GetDefaultWorkspacePath();
+
+        Assert.Equal(
+            Path.Combine(repository.Path, "artifacts", "sample-workspace", "workspace.db"),
+            workspacePath);
+    }
+
+    [Fact]
+    public void PackagedLaunchKeepsThePlatformWorkspace()
+    {
+        using var unrelated = TemporaryDirectory.CreateRepository(createSolution: false);
+
+        var workspacePath = SystemWorkspacePathProvider.FromArguments(
+            [],
+            unrelated.Path,
+            unrelated.Path)
+            .GetDefaultWorkspacePath();
+
+        Assert.Equal(WorkspacePathDefaults.GetDefaultWorkspacePath(), workspacePath);
+    }
+
+    [Fact]
+    public void LocalLaunchCanExplicitlyUseThePlatformWorkspace()
+    {
+        using var repository = TemporaryDirectory.CreateRepository();
+
+        var workspacePath = SystemWorkspacePathProvider.FromArguments(
+            ["--default-workspace"],
             repository.Path)
             .GetDefaultWorkspacePath();
 
@@ -52,7 +81,7 @@ public sealed class WorkspaceAccessViewModelTests
         using var unrelated = TemporaryDirectory.CreateRepository(createSolution: false);
 
         var workspacePath = SystemWorkspacePathProvider.FromArguments(
-            ["--sample-workspace"],
+            [],
             unrelated.Path,
             Path.Combine(repository.Path, "src", "DotOrbit.Desktop", "bin", "Debug", "net10.0"))
             .GetDefaultWorkspacePath();
