@@ -26,8 +26,9 @@ public sealed class SampleWorkspaceGeneratorTests
         Assert.Equal(21, summary.IncompleteTaskCount);
         Assert.Equal(12, summary.CompletedTaskCount);
         Assert.Equal(6, summary.ArchivedTaskCount);
-        Assert.Equal(9, summary.TodayTaskCount);
-        Assert.Equal(13, summary.UpcomingTaskCount);
+        Assert.Equal(1, summary.ArchivedProjectCount);
+        Assert.Equal(8, summary.TodayTaskCount);
+        Assert.Equal(11, summary.UpcomingTaskCount);
 
         var bytes = File.ReadAllBytes(path);
         Assert.NotEqual("SQLite format 3\0", Encoding.ASCII.GetString(bytes, 0, 16));
@@ -60,6 +61,8 @@ public sealed class SampleWorkspaceGeneratorTests
             snapshot.Projects.Select(project => project.Title));
         Assert.Equal("Not started", ProjectWorkSummary.From(snapshot, projects["Launch the dot-orbit sample workspace"].Id).Status);
         Assert.Equal("In progress", ProjectWorkSummary.From(snapshot, projects["Autumn garden"].Id).Status);
+        Assert.True(projects["Autumn garden"].IsArchived);
+        Assert.Equal(AnchorDate, projects["Autumn garden"].ArchiveDate);
         Assert.Equal("Complete", ProjectWorkSummary.From(snapshot, projects["Welsh foundations"].Id).Status);
         Assert.Equal("Not started", ProjectWorkSummary.From(snapshot, projects["Kitchen refresh"].Id).Status);
         Assert.Equal("In progress", ProjectWorkSummary.From(snapshot, projects["Health reset"].Id).Status);
@@ -99,6 +102,8 @@ public sealed class SampleWorkspaceGeneratorTests
         Assert.Equal(AnchorDate.AddDays(-8), Task(snapshot, "Consolidate workshop notes").ArchiveDate);
         Assert.Equal(AnchorDate.AddDays(-15), Task(snapshot, "Tune the exercise bike").ArchiveDate);
         Assert.Equal(AnchorDate.AddDays(-30), Task(snapshot, "File appliance warranty").ArchiveDate);
+        Assert.True(Task(snapshot, "Clear summer pots").IsArchived);
+        Assert.Null(Task(snapshot, "Plant bulbs").TodayLane);
     }
 
     [Fact]
@@ -172,7 +177,7 @@ public sealed class SampleWorkspaceGeneratorTests
                 .OrderBy(task => task.ProjectPosition)
                 .Select(task => task.Title));
         Assert.Equal(
-            ["Write release checklist", "Renew library books", "Verify recovery wording", "Plant bulbs", "Prep questions", "Schedule dentist"],
+            ["Write release checklist", "Renew library books", "Verify recovery wording", "Prep questions", "Schedule dentist"],
             snapshot.Tasks.Where(task => task.TodayLane == TodayLane.Planned)
                 .OrderBy(task => task.SharedPosition)
                 .Select(task => task.Title));
@@ -258,7 +263,7 @@ public sealed class SampleWorkspaceGeneratorTests
         }
 
         Assert.Contains("result=passed", output.ToString(), StringComparison.Ordinal);
-        Assert.Contains("categories=6 projects=6 tasks=33 participants=7 archived=6", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("categories=6 projects=6 tasks=33 participants=7 archived-projects=1 archived-tasks=6", output.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain(SampleWorkspaceGenerator.SamplePassphrase, output.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain(SampleWorkspaceGenerator.SamplePassphrase, error.ToString(), StringComparison.Ordinal);
         Assert.Equal(string.Empty, error.ToString());

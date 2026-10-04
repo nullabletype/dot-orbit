@@ -107,3 +107,78 @@ public sealed class WorkCompletionDerivationTests
         completionDate is null ? null : new DateTimeOffset(2026, 9, 29, 0, 0, 0, TimeSpan.Zero),
         completionDate);
 }
+
+public sealed class BulkTaskArchivePolicyTests
+{
+    [Fact]
+    public void PreviewMatchRequiresSameThresholdDateAndOrderedTaskIdentity()
+    {
+        var preview = new BulkTaskArchivePreview(7, new DateOnly(2026, 10, 10), ["first", "second"]);
+
+        Assert.True(preview.Matches(new(7, new DateOnly(2026, 10, 10), ["first", "second"])));
+        Assert.False(preview.Matches(new(6, new DateOnly(2026, 10, 10), ["first", "second"])));
+        Assert.False(preview.Matches(new(7, new DateOnly(2026, 10, 11), ["first", "second"])));
+        Assert.False(preview.Matches(new(7, new DateOnly(2026, 10, 10), ["second", "first"])));
+        Assert.False(preview.Matches(null));
+    }
+
+    [Fact]
+    public void EligibleTasksUsesStrictLocalCalendarBoundaryAndExcludesArchivedWork()
+    {
+        var active = new ProjectRecord("active", "Active", "", "home", null, 0);
+        var archived = new ProjectRecord("archived", "Archived", "", "home", null, 1,
+            new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero), new DateOnly(2026, 10, 9));
+        var beforeCutoff = Completed("before", active.Id, new DateOnly(2026, 10, 6));
+        var atCutoff = Completed("at", active.Id, new DateOnly(2026, 10, 7));
+        var afterCutoff = Completed("after", null, new DateOnly(2026, 10, 8));
+        var alreadyArchived = Completed("task-archived", active.Id, new DateOnly(2026, 10, 1)) with
+        {
+            ArchivedAt = new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero),
+            ArchiveDate = new DateOnly(2026, 10, 9),
+        };
+        var hiddenWithProject = Completed("project-archived", archived.Id, new DateOnly(2026, 10, 1));
+        var incomplete = beforeCutoff with { Id = "incomplete", CompletedAt = null, CompletionDate = null };
+        var snapshot = new WorkspaceWorkSnapshot([], [active, archived],
+            [beforeCutoff, atCutoff, afterCutoff, alreadyArchived, hiddenWithProject, incomplete]);
+
+        var eligible = BulkTaskArchivePolicy.EligibleTasks(snapshot, new DateOnly(2026, 10, 10), 3);
+
+        Assert.Equal([beforeCutoff.Id], eligible.Select(task => task.Id));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(31)]
+    public void ThresholdRejectsValuesOutsideOneThroughThirty(int days)
+    {
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            BulkTaskArchivePolicy.EligibleTasks(new([], [], []), new DateOnly(2026, 10, 10), days));
+
+        Assert.Equal("completedAgeDays", error.ParamName);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(30)]
+    public void ThresholdAcceptsInclusiveLimits(int days)
+    {
+        Assert.Empty(BulkTaskArchivePolicy.EligibleTasks(new([], [], []), new DateOnly(2026, 10, 10), days));
+    }
+
+    [Fact]
+    public void ProjectIsArchivedOnlyWhenBothCapturedValuesArePresent()
+    {
+        var project = new ProjectRecord("project", "Project", "", "home", null, 0);
+        var instant = new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero);
+
+        Assert.False((project with { ArchivedAt = instant }).IsArchived);
+        Assert.False((project with { ArchiveDate = new DateOnly(2026, 10, 9) }).IsArchived);
+        Assert.True((project with { ArchivedAt = instant, ArchiveDate = new DateOnly(2026, 10, 9) }).IsArchived);
+    }
+
+    private static TaskRecord Completed(string id, string? projectId, DateOnly completionDate) => new(
+        id, projectId, id, "", projectId is null ? "home" : null, null, 0,
+        projectId is null ? null : 0,
+        new DateTimeOffset(completionDate.Year, completionDate.Month, completionDate.Day, 12, 0, 0, TimeSpan.Zero),
+        completionDate);
+}

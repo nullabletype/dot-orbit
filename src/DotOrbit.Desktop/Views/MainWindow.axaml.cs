@@ -325,6 +325,15 @@ public sealed partial class MainWindow : Window
                 else
                     FocusAutomationId(archiveConfirmation.DialogReturnFocusAutomationId);
             }, DispatcherPriority.ApplicationIdle);
+        if (e.PropertyName == nameof(ProjectCaptureViewModel.NeedsBulkTaskArchiveConfirmation)
+            && sender is ProjectCaptureViewModel bulkArchiveConfirmation)
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (bulkArchiveConfirmation.NeedsBulkTaskArchiveConfirmation)
+                    this.FindControl<Button>("ConfirmBulkTaskArchiveButton")?.Focus();
+                else
+                    FocusAutomationId(bulkArchiveConfirmation.DialogReturnFocusAutomationId);
+            }, DispatcherPriority.ApplicationIdle);
         if (e.PropertyName == nameof(ProjectCaptureViewModel.ArchiveFocusAutomationId)
             && sender is ProjectCaptureViewModel { ArchiveFocusAutomationId.Length: > 0 } archiveWork)
             Dispatcher.UIThread.Post(() => FocusAutomationId(archiveWork.ArchiveFocusAutomationId), DispatcherPriority.ApplicationIdle);
@@ -643,6 +652,7 @@ public sealed partial class MainWindow : Window
         CategoryTaskRowViewModel categoryTask => categoryTask.Task.SelectCommand,
         CompletedTaskRowViewModel completedTask => completedTask.Task.SelectCommand,
         ArchivedTaskRowViewModel archivedTask => archivedTask.Task.SelectCommand,
+        ArchivedWorkRowViewModel { Task: not null } archivedWork => archivedWork.Task.SelectCommand,
         UpcomingTaskRowViewModel upcomingTask => upcomingTask.Task.SelectCommand,
         TodayTaskRowViewModel todayTask => todayTask.Task.SelectCommand,
         ProjectRowViewModel project => project.SelectCommand,

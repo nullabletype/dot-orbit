@@ -38,6 +38,10 @@ Today presents persistent incomplete membership in **Planned** and **In progress
 
 Upcoming displays a badge counting incomplete, non-archived Tasks that are overdue or due through the end of the same weekday next week. The view contains Tasks only and groups Overdue first, then Today, Tomorrow, and subsequent dates. Overdue Tasks are oldest first; Tasks sharing a date retain shared Backlog order. Upcoming is not manually reorderable, but its rows support editing, completion, and Add to Today. Project target dates remain on Project surfaces. This accepted decision postdates the current HTML prototype and is not yet represented there.
 
+Completed begins with an explicit bulk-archive control. It offers every whole-day threshold from 1 through 30, states the current affected Task count, disables the action when that count is zero, and requires confirmation before archiving. Age uses the captured local completion date with a strict older-than boundary. The action never archives Projects.
+
+Projects expose an explicit compact Archive action on each Project header. An archived Project leaves Projects, Categories, Backlog, Upcoming, Completed, and Today as one aggregate without changing Task completion or individual Task archive state. Archive groups Project and Task entries by their captured local archive dates, labels Project entries distinctly, and offers accessible Restore actions. Restoring a Project returns eligible incomplete Tasks to Backlog while leaving Today empty and retaining any individually archived Tasks.
+
 Bin is a secondary utility item at the bottom of the sidebar, visually separated from the seven primary views. Its count appears only while non-empty. The Bin view orders removed items newest first and contains per-item Restore actions and the confirmed Empty Bin action.
 
 ## Ordering interactions

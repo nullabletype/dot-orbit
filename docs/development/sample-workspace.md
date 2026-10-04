@@ -55,8 +55,9 @@ The current scenario contains:
 - 33 attached and standalone Tasks with inherited and overridden Categories;
 - 21 incomplete and 12 completed Tasks, with completion dates spanning today through more than 30 days ago;
 - 6 archived Tasks spanning Today, Yesterday, two days ago, older weekly groups, and 30 days ago, with both attached and standalone examples;
-- 9 Today Tasks across Planned and In progress;
-- 13 incomplete Tasks in the overdue-through-seven-days Upcoming window;
+- 1 archived in-progress Project whose individually archived Task remains archived and whose former Today Task has no Today membership;
+- 8 Today Tasks across Planned and In progress;
+- 11 active incomplete Tasks in the overdue-through-seven-days Upcoming window;
 - no date, overdue, today, tomorrow, seven-day, and just-outside-the-window examples;
 - plain, multiline Markdown, safe and unsafe link text, raw HTML text, long content, and Unicode;
 - interleaved shared order and independent Project-local order.
@@ -65,4 +66,4 @@ Identifiers and semantic relationships are deterministic for a fixed anchor date
 
 ## Evolving the scenario
 
-Add a new state only through its released production domain API. Archive, Bin, Category identity, and Project identity examples must wait for their implementation slices; do not fabricate future rows through direct SQL. Keep the scenario readable, synthetic, invariant-valid, and broad enough to exercise the changed projection without turning it into a migration fixture or a replacement for focused tests.
+Add a new state only through its released production domain API. Task and Project Archive examples use their production commands; Bin, Category identity, and Project identity examples must wait for their implementation slices. Do not fabricate future rows through direct SQL. Keep the scenario readable, synthetic, invariant-valid, and broad enough to exercise the changed projection without turning it into a migration fixture or a replacement for focused tests.

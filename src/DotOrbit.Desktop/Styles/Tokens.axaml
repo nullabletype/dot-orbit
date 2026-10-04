@@ -35,7 +35,7 @@
   <CornerRadius x:Key="CompactControlRadius">6</CornerRadius>
   <Thickness x:Key="PanelInset">10</Thickness>
   <Thickness x:Key="NavigationContentInset">7,0,0,0</Thickness>
-  <Thickness x:Key="ScrollContentInset">0,0,32,0</Thickness>
+  <Thickness x:Key="ScrollContentInset">0,0,32,16</Thickness>
   <Thickness x:Key="InspectorScrollContentInset">0,0,32,16</Thickness>
   <Thickness x:Key="ControlBorder">1</Thickness>
   <Thickness x:Key="FocusBorder">2</Thickness>
