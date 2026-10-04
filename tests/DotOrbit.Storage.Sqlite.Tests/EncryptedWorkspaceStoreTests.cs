@@ -25,7 +25,7 @@ public sealed class EncryptedWorkspaceStoreTests
 
         Assert.Equal(WorkspaceCreationStatus.Created, result.Status);
         Assert.NotNull(result.Session);
-        Assert.Equal(6, result.Session.SchemaVersion);
+        Assert.Equal(7, result.Session.SchemaVersion);
         Assert.Equal("Personal Admin", result.Session.FirstCategoryName);
 
         var fileBytes = File.ReadAllBytes(fixture.Path);
@@ -38,7 +38,7 @@ public sealed class EncryptedWorkspaceStoreTests
         Assert.Empty(Directory.GetFiles(fixture.Directory, "*.creating*"));
 
         using var inspection = OpenInspectionConnection(fixture.Path, ValidPassphrase, readOnly: true);
-        Assert.Equal(6L, ExecuteScalar<long>(inspection, "PRAGMA user_version;"));
+        Assert.Equal(7L, ExecuteScalar<long>(inspection, "PRAGMA user_version;"));
         Assert.Equal("chacha20", ExecuteScalar<string>(inspection, "PRAGMA cipher;"));
         Assert.Equal(0L, ExecuteScalar<long>(inspection, "PRAGMA legacy;"));
         Assert.Equal(64007L, ExecuteScalar<long>(inspection, "PRAGMA kdf_iter;"));
@@ -47,7 +47,7 @@ public sealed class EncryptedWorkspaceStoreTests
         Assert.Equal("Personal Admin", ExecuteScalar<string>(inspection, "SELECT name FROM categories;"));
         Assert.Equal(1L, ExecuteScalar<long>(inspection, "SELECT COUNT(*) FROM categories;"));
         Assert.Equal(
-            "categories,projects,tasks,participants,task_participants",
+            "categories,projects,tasks,participants,task_participants,today_tasks",
             ExecuteScalar<string>(
                 inspection,
                 "SELECT group_concat(name, ',') FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%';"));
@@ -64,7 +64,7 @@ public sealed class EncryptedWorkspaceStoreTests
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
         Assert.NotNull(result.Session);
-        Assert.Equal(6, result.Session.SchemaVersion);
+        Assert.Equal(7, result.Session.SchemaVersion);
         Assert.Equal("Home", result.Session.FirstCategoryName);
     }
 
@@ -124,7 +124,7 @@ public sealed class EncryptedWorkspaceStoreTests
         using (var connection = OpenInspectionConnection(fixture.Path, ValidPassphrase, readOnly: false))
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = "PRAGMA user_version = 7;";
+            command.CommandText = "PRAGMA user_version = 8;";
             command.ExecuteNonQuery();
         }
 

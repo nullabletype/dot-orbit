@@ -56,6 +56,8 @@
             <Grid Margin="4,2,4,10" ColumnDefinitions="*,Auto">
               <TextBlock Classes="eyebrow" Text="ROWS AND CONTROLS" />
               <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                <ToggleButton x:Name="ReferenceTodayUnchecked" Classes="today-toggle" AutomationProperties.Name="Add reference task to Today" />
+                <ToggleButton x:Name="ReferenceTodayChecked" Classes="today-toggle" IsChecked="True" AutomationProperties.Name="Remove reference task from Today" />
                 <Button Classes="view-action" Content="Secondary" AutomationProperties.Name="Reference secondary action" />
                 <Button Classes="primary-action" Content="Primary" AutomationProperties.Name="Reference primary action" />
                 <Button Classes="view-action" Content="Disabled" IsEnabled="False" AutomationProperties.Name="Reference disabled action" />

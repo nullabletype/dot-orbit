@@ -101,8 +101,18 @@ internal sealed class SqliteWorkspaceWork(
         );
         """;
 
-    internal const string Schema = ProjectSchema + TaskSchema + ParticipantSchema + TaskParticipantSchema
+    internal const string SchemaSix = ProjectSchema + TaskSchema + ParticipantSchema + TaskParticipantSchema
         + "PRAGMA user_version = 6;";
+
+    internal const string TodayTaskSchema = """
+        CREATE TABLE today_tasks (
+            task_id TEXT NOT NULL PRIMARY KEY REFERENCES tasks(id),
+            lane TEXT NOT NULL CHECK(lane IN ('planned', 'in_progress'))
+        );
+        """;
+
+    internal const string Schema = ProjectSchema + TaskSchema + ParticipantSchema + TaskParticipantSchema
+        + TodayTaskSchema + "PRAGMA user_version = 7;";
 
     internal static void ValidateShape(SqliteConnection connection, SqliteTransaction? transaction, string? schema = null)
     {
@@ -115,11 +125,15 @@ internal sealed class SqliteWorkspaceWork(
         var definitions = schema.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
         ValidateTableDefinition(command, "projects", definitions[0]);
         ValidateTableDefinition(command, "tasks", definitions[1]);
-        if (string.Equals(schema, Schema, StringComparison.Ordinal))
+        var hasParticipants = string.Equals(schema, SchemaSix, StringComparison.Ordinal)
+            || string.Equals(schema, Schema, StringComparison.Ordinal);
+        if (hasParticipants)
         {
             ValidateTableDefinition(command, "participants", definitions[2]);
             ValidateTableDefinition(command, "task_participants", definitions[3]);
         }
+        if (string.Equals(schema, Schema, StringComparison.Ordinal))
+            ValidateTableDefinition(command, "today_tasks", definitions[4]);
         command.Parameters.Clear();
         command.CommandText = "PRAGMA foreign_key_check;";
         using (var foreignKeys = command.ExecuteReader())
@@ -128,7 +142,7 @@ internal sealed class SqliteWorkspaceWork(
         }
 
         var hasCompletion = string.Equals(schema, SchemaFive, StringComparison.Ordinal)
-            || string.Equals(schema, Schema, StringComparison.Ordinal);
+            || hasParticipants;
         command.CommandText = "SELECT target_date FROM projects UNION ALL SELECT due_date FROM tasks"
             + (hasCompletion
                 ? " UNION ALL SELECT completion_date FROM tasks;"
@@ -156,7 +170,7 @@ internal sealed class SqliteWorkspaceWork(
                     throw new InvalidDataException();
             }
         }
-        if (string.Equals(schema, Schema, StringComparison.Ordinal))
+        if (hasParticipants)
         {
             command.CommandText = "SELECT label, comparison_key FROM participants;";
             using var participants = command.ExecuteReader();
@@ -166,6 +180,16 @@ internal sealed class SqliteWorkspaceWork(
                         participants.GetString(1),
                         StringComparison.Ordinal))
                     throw new InvalidDataException();
+        }
+        if (string.Equals(schema, Schema, StringComparison.Ordinal))
+        {
+            command.CommandText = """
+                SELECT COUNT(*)
+                FROM today_tasks tt
+                JOIN tasks t ON t.id = tt.task_id
+                WHERE t.completion_instant IS NOT NULL OR t.completion_date IS NOT NULL;
+                """;
+            if ((long)command.ExecuteScalar()! != 0) throw new InvalidDataException();
         }
     }
 
@@ -354,6 +378,42 @@ internal sealed class SqliteWorkspaceWork(
         return result!;
     }
 
+    public TaskRecord CreateTaskDraft(string? projectId, string title, string description, string? categoryId,
+        DateOnly? dueDate, ParticipantDraftChange? participantChange = null, TodayLane? todayLane = null)
+    {
+        title = WorkTitle.Normalize(title);
+        ArgumentNullException.ThrowIfNull(description);
+        if (projectId is null && categoryId is null)
+            throw new ArgumentException("A standalone Task requires a Category.", nameof(categoryId));
+        TaskRecord? result = null;
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            if (projectId is not null) Require(connection, transaction, "projects", projectId);
+            if (categoryId is not null) Require(connection, transaction, "categories", categoryId);
+            ShiftSharedOrderForNewTask(connection, transaction);
+            long? projectPosition = null;
+            if (projectId is not null)
+            {
+                using var order = connection.CreateCommand();
+                order.Transaction = transaction;
+                order.CommandText = "SELECT COALESCE(MAX(project_position), -1) + 1 FROM tasks WHERE project_id = $project;";
+                order.Parameters.AddWithValue("$project", projectId);
+                projectPosition = (long)order.ExecuteScalar()!;
+            }
+            var id = store.GetIdentifier();
+            Execute(connection, transaction,
+                "INSERT INTO tasks VALUES ($id, $project, $title, $description, $category, $date, 0, $position, NULL, NULL);",
+                ("$id", id), ("$project", projectId), ("$title", title), ("$description", description),
+                ("$category", categoryId), ("$date", Date(dueDate)), ("$position", projectPosition));
+            ApplyParticipantChanges(connection, transaction, id, participantChange ?? new([], []));
+            if (todayLane is not null)
+                Execute(connection, transaction, "INSERT INTO today_tasks (task_id, lane) VALUES ($id, $lane);",
+                    ("$id", id), ("$lane", TodayLaneValue(todayLane.Value)));
+            result = ReadSnapshot(connection, transaction).Tasks.Single(task => task.Id == id);
+        }));
+        return result!;
+    }
+
     public TaskRecord CreateStandaloneTask(string title, string description, string categoryId, DateOnly? dueDate,
         ParticipantDraftChange? participantChange = null)
     {
@@ -424,6 +484,7 @@ internal sealed class SqliteWorkspaceWork(
             Require(connection, transaction, "tasks", id);
             var instant = timeProvider.GetUtcNow();
             var localDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(instant, timeProvider.LocalTimeZone).DateTime);
+            Execute(connection, transaction, "DELETE FROM today_tasks WHERE task_id=$id;", ("$id", id));
             Execute(connection, transaction,
                 "UPDATE tasks SET completion_instant=$instant, completion_date=$date WHERE id=$id;",
                 ("$id", id), ("$instant", instant.ToString("O", CultureInfo.InvariantCulture)), ("$date", Date(localDate)));
@@ -441,6 +502,71 @@ internal sealed class SqliteWorkspaceWork(
             Execute(connection, transaction,
                 "UPDATE tasks SET completion_instant=NULL, completion_date=NULL WHERE id=$id;", ("$id", id));
             result = ReadSnapshot(connection, transaction).Tasks.Single(task => task.Id == id);
+        }));
+        return result!;
+    }
+
+    public TaskRecord SetTaskTodayLane(string id, TodayLane? lane)
+    {
+        if (lane is not null && !Enum.IsDefined(lane.Value)) throw new ArgumentOutOfRangeException(nameof(lane));
+        TaskRecord? result = null;
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            Require(connection, transaction, "tasks", id);
+            var task = ReadSnapshot(connection, transaction).Tasks.Single(item => item.Id == id);
+            if (task.IsComplete && lane is not null)
+                throw new InvalidOperationException("A completed Task cannot belong to Today.");
+            if (lane is null)
+            {
+                Execute(connection, transaction, "DELETE FROM today_tasks WHERE task_id=$id;", ("$id", id));
+            }
+            else
+            {
+                Execute(connection, transaction, """
+                    INSERT INTO today_tasks (task_id,lane) VALUES ($id,$lane)
+                    ON CONFLICT(task_id) DO UPDATE SET lane=excluded.lane;
+                    """, ("$id", id), ("$lane", TodayLaneValue(lane.Value)));
+            }
+            result = ReadSnapshot(connection, transaction).Tasks.Single(item => item.Id == id);
+        }));
+        return result!;
+    }
+
+    public int ClearToday()
+    {
+        var cleared = 0;
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "DELETE FROM today_tasks;";
+            cleared = command.ExecuteNonQuery();
+        }));
+        return cleared;
+    }
+
+    public TodayLaneOrderChange MoveTaskInTodayLane(string id, int targetPosition)
+    {
+        TodayLaneOrderChange? result = null;
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            Require(connection, transaction, "tasks", id);
+            var orderedTasks = ReadSnapshot(connection, transaction).Tasks.OrderBy(task => task.SharedPosition).ToArray();
+            var task = orderedTasks.Single(item => item.Id == id);
+            if (task.IsComplete || task.TodayLane is null)
+                throw new ArgumentException("The Task does not belong to an incomplete Today lane.", nameof(id));
+            var visibleIds = orderedTasks
+                .Where(item => !item.IsComplete && item.TodayLane == task.TodayLane)
+                .Select(item => item.Id)
+                .ToList();
+            Move(visibleIds, id, targetPosition);
+            var visibleSet = visibleIds.ToHashSet(StringComparer.Ordinal);
+            var visibleIndex = 0;
+            var mergedIds = orderedTasks
+                .Select(item => visibleSet.Contains(item.Id) ? visibleIds[visibleIndex++] : item.Id)
+                .ToList();
+            RewriteSharedOrder(connection, transaction, mergedIds);
+            result = new(id, task.TodayLane.Value, targetPosition + 1, visibleIds.Count);
         }));
         return result!;
     }
@@ -575,6 +701,7 @@ internal sealed class SqliteWorkspaceWork(
         var tasks = new List<TaskRecord>();
         var participants = new List<ParticipantRecord>();
         var participantIdsByTask = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        var todayLaneByTask = new Dictionary<string, TodayLane>(StringComparer.Ordinal);
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = "SELECT id,name,position FROM categories ORDER BY position,id;";
@@ -598,12 +725,16 @@ internal sealed class SqliteWorkspaceWork(
                 }
                 ids.Add(reader.GetString(1));
             }
+        command.CommandText = "SELECT task_id,lane FROM today_tasks;";
+        using (var reader = command.ExecuteReader())
+            while (reader.Read()) todayLaneByTask.Add(reader.GetString(0), ParseTodayLane(reader.GetString(1)));
         command.CommandText = "SELECT id,project_id,title,description,explicit_category_id,due_date,shared_position,project_position,completion_instant,completion_date FROM tasks ORDER BY shared_position,id;";
         using (var reader = command.ExecuteReader())
             while (reader.Read())
             {
                 var taskId = reader.GetString(0);
-                tasks.Add(new(taskId, reader.IsDBNull(1) ? null : reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4), ReadDate(reader, 5), reader.GetInt64(6), reader.IsDBNull(7) ? null : reader.GetInt64(7), ReadInstant(reader, 8), ReadDate(reader, 9), participantIdsByTask.GetValueOrDefault(taskId)?.AsReadOnly() ?? []));
+                TodayLane? todayLane = todayLaneByTask.TryGetValue(taskId, out var lane) ? lane : null;
+                tasks.Add(new(taskId, reader.IsDBNull(1) ? null : reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4), ReadDate(reader, 5), reader.GetInt64(6), reader.IsDBNull(7) ? null : reader.GetInt64(7), ReadInstant(reader, 8), ReadDate(reader, 9), participantIdsByTask.GetValueOrDefault(taskId)?.AsReadOnly() ?? [], todayLane));
             }
         return new(categories.AsReadOnly(), projects.AsReadOnly(), tasks.AsReadOnly(), participants.AsReadOnly());
     }
@@ -757,6 +888,18 @@ internal sealed class SqliteWorkspaceWork(
         ? null : DateOnly.ParseExact(reader.GetString(ordinal), "yyyy-MM-dd", CultureInfo.InvariantCulture);
     private static DateTimeOffset? ReadInstant(SqliteDataReader reader, int ordinal) => reader.IsDBNull(ordinal)
         ? null : DateTimeOffset.ParseExact(reader.GetString(ordinal), "O", CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+    private static string TodayLaneValue(TodayLane lane) => lane switch
+    {
+        TodayLane.Planned => "planned",
+        TodayLane.InProgress => "in_progress",
+        _ => throw new ArgumentOutOfRangeException(nameof(lane)),
+    };
+    private static TodayLane ParseTodayLane(string value) => value switch
+    {
+        "planned" => TodayLane.Planned,
+        "in_progress" => TodayLane.InProgress,
+        _ => throw new InvalidDataException(),
+    };
 
     private static void Require(SqliteConnection connection, SqliteTransaction transaction, string table, string id)
     {

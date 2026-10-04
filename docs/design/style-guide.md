@@ -47,9 +47,10 @@ The implemented recipes live in `src/DotOrbit.Desktop/Styles/ComponentRecipes.ax
 - `interactive-row` owns full-row hover, including while the pointer is over its completion control, handle, disclosure, title, metadata or date. When that hover surface represents a selectable work item, its non-control area is also the activation target; embedded controls keep their own actions.
 - `row-title` remains transparent and borderless on hover and press. Keyboard focus retains the visible pink border.
 - `separated-row` uses a soft bottom rule only between peers. Add `last` to the final row of each independent list or Completed group. There is no trailing divider or trailing group margin.
+- Task rows use one column contract across views: optional reorder handle, completion toggle, title plus Category, a right-aligned date block, view-specific actions or position, then the Today star as the final trailing action when available. Missing controls remove their column without changing the relative order of the remaining elements. Completed rows use the same date block for captured completion text and omit reorder, position, and Today actions.
 - Settings lists use the same `list-panel`, `interactive-row`, `separated-row`, and `last` recipe as work lists. Global reusable-data actions belong there rather than in every contextual inspector; an active inline rename uses `inspector-field` plus the ordinary primary and secondary actions.
 - Project and Category headers own hover independently of their expanded child regions and use the same disclosure and card geometry. Equal panel insets apply to Backlog and Completed list panels.
-- Expanded Project Tasks use the same leading columns, two-line text rhythm, and vertically centred drag and completion controls as Backlog Tasks. The nested block has a small additional left inset so its handle and title sit to the right of the parent Project equivalents. Adjacent Project drag and disclosure controls retain a visible 4px gap. Project and Task date metadata, including “No date”, uses 12px type. Category Project progress counts occupy a right-aligned trailing column rather than following titles of different lengths.
+- Expanded Project Tasks use the same leading columns, two-line text rhythm, and vertically centred drag and completion controls as Backlog Tasks. The nested block has a small additional left inset so its handle and title sit to the right of the parent Project equivalents. Adjacent Project drag and disclosure controls retain a visible 4px gap. Task due and completion metadata occupies a right-aligned trailing block and uses 12px type, including “No date”; it does not move into the title block on different views. Category Project progress counts likewise occupy a right-aligned trailing column rather than following titles of different lengths.
 
 ### Reordering
 
@@ -62,6 +63,7 @@ The implemented recipes live in `src/DotOrbit.Desktop/Styles/ComponentRecipes.ax
 
 - `completion-toggle` is a 30px hit target containing one centred 22px rounded square. It is transparent when idle, grey on unchecked hover, pink when checked, and darker pink on checked hover. It shows one plain tick with no inner surface.
 - Focus is visible outside the 22px square: pink while unchecked and high-contrast light while checked. The accessible name changes between “Complete …” and “Reopen …”; checked state is exposed by the toggle role.
+- `today-toggle` is a 30px trailing Task-row action with one centred 18px star and no button fill. A grey outlined star means “Add … to Today”; a solid amber star means “Remove … from Today”. The shape, checked state, and dynamic accessible name carry the meaning without relying on colour. It never becomes a separate row-selection target.
 - `disclosure` uses the same compact geometry and explicit expanded/collapsed accessible name. Checked, hover and focus remain readable together.
 
 ### Status, badges, fields and feedback
@@ -91,6 +93,7 @@ The implemented recipes live in `src/DotOrbit.Desktop/Styles/ComponentRecipes.ax
 | Secondary button | Transparent, strong border | Raised surface | Pink 2px border | N/A | Framework-disabled | N/A |
 | Primary button | Pink surface | lighter pink / platform press feedback | contrasting 2px border | N/A | Framework-disabled | N/A |
 | Completion toggle | 30px target, transparent 22px square | grey unchecked hover | external pink ring | pink square and plain tick; darker pink hover; light focus ring | Framework-disabled with name retained | N/A |
+| Today toggle | 30px target with centred grey outlined star and no fill | stronger outline, still no fill | pink border | centred solid amber star with no background, plus checked state and “Remove …” name | Framework-disabled with name retained | N/A |
 | Disclosure | Quiet glyph | raised surface and strong border | pink border | readable expanded glyph and accessible name | Framework-disabled | N/A |
 | Reorder handle | centred six dots | raised surface and strong border | pink border | N/A | Framework-disabled | N/A |
 | Insertion rule | Absent | pink bottom rule only on valid target | N/A | cleared after drop/cancel/loss/deactivation | N/A | invalid targets remain absent |

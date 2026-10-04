@@ -19,6 +19,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private bool _editingCategory;
     private bool _creating;
     private bool _creatingStandaloneTask;
+    private bool _creatingTodayTask;
     private string _title = string.Empty;
     private string _description = string.Empty;
     private string _date = string.Empty;
@@ -31,6 +32,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private string _reorderAnnouncement = string.Empty;
     private bool _backlogActive;
     private bool _completedActive;
+    private bool _todayActive;
     private string _completionFocusAutomationId = string.Empty;
     private string _reorderFocusAutomationId = string.Empty;
     private DateOnly _presentationDate;
@@ -59,6 +61,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private bool _autosaveInProgress;
     private string _autosaveStatus = "Changes save automatically.";
     private bool _hasAutosaveError;
+    private string _todayAnnouncement = string.Empty;
+    private string _todayFocusAutomationId = string.Empty;
 
     public static TimeSpan AutosaveDelay { get; } = TimeSpan.FromMilliseconds(600);
 
@@ -68,7 +72,9 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         _timeProvider = timeProvider ?? TimeProvider.System;
         NewProjectCommand = new(() => Navigate(BeginProject));
         NewTaskCommand = new(() => Navigate(BeginStandaloneTask));
+        NewTodayTaskCommand = new(() => Navigate(BeginTodayTask));
         NewCategoryCommand = new(() => Navigate(BeginCategory));
+        ClearTodayCommand = new(ClearToday);
         AddParticipantCommand = new(AddParticipant);
         AddNewParticipantCommand = new(AddNewParticipant);
         CancelNewParticipantCommand = new(() =>
@@ -108,6 +114,9 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public ObservableCollection<ProjectRowViewModel> Projects { get; } = [];
     public ObservableCollection<TaskRowViewModel> Backlog { get; } = [];
     public ObservableCollection<TaskRowViewModel> Completed { get; } = [];
+    public ObservableCollection<TodayTaskRowViewModel> TodayPlanned { get; } = [];
+    public ObservableCollection<TodayTaskRowViewModel> TodayInProgress { get; } = [];
+    public ObservableCollection<CompletedTaskRowViewModel> CompletedToday { get; } = [];
     public ObservableCollection<CompletedTaskGroupViewModel> CompletedGroups { get; } = [];
     public ObservableCollection<CategoryChoice> Categories { get; } = [];
     public ObservableCollection<CategoryChoice> BacklogCategories { get; } = [];
@@ -118,7 +127,9 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public ObservableCollection<ParticipantDraftViewModel> SelectedParticipants { get; } = [];
     public RelayCommand NewProjectCommand { get; }
     public RelayCommand NewTaskCommand { get; }
+    public RelayCommand NewTodayTaskCommand { get; }
     public RelayCommand NewCategoryCommand { get; }
+    public RelayCommand ClearTodayCommand { get; }
     public RelayCommand AddParticipantCommand { get; }
     public RelayCommand AddNewParticipantCommand { get; }
     public RelayCommand CancelNewParticipantCommand { get; }
@@ -145,6 +156,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             Notify();
             Notify(nameof(HasNoInspector));
             Notify(nameof(ShowTaskContext));
+            Notify(nameof(ShowTaskContextAction));
             Notify(nameof(CanChangeTaskContext));
             Notify(nameof(TaskContextActionLabel));
             Notify(nameof(ShowWorkInspector));
@@ -160,6 +172,9 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public bool HasNoProjects => !HasProjects;
     public bool HasCompleted => Completed.Count > 0;
     public bool HasNoCompleted => !HasCompleted;
+    public bool HasTodayTasks => TodayPlanned.Count + TodayInProgress.Count > 0;
+    public bool HasNoTodayTasks => !HasTodayTasks;
+    public bool HasCompletedToday => CompletedToday.Count > 0;
     public bool NeedsDecision => _pendingNavigation is not null;
     public bool NeedsCategoryReplacement => _pendingCategoryDeleteId is not null;
     public bool NeedsAttachmentChoice => _pendingAttachmentTaskId is not null;
@@ -372,14 +387,16 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         set
         {
             _taskContextTarget = value;
+            if (_creatingTodayTask && !_loadingDraft) RefreshCreatingTaskCategories();
             Notify();
             Notify(nameof(CanChangeTaskContext));
             Notify(nameof(TaskContextActionLabel));
         }
     }
-    public bool ShowTaskContext => HasInspector && !_editingCategory && !_creating && _editingTask;
-    public bool CanChangeTaskContext => ShowTaskContext && TaskContextTarget?.ProjectId != _snapshot.Tasks.Single(task => task.Id == _editingId).ProjectId;
-    public string TaskContextActionLabel => !ShowTaskContext || TaskContextTarget?.ProjectId == _snapshot.Tasks.Single(task => task.Id == _editingId).ProjectId
+    public bool ShowTaskContext => HasInspector && !_editingCategory && _editingTask && (!_creating || _creatingTodayTask);
+    public bool ShowTaskContextAction => ShowTaskContext && !_creating;
+    public bool CanChangeTaskContext => ShowTaskContextAction && TaskContextTarget?.ProjectId != _snapshot.Tasks.Single(task => task.Id == _editingId).ProjectId;
+    public string TaskContextActionLabel => !ShowTaskContextAction || TaskContextTarget?.ProjectId == _snapshot.Tasks.Single(task => task.Id == _editingId).ProjectId
         ? "Choose a different context"
         : TaskContextTarget?.ProjectId is null
             ? "Detach to standalone"
@@ -396,11 +413,13 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         ? "Adopt project category"
         : $"Adopt {CategoryName(_snapshot.Projects.Single(project => project.Id == _pendingAttachmentProjectId).CategoryId)}";
     public string ReorderAnnouncement { get => _reorderAnnouncement; private set { _reorderAnnouncement = value; Notify(); } }
+    public string TodayAnnouncement { get => _todayAnnouncement; private set { _todayAnnouncement = value; Notify(); } }
+    public string TodayFocusAutomationId { get => _todayFocusAutomationId; private set { _todayFocusAutomationId = value; Notify(); } }
     public string CompletionFocusAutomationId { get => _completionFocusAutomationId; private set { _completionFocusAutomationId = value; Notify(); } }
     public string ReorderFocusAutomationId { get => _reorderFocusAutomationId; private set { _reorderFocusAutomationId = value; Notify(); } }
     public string DialogReturnFocusAutomationId { get => _dialogReturnFocusAutomationId; private set { _dialogReturnFocusAutomationId = value; Notify(); } }
     internal DateOnly Today => DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime);
-    private bool IsStandaloneTaskDraft => _editingTask && (_creatingStandaloneTask
+    private bool IsStandaloneTaskDraft => _editingTask && ((_creatingStandaloneTask && (!_creatingTodayTask || TaskContextTarget?.ProjectId is null))
         || (_editingId is not null && _snapshot.Tasks.Single(task => task.Id == _editingId).ProjectId is null));
     public CategoryChoice? Category
     {
@@ -569,11 +588,12 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         ParticipantFocusAutomationId = SelectedParticipants.Count == 0
             ? "participant-picker"
             : SelectedParticipants[Math.Min(index, SelectedParticipants.Count - 1)].RemoveAutomationId;
-        DraftChanged(immediate: true);
+        DraftChanged();
     }
 
     public void SetBacklogActive(bool active) => _backlogActive = active;
     public void SetCompletedActive(bool active) => _completedActive = active;
+    public void SetTodayActive(bool active) => _todayActive = active;
 
     public bool RefreshDatePresentation()
     {
@@ -801,6 +821,16 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         return MoveTask(taskId, targetPosition);
     }
 
+    public bool DragTodayTask(string taskId, string targetTaskId)
+    {
+        var task = _snapshot.Tasks.Single(item => item.Id == taskId);
+        var target = _snapshot.Tasks.Single(item => item.Id == targetTaskId);
+        if (task.TodayLane is null || task.TodayLane != target.TodayLane) return false;
+        var rows = task.TodayLane == TodayLane.Planned ? TodayPlanned : TodayInProgress;
+        var targetPosition = rows.IndexOf(rows.Single(row => row.Task.Id == targetTaskId));
+        return MoveTodayTask(taskId, targetPosition);
+    }
+
     public bool DragProject(string projectId, string targetProjectId) =>
         MoveProject(projectId, Projects.IndexOf(Projects.Single(project => project.Id == targetProjectId)));
 
@@ -820,6 +850,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         _editingTask = false;
         _editingCategory = false;
         _creatingStandaloneTask = false;
+        _creatingTodayTask = false;
         _editingId = null;
         SetDraft(string.Empty, string.Empty, null, _snapshot.Categories.Count == 0 ? null : _snapshot.Categories[0].Id);
     }
@@ -830,7 +861,20 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         _editingTask = true;
         _editingCategory = false;
         _creatingStandaloneTask = true;
+        _creatingTodayTask = false;
         _editingId = null;
+        SetDraft(string.Empty, string.Empty, null, null);
+    }
+
+    private void BeginTodayTask()
+    {
+        _creating = true;
+        _editingTask = true;
+        _editingCategory = false;
+        _creatingStandaloneTask = true;
+        _creatingTodayTask = true;
+        _editingId = null;
+        RefreshTaskContextChoices(null);
         SetDraft(string.Empty, string.Empty, null, null);
     }
 
@@ -842,6 +886,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         _editingCategory = false;
         _creating = false;
         _creatingStandaloneTask = false;
+        _creatingTodayTask = false;
         SetDraft(project.Title, project.Description, project.TargetDate, project.CategoryId);
     }
 
@@ -853,6 +898,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         _editingCategory = false;
         _creating = false;
         _creatingStandaloneTask = false;
+        _creatingTodayTask = false;
         SetDraft(task.Title, task.Description, task.DueDate, task.ExplicitCategoryId, task.Participants);
         RefreshTaskContextChoices(task);
     }
@@ -863,6 +909,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         _editingTask = false;
         _editingCategory = true;
         _creatingStandaloneTask = false;
+        _creatingTodayTask = false;
         _editingId = null;
         SetCategoryDraft(string.Empty);
     }
@@ -875,6 +922,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         _editingCategory = true;
         _creating = false;
         _creatingStandaloneTask = false;
+        _creatingTodayTask = false;
         SetCategoryDraft(category.Name);
     }
 
@@ -919,13 +967,36 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         }
     }
 
-    private void RefreshTaskContextChoices(TaskRecord task)
+    private void RefreshTaskContextChoices(TaskRecord? task)
     {
         TaskContextChoices.Clear();
         TaskContextChoices.Add(new(null, "Standalone"));
         foreach (var project in _snapshot.Projects)
             TaskContextChoices.Add(new(project.Id, project.Title));
-        TaskContextTarget = TaskContextChoices.Single(choice => choice.ProjectId == task.ProjectId);
+        TaskContextTarget = TaskContextChoices.Single(choice => choice.ProjectId == task?.ProjectId);
+    }
+
+    private void RefreshCreatingTaskCategories()
+    {
+        var selectedId = Category?.Id;
+        _loadingDraft = true;
+        try
+        {
+            Categories.Clear();
+            if (TaskContextTarget?.ProjectId is { } projectId)
+            {
+                var project = _snapshot.Projects.Single(item => item.Id == projectId);
+                Categories.Add(new(null, $"Inherit — {CategoryName(project.CategoryId)}"));
+            }
+            foreach (var category in _snapshot.Categories) Categories.Add(new(category.Id, category.Name));
+            Category = Categories.FirstOrDefault(item => item.Id == selectedId)
+                ?? Categories.FirstOrDefault(item => item.Id is null);
+        }
+        finally { _loadingDraft = false; }
+        Notify(nameof(Category));
+        Notify(nameof(CategoryHint));
+        Notify(nameof(InspectorMetaValue));
+        DraftChanged();
     }
 
     private void SetDraft(string title, string description, DateOnly? date, string? categoryId,
@@ -995,7 +1066,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     {
         Notify(nameof(InspectorHeading)); Notify(nameof(TitleAutomationName)); Notify(nameof(SaveLabel)); Notify(nameof(DateLabel));
         Notify(nameof(ShowWorkInspector)); Notify(nameof(ShowCategoryInspector)); Notify(nameof(ShowCategoryDelete));
-        Notify(nameof(ShowParticipants));
+        Notify(nameof(ShowParticipants)); Notify(nameof(ShowTaskContext)); Notify(nameof(ShowTaskContextAction));
         Notify(nameof(ShowProjectSummary)); Notify(nameof(ProjectSummary));
         Notify(nameof(ShowTaskCompletionDate)); Notify(nameof(TaskCompletionDateText)); Notify(nameof(TaskCompletionDateAccessibleText));
         Notify(nameof(InspectorMetaLabel)); Notify(nameof(InspectorMetaValue));
@@ -1069,13 +1140,17 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         try
         {
             if (_creating)
-                _editingId = _work.CreateStandaloneTask(Title, Description, Category!.Id!, date,
-                    participantChange).Id;
+                _editingId = _creatingTodayTask
+                    ? _work.CreateTaskDraft(TaskContextTarget?.ProjectId, Title, Description, Category?.Id, date,
+                        participantChange, TodayLane.Planned).Id
+                    : _work.CreateStandaloneTask(Title, Description, Category!.Id!, date,
+                        participantChange).Id;
             else
                 _work.UpdateTask(_editingId!, Title, Description, Category!.Id, date,
                     participantChange);
             _creating = false;
             _creatingStandaloneTask = false;
+            _creatingTodayTask = false;
             ReloadAndKeepInspector();
             return true;
         }
@@ -1169,6 +1244,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         IsEditingMarkdown = false;
         _creating = false;
         _creatingStandaloneTask = false;
+        _creatingTodayTask = false;
         _editingCategory = false;
         CategoryNameValidationMessage = string.Empty;
         _workTitleValidationMessage = string.Empty;
@@ -1246,6 +1322,18 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         var desiredCompleted = _snapshot.Tasks.Where(task => task.IsComplete)
             .OrderByDescending(task => task.CompletedAt).ThenBy(task => task.SharedPosition).Select(ToTaskRow).ToArray();
         Synchronise(Completed, desiredCompleted);
+        SynchroniseToday(TodayPlanned, _snapshot.Tasks
+            .Where(task => !task.IsComplete && task.TodayLane == TodayLane.Planned)
+            .OrderBy(task => task.SharedPosition).Select(ToTaskRow).ToArray(), TodayLane.Planned);
+        SynchroniseToday(TodayInProgress, _snapshot.Tasks
+            .Where(task => !task.IsComplete && task.TodayLane == TodayLane.InProgress)
+            .OrderBy(task => task.SharedPosition).Select(ToTaskRow).ToArray(), TodayLane.InProgress);
+        var completedToday = _snapshot.Tasks
+            .Where(task => task.IsComplete && task.CompletionDate == Today)
+            .OrderByDescending(task => task.CompletedAt).ThenBy(task => task.SharedPosition).Select(ToTaskRow).ToArray();
+        CompletedToday.Clear();
+        for (var index = 0; index < completedToday.Length; index++)
+            CompletedToday.Add(new(completedToday[index], index == completedToday.Length - 1));
         RefreshCompletedGroups();
         Notify(nameof(ProjectSummary));
         Notify(nameof(InspectorMetaValue));
@@ -1256,6 +1344,9 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         Notify(nameof(HasNoProjects));
         Notify(nameof(HasCompleted));
         Notify(nameof(HasNoCompleted));
+        Notify(nameof(HasTodayTasks));
+        Notify(nameof(HasNoTodayTasks));
+        Notify(nameof(HasCompletedToday));
         Notify(nameof(CanChangeTaskContext));
         Notify(nameof(TaskContextActionLabel));
     }
@@ -1312,6 +1403,22 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         }
     }
 
+    private void SynchroniseToday(
+        ObservableCollection<TodayTaskRowViewModel> collection,
+        TaskRowViewModel[] desired,
+        TodayLane lane)
+    {
+        var existing = collection.ToDictionary(row => row.Task.Id, StringComparer.Ordinal);
+        collection.Clear();
+        for (var index = 0; index < desired.Length; index++)
+        {
+            var row = existing.GetValueOrDefault(desired[index].Id)
+                ?? new TodayTaskRowViewModel(this, desired[index], lane);
+            row.Refresh(desired[index], index, desired.Length);
+            collection.Add(row);
+        }
+    }
+
     private void RefreshCompletedGroups()
     {
         CompletedGroups.Clear();
@@ -1359,6 +1466,93 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         return true;
     }
 
+    internal void ToggleToday(string taskId)
+    {
+        var task = _snapshot.Tasks.Single(item => item.Id == taskId);
+        Action action = () => ApplyTodayLane(taskId, task.TodayLane is null ? TodayLane.Planned : null);
+        if (IsDirty && (_editingCategory || !FlushPendingAutosave()))
+        {
+            _pendingNavigation = action;
+            _pendingNavigationClosesInspector = false;
+            Notify(nameof(NeedsDecision));
+            Notify(nameof(HasBlockingDialog));
+            return;
+        }
+        action();
+    }
+
+    private void ApplyTodayLane(string taskId, TodayLane? lane)
+    {
+        var task = _snapshot.Tasks.Single(item => item.Id == taskId);
+        var source = task.TodayLane == TodayLane.Planned ? TodayPlanned : TodayInProgress;
+        var sourceIndex = source.IndexOf(source.FirstOrDefault(row => row.Task.Id == taskId)!);
+        if (!Attempt(() =>
+            {
+                _work.SetTaskTodayLane(taskId, lane);
+                Reload();
+                var title = _snapshot.Tasks.Single(item => item.Id == taskId).Title;
+                TodayAnnouncement = lane switch
+                {
+                    TodayLane.Planned => $"Added {title} to Today in Planned.",
+                    TodayLane.InProgress => $"Moved {title} to In progress.",
+                    _ => $"Removed {title} from Today.",
+                };
+                if (lane is not null || !_todayActive)
+                    TodayFocusAutomationId = $"task-today-{taskId}";
+                else
+                {
+                    var remaining = task.TodayLane == TodayLane.Planned ? TodayPlanned : TodayInProgress;
+                    TodayFocusAutomationId = remaining.Count == 0
+                        ? "today-clear"
+                        : remaining[Math.Min(Math.Max(sourceIndex, 0), remaining.Count - 1)].Task.TodayAutomationId;
+                }
+                Message = TodayAnnouncement;
+            }, "Could not change Today membership.")) return;
+    }
+
+    internal void MoveToOtherTodayLane(string taskId)
+    {
+        var task = _snapshot.Tasks.Single(item => item.Id == taskId);
+        if (task.TodayLane is null) return;
+        ResolveDraftBeforeAction(() => ApplyTodayLane(taskId,
+            task.TodayLane == TodayLane.Planned ? TodayLane.InProgress : TodayLane.Planned));
+    }
+
+    internal bool MoveTodayTask(string taskId, int targetPosition)
+    {
+        if (NeedsDecision) return false;
+        var task = _snapshot.Tasks.Single(item => item.Id == taskId);
+        if (task.TodayLane is null) return false;
+        var laneRows = task.TodayLane == TodayLane.Planned ? TodayPlanned : TodayInProgress;
+        if (laneRows.Count == 0) return false;
+        targetPosition = Math.Clamp(targetPosition, 0, laneRows.Count - 1);
+        var moved = false;
+        Action action = () => moved = Attempt(() =>
+        {
+            var change = _work.MoveTaskInTodayLane(taskId, targetPosition);
+            Reload();
+            var title = _snapshot.Tasks.Single(item => item.Id == taskId).Title;
+            var laneName = change.Lane == TodayLane.Planned ? "Planned" : "In progress";
+            TodayAnnouncement = $"Moved {title} to position {change.Position} of {change.Count} in {laneName}.";
+            TodayFocusAutomationId = $"today-reorder-{taskId}";
+            Message = TodayAnnouncement;
+        }, "Could not reorder the Today lane.");
+        ResolveDraftBeforeAction(action);
+        return moved;
+    }
+
+    private void ClearToday()
+    {
+        ResolveDraftBeforeAction(() => Attempt(() =>
+        {
+            var count = _work.ClearToday();
+            Reload();
+            TodayAnnouncement = count == 1 ? "Cleared 1 Task from Today." : $"Cleared {count} Tasks from Today.";
+            TodayFocusAutomationId = "today-clear";
+            Message = TodayAnnouncement;
+        }, "Could not clear Today."));
+    }
+
     private bool Attempt(Action action, string failureMessage)
     {
         try { action(); return true; }
@@ -1374,7 +1568,9 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     {
         var task = _snapshot.Tasks.Single(item => item.Id == taskId);
         Action action = () => ApplyCompletion(taskId, !task.IsComplete);
-        var removesDraftFromCurrentView = (!task.IsComplete && _backlogActive) || (task.IsComplete && _completedActive);
+        var removesDraftFromCurrentView = (!task.IsComplete && _backlogActive)
+            || (task.IsComplete && _completedActive)
+            || (task.IsComplete && _todayActive && task.CompletionDate == Today);
         if (IsDirty && _editingCategory)
         {
             _pendingNavigation = action;
@@ -1399,6 +1595,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     {
         var backlogIndex = Backlog.IndexOf(Backlog.FirstOrDefault(row => row.Id == taskId)!);
         var completedIndex = Completed.IndexOf(Completed.FirstOrDefault(row => row.Id == taskId)!);
+        var completedTodayIndex = CompletedToday.IndexOf(CompletedToday.FirstOrDefault(row => row.Task.Id == taskId)!);
         if (!Attempt(() =>
             {
                 if (complete) _work.CompleteTask(taskId); else _work.ReopenTask(taskId);
@@ -1414,6 +1611,12 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
                     CompletionFocusAutomationId = Completed.Count == 0
                         ? "navigation-completed"
                         : Completed[Math.Min(Math.Max(completedIndex, 0), Completed.Count - 1)].CompletionAutomationId;
+                }
+                else if (!complete && _todayActive)
+                {
+                    CompletionFocusAutomationId = CompletedToday.Count == 0
+                        ? "navigation-today"
+                        : CompletedToday[Math.Min(Math.Max(completedTodayIndex, 0), CompletedToday.Count - 1)].Task.CompletionAutomationId;
                 }
                 else
                 {
@@ -1598,6 +1801,58 @@ public sealed record CompletedTaskGroupViewModel(string Heading, IReadOnlyList<T
 }
 
 public sealed record CompletedTaskRowViewModel(TaskRowViewModel Task, bool IsLast);
+public sealed class TodayTaskRowViewModel
+{
+    private readonly ProjectCaptureViewModel _owner;
+    private readonly TodayLane _lane;
+    private int _position;
+    private int _count;
+
+    public TodayTaskRowViewModel(ProjectCaptureViewModel owner, TaskRowViewModel task, TodayLane lane)
+    {
+        _owner = owner;
+        Task = task;
+        _lane = lane;
+        MoveUpCommand = new(() => owner.MoveTodayTask(task.Id, _position - 1));
+        MoveDownCommand = new(() => owner.MoveTodayTask(task.Id, _position + 1));
+        MoveToTopCommand = new(() => owner.MoveTodayTask(task.Id, 0));
+        MoveToBottomCommand = new(() => owner.MoveTodayTask(task.Id, _count - 1));
+        MoveToOtherLaneCommand = new(() => owner.MoveToOtherTodayLane(task.Id));
+    }
+
+    public TaskRowViewModel Task { get; private set; }
+    public bool IsLast => _position == _count - 1;
+    public string PositionText => $"{_position + 1} of {_count}";
+    public string ReorderAutomationId => $"today-reorder-{Task.Id}";
+    public string ReorderAccessibleName => $"Reorder {Task.Title} in {LaneName}";
+    public string MoveUpAccessibleName => $"Move {Task.Title} up in {LaneName}";
+    public string MoveDownAccessibleName => $"Move {Task.Title} down in {LaneName}";
+    public string MoveToTopAccessibleName => $"Move {Task.Title} to top of {LaneName}";
+    public string MoveToBottomAccessibleName => $"Move {Task.Title} to bottom of {LaneName}";
+    public string MoveToOtherLaneLabel => _lane == TodayLane.Planned ? "Start" : "Move to planned";
+    public string MoveToOtherLaneAccessibleName => _lane == TodayLane.Planned
+        ? $"Move {Task.Title} to In progress"
+        : $"Move {Task.Title} to Planned";
+    public bool IsPlanned => _lane == TodayLane.Planned;
+    public bool IsInProgress => _lane == TodayLane.InProgress;
+    public string ReorderHelpText => _lane == TodayLane.Planned
+        ? "Drag within Planned, or activate for keyboard reorder actions."
+        : "Drag within In progress, or activate for keyboard reorder actions.";
+    public RelayCommand MoveUpCommand { get; }
+    public RelayCommand MoveDownCommand { get; }
+    public RelayCommand MoveToTopCommand { get; }
+    public RelayCommand MoveToBottomCommand { get; }
+    public RelayCommand MoveToOtherLaneCommand { get; }
+    private string LaneName => _lane == TodayLane.Planned ? "Planned" : "In progress";
+
+    public void Refresh(TaskRowViewModel task, int position, int count)
+    {
+        Task = task;
+        _position = position;
+        _count = count;
+    }
+}
+
 public sealed class TaskRowViewModel : INotifyPropertyChanged
 {
     private readonly ProjectCaptureViewModel _owner;
@@ -1613,6 +1868,7 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
     private string _completionDateText = string.Empty;
     private int _projectPosition;
     private int _projectCount;
+    private TodayLane? _todayLane;
 
     public TaskRowViewModel(ProjectCaptureViewModel owner, string id)
     {
@@ -1624,6 +1880,7 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
         MoveToTopCommand = new(() => owner.MoveToTop(id));
         MoveToBottomCommand = new(() => owner.MoveToBottom(id));
         ToggleCompletionCommand = new(() => owner.ToggleCompletion(id));
+        ToggleTodayCommand = new(() => owner.ToggleToday(id));
         MoveProjectTaskUpCommand = new(() => MoveInProject(_projectPosition - 1));
         MoveProjectTaskDownCommand = new(() => MoveInProject(_projectPosition + 1));
         MoveProjectTaskToTopCommand = new(() => MoveInProject(0));
@@ -1643,6 +1900,9 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
     public string CompletionAutomationId => $"task-completion-{Id}";
     public string CompletionAccessibleName => $"{(IsComplete ? "Reopen" : "Complete")} {Title}";
     public bool IsComplete => _isComplete;
+    public bool IsToday => _todayLane is not null;
+    public string TodayAutomationId => $"task-today-{Id}";
+    public string TodayAccessibleName => $"{(IsToday ? "Remove" : "Add")} {Title} {(IsToday ? "from" : "to")} Today";
     public string DateText => _dateText;
     public string DateAccessibleText => _dateAccessibleText;
     public string CompletionDateText => _completionDateText;
@@ -1664,6 +1924,7 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
     public RelayCommand MoveToTopCommand { get; }
     public RelayCommand MoveToBottomCommand { get; }
     public RelayCommand ToggleCompletionCommand { get; }
+    public RelayCommand ToggleTodayCommand { get; }
     public RelayCommand MoveProjectTaskUpCommand { get; }
     public RelayCommand MoveProjectTaskDownCommand { get; }
     public RelayCommand MoveProjectTaskToTopCommand { get; }
@@ -1676,6 +1937,7 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
         _categoryDisplay = $"{categoryName} · {categoryBehaviour}";
         _projectId = task.ProjectId;
         _isComplete = task.IsComplete;
+        _todayLane = task.TodayLane;
         _dateText = WorkDatePresentation.Relative(task.DueDate, today);
         _dateAccessibleText = WorkDatePresentation.Accessible(task.DueDate, "Due");
         _completionDateText = task.CompletionDate is { } completionDate ? $"Completed {completionDate:d MMM yyyy}" : string.Empty;
@@ -1689,6 +1951,8 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
         Notify(nameof(MoveToBottomAccessibleName));
         Notify(nameof(CompletionAccessibleName));
         Notify(nameof(IsComplete));
+        Notify(nameof(IsToday));
+        Notify(nameof(TodayAccessibleName));
         Notify(nameof(DateText));
         Notify(nameof(DateAccessibleText));
         Notify(nameof(CompletionDateText));

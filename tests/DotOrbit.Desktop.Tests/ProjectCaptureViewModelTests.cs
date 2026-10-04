@@ -886,6 +886,130 @@ public sealed class ProjectCaptureViewModelTests
         Assert.True(model.RefreshDatePresentation());
         Assert.Equal("30 Sep 2026", model.Backlog.Single().DateText);
     }
+
+    [Fact]
+    public void TodayStarDefaultsToPlannedLaneMovementPreservesOrderAndClearRemovesMembership()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var first = work.CreateTask(project.Id, "First");
+        var second = work.CreateTask(project.Id, "Second");
+        var shell = new ShellViewModel(work);
+        var model = shell.Work!;
+        var originalOrder = work.Read().Tasks.Select(task => task.Id).ToArray();
+
+        model.Backlog.Single(task => task.Id == first.Id).ToggleTodayCommand.Execute(null);
+        Assert.Equal(TodayLane.Planned, work.Read().Tasks.Single(task => task.Id == first.Id).TodayLane);
+        Assert.True(model.Backlog.Single(task => task.Id == first.Id).IsToday);
+        Assert.Equal($"Remove First from Today", model.Backlog.Single(task => task.Id == first.Id).TodayAccessibleName);
+        Assert.Single(model.TodayPlanned);
+        Assert.Equal("1", shell.PrimaryNavigation.Single(item => item.Title == "Today").CountText);
+
+        model.TodayPlanned.Single().MoveToOtherLaneCommand.Execute(null);
+        Assert.Empty(model.TodayPlanned);
+        Assert.Equal(first.Id, Assert.Single(model.TodayInProgress).Task.Id);
+        Assert.Equal(originalOrder, work.Read().Tasks.Select(task => task.Id));
+
+        model.Backlog.Single(task => task.Id == second.Id).ToggleTodayCommand.Execute(null);
+        model.ClearTodayCommand.Execute(null);
+        Assert.True(model.HasNoTodayTasks);
+        Assert.All(work.Read().Tasks, task => Assert.Null(task.TodayLane));
+        Assert.Equal("0", shell.PrimaryNavigation.Single(item => item.Title == "Today").CountText);
+        Assert.Equal("Cleared 2 Tasks from Today.", model.TodayAnnouncement);
+    }
+
+    [Fact]
+    public void TodayTaskDraftDefaultsToPlannedAndCanSelectAnOptionalProjectBeforeCreation()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var model = new ProjectCaptureViewModel(work);
+
+        model.NewTodayTaskCommand.Execute(null);
+
+        Assert.True(model.ShowTaskContext);
+        Assert.False(model.ShowTaskContextAction);
+        Assert.Null(model.TaskContextTarget?.ProjectId);
+        model.TaskContextTarget = model.TaskContextChoices.Single(choice => choice.ProjectId == project.Id);
+        Assert.Null(model.Category?.Id);
+        model.Title = "Plant bulbs";
+        model.Description = "Near the fence";
+        Assert.True(model.Save());
+
+        var task = work.Read().Tasks.Single();
+        Assert.Equal(project.Id, task.ProjectId);
+        Assert.Null(task.ExplicitCategoryId);
+        Assert.Equal("Near the fence", task.Description);
+        Assert.Equal(TodayLane.Planned, task.TodayLane);
+    }
+
+    [Fact]
+    public void TodayImmediateActionsWaitForTheCategoryDraftDecision()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var first = work.CreateTask(project.Id, "First");
+        var second = work.CreateTask(project.Id, "Second");
+        work.SetTaskTodayLane(first.Id, TodayLane.Planned);
+        work.SetTaskTodayLane(second.Id, TodayLane.Planned);
+        var model = new ProjectCaptureViewModel(work);
+        var initialOrder = model.TodayPlanned.Select(row => row.Task.Id).ToArray();
+        model.SelectCategory("home");
+        model.Title = "Renamed home";
+
+        model.TodayPlanned.Single(row => row.Task.Id == initialOrder[1]).MoveToTopCommand.Execute(null);
+
+        Assert.True(model.NeedsDecision);
+        Assert.Equal(initialOrder, model.TodayPlanned.Select(row => row.Task.Id));
+        model.DiscardAndLeaveCommand.Execute(null);
+        Assert.Equal(initialOrder.Reverse(), model.TodayPlanned.Select(row => row.Task.Id));
+    }
+
+    [Fact]
+    public void TodayLaneReorderChangesOnlyVisibleRelativeSharedPositions()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var hidden = work.CreateTask(project.Id, "Hidden");
+        var older = work.CreateTask(project.Id, "Older");
+        var otherLane = work.CreateTask(project.Id, "Other lane");
+        var newer = work.CreateTask(project.Id, "Newer");
+        work.MoveTaskInSharedOrder(hidden.Id, 1);
+        work.SetTaskTodayLane(older.Id, TodayLane.Planned);
+        work.SetTaskTodayLane(otherLane.Id, TodayLane.InProgress);
+        work.SetTaskTodayLane(newer.Id, TodayLane.Planned);
+        var model = new ProjectCaptureViewModel(work);
+
+        model.TodayPlanned.Single(row => row.Task.Id == older.Id).MoveToTopCommand.Execute(null);
+
+        Assert.Equal([older.Id, hidden.Id, otherLane.Id, newer.Id], work.Read().Tasks.Select(task => task.Id));
+        Assert.Equal([older.Id, newer.Id], model.TodayPlanned.Select(row => row.Task.Id));
+        Assert.Equal("Moved Older to position 1 of 2 in Planned.", model.TodayAnnouncement);
+    }
+
+    [Fact]
+    public void CompletedTodayUsesCapturedDateNewestFirstAndReopenReturnsOnlyToBacklog()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var previouslyToday = work.CreateTask(project.Id, "Previously Today");
+        var neverToday = work.CreateTask(project.Id, "Never Today");
+        work.SetTaskTodayLane(previouslyToday.Id, TodayLane.Planned);
+        work.SetCompletion(previouslyToday.Id, new DateTimeOffset(2026, 9, 29, 9, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 29));
+        work.SetTaskTodayLane(previouslyToday.Id, null);
+        work.SetCompletion(neverToday.Id, new DateTimeOffset(2026, 9, 29, 12, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 29));
+        var time = new FixedTimeProvider(new DateTimeOffset(2026, 9, 29, 14, 0, 0, TimeSpan.Zero));
+        var model = new ProjectCaptureViewModel(work, time);
+
+        Assert.Equal([neverToday.Id, previouslyToday.Id], model.CompletedToday.Select(row => row.Task.Id));
+        model.CompletedToday[0].Task.ToggleCompletionCommand.Execute(null);
+        Assert.Contains(model.Backlog, task => task.Id == neverToday.Id);
+        Assert.Null(work.Read().Tasks.Single(task => task.Id == neverToday.Id).TodayLane);
+
+        time.Set(new DateTimeOffset(2026, 9, 30, 0, 1, 0, TimeSpan.Zero));
+        Assert.True(model.RefreshDatePresentation());
+        Assert.Empty(model.CompletedToday);
+    }
 }
 
 internal sealed class FixedTimeProvider(DateTimeOffset utcNow, TimeZoneInfo? localTimeZone = null) : TimeProvider
@@ -994,6 +1118,33 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
         var task = new TaskRecord($"task-{_tasks.Count}", projectId, title.Trim(), "", null, null, 0, _tasks.Count(t => t.ProjectId == projectId));
         _tasks.Add(task); return task;
     }
+    public TaskRecord CreateTaskDraft(string? projectId, string title, string description, string? categoryId,
+        DateOnly? dueDate, ParticipantDraftChange? participantChange = null, TodayLane? todayLane = null)
+    {
+        Check();
+        if (projectId is null && categoryId is null) throw new ArgumentException("Category required.", nameof(categoryId));
+        if (projectId is not null && _projects.All(project => project.Id != projectId)) throw new ArgumentException("Project missing.", nameof(projectId));
+        var taskBackup = _tasks.ToList();
+        var participantBackup = _participants.ToList();
+        ShiftForNewTask();
+        try
+        {
+            var associations = ApplyParticipantChanges(participantChange ?? new([], []));
+            var task = new TaskRecord($"task-{_tasks.Count}", projectId, title.Trim(), description, categoryId, dueDate, 0,
+                projectId is null ? null : _tasks.Count(item => item.ProjectId == projectId),
+                ParticipantIds: associations, TodayLane: todayLane);
+            _tasks.Add(task);
+            return task;
+        }
+        catch
+        {
+            _tasks.Clear();
+            _tasks.AddRange(taskBackup);
+            _participants.Clear();
+            _participants.AddRange(participantBackup);
+            throw;
+        }
+    }
     public TaskRecord CreateStandaloneTask(string title, string description, string categoryId, DateOnly? dueDate,
         ParticipantDraftChange? participantChange = null)
     {
@@ -1056,6 +1207,7 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
         {
             CompletedAt = new DateTimeOffset(2026, 9, 29, 12, 0, 0, TimeSpan.Zero),
             CompletionDate = new DateOnly(2026, 9, 29),
+            TodayLane = null,
         };
     }
     public TaskRecord ReopenTask(string id)
@@ -1068,6 +1220,45 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
     {
         int index = _tasks.FindIndex(task => task.Id == id);
         return _tasks[index] = _tasks[index] with { CompletedAt = instant, CompletionDate = date };
+    }
+    public TaskRecord SetTaskTodayLane(string id, TodayLane? lane)
+    {
+        Check();
+        var index = _tasks.FindIndex(task => task.Id == id);
+        if (_tasks[index].IsComplete && lane is not null) throw new InvalidOperationException();
+        return _tasks[index] = _tasks[index] with { TodayLane = lane };
+    }
+    public int ClearToday()
+    {
+        Check();
+        var cleared = 0;
+        for (var index = 0; index < _tasks.Count; index++)
+            if (_tasks[index].TodayLane is not null)
+            {
+                _tasks[index] = _tasks[index] with { TodayLane = null };
+                cleared++;
+            }
+        return cleared;
+    }
+    public TodayLaneOrderChange MoveTaskInTodayLane(string id, int targetPosition)
+    {
+        Check();
+        var ordered = _tasks.OrderBy(task => task.SharedPosition).ToList();
+        var task = ordered.Single(item => item.Id == id);
+        if (task.IsComplete || task.TodayLane is null) throw new ArgumentException("Task is not in Today.", nameof(id));
+        var visible = ordered.Where(item => !item.IsComplete && item.TodayLane == task.TodayLane).ToList();
+        if ((uint)targetPosition >= (uint)visible.Count) throw new ArgumentOutOfRangeException(nameof(targetPosition));
+        visible.Remove(task);
+        visible.Insert(targetPosition, task);
+        var visibleIds = visible.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
+        var visibleIndex = 0;
+        ordered = ordered.Select(item => visibleIds.Contains(item.Id) ? visible[visibleIndex++] : item).ToList();
+        for (var index = 0; index < ordered.Count; index++)
+        {
+            var storedIndex = _tasks.FindIndex(candidate => candidate.Id == ordered[index].Id);
+            _tasks[storedIndex] = _tasks[storedIndex] with { SharedPosition = index };
+        }
+        return new(id, task.TodayLane.Value, targetPosition + 1, visible.Count);
     }
     public SharedTaskOrderChange MoveTaskInSharedOrder(string id, int targetPosition)
     {

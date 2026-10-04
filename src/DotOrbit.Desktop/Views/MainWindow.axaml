@@ -42,6 +42,52 @@
         </Grid>
       </RadioButton>
     </DataTemplate>
+    <DataTemplate x:Key="TodayTaskRowTemplate" x:DataType="vm:TodayTaskRowViewModel">
+      <Border Classes="interactive-row separated-row reorder-target task-row selectable-row"
+          Classes.today-planned-row="{Binding IsPlanned}"
+          Classes.today-in-progress-row="{Binding IsInProgress}"
+          Classes.last="{Binding IsLast}"
+          MinHeight="{StaticResource StandardRowHeight}">
+        <Grid VerticalAlignment="Center" ColumnDefinitions="34,34,*,Auto,Auto,Auto,34">
+          <Button Classes="drag-handle"
+              Classes.today-planned-drag-handle="{Binding IsPlanned}"
+              Classes.today-in-progress-drag-handle="{Binding IsInProgress}"
+              AutomationProperties.AutomationId="{Binding ReorderAutomationId}"
+              AutomationProperties.Name="{Binding ReorderAccessibleName}"
+              AutomationProperties.HelpText="{Binding ReorderHelpText}">
+            <Button.Flyout>
+              <MenuFlyout Closed="OnReorderMenuClosed">
+                <MenuItem Header="Move to top" Command="{Binding MoveToTopCommand}" AutomationProperties.Name="{Binding MoveToTopAccessibleName}" />
+                <MenuItem Header="Move up" Command="{Binding MoveUpCommand}" AutomationProperties.Name="{Binding MoveUpAccessibleName}" />
+                <MenuItem Header="Move down" Command="{Binding MoveDownCommand}" AutomationProperties.Name="{Binding MoveDownAccessibleName}" />
+                <MenuItem Header="Move to bottom" Command="{Binding MoveToBottomCommand}" AutomationProperties.Name="{Binding MoveToBottomAccessibleName}" />
+              </MenuFlyout>
+            </Button.Flyout>
+          </Button>
+          <ToggleButton Grid.Column="1" Classes="completion-toggle"
+              IsChecked="{Binding Task.IsComplete, Mode=OneWay}" Command="{Binding Task.ToggleCompletionCommand}"
+              AutomationProperties.AutomationId="{Binding Task.CompletionAutomationId}"
+              AutomationProperties.Name="{Binding Task.CompletionAccessibleName}" />
+          <Button Grid.Column="2" Classes="task-title row-title" Command="{Binding Task.SelectCommand}"
+              AutomationProperties.Name="{Binding Task.Title}" AutomationProperties.ItemStatus="{Binding Task.CategoryDisplay}">
+            <StackPanel Spacing="3">
+              <TextBlock Text="{Binding Task.Title}" />
+              <TextBlock FontSize="12" Foreground="{StaticResource QuietTextBrush}" Text="{Binding Task.CategoryDisplay}" />
+            </StackPanel>
+          </Button>
+          <TextBlock Grid.Column="3" Classes="task-date" Text="{Binding Task.DateText}"
+              AutomationProperties.Name="{Binding Task.DateAccessibleText}" />
+          <Button Grid.Column="4" Classes="view-action" Margin="8,0" Content="{Binding MoveToOtherLaneLabel}"
+              Command="{Binding MoveToOtherLaneCommand}" AutomationProperties.Name="{Binding MoveToOtherLaneAccessibleName}" />
+          <TextBlock Grid.Column="5" Margin="8,0" VerticalAlignment="Center" FontSize="11"
+              Foreground="{StaticResource QuietTextBrush}" Text="{Binding PositionText}" />
+          <ToggleButton Grid.Column="6" Classes="today-toggle"
+              IsChecked="{Binding Task.IsToday, Mode=OneWay}" Command="{Binding Task.ToggleTodayCommand}"
+              AutomationProperties.AutomationId="{Binding Task.TodayAutomationId}"
+              AutomationProperties.Name="{Binding Task.TodayAccessibleName}" />
+        </Grid>
+      </Border>
+    </DataTemplate>
   </Window.Resources>
 
   <Grid ColumnDefinitions="228,*,320" RowDefinitions="64,*">
@@ -168,6 +214,16 @@
             Content="＋ New task"
             IsVisible="{Binding ShowBacklog}" />
         <Button
+            x:Name="NewTodayTaskButton"
+            Grid.Column="1"
+            Classes="primary-action"
+            VerticalAlignment="Bottom"
+            AutomationProperties.Name="New task in Today"
+            Click="OnFocusInspector"
+            Command="{Binding Work.NewTodayTaskCommand}"
+            Content="＋ New task"
+            IsVisible="{Binding ShowToday}" />
+        <Button
             x:Name="NewCategoryButton"
             Grid.Column="1"
             Classes="primary-action"
@@ -207,6 +263,63 @@
               TextWrapping="Wrap" />
         </StackPanel>
       </Border>
+      <ScrollViewer Grid.Row="2" IsVisible="{Binding ShowToday}">
+        <StackPanel Margin="{StaticResource ScrollContentInset}" Spacing="14">
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Classes="eyebrow" VerticalAlignment="Center" Text="TODAY'S FOCUS" />
+            <Button x:Name="TodayClearButton" Grid.Column="1" Classes="view-action"
+                Content="Clear Today" Command="{Binding Work.ClearTodayCommand}"
+                AutomationProperties.AutomationId="today-clear"
+                AutomationProperties.Name="Clear incomplete Tasks from Today" />
+          </Grid>
+          <Border Classes="empty-state" IsVisible="{Binding Work.HasNoTodayTasks}" Padding="32">
+            <StackPanel HorizontalAlignment="Center" Spacing="8">
+              <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Text="Nothing planned for today" />
+              <TextBlock MaxWidth="440" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}"
+                  Text="Use the star on any incomplete Task to add it to Planned." TextAlignment="Center" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+          <StackPanel Spacing="6" IsVisible="{Binding Work.HasTodayTasks}">
+            <TextBlock Classes="eyebrow" Margin="6,0" Text="PLANNED" />
+            <Border x:Name="TodayPlannedPanel" Classes="list-panel">
+              <ItemsControl ItemsSource="{Binding Work.TodayPlanned}" ItemTemplate="{StaticResource TodayTaskRowTemplate}" />
+            </Border>
+          </StackPanel>
+          <StackPanel Spacing="6" IsVisible="{Binding Work.HasTodayTasks}">
+            <TextBlock Classes="eyebrow" Margin="6,0" Text="IN PROGRESS" />
+            <Border x:Name="TodayInProgressPanel" Classes="list-panel">
+              <ItemsControl ItemsSource="{Binding Work.TodayInProgress}" ItemTemplate="{StaticResource TodayTaskRowTemplate}" />
+            </Border>
+          </StackPanel>
+          <StackPanel Spacing="6" IsVisible="{Binding Work.HasCompletedToday}">
+            <TextBlock Classes="eyebrow" Margin="6,0" Text="COMPLETED TODAY" />
+            <Border x:Name="CompletedTodayPanel" Classes="list-panel">
+              <ItemsControl ItemsSource="{Binding Work.CompletedToday}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:CompletedTaskRowViewModel">
+                    <Border Classes="interactive-row separated-row task-row selectable-row completed-today-row" Classes.last="{Binding IsLast}" MinHeight="{StaticResource StandardRowHeight}">
+                      <Grid VerticalAlignment="Center" ColumnDefinitions="34,*,Auto">
+                        <ToggleButton Classes="completion-toggle" IsChecked="{Binding Task.IsComplete, Mode=OneWay}"
+                            Command="{Binding Task.ToggleCompletionCommand}" AutomationProperties.AutomationId="{Binding Task.CompletionAutomationId}"
+                            AutomationProperties.Name="{Binding Task.CompletionAccessibleName}" />
+                        <Button Grid.Column="1" Classes="task-title row-title" Command="{Binding Task.SelectCommand}"
+                            AutomationProperties.Name="{Binding Task.Title}" AutomationProperties.ItemStatus="{Binding Task.CategoryDisplay}">
+                          <StackPanel Spacing="3">
+                            <TextBlock Text="{Binding Task.Title}" />
+                            <TextBlock FontSize="12" Foreground="{StaticResource QuietTextBrush}" Text="{Binding Task.CategoryDisplay}" />
+                          </StackPanel>
+                        </Button>
+                        <TextBlock Grid.Column="2" Classes="task-completion-date" Text="{Binding Task.CompletionDateText}" />
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </Border>
+          </StackPanel>
+          <TextBlock Height="1" Opacity="0" Text="{Binding Work.TodayAnnouncement}" AutomationProperties.LiveSetting="Polite" />
+        </StackPanel>
+      </ScrollViewer>
       <ScrollViewer Grid.Row="2" IsVisible="{Binding ShowProjects}">
         <StackPanel Margin="{StaticResource ScrollContentInset}" Spacing="10">
           <Border
@@ -293,7 +406,7 @@
                           <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:TaskRowViewModel">
                               <Border Classes="interactive-row separated-row reorder-target task-row selectable-row project-task-row" Classes.last="{Binding IsProjectLast}" MinHeight="{StaticResource CompactRowHeight}">
-                                <Grid VerticalAlignment="Center" ColumnDefinitions="34,34,*,Auto">
+                                <Grid VerticalAlignment="Center" ColumnDefinitions="34,34,*,Auto,34">
                                   <Button Classes="drag-handle project-task-drag-handle" AutomationProperties.AutomationId="{Binding ProjectReorderAutomationId}"
                                       AutomationProperties.Name="{Binding ProjectReorderAccessibleName}"
                                       AutomationProperties.HelpText="Drag within this Project, or activate for keyboard reorder actions.">
@@ -310,19 +423,27 @@
                                       IsChecked="{Binding IsComplete, Mode=OneWay}" Command="{Binding ToggleCompletionCommand}"
                                       AutomationProperties.AutomationId="{Binding CompletionAutomationId}"
                                       AutomationProperties.Name="{Binding CompletionAccessibleName}" />
+                                  <ToggleButton Grid.Column="4" Classes="today-toggle" IsVisible="{Binding !IsComplete}"
+                                      IsChecked="{Binding IsToday, Mode=OneWay}" Command="{Binding ToggleTodayCommand}"
+                                      AutomationProperties.AutomationId="{Binding TodayAutomationId}"
+                                      AutomationProperties.Name="{Binding TodayAccessibleName}" />
                                   <Button
                                       Grid.Column="2"
                                       Classes="task-title project-task-title row-title"
                                       AutomationProperties.Name="{Binding Title}"
+                                      AutomationProperties.ItemStatus="{Binding CategoryDisplay}"
                                       Command="{Binding SelectCommand}">
                                     <StackPanel Spacing="3">
                                       <TextBlock FontSize="14" Text="{Binding Title}" />
                                       <TextBlock FontSize="12" Foreground="{StaticResource QuietTextBrush}" Text="{Binding CategoryDisplay}" />
-                                      <TextBlock IsVisible="{Binding HasCompletionDate}" FontSize="11" Foreground="{StaticResource SuccessBrush}" Text="{Binding CompletionDateText}" />
                                     </StackPanel>
                                   </Button>
-                                  <TextBlock Grid.Column="3" Margin="8,0" VerticalAlignment="Center" FontSize="12" Foreground="{StaticResource MutedTextBrush}"
-                                      Text="{Binding DateText}" AutomationProperties.Name="{Binding DateAccessibleText}" />
+                                  <StackPanel Grid.Column="3" VerticalAlignment="Center">
+                                    <TextBlock Classes="task-date" Text="{Binding DateText}"
+                                        AutomationProperties.Name="{Binding DateAccessibleText}" />
+                                    <TextBlock Classes="task-completion-date" IsVisible="{Binding HasCompletionDate}"
+                                        Text="{Binding CompletionDateText}" />
+                                  </StackPanel>
                                 </Grid>
                               </Border>
                             </DataTemplate>
@@ -384,7 +505,7 @@
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:TaskRowViewModel">
                 <Border Classes="interactive-row separated-row reorder-target task-row selectable-row backlog-row" Classes.last="{Binding IsLast}" MinHeight="{StaticResource StandardRowHeight}">
-                  <Grid VerticalAlignment="Center" ColumnDefinitions="34,34,*,Auto">
+                  <Grid VerticalAlignment="Center" ColumnDefinitions="34,34,*,Auto,Auto,34">
                     <Button
                         Classes="drag-handle backlog-drag-handle"
                         AutomationProperties.AutomationId="{Binding ReorderAutomationId}"
@@ -403,6 +524,10 @@
                         IsChecked="{Binding IsComplete, Mode=OneWay}" Command="{Binding ToggleCompletionCommand}"
                         AutomationProperties.AutomationId="{Binding CompletionAutomationId}"
                         AutomationProperties.Name="{Binding CompletionAccessibleName}" />
+                    <ToggleButton Grid.Column="5" Classes="today-toggle" IsVisible="{Binding !IsComplete}"
+                        IsChecked="{Binding IsToday, Mode=OneWay}" Command="{Binding ToggleTodayCommand}"
+                        AutomationProperties.AutomationId="{Binding TodayAutomationId}"
+                        AutomationProperties.Name="{Binding TodayAccessibleName}" />
                     <Button
                         Grid.Column="2"
                         Classes="task-title backlog-task-title row-title"
@@ -411,14 +536,12 @@
                         AutomationProperties.ItemStatus="{Binding CategoryDisplay}">
                       <StackPanel Spacing="3">
                         <TextBlock Text="{Binding Title}" />
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                          <TextBlock Text="{Binding CategoryDisplay}" Foreground="{StaticResource QuietTextBrush}" FontSize="12" />
-                          <TextBlock Text="{Binding DateText}" Foreground="{StaticResource MutedTextBrush}" FontSize="12"
-                              AutomationProperties.Name="{Binding DateAccessibleText}" />
-                        </StackPanel>
+                        <TextBlock Text="{Binding CategoryDisplay}" Foreground="{StaticResource QuietTextBrush}" FontSize="12" />
                       </StackPanel>
                     </Button>
-                    <TextBlock Grid.Column="3" Margin="8,0" VerticalAlignment="Center" Foreground="{StaticResource QuietTextBrush}" FontSize="11" Text="{Binding PositionText}" />
+                    <TextBlock Grid.Column="3" Classes="task-date" Text="{Binding DateText}"
+                        AutomationProperties.Name="{Binding DateAccessibleText}" />
+                    <TextBlock Grid.Column="4" Margin="8,0" VerticalAlignment="Center" Foreground="{StaticResource QuietTextBrush}" FontSize="11" Text="{Binding PositionText}" />
                   </Grid>
                 </Border>
               </DataTemplate>
@@ -491,11 +614,15 @@
                           <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:CategoryTaskRowViewModel">
                               <Border Classes="interactive-row separated-row task-row selectable-row category-task-row" Classes.last="{Binding IsLast}" MinHeight="{StaticResource StandardRowHeight}">
-                                <Grid VerticalAlignment="Center" ColumnDefinitions="34,*,Auto">
+                                <Grid VerticalAlignment="Center" ColumnDefinitions="34,*,Auto,34">
                                   <ToggleButton Classes="completion-toggle"
                                       IsChecked="{Binding Task.IsComplete, Mode=OneWay}" Command="{Binding Task.ToggleCompletionCommand}"
                                       AutomationProperties.AutomationId="{Binding Task.CompletionAutomationId}"
                                       AutomationProperties.Name="{Binding Task.CompletionAccessibleName}" />
+                                  <ToggleButton Grid.Column="3" Classes="today-toggle" IsVisible="{Binding !Task.IsComplete}"
+                                      IsChecked="{Binding Task.IsToday, Mode=OneWay}" Command="{Binding Task.ToggleTodayCommand}"
+                                      AutomationProperties.AutomationId="{Binding Task.TodayAutomationId}"
+                                      AutomationProperties.Name="{Binding Task.TodayAccessibleName}" />
                                   <Button Grid.Column="1" Classes="task-title row-title" Command="{Binding Task.SelectCommand}"
                                       AutomationProperties.Name="{Binding Task.Title}" AutomationProperties.ItemStatus="{Binding Task.CategoryDisplay}">
                                     <StackPanel Spacing="3">
@@ -503,8 +630,12 @@
                                       <TextBlock Text="{Binding Task.CategoryDisplay}" Foreground="{StaticResource QuietTextBrush}" FontSize="12" />
                                     </StackPanel>
                                   </Button>
-                                  <TextBlock Grid.Column="2" Margin="12,0,6,0" VerticalAlignment="Center"
-                                      Foreground="{StaticResource MutedTextBrush}" FontSize="12" Text="{Binding Task.DateText}" />
+                                  <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                    <TextBlock Classes="task-date" Text="{Binding Task.DateText}"
+                                        AutomationProperties.Name="{Binding Task.DateAccessibleText}" />
+                                    <TextBlock Classes="task-completion-date" IsVisible="{Binding Task.HasCompletionDate}"
+                                        Text="{Binding Task.CompletionDateText}" />
+                                  </StackPanel>
                                 </Grid>
                               </Border>
                             </DataTemplate>
@@ -558,8 +689,7 @@
                                   <TextBlock Text="{Binding Task.CategoryDisplay}" Foreground="{StaticResource QuietTextBrush}" FontSize="12" />
                                 </StackPanel>
                               </Button>
-                              <TextBlock Grid.Column="2" Margin="8,0" VerticalAlignment="Center"
-                                  Foreground="{StaticResource SuccessBrush}" FontSize="12" Text="{Binding Task.CompletionDateText}" />
+                              <TextBlock Grid.Column="2" Classes="task-completion-date" Text="{Binding Task.CompletionDateText}" />
                             </Grid>
                           </Border>
                         </DataTemplate>
@@ -938,9 +1068,11 @@
               </ComboBox>
               <Button Classes="view-action" Content="{Binding Work.TaskContextActionLabel}"
                   x:Name="ChangeTaskContextButton"
+                  IsVisible="{Binding Work.ShowTaskContextAction}"
                   Command="{Binding Work.ChangeTaskContextCommand}" IsEnabled="{Binding Work.CanChangeTaskContext}"
                   AutomationProperties.Name="{Binding Work.TaskContextActionLabel}" />
               <TextBlock FontSize="11" Foreground="{StaticResource QuietTextBrush}" TextWrapping="Wrap"
+                  IsVisible="{Binding Work.ShowTaskContextAction}"
                   Text="Context changes are immediate actions. Unsaved inspector edits are resolved first." />
             </StackPanel>
           </Border>
