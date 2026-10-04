@@ -4,9 +4,11 @@ using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Input.Raw;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using DotOrbit.Core.Workspaces;
 using DotOrbit.Desktop.ViewModels;
 using DotOrbit.Desktop.Views;
 using Xunit;
@@ -161,5 +163,78 @@ public sealed class MainWindowTests
         recoveryWindow.Close();
         Dispatcher.UIThread.RunJobs();
         Assert.True(recovery.IsKeyboardFocusWithin);
+    }
+
+    [AvaloniaFact]
+    public void SettingsOpensPassphraseRotationAndReturnsFocusAfterCancellation()
+    {
+        using var session = new PassphraseRotationViewModelTests.StubWorkspaceSession();
+        var window = new MainWindow(session);
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.SettingsNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var launch = Assert.IsType<Button>(window.FindControl<Button>("SettingsPassphraseButton"));
+
+        Assert.True(launch.IsVisible);
+        Assert.Equal("Change workspace passphrase", AutomationProperties.GetName(launch));
+        Assert.True(launch.Focus());
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        var rotation = Assert.IsType<PassphraseRotationWindow>(Assert.Single(window.OwnedWindows));
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Single(window.OwnedWindows);
+        var cancel = Assert.IsType<Button>(rotation.FindControl<Button>("CancelPassphraseButton"));
+        Assert.True(cancel.Focus());
+        rotation.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Empty(window.OwnedWindows);
+        Assert.True(launch.IsKeyboardFocusWithin);
+    }
+
+    [AvaloniaFact]
+    public void SuccessfulPassphraseRotationReturnsToSettingsWithAccessibleConfirmation()
+    {
+        var replacement = new PassphraseRotationViewModelTests.StubWorkspaceSession();
+        using var session = new PassphraseRotationViewModelTests.StubWorkspaceSession
+        {
+            RotationResult = PassphraseRotationResult.Rotated(
+                replacement,
+                "/safe/pre-rotation.dotorbit-recovery"),
+        };
+        var window = new MainWindow(session);
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.SettingsNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var launch = Assert.IsType<Button>(window.FindControl<Button>("SettingsPassphraseButton"));
+        launch.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        var rotation = Assert.IsType<PassphraseRotationWindow>(Assert.Single(window.OwnedWindows));
+        var rotationViewModel = Assert.IsType<PassphraseRotationViewModel>(rotation.DataContext);
+        rotationViewModel.CurrentPassphrase = "correct horse battery";
+        rotationViewModel.NewPassphrase = "new portable passphrase";
+        rotationViewModel.Confirmation = "new portable passphrase";
+
+        rotationViewModel.SubmitCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Empty(window.OwnedWindows);
+        var updatedShell = Assert.IsType<ShellViewModel>(window.DataContext);
+        Assert.True(updatedShell.ShowSettings);
+        var confirmation = Assert.IsType<Border>(
+            window.FindControl<Border>("PassphraseChangedConfirmation"));
+        Assert.True(confirmation.IsVisible);
+        Assert.Equal(
+            "Passphrase changed confirmation",
+            AutomationProperties.GetName(confirmation));
+        Assert.Equal(
+            AutomationLiveSetting.Polite,
+            AutomationProperties.GetLiveSetting(confirmation));
+        Assert.Equal(
+            "Passphrase changed. Use the new passphrase the next time you unlock this workspace.",
+            updatedShell.Settings?.SecurityConfirmation);
     }
 }

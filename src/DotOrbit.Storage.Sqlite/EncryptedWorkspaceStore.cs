@@ -22,6 +22,9 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
     private readonly Action<WorkspaceMigrationCheckpoint, SqliteConnection>? _migrationCheckpoint;
     private readonly Func<SqliteConnection, string>? _migrationIntegrityCheck;
     private readonly Action? _afterMigration;
+    private readonly Action<WorkspacePassphraseRotationCheckpoint>? _passphraseRotationCheckpoint;
+    private readonly Func<SqliteConnection, string>? _passphraseRotationIntegrityCheck;
+    private readonly Func<WorkspacePassphrase, bool>? _passphraseRotationReopenBlocked;
 
     public EncryptedWorkspaceStore()
         : this(
@@ -42,7 +45,10 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         TimeProvider? timeProvider = null,
         Action<WorkspaceMigrationCheckpoint, SqliteConnection>? migrationCheckpoint = null,
         Func<SqliteConnection, string>? migrationIntegrityCheck = null,
-        Action? afterMigration = null)
+        Action? afterMigration = null,
+        Action<WorkspacePassphraseRotationCheckpoint>? passphraseRotationCheckpoint = null,
+        Func<SqliteConnection, string>? passphraseRotationIntegrityCheck = null,
+        Func<WorkspacePassphrase, bool>? passphraseRotationReopenBlocked = null)
     {
         ArgumentNullException.ThrowIfNull(identifierGenerator);
         ArgumentNullException.ThrowIfNull(fileOperations);
@@ -52,6 +58,9 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         _migrationCheckpoint = migrationCheckpoint;
         _migrationIntegrityCheck = migrationIntegrityCheck;
         _afterMigration = afterMigration;
+        _passphraseRotationCheckpoint = passphraseRotationCheckpoint;
+        _passphraseRotationIntegrityCheck = passphraseRotationIntegrityCheck;
+        _passphraseRotationReopenBlocked = passphraseRotationReopenBlocked;
         EnsureProviderInitialised();
     }
 
@@ -272,6 +281,217 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         string path,
         WorkspacePassphrase passphrase) =>
         OpenResolved(_fileOperations.ResolvePath(path), passphrase);
+
+    internal PassphraseRotationResult RotatePassphrase(
+        string workspacePath,
+        WorkspacePassphrase currentPassphrase,
+        WorkspacePassphrase newPassphrase,
+        string recoveryPointPath,
+        Action closeWorkspace)
+    {
+        var candidatePath = _fileOperations.GetCandidatePath(
+            workspacePath,
+            $"passphrase-{GetIdentifier()}");
+        var workspaceClosed = false;
+
+        try
+        {
+            _passphraseRotationCheckpoint?.Invoke(
+                WorkspacePassphraseRotationCheckpoint.RecoveryPointCreated);
+
+            WorkspaceInspection sourceInspection;
+            using (var source = OpenConnection(
+                       workspacePath,
+                       currentPassphrase,
+                       SqliteOpenMode.ReadOnly))
+            {
+                ConfigureConnection(source);
+                sourceInspection = InspectWorkspace(source);
+                if (sourceInspection.Status != WorkspaceInspectionStatus.Valid)
+                {
+                    return PassphraseRotationResult.InvalidCurrentPassphraseOrStore();
+                }
+
+                using var candidate = OpenConnection(
+                    candidatePath,
+                    newPassphrase,
+                    SqliteOpenMode.ReadWriteCreate);
+                ConfigureConnection(candidate);
+                AssertEncryptionProfile(candidate);
+                source.BackupDatabase(candidate);
+                _passphraseRotationCheckpoint?.Invoke(
+                    WorkspacePassphraseRotationCheckpoint.CandidateWritten);
+                ValidateIntegrity(candidate, integrityCheck: _passphraseRotationIntegrityCheck);
+                ValidateWorkspaceShape(candidate);
+            }
+
+            _fileOperations.Flush(candidatePath);
+            _passphraseRotationCheckpoint?.Invoke(
+                WorkspacePassphraseRotationCheckpoint.CandidateFlushed);
+
+            using (var validated = OpenConnection(
+                       candidatePath,
+                       newPassphrase,
+                       SqliteOpenMode.ReadOnly))
+            {
+                ConfigureConnection(validated);
+                var candidateInspection = InspectWorkspace(validated);
+                if (candidateInspection.Status != WorkspaceInspectionStatus.Valid
+                    || candidateInspection.SchemaVersion != sourceInspection.SchemaVersion
+                    || !string.Equals(
+                        candidateInspection.FirstCategoryName,
+                        sourceInspection.FirstCategoryName,
+                        StringComparison.Ordinal))
+                {
+                    return PassphraseRotationResult.Failed(
+                        recoveryPointPath: recoveryPointPath);
+                }
+            }
+
+            _passphraseRotationCheckpoint?.Invoke(
+                WorkspacePassphraseRotationCheckpoint.CandidateValidated);
+            _passphraseRotationCheckpoint?.Invoke(
+                WorkspacePassphraseRotationCheckpoint.BeforeReplacement);
+
+            closeWorkspace();
+            workspaceClosed = true;
+            try
+            {
+                _fileOperations.Replace(candidatePath, workspacePath);
+            }
+            catch (IOException)
+            {
+                return ResolvePassphraseReplacementInterruption(
+                    workspacePath,
+                    currentPassphrase,
+                    newPassphrase,
+                    recoveryPointPath);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return ResolvePassphraseReplacementInterruption(
+                    workspacePath,
+                    currentPassphrase,
+                    newPassphrase,
+                    recoveryPointPath);
+            }
+
+            var reopened = ReopenSession(workspacePath, newPassphrase);
+            return reopened is not null
+                ? PassphraseRotationResult.Rotated(reopened, recoveryPointPath)
+                : ResolvePassphraseReplacementInterruption(
+                    workspacePath,
+                    currentPassphrase,
+                    newPassphrase,
+                    recoveryPointPath);
+        }
+        catch (SqliteException)
+        {
+            return workspaceClosed
+                ? ResolvePassphraseReplacementInterruption(
+                    workspacePath,
+                    currentPassphrase,
+                    newPassphrase,
+                    recoveryPointPath)
+                : PassphraseRotationResult.Failed(recoveryPointPath: recoveryPointPath);
+        }
+        catch (IOException)
+        {
+            return workspaceClosed
+                ? ResolvePassphraseReplacementInterruption(
+                    workspacePath,
+                    currentPassphrase,
+                    newPassphrase,
+                    recoveryPointPath)
+                : PassphraseRotationResult.Failed(recoveryPointPath: recoveryPointPath);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return workspaceClosed
+                ? ResolvePassphraseReplacementInterruption(
+                    workspacePath,
+                    currentPassphrase,
+                    newPassphrase,
+                    recoveryPointPath)
+                : PassphraseRotationResult.Failed(recoveryPointPath: recoveryPointPath);
+        }
+        catch (InvalidDataException)
+        {
+            return workspaceClosed
+                ? ResolvePassphraseReplacementInterruption(
+                    workspacePath,
+                    currentPassphrase,
+                    newPassphrase,
+                    recoveryPointPath)
+                : PassphraseRotationResult.Failed(recoveryPointPath: recoveryPointPath);
+        }
+        finally
+        {
+            _fileOperations.DeleteCandidate(candidatePath);
+        }
+    }
+
+    private PassphraseRotationResult ResolvePassphraseReplacementInterruption(
+        string workspacePath,
+        WorkspacePassphrase currentPassphrase,
+        WorkspacePassphrase newPassphrase,
+        string recoveryPointPath)
+    {
+        var rotatedSession = ReopenSession(workspacePath, newPassphrase);
+        if (rotatedSession is not null)
+        {
+            return PassphraseRotationResult.Rotated(rotatedSession, recoveryPointPath);
+        }
+
+        var currentSession = ReopenSession(workspacePath, currentPassphrase);
+        return currentSession is not null
+            ? PassphraseRotationResult.Failed(currentSession, recoveryPointPath)
+            : PassphraseRotationResult.WorkspaceUnavailable(recoveryPointPath);
+    }
+
+    internal static bool ValidateCurrentPassphrase(
+        string workspacePath,
+        WorkspacePassphrase passphrase)
+    {
+        try
+        {
+            using var connection = OpenConnection(
+                workspacePath,
+                passphrase,
+                SqliteOpenMode.ReadOnly);
+            ConfigureConnection(connection);
+            return InspectWorkspace(connection).Status == WorkspaceInspectionStatus.Valid;
+        }
+        catch (SqliteException)
+        {
+            return false;
+        }
+        catch (InvalidDataException)
+        {
+            return false;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private IWorkspaceSession? ReopenSession(
+        string workspacePath,
+        WorkspacePassphrase passphrase)
+    {
+        if (_passphraseRotationReopenBlocked?.Invoke(passphrase) == true)
+        {
+            return null;
+        }
+
+        var opened = OpenExistingWorkspace(workspacePath, passphrase);
+        return opened.Status == WorkspaceOpenStatus.Opened ? opened.Session : null;
+    }
 
     private static void EnsureProviderInitialised()
     {
@@ -513,12 +733,24 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         int SchemaVersion,
         string FirstCategoryName);
 
+    internal enum WorkspacePassphraseRotationCheckpoint
+    {
+        RecoveryPointCreated,
+        CandidateWritten,
+        CandidateFlushed,
+        CandidateValidated,
+        BeforeReplacement,
+    }
+
     internal sealed class WorkspaceSession : IWorkspaceSession
     {
         private SqliteConnection? _connection;
         private readonly object _gate = new();
         private readonly EncryptedWorkspaceRecovery _recovery;
         private readonly WorkspaceTransactionCoordinator _transactions;
+        private readonly EncryptedWorkspaceStore _store;
+        private readonly string _workspacePath;
+        private WorkspacePassphrase? _passphrase;
         private bool _disposed;
 
         public WorkspaceSession(
@@ -529,6 +761,9 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
             int schemaVersion,
             string firstCategoryName)
         {
+            _store = store;
+            _workspacePath = workspacePath;
+            _passphrase = passphrase;
             _connection = connection;
             SchemaVersion = schemaVersion;
             FirstCategoryName = firstCategoryName;
@@ -554,6 +789,50 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
 
         public IWorkspaceRecovery Recovery => _recovery;
 
+        public PassphraseRotationResult RotatePassphrase(
+            WorkspacePassphrase currentPassphrase,
+            WorkspacePassphrase newPassphrase)
+        {
+            ArgumentNullException.ThrowIfNull(currentPassphrase);
+            ArgumentNullException.ThrowIfNull(newPassphrase);
+
+            lock (_gate)
+            {
+                var passphrase = _passphrase
+                    ?? throw new ObjectDisposedException(nameof(IWorkspaceSession));
+                var currentMatches = passphrase.Use(currentPassphrase.Matches);
+                if (!currentMatches
+                    || !ValidateCurrentPassphrase(_workspacePath, currentPassphrase))
+                {
+                    return PassphraseRotationResult.InvalidCurrentPassphraseOrStore();
+                }
+
+                if (passphrase.Use(newPassphrase.Matches))
+                {
+                    return PassphraseRotationResult.NewPassphraseMatchesCurrent();
+                }
+
+                if (!newPassphrase.IsCreationValidated)
+                {
+                    return PassphraseRotationResult.InvalidNewPassphrase();
+                }
+
+                var recoveryPoint = _recovery.CreatePassphraseRotationRecoveryPoint();
+                if (recoveryPoint.Status != RecoveryPointCreationStatus.Created
+                    || recoveryPoint.RecoveryPointPath is null)
+                {
+                    return PassphraseRotationResult.RecoveryPointCreationFailed();
+                }
+
+                return _store.RotatePassphrase(
+                    _workspacePath,
+                    passphrase,
+                    newPassphrase,
+                    recoveryPoint.RecoveryPointPath,
+                    Dispose);
+            }
+        }
+
         public IWorkspaceWork Work { get; }
 
         internal WorkspaceTransactionCoordinator Transactions => _transactions;
@@ -571,6 +850,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
                 _recovery.Close();
                 _connection?.Dispose();
                 _connection = null;
+                _passphrase = null;
                 _disposed = true;
             }
         }

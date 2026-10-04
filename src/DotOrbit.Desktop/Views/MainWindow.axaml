@@ -671,6 +671,46 @@
               </Grid>
             </Border>
           </Border>
+
+          <TextBlock Margin="0,12,0,0" FontSize="20" FontWeight="Bold" Text="Security" />
+          <TextBlock
+              Foreground="{StaticResource MutedTextBrush}"
+              Text="Change the passphrase used to unlock the working workspace. Existing recovery points keep the passphrase that created them."
+              TextWrapping="Wrap" />
+          <Border
+              x:Name="PassphraseChangedConfirmation"
+              Padding="14,11"
+              Background="{StaticResource PanelBrush}"
+              BorderBrush="{StaticResource SuccessBrush}"
+              BorderThickness="1"
+              CornerRadius="8"
+              IsVisible="{Binding Settings.HasSecurityConfirmation}"
+              AutomationProperties.LiveSetting="Polite"
+              AutomationProperties.Name="Passphrase changed confirmation">
+            <TextBlock
+                Foreground="{StaticResource SuccessBrush}"
+                FontWeight="SemiBold"
+                Text="{Binding Settings.SecurityConfirmation}"
+                TextWrapping="Wrap" />
+          </Border>
+          <Border Classes="list-panel">
+            <Grid Margin="16,14" ColumnDefinitions="*,Auto" ColumnSpacing="18">
+              <StackPanel Spacing="3">
+                <TextBlock FontWeight="SemiBold" Text="Workspace passphrase" />
+                <TextBlock
+                    Foreground="{StaticResource MutedTextBrush}"
+                    Text="The current passphrase is required and a validated recovery point is created first."
+                    TextWrapping="Wrap" />
+              </StackPanel>
+              <Button
+                  x:Name="SettingsPassphraseButton"
+                  Grid.Column="1"
+                  Classes="view-action"
+                  Content="Change passphrase"
+                  AutomationProperties.Name="Change workspace passphrase"
+                  Click="OnOpenPassphraseRotation" />
+            </Grid>
+          </Border>
         </StackPanel>
         <TextBlock Height="1" Opacity="0" Text="{Binding Settings.Announcement}"
             AutomationProperties.LiveSetting="Polite" />

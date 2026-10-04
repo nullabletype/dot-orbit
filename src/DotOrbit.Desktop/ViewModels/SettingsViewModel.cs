@@ -11,6 +11,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private readonly Action _participantsChanged;
     private string _announcement = string.Empty;
     private string _focusAutomationId = string.Empty;
+    private string _securityConfirmation = string.Empty;
 
     public SettingsViewModel(IWorkspaceWork work, Action participantsChanged)
     {
@@ -33,6 +34,17 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         get => _focusAutomationId;
         private set { _focusAutomationId = value; Notify(); }
     }
+    public string SecurityConfirmation
+    {
+        get => _securityConfirmation;
+        private set
+        {
+            _securityConfirmation = value;
+            Notify();
+            Notify(nameof(HasSecurityConfirmation));
+        }
+    }
+    public bool HasSecurityConfirmation => !string.IsNullOrEmpty(SecurityConfirmation);
 
     public void Refresh()
     {
@@ -122,6 +134,10 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     }
 
     internal void RequestFocus(string automationId) => FocusAutomationId = automationId;
+
+    internal void ConfirmPassphraseChanged() =>
+        SecurityConfirmation =
+            "Passphrase changed. Use the new passphrase the next time you unlock this workspace.";
 
     private void Notify([CallerMemberName] string? name = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
