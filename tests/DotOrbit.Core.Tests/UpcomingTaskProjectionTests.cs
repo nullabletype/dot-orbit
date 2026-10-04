@@ -43,7 +43,7 @@ public sealed class UpcomingTaskProjectionTests
     }
 
     [Fact]
-    public void ExcludesUndatedAndCompletedTasks()
+    public void ExcludesUndatedCompletedAndArchivedTasks()
     {
         var undated = Task("undated", null, 0);
         var completed = Task("completed", Today, 1) with
@@ -51,8 +51,13 @@ public sealed class UpcomingTaskProjectionTests
             CompletedAt = new DateTimeOffset(2026, 10, 4, 10, 0, 0, TimeSpan.Zero),
             CompletionDate = Today,
         };
+        var archived = Task("archived", Today.AddDays(1), 2) with
+        {
+            ArchivedAt = new DateTimeOffset(2026, 10, 4, 11, 0, 0, TimeSpan.Zero),
+            ArchiveDate = Today,
+        };
 
-        Assert.Empty(UpcomingTaskProjection.Create([undated, completed], Today));
+        Assert.Empty(UpcomingTaskProjection.Create([undated, completed, archived], Today));
     }
 
     [Fact]

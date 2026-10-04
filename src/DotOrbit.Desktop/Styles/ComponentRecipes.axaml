@@ -15,6 +15,11 @@
     <Setter Property="CornerRadius" Value="{StaticResource PanelRadius}" />
     <Setter Property="Padding" Value="44" />
   </Style>
+  <Style Selector="Button.task-row-action">
+    <Setter Property="MinHeight" Value="{StaticResource ControlHitSize}" />
+    <Setter Property="Padding" Value="8,5" />
+    <Setter Property="FontSize" Value="12" />
+  </Style>
   <Style Selector=":is(ContentControl).markdown-preview">
     <Setter Property="MinHeight" Value="122" />
     <Setter Property="Padding" Value="12,10" />

@@ -111,8 +111,19 @@ internal sealed class SqliteWorkspaceWork(
         );
         """;
 
-    internal const string Schema = ProjectSchema + TaskSchema + ParticipantSchema + TaskParticipantSchema
+    internal const string SchemaSeven = ProjectSchema + TaskSchema + ParticipantSchema + TaskParticipantSchema
         + TodayTaskSchema + "PRAGMA user_version = 7;";
+
+    internal const string TaskArchiveSchema = """
+        CREATE TABLE task_archives (
+            task_id TEXT NOT NULL PRIMARY KEY REFERENCES tasks(id),
+            archived_instant TEXT NOT NULL,
+            archive_date TEXT NOT NULL
+        );
+        """;
+
+    internal const string Schema = ProjectSchema + TaskSchema + ParticipantSchema + TaskParticipantSchema
+        + TodayTaskSchema + TaskArchiveSchema + "PRAGMA user_version = 8;";
 
     internal static void ValidateShape(SqliteConnection connection, SqliteTransaction? transaction, string? schema = null)
     {
@@ -126,14 +137,20 @@ internal sealed class SqliteWorkspaceWork(
         ValidateTableDefinition(command, "projects", definitions[0]);
         ValidateTableDefinition(command, "tasks", definitions[1]);
         var hasParticipants = string.Equals(schema, SchemaSix, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaSeven, StringComparison.Ordinal)
             || string.Equals(schema, Schema, StringComparison.Ordinal);
         if (hasParticipants)
         {
             ValidateTableDefinition(command, "participants", definitions[2]);
             ValidateTableDefinition(command, "task_participants", definitions[3]);
         }
-        if (string.Equals(schema, Schema, StringComparison.Ordinal))
+        var hasToday = string.Equals(schema, SchemaSeven, StringComparison.Ordinal)
+            || string.Equals(schema, Schema, StringComparison.Ordinal);
+        if (hasToday)
             ValidateTableDefinition(command, "today_tasks", definitions[4]);
+        var hasArchive = string.Equals(schema, Schema, StringComparison.Ordinal);
+        if (hasArchive)
+            ValidateTableDefinition(command, "task_archives", definitions[5]);
         command.Parameters.Clear();
         command.CommandText = "PRAGMA foreign_key_check;";
         using (var foreignKeys = command.ExecuteReader())
@@ -181,13 +198,33 @@ internal sealed class SqliteWorkspaceWork(
                         StringComparison.Ordinal))
                     throw new InvalidDataException();
         }
-        if (string.Equals(schema, Schema, StringComparison.Ordinal))
+        if (hasToday)
         {
             command.CommandText = """
                 SELECT COUNT(*)
                 FROM today_tasks tt
                 JOIN tasks t ON t.id = tt.task_id
                 WHERE t.completion_instant IS NOT NULL OR t.completion_date IS NOT NULL;
+                """;
+            if ((long)command.ExecuteScalar()! != 0) throw new InvalidDataException();
+        }
+        if (hasArchive)
+        {
+            command.CommandText = "SELECT archived_instant,archive_date FROM task_archives;";
+            using (var archives = command.ExecuteReader())
+            {
+                while (archives.Read())
+                    if (!DateTimeOffset.TryParseExact(archives.GetString(0), "O", CultureInfo.InvariantCulture,
+                            DateTimeStyles.RoundtripKind, out _)
+                        || !DateOnly.TryParseExact(archives.GetString(1), "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                            DateTimeStyles.None, out _))
+                        throw new InvalidDataException();
+            }
+            command.CommandText = """
+                SELECT COUNT(*)
+                FROM task_archives a
+                JOIN tasks t ON t.id = a.task_id
+                WHERE t.completion_instant IS NULL OR t.completion_date IS NULL;
                 """;
             if ((long)command.ExecuteScalar()! != 0) throw new InvalidDataException();
         }
@@ -499,9 +536,49 @@ internal sealed class SqliteWorkspaceWork(
         Guard(() => transactions.Execute((connection, transaction) =>
         {
             Require(connection, transaction, "tasks", id);
+            var task = ReadSnapshot(connection, transaction).Tasks.Single(item => item.Id == id);
+            if (task.IsArchived)
+                throw new InvalidOperationException("An archived Task must be restored before it can be reopened.");
             Execute(connection, transaction,
                 "UPDATE tasks SET completion_instant=NULL, completion_date=NULL WHERE id=$id;", ("$id", id));
             result = ReadSnapshot(connection, transaction).Tasks.Single(task => task.Id == id);
+        }));
+        return result!;
+    }
+
+    public TaskRecord ArchiveTask(string id)
+    {
+        TaskRecord? result = null;
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            Require(connection, transaction, "tasks", id);
+            var task = ReadSnapshot(connection, transaction).Tasks.Single(item => item.Id == id);
+            if (!task.IsComplete)
+                throw new InvalidOperationException("Only a complete Task can be archived.");
+            if (task.IsArchived)
+                throw new InvalidOperationException("The Task is already archived.");
+            var instant = timeProvider.GetUtcNow();
+            var localDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(instant, timeProvider.LocalTimeZone).DateTime);
+            Execute(connection, transaction, "DELETE FROM today_tasks WHERE task_id=$id;", ("$id", id));
+            Execute(connection, transaction,
+                "INSERT INTO task_archives (task_id,archived_instant,archive_date) VALUES ($id,$instant,$date);",
+                ("$id", id), ("$instant", instant.ToString("O", CultureInfo.InvariantCulture)), ("$date", Date(localDate)));
+            result = ReadSnapshot(connection, transaction).Tasks.Single(item => item.Id == id);
+        }));
+        return result!;
+    }
+
+    public TaskRecord RestoreTask(string id)
+    {
+        TaskRecord? result = null;
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            Require(connection, transaction, "tasks", id);
+            var task = ReadSnapshot(connection, transaction).Tasks.Single(item => item.Id == id);
+            if (!task.IsArchived)
+                throw new InvalidOperationException("The Task is not archived.");
+            Execute(connection, transaction, "DELETE FROM task_archives WHERE task_id=$id;", ("$id", id));
+            result = ReadSnapshot(connection, transaction).Tasks.Single(item => item.Id == id);
         }));
         return result!;
     }
@@ -702,6 +779,7 @@ internal sealed class SqliteWorkspaceWork(
         var participants = new List<ParticipantRecord>();
         var participantIdsByTask = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         var todayLaneByTask = new Dictionary<string, TodayLane>(StringComparer.Ordinal);
+        var archiveByTask = new Dictionary<string, (DateTimeOffset Instant, DateOnly Date)>(StringComparer.Ordinal);
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = "SELECT id,name,position FROM categories ORDER BY position,id;";
@@ -728,14 +806,21 @@ internal sealed class SqliteWorkspaceWork(
         command.CommandText = "SELECT task_id,lane FROM today_tasks;";
         using (var reader = command.ExecuteReader())
             while (reader.Read()) todayLaneByTask.Add(reader.GetString(0), ParseTodayLane(reader.GetString(1)));
+        command.CommandText = "SELECT task_id,archived_instant,archive_date FROM task_archives;";
+        using (var reader = command.ExecuteReader())
+            while (reader.Read()) archiveByTask.Add(reader.GetString(0), (ReadInstant(reader, 1)!.Value, ReadDate(reader, 2)!.Value));
         command.CommandText = "SELECT id,project_id,title,description,explicit_category_id,due_date,shared_position,project_position,completion_instant,completion_date FROM tasks ORDER BY shared_position,id;";
         using (var reader = command.ExecuteReader())
             while (reader.Read())
             {
                 var taskId = reader.GetString(0);
                 TodayLane? todayLane = todayLaneByTask.TryGetValue(taskId, out var lane) ? lane : null;
-                tasks.Add(new(taskId, reader.IsDBNull(1) ? null : reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4), ReadDate(reader, 5), reader.GetInt64(6), reader.IsDBNull(7) ? null : reader.GetInt64(7), ReadInstant(reader, 8), ReadDate(reader, 9), participantIdsByTask.GetValueOrDefault(taskId)?.AsReadOnly() ?? [], todayLane));
+                var hasArchive = archiveByTask.TryGetValue(taskId, out var archive);
+                tasks.Add(new(taskId, reader.IsDBNull(1) ? null : reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4), ReadDate(reader, 5), reader.GetInt64(6), reader.IsDBNull(7) ? null : reader.GetInt64(7), ReadInstant(reader, 8), ReadDate(reader, 9), participantIdsByTask.GetValueOrDefault(taskId)?.AsReadOnly() ?? [], todayLane, hasArchive ? archive.Instant : null, hasArchive ? archive.Date : null));
             }
+        if (tasks.Any(task => (task.ArchivedAt is null) != (task.ArchiveDate is null)
+                || task.IsArchived && !task.IsComplete))
+            throw new InvalidDataException();
         return new(categories.AsReadOnly(), projects.AsReadOnly(), tasks.AsReadOnly(), participants.AsReadOnly());
     }
 
@@ -927,5 +1012,6 @@ internal sealed class SqliteWorkspaceWork(
         catch (IOException) { throw new WorkspaceWorkException(); }
         catch (UnauthorizedAccessException) { throw new WorkspaceWorkException(); }
         catch (FormatException) { throw new WorkspaceWorkException(); }
+        catch (InvalidDataException) { throw new WorkspaceWorkException(); }
     }
 }

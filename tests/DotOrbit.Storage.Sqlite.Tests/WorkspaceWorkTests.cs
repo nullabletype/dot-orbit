@@ -210,6 +210,154 @@ public sealed class WorkspaceWorkTests : IDisposable
     }
 
     [Fact]
+    public void ArchiveRequiresACompleteCurrentTaskAndRestoreRequiresAnArchivedTask()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var task = session.Work.CreateStandaloneTask("File receipt", "", session.Work.Read().Categories[0].Id, null);
+
+        Assert.Throws<InvalidOperationException>(() => session.Work.ArchiveTask(task.Id));
+        Assert.Throws<InvalidOperationException>(() => session.Work.RestoreTask(task.Id));
+        Assert.Throws<ArgumentException>(() => session.Work.ArchiveTask("missing"));
+        Assert.Throws<ArgumentException>(() => session.Work.RestoreTask("missing"));
+
+        session.Work.CompleteTask(task.Id);
+        var archived = session.Work.ArchiveTask(task.Id);
+        Assert.True(archived.IsArchived);
+        Assert.NotNull(archived.ArchivedAt);
+        Assert.NotNull(archived.ArchiveDate);
+        Assert.Throws<InvalidOperationException>(() => session.Work.ArchiveTask(task.Id));
+        Assert.Throws<InvalidOperationException>(() => session.Work.ReopenTask(task.Id));
+
+        var restored = session.Work.RestoreTask(task.Id);
+        Assert.False(restored.IsArchived);
+        Assert.Null(restored.ArchivedAt);
+        Assert.Null(restored.ArchiveDate);
+        Assert.True(restored.IsComplete);
+        Assert.Null(restored.TodayLane);
+        Assert.Throws<InvalidOperationException>(() => session.Work.RestoreTask(task.Id));
+    }
+
+    [Fact]
+    public void ArchiveAndRestorePreserveTaskAndProjectStateAcrossRestarts()
+    {
+        var archiveZone = TimeZoneInfo.CreateCustomTimeZone("UTC+14", TimeSpan.FromHours(14), "UTC+14", "UTC+14");
+        var time = new ManualTimeProvider(new DateTimeOffset(2026, 10, 1, 8, 0, 0, TimeSpan.Zero), archiveZone);
+        var store = new EncryptedWorkspaceStore(new SystemIdentifierGenerator(), new WorkspaceFileOperations(), time);
+        string taskId;
+        TaskRecord beforeArchive;
+        using (var session = store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!)
+        {
+            var category = Assert.Single(session.Work.Read().Categories);
+            var project = session.Work.CreateProject("Garden", "", category.Id, null);
+            var participant = session.Work.CreateParticipant("SD");
+            var task = session.Work.CreateTask(project.Id, "File receipt");
+            session.Work.UpdateTask(task.Id, task.Title, "**kept**", category.Id, new DateOnly(2026, 10, 7),
+                new([participant.Id], []));
+            session.Work.CreateTask(project.Id, "Other work");
+            session.Work.CompleteTask(task.Id);
+            time.SetUtcNow(new DateTimeOffset(2026, 10, 2, 9, 0, 0, TimeSpan.Zero));
+            session.Work.CompleteTask(session.Work.Read().Tasks.Single(item => item.Title == "Other work").Id);
+            beforeArchive = session.Work.Read().Tasks.Single(item => item.Id == task.Id);
+            taskId = task.Id;
+
+            time.SetUtcNow(new DateTimeOffset(2026, 10, 3, 10, 30, 0, TimeSpan.Zero));
+            var archived = session.Work.ArchiveTask(task.Id);
+
+            Assert.Equal(time.GetUtcNow(), archived.ArchivedAt);
+            Assert.Equal(new DateOnly(2026, 10, 4), archived.ArchiveDate);
+            Assert.Null(archived.TodayLane);
+            var summary = ProjectWorkSummary.From(session.Work.Read(), project.Id);
+            Assert.True(summary.IsComplete);
+            Assert.Equal(2, summary.CompletedCount);
+            Assert.Equal(new DateOnly(2026, 10, 2), summary.CompletionDate);
+        }
+
+        var laterZone = TimeZoneInfo.CreateCustomTimeZone("UTC-12-archive", TimeSpan.FromHours(-12), "UTC-12", "UTC-12");
+        var laterStore = new EncryptedWorkspaceStore(new SystemIdentifierGenerator(), new WorkspaceFileOperations(),
+            new ManualTimeProvider(time.GetUtcNow(), laterZone));
+        using (var reopened = laterStore.Open(WorkspacePath, _passphrase).Session!)
+        {
+            var archived = reopened.Work.Read().Tasks.Single(item => item.Id == taskId);
+            Assert.True(archived.IsArchived);
+            Assert.Equal(new DateTimeOffset(2026, 10, 3, 10, 30, 0, TimeSpan.Zero), archived.ArchivedAt);
+            Assert.Equal(new DateOnly(2026, 10, 4), archived.ArchiveDate);
+            Assert.Equal(beforeArchive.ProjectId, archived.ProjectId);
+            Assert.Equal(beforeArchive.ExplicitCategoryId, archived.ExplicitCategoryId);
+            Assert.Equal(beforeArchive.Description, archived.Description);
+            Assert.Equal(beforeArchive.DueDate, archived.DueDate);
+            Assert.Equal(beforeArchive.SharedPosition, archived.SharedPosition);
+            Assert.Equal(beforeArchive.ProjectPosition, archived.ProjectPosition);
+            Assert.Equal(beforeArchive.CompletedAt, archived.CompletedAt);
+            Assert.Equal(beforeArchive.CompletionDate, archived.CompletionDate);
+            Assert.Equal(beforeArchive.Participants, archived.Participants);
+            Assert.Null(archived.TodayLane);
+
+            var restored = reopened.Work.RestoreTask(taskId);
+            Assert.False(restored.IsArchived);
+            Assert.Null(restored.ArchivedAt);
+            Assert.Null(restored.ArchiveDate);
+            Assert.Equal(beforeArchive.CompletedAt, restored.CompletedAt);
+            Assert.Equal(beforeArchive.CompletionDate, restored.CompletionDate);
+            Assert.Null(restored.TodayLane);
+        }
+
+        using var restoredRestart = store.Open(WorkspacePath, _passphrase).Session!;
+        var persisted = restoredRestart.Work.Read().Tasks.Single(item => item.Id == taskId);
+        Assert.False(persisted.IsArchived);
+        Assert.Null(persisted.ArchivedAt);
+        Assert.Null(persisted.ArchiveDate);
+        Assert.True(persisted.IsComplete);
+        Assert.Null(persisted.TodayLane);
+    }
+
+    [Fact]
+    public void ArchiveAndRestoreFailuresRollBackWithoutExposingPrivateDatabaseDetails()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var task = session.Work.CreateStandaloneTask("Private task", "secret", session.Work.Read().Categories[0].Id, null);
+        var completed = session.Work.CompleteTask(task.Id);
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "CREATE TRIGGER reject_archive BEFORE INSERT ON task_archives BEGIN SELECT RAISE(ABORT, 'private archive'); END;";
+            command.ExecuteNonQuery();
+        }
+
+        var archiveError = Assert.Throws<WorkspaceWorkException>(() => session.Work.ArchiveTask(task.Id));
+        Assert.Equal("The workspace operation could not be completed.", archiveError.Message);
+        Assert.Null(archiveError.InnerException);
+        var unchanged = session.Work.Read().Tasks.Single(item => item.Id == task.Id);
+        Assert.False(unchanged.IsArchived);
+        Assert.Null(unchanged.ArchivedAt);
+        Assert.Null(unchanged.ArchiveDate);
+        Assert.Equal(completed.CompletedAt, unchanged.CompletedAt);
+        Assert.Equal(completed.CompletionDate, unchanged.CompletionDate);
+
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "DROP TRIGGER reject_archive;";
+            command.ExecuteNonQuery();
+        }
+        var archived = session.Work.ArchiveTask(task.Id);
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "CREATE TRIGGER reject_restore BEFORE DELETE ON task_archives BEGIN SELECT RAISE(ABORT, 'private restore'); END;";
+            command.ExecuteNonQuery();
+        }
+
+        var restoreError = Assert.Throws<WorkspaceWorkException>(() => session.Work.RestoreTask(task.Id));
+        Assert.Equal("The workspace operation could not be completed.", restoreError.Message);
+        Assert.Null(restoreError.InnerException);
+        var stillArchived = session.Work.Read().Tasks.Single(item => item.Id == task.Id);
+        Assert.Equal(archived.ArchivedAt, stillArchived.ArchivedAt);
+        Assert.Equal(archived.ArchiveDate, stillArchived.ArchiveDate);
+        Assert.Equal(completed.CompletedAt, stillArchived.CompletedAt);
+        Assert.Equal(completed.CompletionDate, stillArchived.CompletionDate);
+    }
+
+    [Fact]
     public void TodayMembershipLaneAndOrderPersistWithoutFollowingDatesOrCalendarRollover()
     {
         var time = new ManualTimeProvider(
@@ -543,7 +691,7 @@ public sealed class WorkspaceWorkTests : IDisposable
         }
         using (var session = _store.Open(WorkspacePath, _passphrase).Session!)
         {
-            Assert.Equal(7, session.SchemaVersion);
+            Assert.Equal(8, session.SchemaVersion);
             Assert.Equal("original", Assert.Single(session.Work.Read().Categories).Id);
             var project = session.Work.CreateProject("Migrated project", "", "original", null);
             session.Work.CreateTask(project.Id, "Migrated task");
@@ -606,14 +754,19 @@ public sealed class WorkspaceWorkTests : IDisposable
     [InlineData("participant_id TEXT NOT NULL REFERENCES participants(id)", "participant_id TEXT NOT NULL")]
     [InlineData("PRIMARY KEY(task_id, participant_id)", "UNIQUE(task_id, participant_id)")]
     [InlineData("UNIQUE(task_id, position)", "UNIQUE(participant_id, position)")]
-    public void OpenRejectsSchemaSevenWithMissingConstraintsOrChangedTypes(string original, string replacement)
+    [InlineData("task_id TEXT NOT NULL PRIMARY KEY REFERENCES tasks(id)", "task_id TEXT NOT NULL PRIMARY KEY")]
+    [InlineData("archived_instant TEXT NOT NULL", "archived_instant TEXT")]
+    [InlineData("archived_instant TEXT NOT NULL", "archived_instant INTEGER NOT NULL")]
+    [InlineData("archive_date TEXT NOT NULL", "archive_date TEXT")]
+    [InlineData("archive_date TEXT NOT NULL", "archive_date INTEGER NOT NULL")]
+    public void OpenRejectsSchemaEightWithMissingConstraintsOrChangedTypes(string original, string replacement)
     {
         _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!.Dispose();
         using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
         {
             using var command = connection.CreateCommand();
             // Rebuild the empty work tables with valid SQL that weakens one schema guarantee.
-            command.CommandText = "DROP TABLE today_tasks; DROP TABLE task_participants; DROP TABLE participants; DROP TABLE tasks; DROP TABLE projects;" +
+            command.CommandText = "DROP TABLE task_archives; DROP TABLE today_tasks; DROP TABLE task_participants; DROP TABLE participants; DROP TABLE tasks; DROP TABLE projects;" +
                 SqliteWorkspaceWork.Schema.Replace(original, replacement, StringComparison.Ordinal);
             command.ExecuteNonQuery();
             Assert.Equal("ok", EncryptedWorkspaceStore.ExecuteScalar<string>(connection, "PRAGMA integrity_check;"));
@@ -649,6 +802,38 @@ public sealed class WorkspaceWorkTests : IDisposable
 
         var result = _store.Open(WorkspacePath, _passphrase);
 
+        Assert.Equal(WorkspaceOpenStatus.InvalidPassphraseOrStore, result.Status);
+        Assert.Null(result.Session);
+    }
+
+    [Theory]
+    [InlineData(false, "2026-10-03T12:00:00.0000000+00:00", "2026-10-03")]
+    [InlineData(true, "not-an-instant", "2026-10-03")]
+    [InlineData(true, "2026-10-03T12:00:00.0000000+00:00", "not-a-date")]
+    public void InvalidPersistedArchiveStateIsRejectedOnOpenAndRead(
+        bool complete,
+        string archivedInstant,
+        string archiveDate)
+    {
+        var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var task = session.Work.CreateStandaloneTask("Task", "", session.Work.Read().Categories[0].Id, null);
+        if (complete) session.Work.CompleteTask(task.Id);
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "INSERT INTO task_archives (task_id,archived_instant,archive_date) VALUES ($id,$instant,$date);";
+            command.Parameters.AddWithValue("$id", task.Id);
+            command.Parameters.AddWithValue("$instant", archivedInstant);
+            command.Parameters.AddWithValue("$date", archiveDate);
+            Assert.Equal(1, command.ExecuteNonQuery());
+        }
+
+        var error = Assert.Throws<WorkspaceWorkException>(() => session.Work.Read());
+        Assert.Equal("The workspace operation could not be completed.", error.Message);
+        Assert.Null(error.InnerException);
+        session.Dispose();
+
+        var result = _store.Open(WorkspacePath, _passphrase);
         Assert.Equal(WorkspaceOpenStatus.InvalidPassphraseOrStore, result.Status);
         Assert.Null(result.Session);
     }
@@ -891,7 +1076,7 @@ public sealed class WorkspaceWorkTests : IDisposable
         }
 
         using var session = _store.Open(WorkspacePath, _passphrase).Session!;
-        Assert.Equal(7, session.SchemaVersion);
+        Assert.Equal(8, session.SchemaVersion);
         Assert.Equal("Dig", Assert.Single(session.Work.Read().Tasks).Title);
         using var migrated = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadOnly);
         Assert.Equal("id,label,comparison_key", EncryptedWorkspaceStore.ExecuteScalar<string>(migrated,

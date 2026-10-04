@@ -36,6 +36,25 @@ public sealed class WorkCompletionDerivationTests
         Assert.False(WorkDatePresentation.IsOverdue(Project, complete, new DateOnly(2026, 9, 30)));
     }
 
+    [Fact]
+    public void ArchivedCompletedTasksRemainInProjectDerivation()
+    {
+        var archived = Task("archived", new DateOnly(2026, 9, 29)) with
+        {
+            ArchivedAt = new DateTimeOffset(2026, 10, 1, 12, 0, 0, TimeSpan.Zero),
+            ArchiveDate = new DateOnly(2026, 10, 1),
+        };
+        var current = Task("current", new DateOnly(2026, 9, 30));
+
+        var summary = ProjectWorkSummary.From(Snapshot(archived, current), Project.Id);
+
+        Assert.True(summary.IsComplete);
+        Assert.Equal("Complete", summary.Status);
+        Assert.Equal(2, summary.CompletedCount);
+        Assert.Equal(2, summary.TaskCount);
+        Assert.Equal(new DateOnly(2026, 9, 30), summary.CompletionDate);
+    }
+
     [Theory]
     [InlineData(null, "No date")]
     [InlineData("2026-09-29", "Today")]
@@ -64,6 +83,21 @@ public sealed class WorkCompletionDerivationTests
         Assert.False(instantOnly.IsComplete);
         Assert.False(dateOnly.IsComplete);
         Assert.True(Task("task", new DateOnly(2026, 9, 29)).IsComplete);
+    }
+
+    [Fact]
+    public void TaskIsArchivedOnlyWhenBothCapturedArchiveValuesArePresent()
+    {
+        var complete = Task("task", new DateOnly(2026, 9, 29));
+        var instantOnly = complete with
+        {
+            ArchivedAt = new DateTimeOffset(2026, 10, 1, 12, 0, 0, TimeSpan.Zero),
+        };
+        var dateOnly = complete with { ArchiveDate = new DateOnly(2026, 10, 1) };
+
+        Assert.False(instantOnly.IsArchived);
+        Assert.False(dateOnly.IsArchived);
+        Assert.True((instantOnly with { ArchiveDate = new DateOnly(2026, 10, 1) }).IsArchived);
     }
 
     private static WorkspaceWorkSnapshot Snapshot(params TaskRecord[] tasks) => new([], [Project], tasks);

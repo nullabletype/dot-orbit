@@ -14,7 +14,8 @@ internal static class Program
             Console.WriteLine(
                 $"sample-workspace: result=passed output={summary.OutputPath} schema={summary.SchemaVersion} "
                 + $"categories={summary.CategoryCount} projects={summary.ProjectCount} "
-                + $"tasks={summary.TaskCount} participants={summary.ParticipantCount}");
+                + $"tasks={summary.TaskCount} participants={summary.ParticipantCount} "
+                + $"archived={summary.ArchivedTaskCount}");
             return 0;
         }
         catch (SampleWorkspaceException exception)

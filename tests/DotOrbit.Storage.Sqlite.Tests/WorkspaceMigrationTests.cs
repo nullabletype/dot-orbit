@@ -18,9 +18,9 @@ public sealed class WorkspaceMigrationTests
 
         using var session = fixture.CreateCurrentWorkspace();
 
-        Assert.Equal(7, session.SchemaVersion);
+        Assert.Equal(8, session.SchemaVersion);
         using var connection = OpenInspectionConnection(fixture.WorkspacePath, ValidPassphrase);
-        Assert.Equal(7L, ExecuteScalar<long>(connection, "PRAGMA user_version;"));
+        Assert.Equal(8L, ExecuteScalar<long>(connection, "PRAGMA user_version;"));
         Assert.Equal(
             "index",
             ExecuteScalar<string>(
@@ -39,7 +39,7 @@ public sealed class WorkspaceMigrationTests
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
         Assert.NotNull(session);
-        Assert.Equal(7, session.SchemaVersion);
+        Assert.Equal(8, session.SchemaVersion);
         Assert.Equal("Personal Admin", session.FirstCategoryName);
         var recoveryPath = Assert.Single(
             Directory.GetFiles(
@@ -48,7 +48,7 @@ public sealed class WorkspaceMigrationTests
         AssertSchemaOneWorkspace(recoveryPath, "Personal Admin");
 
         using var migrated = OpenInspectionConnection(fixture.WorkspacePath, ValidPassphrase);
-        Assert.Equal(7L, ExecuteScalar<long>(migrated, "PRAGMA user_version;"));
+        Assert.Equal(8L, ExecuteScalar<long>(migrated, "PRAGMA user_version;"));
         Assert.Equal(
             1L,
             ExecuteScalar<long>(
@@ -66,7 +66,7 @@ public sealed class WorkspaceMigrationTests
         using var session = result.Session;
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
-        Assert.Equal(7, session?.SchemaVersion);
+        Assert.Equal(8, session?.SchemaVersion);
         var snapshot = session!.Work.Read();
         Assert.Equal(["First", "Second"], snapshot.Tasks.Select(task => task.Title));
         Assert.All(snapshot.Tasks, task => Assert.Equal("project", task.ProjectId));
@@ -87,7 +87,7 @@ public sealed class WorkspaceMigrationTests
         using var session = result.Session;
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
-        Assert.Equal(7, session?.SchemaVersion);
+        Assert.Equal(8, session?.SchemaVersion);
         var snapshot = session!.Work.Read();
         Assert.Equal(["project-two", "project-one"], snapshot.Projects.Select(project => project.Id));
         Assert.Equal([0L, 1L], snapshot.Projects.Select(project => project.Position));
@@ -134,12 +134,54 @@ public sealed class WorkspaceMigrationTests
         using var session = result.Session;
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
-        Assert.Equal(7, session?.SchemaVersion);
+        Assert.Equal(8, session?.SchemaVersion);
         var restored = Assert.Single(session!.Work.Read().Tasks);
         Assert.Equal(taskId, restored.Id);
         Assert.Equal([participantId], restored.Participants);
         Assert.Null(restored.TodayLane);
         Assert.Single(Directory.GetFiles(fixture.DirectoryPath, "dot-orbit-pre-migration-v6-*.dotorbit-recovery"));
+    }
+
+    [Fact]
+    public void OpenUpgradesReleasedSchemaSevenWithoutChangingWorkParticipantsCompletionOrToday()
+    {
+        using var fixture = new MigrationFixture();
+        string completedId;
+        string plannedId;
+        string participantId;
+        using (var current = fixture.CreateCurrentWorkspace())
+        {
+            var category = current.Work.Read().Categories[0];
+            var project = current.Work.CreateProject("Garden", "", category.Id, null);
+            var participant = current.Work.CreateParticipant("SD");
+            var completed = current.Work.CreateTask(project.Id, "Filed receipt");
+            current.Work.UpdateTask(completed.Id, completed.Title, completed.Description, completed.ExplicitCategoryId,
+                completed.DueDate, new([participant.Id], []));
+            current.Work.CompleteTask(completed.Id);
+            var planned = current.Work.CreateStandaloneTask("Plan", "", category.Id, new DateOnly(2026, 10, 8));
+            current.Work.SetTaskTodayLane(planned.Id, TodayLane.Planned);
+            completedId = completed.Id;
+            plannedId = planned.Id;
+            participantId = participant.Id;
+        }
+        fixture.DowngradeCurrentToSchemaSeven();
+
+        var result = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase());
+        using var session = result.Session;
+
+        Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
+        Assert.Equal(8, session?.SchemaVersion);
+        var snapshot = session!.Work.Read();
+        var completedTask = snapshot.Tasks.Single(task => task.Id == completedId);
+        Assert.True(completedTask.IsComplete);
+        Assert.False(completedTask.IsArchived);
+        Assert.Equal([participantId], completedTask.Participants);
+        Assert.Equal(TodayLane.Planned, snapshot.Tasks.Single(task => task.Id == plannedId).TodayLane);
+        Assert.Single(Directory.GetFiles(fixture.DirectoryPath, "dot-orbit-pre-migration-v7-*.dotorbit-recovery"));
+        using var connection = OpenInspectionConnection(fixture.WorkspacePath, ValidPassphrase);
+        Assert.Equal(8L, ExecuteScalar<long>(connection, "PRAGMA user_version;"));
+        Assert.Equal("task_id,archived_instant,archive_date", ExecuteScalar<string>(connection,
+            "SELECT group_concat(name, ',') FROM pragma_table_info('task_archives');"));
     }
 
     [Fact]
@@ -173,7 +215,7 @@ public sealed class WorkspaceMigrationTests
         using var session = result.Session;
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
-        Assert.Equal(7, session?.SchemaVersion);
+        Assert.Equal(8, session?.SchemaVersion);
         Assert.Empty(
             Directory.GetFiles(
                 fixture.DirectoryPath,
@@ -210,7 +252,7 @@ public sealed class WorkspaceMigrationTests
         using var session = result.Session;
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
-        Assert.Equal(7, session?.SchemaVersion);
+        Assert.Equal(8, session?.SchemaVersion);
         Assert.Single(
             Directory.GetFiles(
                 fixture.DirectoryPath,
@@ -280,7 +322,7 @@ public sealed class WorkspaceMigrationTests
     {
         MigrationFixture fixture = null!;
         fixture = new MigrationFixture(
-            afterMigration: () => fixture.SetSchemaVersion(8));
+            afterMigration: () => fixture.SetSchemaVersion(EncryptedWorkspaceStore.CurrentSchemaVersion + 1));
         using (fixture)
         {
             fixture.CreateSchemaOneWorkspace("Home");
@@ -352,7 +394,7 @@ public sealed class WorkspaceMigrationTests
             using var session = result.Session;
 
             Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
-            Assert.Equal(7, session?.SchemaVersion);
+            Assert.Equal(8, session?.SchemaVersion);
         }
     }
 
@@ -360,7 +402,7 @@ public sealed class WorkspaceMigrationTests
     public void NewerSchemaIsRefusedWithoutPublishingRecoveryOrChangingBytes()
     {
         using var fixture = new MigrationFixture();
-        fixture.CreateSchemaOneWorkspace("Home", schemaVersion: 8);
+        fixture.CreateSchemaOneWorkspace("Home", schemaVersion: EncryptedWorkspaceStore.CurrentSchemaVersion + 1);
         var original = File.ReadAllBytes(fixture.WorkspacePath);
 
         var result = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase());
@@ -392,12 +434,12 @@ public sealed class WorkspaceMigrationTests
 
         Assert.Equal(WorkspaceRestoreStatus.Restored, result.Status);
         Assert.NotNull(restored);
-        Assert.Equal(7, restored.SchemaVersion);
+        Assert.Equal(8, restored.SchemaVersion);
         Assert.Equal("Restored category", restored.FirstCategoryName);
         using var inspection = OpenInspectionConnection(
             fixture.WorkspacePath,
             ValidPassphrase);
-        Assert.Equal(7L, ExecuteScalar<long>(inspection, "PRAGMA user_version;"));
+        Assert.Equal(8L, ExecuteScalar<long>(inspection, "PRAGMA user_version;"));
         Assert.Equal(
             1L,
             ExecuteScalar<long>(
@@ -703,7 +745,15 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE today_tasks; PRAGMA user_version = 6;";
+            command.CommandText = "DROP TABLE task_archives; DROP TABLE today_tasks; PRAGMA user_version = 6;";
+            command.ExecuteNonQuery();
+        }
+
+        public void DowngradeCurrentToSchemaSeven()
+        {
+            using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
+            using var command = connection.CreateCommand();
+            command.CommandText = "DROP TABLE task_archives; PRAGMA user_version = 7;";
             command.ExecuteNonQuery();
         }
 

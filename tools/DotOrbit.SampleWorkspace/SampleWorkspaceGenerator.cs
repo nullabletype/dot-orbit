@@ -11,6 +11,7 @@ internal static class SampleWorkspaceGenerator
     private const int ExpectedProjectCount = 6;
     private const int ExpectedTaskCount = 33;
     private const int ExpectedParticipantCount = 7;
+    private const int ExpectedArchivedTaskCount = 6;
 
     public static SampleWorkspaceSummary Generate(string outputPath, DateOnly anchorDate)
     {
@@ -203,6 +204,12 @@ internal static class SampleWorkspaceGenerator
             timeProvider.SetDate(anchorDate.AddDays(task.CompletionDateOffset!.Value), completionMinute++);
             work.CompleteTask(taskIds[task.Key]);
         }
+
+        foreach (var archived in ArchivedTasks)
+        {
+            timeProvider.SetDate(anchorDate.AddDays(archived.ArchiveDateOffset), completionMinute++);
+            work.ArchiveTask(taskIds[archived.TaskKey]);
+        }
     }
 
     private static SampleWorkspaceSummary Validate(
@@ -213,6 +220,7 @@ internal static class SampleWorkspaceGenerator
         var snapshot = session.Work.Read();
         var incomplete = snapshot.Tasks.Count(task => !task.IsComplete);
         var completed = snapshot.Tasks.Count(task => task.IsComplete);
+        var archived = snapshot.Tasks.Count(task => task.IsArchived);
         var today = snapshot.Tasks.Count(task => task.IsInToday);
         var upcoming = snapshot.Tasks.Count(task =>
             !task.IsComplete
@@ -226,6 +234,7 @@ internal static class SampleWorkspaceGenerator
             && snapshot.Participants.Count == ExpectedParticipantCount
             && incomplete == 21
             && completed == 12
+            && archived == ExpectedArchivedTaskCount
             && today == 9
             && upcoming == 13;
         if (!isValid)
@@ -242,6 +251,7 @@ internal static class SampleWorkspaceGenerator
             snapshot.Participants.Count,
             incomplete,
             completed,
+            archived,
             today,
             upcoming);
     }
@@ -344,6 +354,16 @@ internal static class SampleWorkspaceGenerator
         Standalone("close-loop", "Close an old household loop", "A completion just beyond thirty days.", "home", -31, null, -31),
     ];
 
+    private static readonly ArchivedTaskDefinition[] ArchivedTasks =
+    [
+        new("clear-pots", 0),
+        new("first-conversation", -1),
+        new("retrospective", -2),
+        new("archive-notes", -8),
+        new("tune-bike", -15),
+        new("file-warranty", -30),
+    ];
+
     private static TaskDefinition Attached(
         string key,
         string projectKey,
@@ -372,6 +392,7 @@ internal static class SampleWorkspaceGenerator
 
     private sealed record CategoryDefinition(string Key, string Name);
     private sealed record ParticipantDefinition(string Key, string Label);
+    private sealed record ArchivedTaskDefinition(string TaskKey, int ArchiveDateOffset);
     private sealed record ProjectDefinition(
         string Key,
         string Title,
@@ -400,5 +421,6 @@ internal sealed record SampleWorkspaceSummary(
     int ParticipantCount,
     int IncompleteTaskCount,
     int CompletedTaskCount,
+    int ArchivedTaskCount,
     int TodayTaskCount,
     int UpcomingTaskCount);

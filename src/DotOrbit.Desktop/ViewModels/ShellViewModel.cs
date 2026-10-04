@@ -53,9 +53,9 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             CreateNavigationItem(
                 "Archive",
                 "M3,4H21V8H3V4M5,10H19V21H5V10M9,12V14H15V12H9",
-                "Searchable history that stays out of active work.",
+                "Archived tasks retained outside active work.",
                 "Your archive is empty",
-                "Archived projects and tasks will remain searchable here."),
+                "Tasks you archive will remain available to restore here."),
         ];
 
         BinNavigation = CreateNavigationItem(
@@ -81,6 +81,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             Work.UpcomingGroups.CollectionChanged += (_, _) => UpdateCounts();
             Work.Backlog.CollectionChanged += (_, _) => UpdateCounts();
             Work.Completed.CollectionChanged += (_, _) => UpdateCounts();
+            Work.Archived.CollectionChanged += (_, _) => UpdateCounts();
             Work.TodayPlanned.CollectionChanged += (_, _) => UpdateCounts();
             Work.TodayInProgress.CollectionChanged += (_, _) => UpdateCounts();
             Work.CategoryGroups.CollectionChanged += (_, _) => UpdateCounts();
@@ -113,6 +114,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(ShowUpcoming));
             OnPropertyChanged(nameof(ShowBacklog));
             OnPropertyChanged(nameof(ShowCompleted));
+            OnPropertyChanged(nameof(ShowArchive));
             OnPropertyChanged(nameof(ShowCategories));
             OnPropertyChanged(nameof(ShowEmpty));
             OnPropertyChanged(nameof(ShowSettings));
@@ -130,9 +132,10 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     public bool ShowUpcoming => Work is not null && ViewTitle == "Upcoming";
     public bool ShowBacklog => Work is not null && ViewTitle == "Backlog";
     public bool ShowCompleted => Work is not null && ViewTitle == "Completed";
+    public bool ShowArchive => Work is not null && ViewTitle == "Archive";
     public bool ShowCategories => Work is not null && ViewTitle == "Categories";
     public bool ShowSettings => ViewTitle == "Settings";
-    public bool ShowEmpty => !ShowToday && !ShowUpcoming && !ShowProjects && !ShowBacklog && !ShowCompleted && !ShowCategories && !ShowSettings;
+    public bool ShowEmpty => !ShowToday && !ShowUpcoming && !ShowProjects && !ShowBacklog && !ShowCompleted && !ShowArchive && !ShowCategories && !ShowSettings;
 
     public string ViewTitle => SelectedItem.Title;
 
@@ -170,6 +173,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         var wasBacklog = _selectedItem is not null && _selectedItem.Title == "Backlog";
         var wasUpcoming = _selectedItem is not null && _selectedItem.Title == "Upcoming";
         var wasCompleted = _selectedItem is not null && _selectedItem.Title == "Completed";
+        var wasArchive = _selectedItem is not null && _selectedItem.Title == "Archive";
         var wasToday = _selectedItem is not null && _selectedItem.Title == "Today";
         if (_selectedItem is not null)
         {
@@ -181,6 +185,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         var isBacklog = item.Title == "Backlog";
         var isUpcoming = item.Title == "Upcoming";
         var isCompleted = item.Title == "Completed";
+        var isArchive = item.Title == "Archive";
         var isToday = item.Title == "Today";
         if (Work is not null && wasBacklog != isBacklog)
         {
@@ -190,6 +195,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         Work?.SetBacklogActive(isBacklog);
         if (Work is not null && wasUpcoming != isUpcoming) Work.SetUpcomingActive(isUpcoming);
         if (Work is not null && wasCompleted != isCompleted) Work.SetCompletedActive(isCompleted);
+        if (Work is not null && wasArchive != isArchive) Work.SetArchiveActive(isArchive);
         if (Work is not null && wasToday != isToday) Work.SetTodayActive(isToday);
         if (item.Title == "Settings") Settings?.Refresh();
     }
@@ -202,6 +208,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         PrimaryNavigation.Single(n => n.Title == "Projects").CountText = Work.Projects.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
         PrimaryNavigation.Single(n => n.Title == "Backlog").CountText = Work.Backlog.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
         PrimaryNavigation.Single(n => n.Title == "Completed").CountText = Work.Completed.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        PrimaryNavigation.Single(n => n.Title == "Archive").CountText = Work.Archived.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
         PrimaryNavigation.Single(n => n.Title == "Categories").CountText = Work.CategoryGroups.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
 

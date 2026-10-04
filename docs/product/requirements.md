@@ -90,7 +90,7 @@ Status: working specification derived from the interactive prototype.
 - **VIEW-003 Projects** shows Projects in manual Project order, with expandable attached Tasks in per-Project order; standalone Tasks do not appear there.
 - **VIEW-004 Categories** shows all Projects and standalone Tasks grouped by manually ordered Category, with separate Project and standalone Task sections that preserve their existing global orders.
 - **VIEW-005 Completed** groups recent completed Tasks by day for the last three days, then by week.
-- **VIEW-006 Archive** provides full-text search across archived Projects and Tasks.
+- **VIEW-006 Archive** groups the last three captured local archive dates by day and older archived work by week, and provides full-text search across archived Projects and Tasks.
 - **VIEW-007 Upcoming** shows incomplete, non-archived Tasks that are overdue or due within the seven-day upcoming window.
 
 ## Archive

@@ -54,6 +54,7 @@ The current scenario contains:
 - 6 Projects covering empty, not-started, in-progress, complete, overdue, undated, and long-title states;
 - 33 attached and standalone Tasks with inherited and overridden Categories;
 - 21 incomplete and 12 completed Tasks, with completion dates spanning today through more than 30 days ago;
+- 6 archived Tasks spanning Today, Yesterday, two days ago, older weekly groups, and 30 days ago, with both attached and standalone examples;
 - 9 Today Tasks across Planned and In progress;
 - 13 incomplete Tasks in the overdue-through-seven-days Upcoming window;
 - no date, overdue, today, tomorrow, seven-day, and just-outside-the-window examples;

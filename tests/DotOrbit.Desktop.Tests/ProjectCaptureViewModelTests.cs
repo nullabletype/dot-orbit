@@ -752,6 +752,181 @@ public sealed class ProjectCaptureViewModelTests
     }
 
     [Fact]
+    public void CompletedGroupsRemainBasedOnCapturedDatesAfterPresentationTimeZoneChange()
+    {
+        var work = new MemoryWorkspaceWork();
+        var capturedToday = work.CreateStandaloneTask("Captured today", "", "home", null);
+        var capturedYesterday = work.CreateStandaloneTask("Captured yesterday", "", "home", null);
+        work.SetCompletion(capturedToday.Id, new DateTimeOffset(2026, 9, 29, 1, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 29));
+        work.SetCompletion(capturedYesterday.Id, new DateTimeOffset(2026, 9, 29, 23, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 28));
+        var time = new FixedTimeProvider(new DateTimeOffset(2026, 9, 29, 12, 0, 0, TimeSpan.Zero));
+        var model = new ProjectCaptureViewModel(work, time);
+
+        var before = model.CompletedGroups.Select(group => (group.Heading, Ids: group.Tasks.Select(task => task.Id).ToArray())).ToArray();
+        var plusEight = TimeZoneInfo.CreateCustomTimeZone("UTC+08-completed", TimeSpan.FromHours(8), "UTC+08", "UTC+08");
+        time.Set(time.GetUtcNow(), plusEight);
+
+        Assert.True(model.RefreshDatePresentation());
+        Assert.Equal(before.Select(group => group.Heading), model.CompletedGroups.Select(group => group.Heading));
+        Assert.Equal(before.SelectMany(group => group.Ids), model.CompletedGroups.SelectMany(group => group.Tasks).Select(task => task.Id));
+    }
+
+    [Fact]
+    public void ArchivedTasksLeaveActiveProjectionsButRemainInArchiveAndAttachedProjects()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var attached = work.CreateTask(project.Id, "Plant bulbs");
+        var standalone = work.CreateStandaloneTask("File receipt", "", "work", null);
+        work.CompleteTask(attached.Id);
+        work.CompleteTask(standalone.Id);
+        work.ArchiveTask(attached.Id);
+        work.ArchiveTask(standalone.Id);
+
+        var model = new ProjectCaptureViewModel(work);
+
+        Assert.Empty(model.Backlog);
+        Assert.Empty(model.Completed);
+        Assert.Empty(model.CompletedToday);
+        Assert.Empty(model.CategoryGroups.Single(group => group.Id == "work").StandaloneTasks);
+        Assert.Equal([standalone.Id, attached.Id], model.Archived.Select(row => row.Task.Id));
+        var projectRow = Assert.Single(model.Projects);
+        var archivedTask = Assert.Single(projectRow.Tasks);
+        Assert.Same(archivedTask, model.Archived.Single(row => row.Task.Id == attached.Id).Task);
+        Assert.True(archivedTask.IsArchived);
+        Assert.Equal("Complete", projectRow.Status);
+        Assert.Equal("1/1 tasks", projectRow.ProgressText);
+        Assert.Equal("Completed 29 Sep 2026", projectRow.CompletionDateText);
+    }
+
+    [Fact]
+    public void ArchiveGroupsUseCapturedDatesForThreeDailyBucketsThenCalendarWeeks()
+    {
+        var work = new MemoryWorkspaceWork();
+        TaskRecord Add(string title, DateOnly date, int hour)
+        {
+            var task = work.CreateStandaloneTask(title, "", "home", null);
+            work.SetCompletion(task.Id, new DateTimeOffset(2026, 9, 20, hour, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 20));
+            return work.SetArchive(task.Id, new DateTimeOffset(date.ToDateTime(new TimeOnly(hour, 0)), TimeSpan.Zero), date);
+        }
+
+        var today = Add("Today", new DateOnly(2026, 9, 29), 12);
+        var yesterday = Add("Yesterday", new DateOnly(2026, 9, 28), 12);
+        var twoDaysAgo = Add("Two days ago", new DateOnly(2026, 9, 27), 12);
+        var weekNewer = Add("Week newer", new DateOnly(2026, 9, 26), 15);
+        var weekOlder = Add("Week older", new DateOnly(2026, 9, 24), 9);
+        var priorWeek = Add("Prior week", new DateOnly(2026, 9, 20), 12);
+        var time = new FixedTimeProvider(new DateTimeOffset(2026, 9, 29, 12, 0, 0, TimeSpan.Zero));
+        var model = new ProjectCaptureViewModel(work, time);
+
+        Assert.Equal(
+            ["Today", "Yesterday", "Sunday, 27 September 2026", "Week of 21 Sep 2026", "Week of 14 Sep 2026"],
+            model.ArchivedGroups.Select(group => group.Heading));
+        Assert.Equal([today.Id], model.ArchivedGroups[0].Tasks.Select(task => task.Id));
+        Assert.Equal([yesterday.Id], model.ArchivedGroups[1].Tasks.Select(task => task.Id));
+        Assert.Equal([twoDaysAgo.Id], model.ArchivedGroups[2].Tasks.Select(task => task.Id));
+        Assert.Equal([weekNewer.Id, weekOlder.Id], model.ArchivedGroups[3].Tasks.Select(task => task.Id));
+        Assert.Equal([priorWeek.Id], model.ArchivedGroups[4].Tasks.Select(task => task.Id));
+
+        var before = model.ArchivedGroups.Select(group => (group.Heading, Ids: group.Tasks.Select(task => task.Id).ToArray())).ToArray();
+        var plusEight = TimeZoneInfo.CreateCustomTimeZone("UTC+08-archive", TimeSpan.FromHours(8), "UTC+08", "UTC+08");
+        time.Set(time.GetUtcNow(), plusEight);
+
+        Assert.True(model.RefreshDatePresentation());
+        Assert.Equal(before.Select(group => group.Heading), model.ArchivedGroups.Select(group => group.Heading));
+        Assert.Equal(before.SelectMany(group => group.Ids), model.ArchivedGroups.SelectMany(group => group.Tasks).Select(task => task.Id));
+    }
+
+    [Fact]
+    public void ArchiveRequiresConfirmationFlushesEditsAndCompletionCannotReopenArchivedTask()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var task = work.CreateTask(project.Id, "Plant bulbs");
+        work.CompleteTask(task.Id);
+        var model = new ProjectCaptureViewModel(work);
+        model.SelectTask(task.Id);
+        model.Title = "Plant spring bulbs";
+
+        model.Completed.Single().ArchiveCommand.Execute(null);
+
+        Assert.True(model.NeedsArchiveConfirmation);
+        Assert.Equal("Archive “Plant spring bulbs”?", model.ArchiveConfirmationHeading);
+        Assert.Contains("remain under its Project", model.ArchiveConfirmationBody, StringComparison.Ordinal);
+        Assert.False(work.Read().Tasks.Single().IsArchived);
+        Assert.Equal("Plant spring bulbs", work.Read().Tasks.Single().Title);
+
+        model.ConfirmArchiveTaskCommand.Execute(null);
+
+        var archived = work.Read().Tasks.Single();
+        Assert.True(archived.IsArchived);
+        Assert.True(archived.IsComplete);
+        Assert.Empty(model.Completed);
+        Assert.False(model.HasInspector);
+        Assert.Equal("navigation-completed", model.ArchiveFocusAutomationId);
+
+        model.Projects.Single().Tasks.Single().ToggleCompletionCommand.Execute(null);
+
+        Assert.True(work.Read().Tasks.Single().IsComplete);
+        Assert.True(work.Read().Tasks.Single().IsArchived);
+    }
+
+    [Fact]
+    public void RestoringArchivedTaskReturnsItToCapturedCompletedGroupAndNeverToday()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Filed receipt", "", "home", null);
+        work.SetCompletion(task.Id, new DateTimeOffset(2026, 9, 28, 18, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 28));
+        work.ArchiveTask(task.Id);
+        var model = new ProjectCaptureViewModel(
+            work,
+            new FixedTimeProvider(new DateTimeOffset(2026, 9, 29, 12, 0, 0, TimeSpan.Zero)));
+        model.SetArchiveActive(true);
+
+        model.Archived.Single().Task.RestoreCommand.Execute(null);
+
+        Assert.Empty(model.Archived);
+        Assert.Equal(task.Id, Assert.Single(model.Completed).Id);
+        Assert.Equal("Yesterday", Assert.Single(model.CompletedGroups).Heading);
+        Assert.Empty(model.TodayPlanned);
+        Assert.Empty(model.TodayInProgress);
+        Assert.Empty(model.CompletedToday);
+        Assert.Equal("navigation-archive", model.ArchiveFocusAutomationId);
+        Assert.False(work.Read().Tasks.Single().IsArchived);
+        Assert.Equal(new DateOnly(2026, 9, 28), work.Read().Tasks.Single().CompletionDate);
+    }
+
+    [Fact]
+    public void ArchiveAndRestoreFailuresPreserveVisibilityAndExplainThatNothingChanged()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Filed receipt", "", "home", null);
+        work.CompleteTask(task.Id);
+        var model = new ProjectCaptureViewModel(work);
+        model.Completed.Single().ArchiveCommand.Execute(null);
+        work.FailWrites = true;
+
+        model.ConfirmArchiveTaskCommand.Execute(null);
+
+        Assert.True(model.NeedsArchiveConfirmation);
+        Assert.False(work.Read().Tasks.Single().IsArchived);
+        Assert.Equal("Could not archive the Task. No changes were made.", model.Message);
+
+        model.CancelArchiveTaskCommand.Execute(null);
+        work.FailWrites = false;
+        work.ArchiveTask(task.Id);
+        model = new ProjectCaptureViewModel(work);
+        work.FailWrites = true;
+
+        model.Archived.Single().Task.RestoreCommand.Execute(null);
+
+        Assert.True(work.Read().Tasks.Single().IsArchived);
+        Assert.Empty(model.Completed);
+        Assert.Single(model.Archived);
+        Assert.Equal("Could not restore the Task. No changes were made.", model.Message);
+    }
+
+    [Fact]
     public void ReopeningTaskFlushesPendingFieldsAndMovesItImmediately()
     {
         var work = new MemoryWorkspaceWork();
@@ -1275,7 +1450,33 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
     {
         Check();
         int index = _tasks.FindIndex(task => task.Id == id);
+        if (_tasks[index].IsArchived) throw new InvalidOperationException();
         return _tasks[index] = _tasks[index] with { CompletedAt = null, CompletionDate = null };
+    }
+    public TaskRecord ArchiveTask(string id)
+    {
+        Check();
+        var index = _tasks.FindIndex(task => task.Id == id);
+        if (!_tasks[index].IsComplete || _tasks[index].IsArchived) throw new InvalidOperationException();
+        return _tasks[index] = _tasks[index] with
+        {
+            TodayLane = null,
+            ArchivedAt = new DateTimeOffset(2026, 9, 29, 13, 0, 0, TimeSpan.Zero),
+            ArchiveDate = new DateOnly(2026, 9, 29),
+        };
+    }
+    public TaskRecord RestoreTask(string id)
+    {
+        Check();
+        var index = _tasks.FindIndex(task => task.Id == id);
+        if (!_tasks[index].IsArchived) throw new InvalidOperationException();
+        return _tasks[index] = _tasks[index] with { ArchivedAt = null, ArchiveDate = null };
+    }
+    public TaskRecord SetArchive(string id, DateTimeOffset instant, DateOnly date)
+    {
+        int index = _tasks.FindIndex(task => task.Id == id);
+        if (!_tasks[index].IsComplete) throw new InvalidOperationException();
+        return _tasks[index] = _tasks[index] with { ArchivedAt = instant, ArchiveDate = date, TodayLane = null };
     }
     public TaskRecord SetCompletion(string id, DateTimeOffset instant, DateOnly date)
     {

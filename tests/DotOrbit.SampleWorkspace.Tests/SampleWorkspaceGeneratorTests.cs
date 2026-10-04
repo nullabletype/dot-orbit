@@ -25,6 +25,7 @@ public sealed class SampleWorkspaceGeneratorTests
         Assert.Equal(7, summary.ParticipantCount);
         Assert.Equal(21, summary.IncompleteTaskCount);
         Assert.Equal(12, summary.CompletedTaskCount);
+        Assert.Equal(6, summary.ArchivedTaskCount);
         Assert.Equal(9, summary.TodayTaskCount);
         Assert.Equal(13, summary.UpcomingTaskCount);
 
@@ -84,6 +85,20 @@ public sealed class SampleWorkspaceGeneratorTests
             ["SD", "AB"],
             Task(snapshot, "Write release checklist").Participants.Select(id =>
                 snapshot.Participants.Single(participant => participant.Id == id).Label));
+        Assert.Equal(
+            [
+                "Clear summer pots", "Record first conversation", "Write short retrospective",
+                "Consolidate workshop notes", "Tune the exercise bike", "File appliance warranty",
+            ],
+            snapshot.Tasks.Where(task => task.IsArchived).OrderBy(task => task.SharedPosition).Select(task => task.Title));
+        Assert.NotNull(Task(snapshot, "Clear summer pots").ProjectId);
+        Assert.Null(Task(snapshot, "Consolidate workshop notes").ProjectId);
+        Assert.Equal(AnchorDate, Task(snapshot, "Clear summer pots").ArchiveDate);
+        Assert.Equal(AnchorDate.AddDays(-1), Task(snapshot, "Record first conversation").ArchiveDate);
+        Assert.Equal(AnchorDate.AddDays(-2), Task(snapshot, "Write short retrospective").ArchiveDate);
+        Assert.Equal(AnchorDate.AddDays(-8), Task(snapshot, "Consolidate workshop notes").ArchiveDate);
+        Assert.Equal(AnchorDate.AddDays(-15), Task(snapshot, "Tune the exercise bike").ArchiveDate);
+        Assert.Equal(AnchorDate.AddDays(-30), Task(snapshot, "File appliance warranty").ArchiveDate);
     }
 
     [Fact]
@@ -243,7 +258,7 @@ public sealed class SampleWorkspaceGeneratorTests
         }
 
         Assert.Contains("result=passed", output.ToString(), StringComparison.Ordinal);
-        Assert.Contains("categories=6 projects=6 tasks=33 participants=7", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("categories=6 projects=6 tasks=33 participants=7 archived=6", output.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain(SampleWorkspaceGenerator.SamplePassphrase, output.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain(SampleWorkspaceGenerator.SamplePassphrase, error.ToString(), StringComparison.Ordinal);
         Assert.Equal(string.Empty, error.ToString());
