@@ -132,4 +132,21 @@ public sealed class ShellViewModelTests
         Assert.Empty(shell.BinNavigation.AccessibleCount);
         Assert.Equal("navigation-bin", shell.Work.BinFocusAutomationId);
     }
+
+    [Fact]
+    public void ProjectBinAggregateCountsAsOneSidebarItemRegardlessOfChildCount()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        work.CreateTask(project.Id, "Dig");
+        work.CreateTask(project.Id, "Plant");
+        var shell = new ShellViewModel(work);
+
+        work.MoveProjectToBin(project.Id);
+        shell.Work!.RefreshFromStore();
+
+        Assert.Equal("1", shell.BinNavigation.CountText);
+        Assert.Equal("1 item", shell.BinNavigation.AccessibleCount);
+        Assert.Equal(2, Assert.Single(shell.Work.Bin).TaskCount);
+    }
 }

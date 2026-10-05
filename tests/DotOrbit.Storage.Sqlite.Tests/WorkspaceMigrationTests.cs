@@ -501,6 +501,30 @@ public sealed class WorkspaceMigrationTests
             ExecuteScalar<string>(connection, "SELECT group_concat(name, ',') FROM pragma_table_info('task_bin_order_anchors');"));
         Assert.Equal("project_id,removed_instant",
             ExecuteScalar<string>(connection, "SELECT group_concat(name, ',') FROM pragma_table_info('project_bins');"));
+        Assert.Equal("project_id,task_id",
+            ExecuteScalar<string>(connection, "SELECT group_concat(name, ',') FROM pragma_table_info('project_bin_tasks');"));
+        Assert.Equal("project_id,anchor_project_id,relative_position",
+            ExecuteScalar<string>(connection, "SELECT group_concat(name, ',') FROM pragma_table_info('project_bin_order_anchors');"));
+    }
+
+    [Fact]
+    public void SchemaElevenMigratesProjectBinAggregateShapeToCurrentSchema()
+    {
+        using var fixture = new MigrationFixture();
+        using (fixture.CreateCurrentWorkspace()) { }
+        fixture.DowngradeCurrentToSchemaEleven();
+
+        var result = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase());
+        using var session = result.Session;
+
+        Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
+        Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, session?.SchemaVersion);
+        Assert.Empty(session!.Work.ReadProjectBin());
+        using var connection = OpenInspectionConnection(fixture.WorkspacePath, ValidPassphrase);
+        Assert.Equal("project_id,task_id",
+            ExecuteScalar<string>(connection, "SELECT group_concat(name, ',') FROM pragma_table_info('project_bin_tasks');"));
+        Assert.Equal("project_id,anchor_project_id,relative_position",
+            ExecuteScalar<string>(connection, "SELECT group_concat(name, ',') FROM pragma_table_info('project_bin_order_anchors');"));
     }
 
     [Fact]
@@ -834,7 +858,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; DROP TABLE today_tasks; PRAGMA user_version = 6;";
+            command.CommandText = "DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; DROP TABLE today_tasks; PRAGMA user_version = 6;";
             command.ExecuteNonQuery();
         }
 
@@ -842,7 +866,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; PRAGMA user_version = 7;";
+            command.CommandText = "DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; PRAGMA user_version = 7;";
             command.ExecuteNonQuery();
         }
 
@@ -850,7 +874,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; PRAGMA user_version = 8;";
+            command.CommandText = "DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; PRAGMA user_version = 8;";
             command.ExecuteNonQuery();
         }
 
@@ -858,7 +882,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; PRAGMA user_version = 9;";
+            command.CommandText = "DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; PRAGMA user_version = 9;";
             command.ExecuteNonQuery();
         }
 
@@ -866,7 +890,15 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; PRAGMA user_version = 10;";
+            command.CommandText = "DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; PRAGMA user_version = 10;";
+            command.ExecuteNonQuery();
+        }
+
+        public void DowngradeCurrentToSchemaEleven()
+        {
+            using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
+            using var command = connection.CreateCommand();
+            command.CommandText = "DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; PRAGMA user_version = 11;";
             command.ExecuteNonQuery();
         }
 

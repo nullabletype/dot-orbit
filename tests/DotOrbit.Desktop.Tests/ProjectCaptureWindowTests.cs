@@ -89,6 +89,128 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
+    public void ProjectAggregateBinActionsAreKeyboardOperableNamedAndRestorable()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        work.CreateTask(project.Id, "Dig");
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+        var binNavigation = Assert.Single(window.GetVisualDescendants().OfType<RadioButton>(), button =>
+            AutomationProperties.GetAutomationId(button) == "navigation-bin");
+        shell.Work!.SelectProject(project.Id);
+        Dispatcher.UIThread.RunJobs();
+        var move = Assert.Single(window.GetVisualDescendants().OfType<Button>(), button =>
+            AutomationProperties.GetAutomationId(button) == "project-move-to-bin");
+
+        Assert.True(move.IsEffectivelyVisible);
+        Assert.Equal("Move Project and its Tasks to Bin", AutomationProperties.GetName(move));
+        Assert.Contains("recoverable aggregate", AutomationProperties.GetHelpText(move), StringComparison.Ordinal);
+        Assert.True(move.Focus());
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        shell.BinNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+
+        var restore = Assert.Single(window.GetVisualDescendants().OfType<Button>(), button =>
+            AutomationProperties.GetAutomationId(button) == $"bin-restore-project-{project.Id}");
+        Assert.Equal("Restore Garden Project and its Tasks from Bin", AutomationProperties.GetName(restore));
+        Assert.Contains("nearest surviving former positions", AutomationProperties.GetHelpText(restore), StringComparison.Ordinal);
+        Assert.True(restore.Focus());
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("Project and its Tasks restored from Bin.", shell.Work.Message);
+        Assert.True(binNavigation.IsKeyboardFocusWithin);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void EmptyBinConfirmationAnnouncesCaveatAndReturnsFocusAfterCancelOrSuccess()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        work.CreateTask(project.Id, "Dig");
+        work.MoveProjectToBin(project.Id);
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+        var binNavigation = Assert.Single(window.GetVisualDescendants().OfType<RadioButton>(), button =>
+            AutomationProperties.GetAutomationId(button) == "navigation-bin");
+        shell.BinNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var empty = Assert.Single(window.GetVisualDescendants().OfType<Button>(), button =>
+            AutomationProperties.GetAutomationId(button) == "empty-bin");
+
+        Assert.True(empty.Focus());
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        var confirm = Assert.Single(window.GetVisualDescendants().OfType<Button>(), button =>
+            AutomationProperties.GetAutomationId(button) == "empty-bin-confirm");
+        var cancel = Assert.Single(window.GetVisualDescendants().OfType<Button>(), button =>
+            AutomationProperties.GetAutomationId(button) == "empty-bin-cancel");
+        Assert.True(confirm.IsKeyboardFocusWithin);
+        Assert.Contains("validated encrypted recovery point", AutomationProperties.GetName(confirm), StringComparison.Ordinal);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text =>
+            text.IsEffectivelyVisible && text.Text?.Contains("1 Project and 1 Task", StringComparison.Ordinal) == true
+            && text.Text.Contains("not forensic erasure", StringComparison.Ordinal));
+        Assert.True(cancel.Focus());
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(empty.IsKeyboardFocusWithin);
+        Assert.Single(shell.Work!.Bin);
+
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        confirm = Assert.Single(window.GetVisualDescendants().OfType<Button>(), button =>
+            AutomationProperties.GetAutomationId(button) == "empty-bin-confirm");
+        Assert.True(confirm.Focus());
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(binNavigation.IsKeyboardFocusWithin);
+        Assert.False(empty.IsEffectivelyVisible);
+        Assert.Empty(shell.Work.Bin);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void EmptyBinFailureIsAnnouncedPreservesRowsAndReturnsFocus()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Keep", "", "home", null);
+        work.MoveTaskToBin(task.Id);
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+        shell.BinNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var empty = Assert.Single(window.GetVisualDescendants().OfType<Button>(), button =>
+            AutomationProperties.GetAutomationId(button) == "empty-bin");
+        Assert.True(empty.Focus());
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        work.FailWrites = true;
+        var confirm = Assert.Single(window.GetVisualDescendants().OfType<Button>(), button =>
+            AutomationProperties.GetAutomationId(button) == "empty-bin-confirm");
+        Assert.True(confirm.Focus());
+
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        var status = Assert.IsType<TextBlock>(window.FindControl<TextBlock>("TopBarStatusMessage"));
+        Assert.Equal("Could not empty Bin. Nothing was deleted.", status.Text);
+        Assert.Equal(AutomationLiveSetting.Polite, AutomationProperties.GetLiveSetting(status));
+        Assert.True(status.IsEffectivelyVisible);
+        Assert.True(empty.IsKeyboardFocusWithin);
+        Assert.Equal(task.Id, Assert.IsType<TaskRecord>(Assert.Single(shell.Work!.Bin).Task).Id);
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public void CanvasViewsReserveConsistentBottomScrollClearance()
     {
         var shell = new ShellViewModel(new MemoryWorkspaceWork());

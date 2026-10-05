@@ -47,7 +47,7 @@ public sealed class EncryptedWorkspaceStoreTests
         Assert.Equal("Personal Admin", ExecuteScalar<string>(inspection, "SELECT name FROM categories;"));
         Assert.Equal(1L, ExecuteScalar<long>(inspection, "SELECT COUNT(*) FROM categories;"));
         Assert.Equal(
-            "categories,projects,tasks,participants,task_participants,today_tasks,task_archives,project_archives,archive_search,task_bins,task_bin_order_anchors,project_bins",
+            "categories,projects,tasks,participants,task_participants,today_tasks,task_archives,project_archives,archive_search,task_bins,task_bin_order_anchors,project_bins,project_bin_tasks,project_bin_order_anchors",
             ExecuteScalar<string>(
                 inspection,
                 "SELECT group_concat(name, ',') FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND (name = 'archive_search' OR name NOT LIKE 'archive_search_%');"));

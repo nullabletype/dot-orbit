@@ -36,4 +36,15 @@ public sealed class TaskBinRestorePolicyTests
         Assert.Contains("parent Project", exception.Message, StringComparison.Ordinal);
         TaskBinRestorePolicy.EnsureParentAllowsRestore(parentProjectIsBinned: false);
     }
+
+    [Fact]
+    public void ProjectRestoreUsesNearestSurvivingFormerNeighbourAndFallsBackToEnd()
+    {
+        Assert.Equal(1, ProjectBinRestorePolicy.RestoreIndex(
+            ["before", "after"],
+            [new("before", -1), new("after", 1)]));
+        Assert.Equal(1, ProjectBinRestorePolicy.RestoreIndex(
+            ["survivor"],
+            [new("missing", -1), new("also-missing", 1)]));
+    }
 }

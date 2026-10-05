@@ -6,7 +6,7 @@ namespace DotOrbit.Storage.Sqlite;
 
 public sealed class EncryptedWorkspaceStore : IWorkspaceStore
 {
-    public const int CurrentSchemaVersion = 11;
+    public const int CurrentSchemaVersion = 12;
 
     internal const string CipherName = "chacha20";
     internal const int KdfIterations = 64007;
@@ -25,6 +25,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
     private readonly Action<WorkspacePassphraseRotationCheckpoint>? _passphraseRotationCheckpoint;
     private readonly Func<SqliteConnection, string>? _passphraseRotationIntegrityCheck;
     private readonly Func<WorkspacePassphrase, bool>? _passphraseRotationReopenBlocked;
+    private readonly Action<EmptyBinCheckpoint>? _emptyBinCheckpoint;
 
     public EncryptedWorkspaceStore()
         : this(
@@ -58,7 +59,8 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         Action? afterMigration = null,
         Action<WorkspacePassphraseRotationCheckpoint>? passphraseRotationCheckpoint = null,
         Func<SqliteConnection, string>? passphraseRotationIntegrityCheck = null,
-        Func<WorkspacePassphrase, bool>? passphraseRotationReopenBlocked = null)
+        Func<WorkspacePassphrase, bool>? passphraseRotationReopenBlocked = null,
+        Action<EmptyBinCheckpoint>? emptyBinCheckpoint = null)
     {
         ArgumentNullException.ThrowIfNull(identifierGenerator);
         ArgumentNullException.ThrowIfNull(fileOperations);
@@ -71,6 +73,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         _passphraseRotationCheckpoint = passphraseRotationCheckpoint;
         _passphraseRotationIntegrityCheck = passphraseRotationIntegrityCheck;
         _passphraseRotationReopenBlocked = passphraseRotationReopenBlocked;
+        _emptyBinCheckpoint = emptyBinCheckpoint;
         EnsureProviderInitialised();
     }
 
@@ -646,7 +649,11 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         {
             SqliteWorkspaceWork.ValidateShape(connection, transaction, SqliteWorkspaceWork.SchemaTen);
         }
-        else if (schemaVersion >= 11)
+        else if (schemaVersion == 11)
+        {
+            SqliteWorkspaceWork.ValidateShape(connection, transaction, SqliteWorkspaceWork.SchemaEleven);
+        }
+        else if (schemaVersion >= 12)
         {
             SqliteWorkspaceWork.ValidateShape(connection, transaction);
         }
@@ -810,7 +817,8 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
                 passphrase,
                 _recovery,
                 _gate,
-                SqliteWorkspaceWork.RebuildArchiveSearchIndex);
+                SqliteWorkspaceWork.RebuildArchiveSearchIndex,
+                store._emptyBinCheckpoint);
             Work = new SqliteWorkspaceWork(store, _transactions, store._timeProvider);
         }
 
