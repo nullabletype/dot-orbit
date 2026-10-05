@@ -16,6 +16,7 @@ Build dot-orbit as a pragmatic modular monolith. Use ports and adapters at real 
 The initial production projects are:
 
 - `DotOrbit.Core` — domain and application behaviour organised by capabilities such as Projects, Tasks, Today, Categories, Archive, and Bin. It depends only on the .NET base class libraries and exposes small interfaces for application commands, results, and query projections.
+- `DotOrbit.Markdown` — the single sanitised Markdown render model and its plain-text projection, shared by desktop preview, clipboard, and archive search.
 - `DotOrbit.Storage.Sqlite` — the SQLite3MC adapter, including mappings, atomic transactions, search indexes, schema migrations, encrypted store lifecycle, and encrypted backup and restore implementation.
 - `DotOrbit.Desktop` — Avalonia views and view models plus the desktop composition root, file selection, clipboard, and application lifecycle integration.
 
@@ -26,9 +27,11 @@ Dependencies point inward:
 ```text
 DotOrbit.Desktop --------> DotOrbit.Core
         |                        ^
+        +--> DotOrbit.Markdown   |
+        |             ^          |
         +--> DotOrbit.Storage.Sqlite
-                     |
-                     +----------+
+                      |
+                      +----------+
 ```
 
 `DotOrbit.Core` never references Avalonia or SQLite. `DotOrbit.Storage.Sqlite` implements core-owned persistence needs. `DotOrbit.Desktop` owns composition and connects the application module to the production adapters. A future mobile application can provide another presentation and composition root while reusing the core and, where suitable, the storage adapter; desktop user-interface reuse is not required.
@@ -39,7 +42,7 @@ The initial deep modules are:
 - **Encrypted store lifecycle module** — owns create, open, validate, migrate, rotate, and close behaviour. Its implementation hides cipher and key-derivation configuration, exclusive migration locking, secret handling, and failure classification.
 - **Recovery module** — owns creation, validation, retention, publication, and restoration of encrypted recovery points. SQLite backup mechanics and filesystem publication remain implementation details.
 - **Plaintext export adapter** — explicitly and manually writes the versioned unencrypted export selected by the user. It is separate from encrypted recovery, does not participate in automatic backup retention, and does not default to the recovery destination.
-- **Markdown module** — a separate adapter accepts untrusted Markdown and produces one sanitised render model used for preview, rich copy, and plain-text fallback. It is consumed at the desktop or application edge and may depend inward on core-owned contracts if needed; `DotOrbit.Core` never depends on a Markdown parser or renderer.
+- **Markdown module** — a separate adapter accepts untrusted Markdown and produces one sanitised render model used for preview, rich copy, archive-search text, and plain-text fallback. It is consumed at the desktop, persistence, or application edge and may depend inward on core-owned contracts if needed; `DotOrbit.Core` never depends on a Markdown parser or renderer.
 
 Interfaces are introduced where behaviour genuinely varies or callers must be isolated from I/O. Local-substitutable dependencies use their real implementation in integration tests where practical: SQLite3MC tests use temporary encrypted databases and recovery tests use temporary directories. Built-in seams such as `TimeProvider` are preferred to application-specific wrappers. Internal fault-injection seams may be used for interruption testing without becoming part of a module's external interface.
 

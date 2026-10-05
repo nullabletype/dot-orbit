@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/DotOrbit.Core/DotOrbit.Core.csproj" />
     <Project Path="src/DotOrbit.Desktop/DotOrbit.Desktop.csproj" />
+    <Project Path="src/DotOrbit.Markdown/DotOrbit.Markdown.csproj" />
     <Project Path="src/DotOrbit.Storage.Sqlite/DotOrbit.Storage.Sqlite.csproj" />
   </Folder>
   <Folder Name="/tests/">

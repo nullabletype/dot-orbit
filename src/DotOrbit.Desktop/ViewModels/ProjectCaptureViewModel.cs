@@ -3,7 +3,7 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using DotOrbit.Core.Workspaces;
-using DotOrbit.Desktop.Markdown;
+using DotOrbit.Markdown;
 
 namespace DotOrbit.Desktop.ViewModels;
 
@@ -34,6 +34,9 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private bool _upcomingActive;
     private bool _completedActive;
     private bool _archiveActive;
+    private string _archiveSearchText = string.Empty;
+    private string _archiveSearchStatus = string.Empty;
+    private bool _archiveSearchFailed;
     private bool _todayActive;
     private string _completionFocusAutomationId = string.Empty;
     private string _reorderFocusAutomationId = string.Empty;
@@ -82,6 +85,11 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         NewTodayTaskCommand = new(() => Navigate(BeginTodayTask));
         NewCategoryCommand = new(() => Navigate(BeginCategory));
         ClearTodayCommand = new(ClearToday);
+        ClearArchiveSearchCommand = new(() =>
+        {
+            ArchiveSearchText = string.Empty;
+            ArchiveFocusAutomationId = "archive-search";
+        });
         AddParticipantCommand = new(AddParticipant);
         AddNewParticipantCommand = new(AddNewParticipant);
         CancelNewParticipantCommand = new(() =>
@@ -130,6 +138,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public ObservableCollection<TaskRowViewModel> Completed { get; } = [];
     public ObservableCollection<ArchivedTaskRowViewModel> Archived { get; } = [];
     public ObservableCollection<ArchivedWorkGroupViewModel> ArchiveGroups { get; } = [];
+    public ObservableCollection<ArchiveSearchResultViewModel> ArchiveSearchResults { get; } = [];
+    public ObservableCollection<ArchiveSearchResultGroupViewModel> ArchiveSearchGroups { get; } = [];
     public ObservableCollection<TodayTaskRowViewModel> TodayPlanned { get; } = [];
     public ObservableCollection<TodayTaskRowViewModel> TodayInProgress { get; } = [];
     public ObservableCollection<CompletedTaskRowViewModel> CompletedToday { get; } = [];
@@ -146,6 +156,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public RelayCommand NewTodayTaskCommand { get; }
     public RelayCommand NewCategoryCommand { get; }
     public RelayCommand ClearTodayCommand { get; }
+    public RelayCommand ClearArchiveSearchCommand { get; }
     public RelayCommand AddParticipantCommand { get; }
     public RelayCommand AddNewParticipantCommand { get; }
     public RelayCommand CancelNewParticipantCommand { get; }
@@ -200,6 +211,28 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public bool HasArchivedProjects => ArchivedProjects.Count > 0;
     public bool HasArchived => Archived.Count > 0 || ArchivedProjects.Count > 0;
     public bool HasNoArchived => !HasArchived;
+    public string ArchiveSearchText
+    {
+        get => _archiveSearchText;
+        set
+        {
+            if (string.Equals(_archiveSearchText, value, StringComparison.Ordinal)) return;
+            _archiveSearchText = value;
+            Notify();
+            RefreshArchiveSearch();
+        }
+    }
+    public bool HasArchiveSearchQuery => !string.IsNullOrWhiteSpace(ArchiveSearchText);
+    public bool HasArchiveSearchResults => ArchiveSearchResults.Count > 0;
+    public bool ShowArchiveTimeline => !HasArchiveSearchQuery && HasArchived;
+    public bool ShowArchiveEmpty => !HasArchiveSearchQuery && HasNoArchived;
+    public bool ShowArchiveSearchEmpty => HasArchiveSearchQuery && !HasArchiveSearchResults && !_archiveSearchFailed;
+    public bool ShowArchiveSearchError => HasArchiveSearchQuery && _archiveSearchFailed;
+    public string ArchiveSearchStatus
+    {
+        get => _archiveSearchStatus;
+        private set { _archiveSearchStatus = value; Notify(); }
+    }
     public bool HasTodayTasks => TodayPlanned.Count + TodayInProgress.Count > 0;
     public bool HasNoTodayTasks => !HasTodayTasks;
     public bool HasCompletedToday => CompletedToday.Count > 0;
@@ -956,14 +989,19 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         ResolveDraftBeforeAction(() =>
         {
             var archivedIndex = ArchivedProjects.IndexOf(ArchivedProjects.Single(project => project.Project.Id == id));
+            var searchIndex = ArchiveSearchResults.IndexOf(ArchiveSearchResults.FirstOrDefault(result => result.Result.Id == id)!);
             if (!Attempt(() =>
                 {
                     _work.RestoreProject(id);
                     Reload();
                     ArchiveFocusAutomationId = _archiveActive
-                        ? ArchivedProjects.Count == 0
-                            ? Archived.Count == 0 ? "navigation-archive" : Archived[0].Task.RestoreAutomationId
-                            : ArchivedProjects[Math.Min(archivedIndex, ArchivedProjects.Count - 1)].Project.RestoreAutomationId
+                        ? HasArchiveSearchQuery
+                            ? ArchiveSearchResults.Count == 0
+                                ? "archive-search"
+                                : ArchiveSearchResults[Math.Min(Math.Max(searchIndex, 0), ArchiveSearchResults.Count - 1)].RestoreAutomationId
+                            : ArchivedProjects.Count == 0
+                                ? Archived.Count == 0 ? "navigation-archive" : Archived[0].Task.RestoreAutomationId
+                                : ArchivedProjects[Math.Min(archivedIndex, ArchivedProjects.Count - 1)].Project.RestoreAutomationId
                         : $"project-archive-{id}";
                     Message = "Project restored.";
                 }, "Could not restore the Project. No changes were made.")) return;
@@ -978,16 +1016,21 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             var task = _snapshot.Tasks.Single(item => item.Id == id);
             if (!task.IsArchived) return;
             var archivedIndex = Archived.IndexOf(Archived.FirstOrDefault(row => row.Task.Id == id)!);
+            var searchIndex = ArchiveSearchResults.IndexOf(ArchiveSearchResults.FirstOrDefault(result => result.Result.Id == id)!);
             if (!Attempt(() =>
                 {
                     _work.RestoreTask(id);
                     Reload();
                     ArchiveFocusAutomationId = _archiveActive
-                        ? Archived.Count == 0
-                            ? ArchivedProjects.Count == 0
-                                ? "navigation-archive"
-                                : ArchivedProjects[0].Project.RestoreAutomationId
-                            : Archived[Math.Min(Math.Max(archivedIndex, 0), Archived.Count - 1)].Task.RestoreAutomationId
+                        ? HasArchiveSearchQuery
+                            ? ArchiveSearchResults.Count == 0
+                                ? "archive-search"
+                                : ArchiveSearchResults[Math.Min(Math.Max(searchIndex, 0), ArchiveSearchResults.Count - 1)].RestoreAutomationId
+                            : Archived.Count == 0
+                                ? ArchivedProjects.Count == 0
+                                    ? "navigation-archive"
+                                    : ArchivedProjects[0].Project.RestoreAutomationId
+                                : Archived[Math.Min(Math.Max(archivedIndex, 0), Archived.Count - 1)].Task.RestoreAutomationId
                         : $"task-completion-{id}";
                     Message = "Task restored to Completed.";
                 }, "Could not restore the Task. No changes were made.")) return;
@@ -1609,6 +1652,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         for (var index = 0; index < desiredArchived.Length; index++)
             Archived.Add(new(desiredArchived[index], index == desiredArchived.Length - 1));
         RefreshArchiveGroups();
+        RefreshArchiveSearch();
         SynchroniseToday(TodayPlanned, _snapshot.Tasks
             .Where(task => IsTaskInActiveWork(task) && !task.IsComplete && !task.IsArchived && task.TodayLane == TodayLane.Planned)
             .OrderBy(task => task.SharedPosition).Select(ToTaskRow).ToArray(), TodayLane.Planned);
@@ -1745,6 +1789,66 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             var rows = group.Select((row, index) => row with { IsLast = index == group.Count() - 1 }).ToArray();
             ArchiveGroups.Add(new(group.Key.Heading, rows));
         }
+    }
+
+    private void RefreshArchiveSearch()
+    {
+        ArchiveSearchResults.Clear();
+        ArchiveSearchGroups.Clear();
+        _archiveSearchFailed = false;
+        if (!HasArchiveSearchQuery)
+        {
+            ArchiveSearchStatus = string.Empty;
+            NotifyArchiveSearchPresentation();
+            return;
+        }
+
+        try
+        {
+            var results = _work.SearchArchive(ArchiveSearchText);
+            var matches = results.Select(result =>
+            {
+                if (result.RecordType == ArchiveSearchRecordType.Project)
+                {
+                    var project = _snapshot.Projects.Single(item => item.Id == result.Id);
+                    return (Result: result, ArchiveDate: project.ArchiveDate!.Value, ArchivedAt: project.ArchivedAt!.Value);
+                }
+
+                var task = _snapshot.Tasks.Single(item => item.Id == result.Id);
+                return (Result: result, ArchiveDate: task.ArchiveDate!.Value, ArchivedAt: task.ArchivedAt!.Value);
+            }).ToArray();
+            foreach (var group in matches.GroupBy(match => DateGroupFor(match.ArchiveDate))
+                         .OrderByDescending(group => group.Key.Start))
+            {
+                var groupMatches = group.ToArray();
+                var rows = groupMatches.Select((match, index) => new ArchiveSearchResultViewModel(
+                    this, match.Result, index == groupMatches.Length - 1)).ToArray();
+                foreach (var row in rows) ArchiveSearchResults.Add(row);
+                ArchiveSearchGroups.Add(new(group.Key.Heading, rows));
+            }
+            ArchiveSearchStatus = results.Count switch
+            {
+                0 => $"No archived work matches “{ArchiveSearchText.Trim()}”.",
+                1 => "1 archived result.",
+                _ => $"{results.Count.ToString(CultureInfo.InvariantCulture)} archived results.",
+            };
+        }
+        catch (WorkspaceWorkException)
+        {
+            _archiveSearchFailed = true;
+            ArchiveSearchStatus = "Archive search is unavailable. Try again.";
+        }
+        NotifyArchiveSearchPresentation();
+    }
+
+    private void NotifyArchiveSearchPresentation()
+    {
+        Notify(nameof(HasArchiveSearchQuery));
+        Notify(nameof(HasArchiveSearchResults));
+        Notify(nameof(ShowArchiveTimeline));
+        Notify(nameof(ShowArchiveEmpty));
+        Notify(nameof(ShowArchiveSearchEmpty));
+        Notify(nameof(ShowArchiveSearchError));
     }
 
     private void RefreshBulkArchivePreview()
@@ -2172,6 +2276,60 @@ public sealed record ArchivedWorkRowViewModel(
     public bool IsTask => Task is not null;
 }
 public sealed record ArchivedWorkGroupViewModel(string Heading, IReadOnlyList<ArchivedWorkRowViewModel> Rows);
+public sealed record ArchiveSearchResultGroupViewModel(string Heading, IReadOnlyList<ArchiveSearchResultViewModel> Rows);
+
+public sealed class ArchiveSearchResultViewModel
+{
+    public ArchiveSearchResultViewModel(
+        ProjectCaptureViewModel owner,
+        ArchiveSearchResult result,
+        bool isLast)
+    {
+        Result = result;
+        IsLast = isLast;
+        OpenCommand = new(() =>
+        {
+            if (result.RecordType == ArchiveSearchRecordType.Project) owner.SelectProject(result.Id);
+            else owner.SelectTask(result.Id);
+        });
+        RestoreCommand = new(() =>
+        {
+            if (result.RecordType == ArchiveSearchRecordType.Project) owner.RestoreProject(result.Id);
+            else owner.RestoreTask(result.Id);
+        });
+    }
+
+    public ArchiveSearchResult Result { get; }
+    public bool IsLast { get; }
+    public bool IsProject => Result.RecordType == ArchiveSearchRecordType.Project;
+    public bool IsTask => Result.RecordType == ArchiveSearchRecordType.Task;
+    public string Title => Result.Title;
+    public string TypeLabel => Result.RecordType == ArchiveSearchRecordType.Project ? "Project" : "Task";
+    public string StateLabel => $"Archived {TypeLabel}";
+    public bool HasParentProject => Result.ParentProjectTitle is not null;
+    public string ParentProjectText => Result.ParentProjectTitle is null
+        ? string.Empty
+        : $"Project · {Result.ParentProjectTitle}";
+    public string DateText => $"{(Result.DateKind == ArchiveSearchDateKind.Completed ? "Completed" : "Archived")} {Result.Date.ToString("d MMM yyyy", CultureInfo.InvariantCulture)}";
+    public string Excerpt => Result.Excerpt;
+    public string ContextText => string.Join(" · ", new[] { ParentProjectText, Excerpt }
+        .Where(value => !string.IsNullOrWhiteSpace(value)));
+    public string AutomationId => $"archive-search-{Result.RecordType.ToString().ToLowerInvariant()}-{Result.Id}";
+    public string RestoreAutomationId => $"archive-search-restore-{Result.RecordType.ToString().ToLowerInvariant()}-{Result.Id}";
+    public string RestoreAccessibleName => Result.RecordType == ArchiveSearchRecordType.Project
+        ? $"Restore Project {Title} to Projects"
+        : $"Restore {Title} to Completed";
+    public string AccessibleName => string.Join(". ", new[]
+        {
+            $"{TypeLabel} {Title}",
+            ParentProjectText,
+            DateText,
+            Excerpt,
+        }.Where(value => !string.IsNullOrWhiteSpace(value)));
+    public RelayCommand OpenCommand { get; }
+    public RelayCommand RestoreCommand { get; }
+}
+
 public sealed record UpcomingTaskGroupViewModel(string Heading, IReadOnlyList<TaskRowViewModel> Tasks)
 {
     public IReadOnlyList<UpcomingTaskRowViewModel> Rows { get; } = Tasks

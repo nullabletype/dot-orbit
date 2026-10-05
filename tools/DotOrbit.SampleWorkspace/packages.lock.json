@@ -23,13 +23,26 @@
       "dotorbit.core": {
         "type": "Project"
       },
+      "dotorbit.markdown": {
+        "type": "Project",
+        "dependencies": {
+          "Markdig": "[1.4.0, )"
+        }
+      },
       "dotorbit.storage.sqlite": {
         "type": "Project",
         "dependencies": {
           "DotOrbit.Core": "[1.0.0, )",
+          "DotOrbit.Markdown": "[1.0.0, )",
           "Microsoft.Data.Sqlite.Core": "[10.0.12, )",
           "SQLite3MC.PCLRaw.bundle": "[2.4.0, )"
         }
+      },
+      "Markdig": {
+        "type": "CentralTransitive",
+        "requested": "[1.4.0, )",
+        "resolved": "1.4.0",
+        "contentHash": "lLhaiI/mNDTNzgLqnmknhf4LjgTqOAyjx5+GNz0X3AxYMxUhmFppF2WVMdER+SDqwhE5wUF1pzs/cuLwFxs7xA=="
       },
       "Microsoft.Data.Sqlite.Core": {
         "type": "CentralTransitive",

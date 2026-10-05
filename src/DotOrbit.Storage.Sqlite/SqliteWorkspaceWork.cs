@@ -1,5 +1,7 @@
 using System.Globalization;
+using System.Text;
 using DotOrbit.Core.Workspaces;
+using DotOrbit.Markdown;
 using Microsoft.Data.Sqlite;
 
 namespace DotOrbit.Storage.Sqlite;
@@ -133,8 +135,28 @@ internal sealed class SqliteWorkspaceWork(
         );
         """;
 
-    internal const string Schema = ProjectSchema + TaskSchema + ParticipantSchema + TaskParticipantSchema
+    internal const string SchemaNine = ProjectSchema + TaskSchema + ParticipantSchema + TaskParticipantSchema
         + TodayTaskSchema + TaskArchiveSchema + ProjectArchiveSchema + "PRAGMA user_version = 9;";
+
+    internal const string ArchiveSearchSchema = """
+        CREATE VIRTUAL TABLE archive_search USING fts5(
+            record_type UNINDEXED,
+            record_id UNINDEXED,
+            title,
+            description,
+            category,
+            participants,
+            parent_project UNINDEXED,
+            archive_ticks UNINDEXED,
+            display_date UNINDEXED,
+            date_kind UNINDEXED,
+            tokenize = 'unicode61 remove_diacritics 2'
+        );
+        """;
+
+    internal const string Schema = ProjectSchema + TaskSchema + ParticipantSchema + TaskParticipantSchema
+        + TodayTaskSchema + TaskArchiveSchema + ProjectArchiveSchema + ArchiveSearchSchema
+        + "PRAGMA user_version = 10;";
 
     internal static void ValidateShape(SqliteConnection connection, SqliteTransaction? transaction, string? schema = null)
     {
@@ -150,6 +172,7 @@ internal sealed class SqliteWorkspaceWork(
         var hasParticipants = string.Equals(schema, SchemaSix, StringComparison.Ordinal)
             || string.Equals(schema, SchemaSeven, StringComparison.Ordinal)
             || string.Equals(schema, SchemaEight, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaNine, StringComparison.Ordinal)
             || string.Equals(schema, Schema, StringComparison.Ordinal);
         if (hasParticipants)
         {
@@ -158,16 +181,21 @@ internal sealed class SqliteWorkspaceWork(
         }
         var hasToday = string.Equals(schema, SchemaSeven, StringComparison.Ordinal)
             || string.Equals(schema, SchemaEight, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaNine, StringComparison.Ordinal)
             || string.Equals(schema, Schema, StringComparison.Ordinal);
         if (hasToday)
             ValidateTableDefinition(command, "today_tasks", definitions[4]);
         var hasTaskArchive = string.Equals(schema, SchemaEight, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaNine, StringComparison.Ordinal)
             || string.Equals(schema, Schema, StringComparison.Ordinal);
         if (hasTaskArchive)
             ValidateTableDefinition(command, "task_archives", definitions[5]);
-        var hasProjectArchive = string.Equals(schema, Schema, StringComparison.Ordinal);
+        var hasProjectArchive = string.Equals(schema, SchemaNine, StringComparison.Ordinal)
+            || string.Equals(schema, Schema, StringComparison.Ordinal);
         if (hasProjectArchive)
             ValidateTableDefinition(command, "project_archives", definitions[6]);
+        if (string.Equals(schema, Schema, StringComparison.Ordinal))
+            ValidateTableDefinition(command, "archive_search", definitions[7]);
         command.Parameters.Clear();
         command.CommandText = "PRAGMA foreign_key_check;";
         using (var foreignKeys = command.ExecuteReader())
@@ -283,6 +311,51 @@ internal sealed class SqliteWorkspaceWork(
         string.Join(' ', definition.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
     public WorkspaceWorkSnapshot Read() => Guard(() => transactions.Read(ReadSnapshot));
+
+    public IReadOnlyList<ArchiveSearchResult> SearchArchive(string query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        var match = BuildArchiveMatchQuery(query);
+        if (match.Length == 0) return [];
+        return Guard(() => transactions.Read((connection, transaction) =>
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                SELECT record_type, record_id, title, NULLIF(parent_project, ''),
+                       date_kind, display_date,
+                       snippet(archive_search, -1, '', '', ' … ', 12)
+                FROM archive_search
+                WHERE archive_search MATCH $query
+                ORDER BY CAST(archive_ticks AS INTEGER) DESC, record_type, record_id;
+                """;
+            command.Parameters.AddWithValue("$query", match);
+            using var reader = command.ExecuteReader();
+            var results = new List<ArchiveSearchResult>();
+            while (reader.Read())
+            {
+                results.Add(new(
+                    reader.GetString(0) switch
+                    {
+                        "project" => ArchiveSearchRecordType.Project,
+                        "task" => ArchiveSearchRecordType.Task,
+                        _ => throw new InvalidDataException(),
+                    },
+                    reader.GetString(1),
+                    reader.GetString(2),
+                    reader.IsDBNull(3) ? null : reader.GetString(3),
+                    reader.GetString(4) switch
+                    {
+                        "archived" => ArchiveSearchDateKind.Archived,
+                        "completed" => ArchiveSearchDateKind.Completed,
+                        _ => throw new InvalidDataException(),
+                    },
+                    DateOnly.ParseExact(reader.GetString(5), "yyyy-MM-dd", CultureInfo.InvariantCulture),
+                    reader.GetString(6).Trim()));
+            }
+            return (IReadOnlyList<ArchiveSearchResult>)results.AsReadOnly();
+        }));
+    }
 
     public WorkspaceCategory CreateCategory(string name)
     {
@@ -556,6 +629,9 @@ internal sealed class SqliteWorkspaceWork(
         Guard(() => transactions.Execute((connection, transaction) =>
         {
             Require(connection, transaction, "tasks", id);
+            var task = ReadSnapshot(connection, transaction).Tasks.Single(item => item.Id == id);
+            if (task.IsArchived)
+                throw new InvalidOperationException("An archived Task must be restored before it can be completed.");
             var instant = timeProvider.GetUtcNow();
             var localDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(instant, timeProvider.LocalTimeZone).DateTime);
             Execute(connection, transaction, "DELETE FROM today_tasks WHERE task_id=$id;", ("$id", id));
@@ -1106,6 +1182,128 @@ internal sealed class SqliteWorkspaceWork(
                 "INSERT INTO task_participants (task_id,participant_id,position) VALUES ($task,$participant,$position);",
                 ("$task", taskId), ("$participant", associations[position]), ("$position", position));
 
+    }
+
+    internal static void RebuildArchiveSearchIndex(
+        SqliteConnection connection,
+        SqliteTransaction? transaction = null)
+    {
+        var snapshot = ReadSnapshot(connection, transaction);
+        using (var clear = connection.CreateCommand())
+        {
+            clear.Transaction = transaction;
+            clear.CommandText = "DELETE FROM archive_search;";
+            clear.ExecuteNonQuery();
+        }
+
+        var categories = snapshot.Categories.ToDictionary(category => category.Id, StringComparer.Ordinal);
+        var projects = snapshot.Projects.ToDictionary(project => project.Id, StringComparer.Ordinal);
+        var participants = snapshot.Participants.ToDictionary(participant => participant.Id, StringComparer.Ordinal);
+
+        foreach (var project in snapshot.Projects.Where(project => project.IsArchived))
+        {
+            InsertArchiveSearchDocument(
+                connection,
+                transaction,
+                "project",
+                project.Id,
+                project.Title,
+                SearchableMarkdownText(project.Description),
+                categories[project.CategoryId].Name,
+                string.Empty,
+                string.Empty,
+                project.ArchivedAt!.Value.UtcTicks,
+                project.ArchiveDate!.Value,
+                "archived");
+        }
+
+        foreach (var task in snapshot.Tasks.Where(task => task.IsArchived))
+        {
+            var parent = task.ProjectId is null ? null : projects[task.ProjectId];
+            var categoryId = task.ExplicitCategoryId ?? parent!.CategoryId;
+            InsertArchiveSearchDocument(
+                connection,
+                transaction,
+                "task",
+                task.Id,
+                task.Title,
+                SearchableMarkdownText(task.Description),
+                categories[categoryId].Name,
+                string.Join(' ', task.Participants.Select(id => participants[id].Label)),
+                parent?.Title ?? string.Empty,
+                task.ArchivedAt!.Value.UtcTicks,
+                task.CompletionDate!.Value,
+                "completed");
+        }
+    }
+
+    private static void InsertArchiveSearchDocument(
+        SqliteConnection connection,
+        SqliteTransaction? transaction,
+        string recordType,
+        string recordId,
+        string title,
+        string description,
+        string category,
+        string participants,
+        string parentProject,
+        long archiveTicks,
+        DateOnly displayDate,
+        string dateKind)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO archive_search
+                (record_type, record_id, title, description, category, participants,
+                 parent_project, archive_ticks, display_date, date_kind)
+            VALUES
+                ($recordType, $recordId, $title, $description, $category, $participants,
+                 $parentProject, $archiveTicks, $displayDate, $dateKind);
+            """;
+        command.Parameters.AddWithValue("$recordType", recordType);
+        command.Parameters.AddWithValue("$recordId", recordId);
+        command.Parameters.AddWithValue("$title", title);
+        command.Parameters.AddWithValue("$description", description);
+        command.Parameters.AddWithValue("$category", category);
+        command.Parameters.AddWithValue("$participants", participants);
+        command.Parameters.AddWithValue("$parentProject", parentProject);
+        command.Parameters.AddWithValue("$archiveTicks", archiveTicks);
+        command.Parameters.AddWithValue("$displayDate", Date(displayDate));
+        command.Parameters.AddWithValue("$dateKind", dateKind);
+        command.ExecuteNonQuery();
+    }
+
+    private static string SearchableMarkdownText(string markdown)
+    {
+        var plainText = SanitisedMarkdownRenderer.Render(markdown).ToPlainText();
+        return string.Join(' ', plainText.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private static string BuildArchiveMatchQuery(string query)
+    {
+        var tokens = new List<string>();
+        var token = new StringBuilder();
+        foreach (var rune in query.EnumerateRunes())
+        {
+            var category = Rune.GetUnicodeCategory(rune);
+            if (Rune.IsLetterOrDigit(rune)
+                || category is UnicodeCategory.NonSpacingMark
+                    or UnicodeCategory.SpacingCombiningMark
+                    or UnicodeCategory.EnclosingMark)
+            {
+                token.Append(rune.ToString());
+            }
+            else if (token.Length > 0)
+            {
+                tokens.Add(token.ToString());
+                token.Clear();
+            }
+        }
+        if (token.Length > 0) tokens.Add(token.ToString());
+        return string.Join(" AND ", tokens
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(value => $"\"{value}\"*"));
     }
 
     private static string? Date(DateOnly? date) => date?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);

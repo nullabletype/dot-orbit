@@ -340,17 +340,24 @@
           "Avalonia.Fonts.Inter": "[12.1.3, )",
           "Avalonia.Themes.Fluent": "[12.1.3, )",
           "DotOrbit.Core": "[1.0.0, )",
-          "DotOrbit.Storage.Sqlite": "[1.0.0, )",
-          "Markdig": "[1.4.0, )"
+          "DotOrbit.Markdown": "[1.0.0, )",
+          "DotOrbit.Storage.Sqlite": "[1.0.0, )"
         }
       },
       "dotorbit.core": {
         "type": "Project"
       },
+      "dotorbit.markdown": {
+        "type": "Project",
+        "dependencies": {
+          "Markdig": "[1.4.0, )"
+        }
+      },
       "dotorbit.storage.sqlite": {
         "type": "Project",
         "dependencies": {
           "DotOrbit.Core": "[1.0.0, )",
+          "DotOrbit.Markdown": "[1.0.0, )",
           "Microsoft.Data.Sqlite.Core": "[10.0.12, )",
           "SQLite3MC.PCLRaw.bundle": "[2.4.0, )"
         }

@@ -226,6 +226,7 @@ public sealed class WorkspaceWorkTests : IDisposable
         Assert.NotNull(archived.ArchivedAt);
         Assert.NotNull(archived.ArchiveDate);
         Assert.Throws<InvalidOperationException>(() => session.Work.ArchiveTask(task.Id));
+        Assert.Throws<InvalidOperationException>(() => session.Work.CompleteTask(task.Id));
         Assert.Throws<InvalidOperationException>(() => session.Work.ReopenTask(task.Id));
 
         var restored = session.Work.RestoreTask(task.Id);
@@ -643,6 +644,169 @@ public sealed class WorkspaceWorkTests : IDisposable
     }
 
     [Fact]
+    public void ArchiveSearchIndexesPlainMarkdownCategoryParticipantsAndDeterministicResultContext()
+    {
+        var time = new ManualTimeProvider(
+            new DateTimeOffset(2026, 10, 1, 9, 0, 0, TimeSpan.Zero),
+            TimeZoneInfo.Utc);
+        var store = new EncryptedWorkspaceStore(new SystemIdentifierGenerator(), new WorkspaceFileOperations(), time);
+        using var session = store.Create(WorkspacePath, _passphrase, CategoryName.Create("Résumé Café").CategoryName!).Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        var participant = session.Work.CreateParticipant("Zoë");
+        var project = session.Work.CreateProject(
+            "Garden archive",
+            "# Tulip **layout** [reference](https://private.example)\n\n"
+                + "<div>Hidden raw HTML</div>\n\n"
+                + "![Seed chart](https://images.example/secret.png)\n\n"
+                + "[Unsafe label](javascript:alert(1))",
+            category.Id,
+            null);
+        var task = session.Work.CreateTaskDraft(
+            project.Id,
+            "Order bulbs",
+            "Blue, tulips for the border",
+            null,
+            null,
+            new([participant.Id], []));
+        session.Work.CreateStandaloneTask("Active tulip notes", "Blue tulips", category.Id, null);
+        session.Work.CompleteTask(task.Id);
+        session.Work.ArchiveTask(task.Id);
+        time.SetUtcNow(new DateTimeOffset(2026, 10, 2, 10, 0, 0, TimeSpan.Zero));
+        session.Work.ArchiveProject(project.Id);
+
+        var tulipResults = session.Work.SearchArchive("TUL");
+
+        Assert.Collection(tulipResults,
+            result =>
+            {
+                Assert.Equal(ArchiveSearchRecordType.Project, result.RecordType);
+                Assert.Equal(project.Id, result.Id);
+                Assert.Equal("Garden archive", result.Title);
+                Assert.Null(result.ParentProjectTitle);
+                Assert.Equal(ArchiveSearchDateKind.Archived, result.DateKind);
+                Assert.Equal(new DateOnly(2026, 10, 2), result.Date);
+                Assert.Contains("Tulip", result.Excerpt, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("**", result.Excerpt, StringComparison.Ordinal);
+            },
+            result =>
+            {
+                Assert.Equal(ArchiveSearchRecordType.Task, result.RecordType);
+                Assert.Equal(task.Id, result.Id);
+                Assert.Equal("Garden archive", result.ParentProjectTitle);
+                Assert.Equal(ArchiveSearchDateKind.Completed, result.DateKind);
+                Assert.Equal(new DateOnly(2026, 10, 1), result.Date);
+                Assert.Contains("tulips", result.Excerpt, StringComparison.OrdinalIgnoreCase);
+            });
+        Assert.Equal([project.Id, task.Id], session.Work.SearchArchive("résu").Select(result => result.Id));
+        Assert.Equal(task.Id, Assert.Single(session.Work.SearchArchive("zo")).Id);
+        Assert.Empty(session.Work.SearchArchive("private"));
+        Assert.Empty(session.Work.SearchArchive("hidden"));
+        Assert.Empty(session.Work.SearchArchive("images"));
+        Assert.Empty(session.Work.SearchArchive("javascript"));
+        Assert.Equal(project.Id, Assert.Single(session.Work.SearchArchive("seed")).Id);
+        Assert.Equal(project.Id, Assert.Single(session.Work.SearchArchive("unsafe")).Id);
+        Assert.DoesNotContain(session.Work.SearchArchive("tulip"), result => result.Title == "Active tulip notes");
+
+        session.Dispose();
+        using var reopened = store.Open(WorkspacePath, _passphrase).Session!;
+        Assert.Equal([project.Id, task.Id], reopened.Work.SearchArchive("tul").Select(result => result.Id));
+    }
+
+    [Fact]
+    public void ArchiveSearchUsesTokenPrefixesWithoutSubstringOrAdvancedQuerySemantics()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Café").CategoryName!).Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        var task = session.Work.CreateStandaloneTask("Planting guide", "Blue, tulips", category.Id, null);
+        session.Work.CompleteTask(task.Id);
+        session.Work.ArchiveTask(task.Id);
+
+        Assert.Equal(task.Id, Assert.Single(session.Work.SearchArchive("plant")).Id);
+        Assert.Equal(task.Id, Assert.Single(session.Work.SearchArchive("BLUE—TUL")).Id);
+        Assert.Equal(task.Id, Assert.Single(session.Work.SearchArchive("cafe")).Id);
+        Assert.Empty(session.Work.SearchArchive("ant"));
+        Assert.Empty(session.Work.SearchArchive("blue rose"));
+        Assert.Empty(session.Work.SearchArchive("blue OR rose"));
+        Assert.Empty(session.Work.SearchArchive("!!! OR *"));
+
+        var compatibility = session.Work.CreateStandaloneTask(
+            "Ｆｏｏ ﬂower", "Compatibility characters", category.Id, null);
+        session.Work.CompleteTask(compatibility.Id);
+        session.Work.ArchiveTask(compatibility.Id);
+        Assert.Equal(compatibility.Id, Assert.Single(session.Work.SearchArchive("Ｆｏ")).Id);
+        Assert.Equal(compatibility.Id, Assert.Single(session.Work.SearchArchive("ﬂo")).Id);
+    }
+
+    [Fact]
+    public void ArchiveSearchStaysAlignedThroughEditsRenamesReassignmentArchiveAndRestore()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var home = Assert.Single(session.Work.Read().Categories);
+        var reference = session.Work.CreateCategory("Work");
+        var participant = session.Work.CreateParticipant("SD");
+        var firstProject = session.Work.CreateProject("First parent", "", home.Id, null);
+        var secondProject = session.Work.CreateProject("Second parent", "", reference.Id, null);
+        var task = session.Work.CreateTaskDraft(firstProject.Id, "Old title", "Old description", null, null,
+            new([participant.Id], []));
+        session.Work.CompleteTask(task.Id);
+        session.Work.ArchiveTask(task.Id);
+        Assert.Equal(task.Id, Assert.Single(session.Work.SearchArchive("old")).Id);
+
+        session.Work.UpdateTask(task.Id, "Updated title", "Fresh phrase", reference.Id, null,
+            new([participant.Id], []));
+        session.Work.RenameParticipant(participant.Id, "ZX");
+        session.Work.RenameCategory(reference.Id, "Reference");
+
+        Assert.Empty(session.Work.SearchArchive("old"));
+        Assert.Equal(task.Id, Assert.Single(session.Work.SearchArchive("fresh reference zx")).Id);
+        Assert.Equal("First parent", Assert.Single(session.Work.SearchArchive("updated")).ParentProjectTitle);
+
+        session.Work.DetachTask(task.Id);
+        Assert.Null(Assert.Single(session.Work.SearchArchive("updated")).ParentProjectTitle);
+        session.Work.AttachTask(task.Id, secondProject.Id);
+        Assert.Equal("Second parent", Assert.Single(session.Work.SearchArchive("updated")).ParentProjectTitle);
+        session.Work.UpdateProject(secondProject.Id, "Revised parent", "", home.Id, null);
+        var moved = Assert.Single(session.Work.SearchArchive("updated"));
+        Assert.Equal("Revised parent", moved.ParentProjectTitle);
+        Assert.Equal(task.Id, Assert.Single(session.Work.SearchArchive("home")).Id);
+        Assert.Empty(session.Work.SearchArchive("reference"));
+
+        session.Work.RestoreTask(task.Id);
+        Assert.Empty(session.Work.SearchArchive("updated"));
+        session.Work.ArchiveTask(task.Id);
+        Assert.Equal(task.Id, Assert.Single(session.Work.SearchArchive("updated")).Id);
+
+        session.Work.ArchiveProject(firstProject.Id);
+        session.Work.UpdateProject(firstProject.Id, "Revised project", "Historical notes", reference.Id, null);
+        Assert.Equal(firstProject.Id, Assert.Single(session.Work.SearchArchive("historical reference")).Id);
+        session.Work.RestoreProject(firstProject.Id);
+        Assert.Empty(session.Work.SearchArchive("historical"));
+    }
+
+    [Fact]
+    public void SearchIndexFailureRollsBackTheSourceEdit()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        var task = session.Work.CreateStandaloneTask("Original", "Original description", category.Id, null);
+        session.Work.CompleteTask(task.Id);
+        session.Work.ArchiveTask(task.Id);
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "DROP TABLE archive_search;";
+            command.ExecuteNonQuery();
+        }
+
+        Assert.Throws<WorkspaceWorkException>(() => session.Work.UpdateTask(
+            task.Id, "Changed", "Changed description", category.Id, null));
+
+        var unchanged = Assert.Single(session.Work.Read().Tasks);
+        Assert.Equal("Original", unchanged.Title);
+        Assert.Equal("Original description", unchanged.Description);
+    }
+
+    [Fact]
     public void TodayMembershipLaneAndOrderPersistWithoutFollowingDatesOrCalendarRollover()
     {
         var time = new ManualTimeProvider(
@@ -976,7 +1140,7 @@ public sealed class WorkspaceWorkTests : IDisposable
         }
         using (var session = _store.Open(WorkspacePath, _passphrase).Session!)
         {
-            Assert.Equal(9, session.SchemaVersion);
+            Assert.Equal(10, session.SchemaVersion);
             Assert.Equal("original", Assert.Single(session.Work.Read().Categories).Id);
             var project = session.Work.CreateProject("Migrated project", "", "original", null);
             session.Work.CreateTask(project.Id, "Migrated task");
@@ -1044,14 +1208,15 @@ public sealed class WorkspaceWorkTests : IDisposable
     [InlineData("archived_instant TEXT NOT NULL", "archived_instant INTEGER NOT NULL")]
     [InlineData("archive_date TEXT NOT NULL", "archive_date TEXT")]
     [InlineData("archive_date TEXT NOT NULL", "archive_date INTEGER NOT NULL")]
-    public void OpenRejectsSchemaNineWithMissingConstraintsOrChangedTypes(string original, string replacement)
+    [InlineData("tokenize = 'unicode61 remove_diacritics 2'", "tokenize = 'ascii'")]
+    public void OpenRejectsSchemaTenWithChangedCanonicalDefinitions(string original, string replacement)
     {
         _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!.Dispose();
         using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
         {
             using var command = connection.CreateCommand();
             // Rebuild the empty work tables with valid SQL that weakens one schema guarantee.
-            command.CommandText = "DROP TABLE project_archives; DROP TABLE task_archives; DROP TABLE today_tasks; DROP TABLE task_participants; DROP TABLE participants; DROP TABLE tasks; DROP TABLE projects;" +
+            command.CommandText = "DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; DROP TABLE today_tasks; DROP TABLE task_participants; DROP TABLE participants; DROP TABLE tasks; DROP TABLE projects;" +
                 SqliteWorkspaceWork.Schema.Replace(original, replacement, StringComparison.Ordinal);
             command.ExecuteNonQuery();
             Assert.Equal("ok", EncryptedWorkspaceStore.ExecuteScalar<string>(connection, "PRAGMA integrity_check;"));
@@ -1415,7 +1580,7 @@ public sealed class WorkspaceWorkTests : IDisposable
         }
 
         using var session = _store.Open(WorkspacePath, _passphrase).Session!;
-        Assert.Equal(9, session.SchemaVersion);
+        Assert.Equal(10, session.SchemaVersion);
         Assert.Equal("Dig", Assert.Single(session.Work.Read().Tasks).Title);
         using var migrated = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadOnly);
         Assert.Equal("id,label,comparison_key", EncryptedWorkspaceStore.ExecuteScalar<string>(migrated,

@@ -7,10 +7,10 @@ flowchart LR
     Owner[Owner] -->|plans and completes work| Desktop[DotOrbit.Desktop<br/>Avalonia and MVVM]
     Desktop --> Core[DotOrbit.Core<br/>domain and application capabilities]
     Desktop --> Storage[DotOrbit.Storage.Sqlite<br/>production adapter]
-    Desktop --> Markdown[Sanitised Markdown adapter]
+    Desktop --> Markdown[DotOrbit.Markdown<br/>sanitised render model]
     Desktop --> Export[Explicit plaintext export adapter]
     Storage --> Core
-    Markdown -.->|core-owned contracts if required| Core
+    Storage --> Markdown
     Export --> Core
     Storage --> Store[(Encrypted SQLite3MC store)]
     Storage --> Recovery[Encrypted recovery module]
@@ -22,8 +22,9 @@ flowchart LR
 
 - **`DotOrbit.Core`** contains capability-oriented domain and application slices. It depends only on the .NET base class libraries and owns the interfaces required from persistence and other I/O.
 - **`DotOrbit.Storage.Sqlite`** implements the encrypted persistence interface, migrations, search, and recovery behaviour. It depends on `DotOrbit.Core`.
+- **`DotOrbit.Markdown`** owns the single sanitised Markdown render model and plain-text projection used by preview, clipboard, and archive search.
 - **`DotOrbit.Desktop`** contains Avalonia views, view models, desktop integration, and the composition root. It references `DotOrbit.Core` and wires `DotOrbit.Storage.Sqlite` into the application.
-- **Markdown and plaintext export adapters** are consumed at the desktop or application edge. They may depend inward on core-owned contracts, but `DotOrbit.Core` remains BCL-only and never depends on a Markdown parser, renderer, or output adapter.
+- **Markdown and plaintext export adapters** are consumed at the desktop, persistence, or application edge. They may depend inward on core-owned contracts, but `DotOrbit.Core` remains BCL-only and never depends on a Markdown parser, renderer, or output adapter.
 - **Tests** align with the production projects: core unit tests, SQLite3MC integration tests using real temporary encrypted databases, and focused desktop tests plus supported-runtime verification.
 
 No production module depends on the desktop presentation module. A future mobile application can provide a separate presentation and composition root over `DotOrbit.Core` without requiring the first-release desktop UI to be portable.
@@ -38,7 +39,7 @@ No production module depends on the desktop presentation module. A future mobile
 - **Plaintext export** is a separate, explicit manual operation to a user-selected JSON file. It is unencrypted, does not use automatic-backup retention, and does not default to the configured recovery directory.
 - **Synchronisation** is outside the first-release system boundary. A synced backup folder does not provide live record synchronisation or conflict resolution.
 - **Interchange** is not part of the current implementation graph and is not scaffolded in advance. A future tool-neutral adapter may depend inward on core-owned application interfaces for explicitly copying a generated planning prompt or active-work snapshot and importing untrusted change proposals through validation, preview, and explicit approval. Transcript parsing, file access, and AI-provider integration remain outside the application boundary.
-- **Markdown** treats all source as untrusted and produces one sanitised render model for preview, rich clipboard output, and plain-text fallback. Raw HTML and automatic remote-image loading are disabled.
+- **Markdown** treats all source as untrusted and produces one sanitised render model for preview, rich clipboard output, archive-search text, and plain-text fallback. Raw HTML and automatic remote-image loading are disabled.
 - **Search** indexes archived Project and Task content.
 
 ## Deferred architecture questions

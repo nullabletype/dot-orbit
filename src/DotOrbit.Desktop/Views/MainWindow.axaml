@@ -831,7 +831,25 @@
       </ScrollViewer>
       <ScrollViewer Grid.Row="2" IsVisible="{Binding ShowArchive}">
         <StackPanel Margin="{StaticResource ScrollContentInset}" Spacing="10">
-          <Border Classes="empty-state" IsVisible="{Binding Work.HasNoArchived}" Padding="44">
+          <Grid>
+            <TextBox x:Name="ArchiveSearchBox" Classes="inspector-field" Padding="9,9,66,9"
+                Text="{Binding Work.ArchiveSearchText, Mode=TwoWay}"
+                PlaceholderText="Search archived Projects and Tasks"
+                AutomationProperties.AutomationId="archive-search"
+                AutomationProperties.Name="Search archived Projects and Tasks" />
+            <Button Grid.Column="1" Classes="view-action task-row-action"
+                HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,4,4,4"
+                HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                IsVisible="{Binding Work.HasArchiveSearchQuery}"
+                Content="Clear" Command="{Binding Work.ClearArchiveSearchCommand}"
+                AutomationProperties.AutomationId="archive-search-clear"
+                AutomationProperties.Name="Clear archive search" />
+          </Grid>
+          <TextBlock IsVisible="{Binding Work.HasArchiveSearchQuery}"
+              Text="{Binding Work.ArchiveSearchStatus}"
+              Foreground="{StaticResource MutedTextBrush}"
+              AutomationProperties.LiveSetting="Polite" />
+          <Border Classes="empty-state" IsVisible="{Binding Work.ShowArchiveEmpty}" Padding="44">
             <StackPanel HorizontalAlignment="Center" Spacing="8">
               <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Text="Your archive is empty" />
               <TextBlock MaxWidth="420" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}"
@@ -839,7 +857,70 @@
                   TextAlignment="Center" TextWrapping="Wrap" />
             </StackPanel>
           </Border>
-          <ItemsControl ItemsSource="{Binding Work.ArchiveGroups}" IsVisible="{Binding Work.HasArchived}">
+          <Border Classes="empty-state" IsVisible="{Binding Work.ShowArchiveSearchEmpty}" Padding="44">
+            <StackPanel HorizontalAlignment="Center" Spacing="8">
+              <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Text="No archived work found" />
+              <TextBlock MaxWidth="420" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}"
+                  Text="Try another whole word or prefix." TextAlignment="Center" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+          <Border Classes="empty-state" IsVisible="{Binding Work.ShowArchiveSearchError}" Padding="44">
+            <StackPanel HorizontalAlignment="Center" Spacing="8">
+              <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Text="Archive search is unavailable" />
+              <TextBlock MaxWidth="420" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}"
+                  Text="Clear the search and try again." TextAlignment="Center" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+          <ItemsControl ItemsSource="{Binding Work.ArchiveSearchGroups}" IsVisible="{Binding Work.HasArchiveSearchResults}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate><StackPanel Spacing="12" /></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:ArchiveSearchResultGroupViewModel">
+                <StackPanel Spacing="4">
+                  <TextBlock Classes="eyebrow" Margin="6,4" Text="{Binding Heading}" />
+                  <Border Classes="list-panel">
+                    <ItemsControl ItemsSource="{Binding Rows}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ArchiveSearchResultViewModel">
+                          <Border Classes="interactive-row separated-row archive-row selectable-row archive-search-row"
+                              Classes.task-row="{Binding IsTask}" Classes.last="{Binding IsLast}"
+                              MinHeight="{StaticResource StandardRowHeight}">
+                            <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="12">
+                              <Button Classes="row-title" Classes.project-title="{Binding IsProject}" Classes.task-title="{Binding IsTask}"
+                                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                  VerticalAlignment="Stretch" VerticalContentAlignment="Center"
+                                  Command="{Binding OpenCommand}"
+                                  AutomationProperties.AutomationId="{Binding AutomationId}"
+                                  AutomationProperties.Name="{Binding AccessibleName}">
+                                <StackPanel VerticalAlignment="Center" Spacing="3">
+                                  <TextBlock FontWeight="SemiBold" Text="{Binding Title}" />
+                                  <TextBlock FontSize="12" Foreground="{StaticResource QuietTextBrush}"
+                                      Text="{Binding ContextText}" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                              </Button>
+                              <TextBlock Grid.Column="1" Classes="task-completion-date" IsVisible="{Binding IsTask}"
+                                  Text="{Binding DateText}" />
+                              <TextBlock Grid.Column="1" Margin="8,0" VerticalAlignment="Center" FontSize="12"
+                                  Foreground="{StaticResource QuietTextBrush}" IsVisible="{Binding IsProject}"
+                                  Text="{Binding DateText}" />
+                              <TextBlock Grid.Column="2" Margin="8,0,0,0" VerticalAlignment="Center" FontSize="12"
+                                  Foreground="{StaticResource MutedTextBrush}" Text="{Binding StateLabel}" />
+                              <Button Grid.Column="3" Classes="view-action task-row-action" Margin="8,0,0,0"
+                                  Content="Restore" Command="{Binding RestoreCommand}"
+                                  AutomationProperties.AutomationId="{Binding RestoreAutomationId}"
+                                  AutomationProperties.Name="{Binding RestoreAccessibleName}" />
+                            </Grid>
+                          </Border>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </Border>
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <ItemsControl ItemsSource="{Binding Work.ArchiveGroups}" IsVisible="{Binding Work.ShowArchiveTimeline}">
             <ItemsControl.ItemsPanel>
               <ItemsPanelTemplate><StackPanel Spacing="12" /></ItemsPanelTemplate>
             </ItemsControl.ItemsPanel>

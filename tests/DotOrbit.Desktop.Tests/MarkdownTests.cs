@@ -17,6 +17,7 @@ using DotOrbit.Desktop.Clipboard;
 using DotOrbit.Desktop.Markdown;
 using DotOrbit.Desktop.ViewModels;
 using DotOrbit.Desktop.Views;
+using DotOrbit.Markdown;
 using Xunit;
 
 namespace DotOrbit.Desktop.Tests;

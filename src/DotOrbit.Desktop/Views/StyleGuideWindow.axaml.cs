@@ -6,6 +6,7 @@ using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using DotOrbit.Markdown;
 using DotOrbit.Desktop.Markdown;
 
 namespace DotOrbit.Desktop.Views;

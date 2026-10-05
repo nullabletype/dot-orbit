@@ -3,6 +3,7 @@ namespace DotOrbit.Core.Workspaces;
 public interface IWorkspaceWork
 {
     WorkspaceWorkSnapshot Read();
+    IReadOnlyList<ArchiveSearchResult> SearchArchive(string query);
     WorkspaceCategory CreateCategory(string name);
     WorkspaceCategory RenameCategory(string id, string name);
     void DeleteCategory(string id, string? replacementCategoryId = null);
@@ -36,6 +37,27 @@ public interface IWorkspaceWork
     TaskRecord DetachTask(string id);
     TaskRecord AttachTask(string id, string projectId, TaskAttachmentCategoryChoice? categoryChoice = null);
 }
+
+public enum ArchiveSearchRecordType
+{
+    Project,
+    Task,
+}
+
+public enum ArchiveSearchDateKind
+{
+    Archived,
+    Completed,
+}
+
+public sealed record ArchiveSearchResult(
+    ArchiveSearchRecordType RecordType,
+    string Id,
+    string Title,
+    string? ParentProjectTitle,
+    ArchiveSearchDateKind DateKind,
+    DateOnly Date,
+    string Excerpt);
 
 public enum TaskAttachmentCategoryChoice
 {

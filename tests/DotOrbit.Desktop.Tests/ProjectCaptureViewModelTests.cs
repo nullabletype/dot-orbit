@@ -1,4 +1,5 @@
 using DotOrbit.Core.Workspaces;
+using DotOrbit.Markdown;
 using DotOrbit.Desktop.ViewModels;
 using Xunit;
 
@@ -1008,6 +1009,91 @@ public sealed class ProjectCaptureViewModelTests
     }
 
     [Fact]
+    public void ArchiveSearchPresentsResultContextOpensTheMatchAndReturnsToTheTimelineWhenCleared()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var task = work.CreateTaskDraft(project.Id, "Plant bulbs", "Blue **tulips** near the gate", null, null);
+        work.SetCompletion(task.Id, new DateTimeOffset(2026, 9, 27, 12, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 27));
+        work.ArchiveTask(task.Id);
+        var model = new ProjectCaptureViewModel(work);
+
+        model.ArchiveSearchText = "tul";
+
+        var result = Assert.Single(model.ArchiveSearchResults);
+        Assert.True(model.HasArchiveSearchQuery);
+        Assert.True(model.HasArchiveSearchResults);
+        Assert.False(model.ShowArchiveTimeline);
+        Assert.Equal("1 archived result.", model.ArchiveSearchStatus);
+        Assert.Equal("Task", result.TypeLabel);
+        Assert.Equal("Project · Garden", result.ParentProjectText);
+        Assert.Equal("Completed 27 Sep 2026", result.DateText);
+        Assert.Contains("Blue tulips", result.Excerpt, StringComparison.Ordinal);
+        Assert.Contains("Task Plant bulbs", result.AccessibleName, StringComparison.Ordinal);
+
+        result.OpenCommand.Execute(null);
+
+        Assert.True(model.HasInspector);
+        Assert.Equal("Plant bulbs", model.Title);
+
+        model.ArchiveSearchText = "missing";
+        Assert.True(model.ShowArchiveSearchEmpty);
+        Assert.Equal("No archived work matches “missing”.", model.ArchiveSearchStatus);
+
+        model.ArchiveSearchText = string.Empty;
+        Assert.True(model.ShowArchiveTimeline);
+        Assert.False(model.HasArchiveSearchQuery);
+        Assert.Empty(model.ArchiveSearchResults);
+        Assert.Empty(model.ArchiveSearchStatus);
+    }
+
+    [Fact]
+    public void ArchiveSearchProjectResultOpensTheArchivedProject()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Portfolio history", "Shipped work", "home", null);
+        work.ArchiveProject(project.Id);
+        var model = new ProjectCaptureViewModel(work);
+
+        model.ArchiveSearchText = "portfolio";
+        var result = Assert.Single(model.ArchiveSearchResults);
+        Assert.Equal("Project", result.TypeLabel);
+        Assert.False(result.HasParentProject);
+
+        result.OpenCommand.Execute(null);
+
+        Assert.True(model.HasInspector);
+        Assert.Equal("Project details", model.InspectorHeading);
+        Assert.Equal("Portfolio history", model.Title);
+
+        Assert.Equal("Restore Project Portfolio history to Projects", result.RestoreAccessibleName);
+        result.RestoreCommand.Execute(null);
+
+        Assert.False(work.Read().Projects.Single().IsArchived);
+        Assert.Empty(model.ArchiveSearchResults);
+    }
+
+    [Fact]
+    public void ArchiveSearchFailureShowsARecoverableNonResultState()
+    {
+        var work = new MemoryWorkspaceWork { FailArchiveSearch = true };
+        var model = new ProjectCaptureViewModel(work);
+
+        model.ArchiveSearchText = "private phrase";
+
+        Assert.True(model.ShowArchiveSearchError);
+        Assert.False(model.ShowArchiveSearchEmpty);
+        Assert.False(model.HasArchiveSearchResults);
+        Assert.Equal("Archive search is unavailable. Try again.", model.ArchiveSearchStatus);
+
+        work.FailArchiveSearch = false;
+        model.ArchiveSearchText = "another phrase";
+
+        Assert.False(model.ShowArchiveSearchError);
+        Assert.True(model.ShowArchiveSearchEmpty);
+    }
+
+    [Fact]
     public void ArchiveRequiresConfirmationFlushesEditsAndCompletionCannotReopenArchivedTask()
     {
         var work = new MemoryWorkspaceWork();
@@ -1438,10 +1524,58 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
     private readonly List<TaskRecord> _tasks = [];
     private readonly List<ParticipantRecord> _participants = [];
     public bool FailWrites { get; set; }
+    public bool FailArchiveSearch { get; set; }
     public DateOnly CurrentDate { get; set; } = new(2026, 9, 29);
     public Action? BeforeBulkArchive { get; set; }
     public int WriteCount { get; private set; }
     public WorkspaceWorkSnapshot Read() => new(_categories.OrderBy(category => category.Position).ToArray(), _projects.OrderBy(project => project.Position).ToArray(), _tasks.OrderBy(t => t.SharedPosition).ToArray(), _participants.ToArray());
+    public IReadOnlyList<ArchiveSearchResult> SearchArchive(string query)
+    {
+        if (FailArchiveSearch) throw new WorkspaceWorkException();
+        var queryTokens = SearchTokens(query);
+        if (queryTokens.Length == 0) return [];
+        var results = new List<(DateTimeOffset ArchivedAt, ArchiveSearchResult Result)>();
+        foreach (var project in _projects.Where(project => project.IsArchived))
+        {
+            var description = SanitisedMarkdownRenderer.Render(project.Description).ToPlainText().ReplaceLineEndings(" ");
+            var category = _categories.Single(item => item.Id == project.CategoryId).Name;
+            if (Matches(queryTokens, project.Title, description, category))
+                results.Add((project.ArchivedAt!.Value, new(
+                    ArchiveSearchRecordType.Project, project.Id, project.Title, null,
+                    ArchiveSearchDateKind.Archived, project.ArchiveDate!.Value,
+                    string.IsNullOrWhiteSpace(description) ? project.Title : description)));
+        }
+        foreach (var task in _tasks.Where(task => task.IsArchived))
+        {
+            var parent = task.ProjectId is null ? null : _projects.Single(project => project.Id == task.ProjectId);
+            var categoryId = task.ExplicitCategoryId ?? parent!.CategoryId;
+            var category = _categories.Single(item => item.Id == categoryId).Name;
+            var participants = string.Join(' ', task.Participants.Select(id => _participants.Single(item => item.Id == id).Label));
+            var description = SanitisedMarkdownRenderer.Render(task.Description).ToPlainText().ReplaceLineEndings(" ");
+            if (Matches(queryTokens, task.Title, description, category, participants, parent?.Title ?? string.Empty))
+                results.Add((task.ArchivedAt!.Value, new(
+                    ArchiveSearchRecordType.Task, task.Id, task.Title, parent?.Title,
+                    ArchiveSearchDateKind.Completed, task.CompletionDate!.Value,
+                    string.IsNullOrWhiteSpace(description) ? task.Title : description)));
+        }
+        return results.OrderByDescending(item => item.ArchivedAt)
+            .ThenBy(item => item.Result.RecordType)
+            .ThenBy(item => item.Result.Id, StringComparer.Ordinal)
+            .Select(item => item.Result)
+            .ToArray();
+    }
+
+    private static bool Matches(string[] queryTokens, params string[] fields)
+    {
+        var words = fields.SelectMany(SearchTokens).ToArray();
+        return queryTokens.All(token => words.Any(word => word.StartsWith(token, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private static string[] SearchTokens(string value) => value
+        .Split(value.Where(character => !char.IsLetterOrDigit(character)).Distinct().ToArray(),
+            StringSplitOptions.RemoveEmptyEntries)
+        .Select(token => token.Normalize().ToUpperInvariant())
+        .ToArray();
     public ParticipantRecord CreateParticipant(string label)
     {
         Check();
@@ -1613,6 +1747,7 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
     {
         Check();
         int index = _tasks.FindIndex(task => task.Id == id);
+        if (_tasks[index].IsArchived) throw new InvalidOperationException();
         return _tasks[index] = _tasks[index] with
         {
             CompletedAt = new DateTimeOffset(2026, 9, 29, 12, 0, 0, TimeSpan.Zero),

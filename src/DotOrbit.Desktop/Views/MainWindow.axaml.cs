@@ -653,6 +653,7 @@ public sealed partial class MainWindow : Window
         CompletedTaskRowViewModel completedTask => completedTask.Task.SelectCommand,
         ArchivedTaskRowViewModel archivedTask => archivedTask.Task.SelectCommand,
         ArchivedWorkRowViewModel { Task: not null } archivedWork => archivedWork.Task.SelectCommand,
+        ArchiveSearchResultViewModel archiveSearchResult => archiveSearchResult.OpenCommand,
         UpcomingTaskRowViewModel upcomingTask => upcomingTask.Task.SelectCommand,
         TodayTaskRowViewModel todayTask => todayTask.Task.SelectCommand,
         ProjectRowViewModel project => project.SelectCommand,

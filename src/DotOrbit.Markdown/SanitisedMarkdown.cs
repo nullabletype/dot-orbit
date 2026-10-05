@@ -5,7 +5,7 @@ using Markdig;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
 
-namespace DotOrbit.Desktop.Markdown;
+namespace DotOrbit.Markdown;
 
 public enum MarkdownBlockKind
 {
@@ -326,7 +326,7 @@ public sealed class SanitisedMarkdownDocument
 
     private static string InlineText(IEnumerable<MarkdownInline> inlines) => string.Concat(inlines.Select(inline => inline.Text));
 
-    internal static string ListMarker(MarkdownBlock item) => item.ListStyle switch
+    public static string ListMarker(MarkdownBlock item) => item.ListStyle switch
     {
         MarkdownListStyle.Bullet => "• ",
         MarkdownListStyle.LowerAlpha => $"{ToLowerAlpha(item.Number)}. ",
