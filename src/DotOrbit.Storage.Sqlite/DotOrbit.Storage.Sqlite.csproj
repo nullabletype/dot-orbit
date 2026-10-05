@@ -8,6 +8,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../DotOrbit.Core/DotOrbit.Core.csproj" />
+    <ProjectReference Include="../DotOrbit.Markdown/DotOrbit.Markdown.csproj" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="DotOrbit.Storage.Sqlite.Tests" />

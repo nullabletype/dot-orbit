@@ -7,6 +7,7 @@ internal sealed class WorkspaceTransactionCoordinator
 {
     private readonly object _gate;
     private readonly EncryptedWorkspaceRecovery _recovery;
+    private readonly Action<SqliteConnection, SqliteTransaction> _synchroniseDerivedStorage;
     private WorkspacePassphrase? _passphrase;
     private readonly string _workspacePath;
 
@@ -14,12 +15,14 @@ internal sealed class WorkspaceTransactionCoordinator
         string workspacePath,
         WorkspacePassphrase passphrase,
         EncryptedWorkspaceRecovery recovery,
-        object gate)
+        object gate,
+        Action<SqliteConnection, SqliteTransaction> synchroniseDerivedStorage)
     {
         _workspacePath = workspacePath;
         _passphrase = passphrase;
         _recovery = recovery;
         _gate = gate;
+        _synchroniseDerivedStorage = synchroniseDerivedStorage;
     }
 
     internal AutomaticRecoveryAttempt Execute(
@@ -38,6 +41,7 @@ internal sealed class WorkspaceTransactionCoordinator
             EncryptedWorkspaceStore.ConfigureConnection(connection);
             using var transaction = connection.BeginTransaction();
             change(connection, transaction);
+            _synchroniseDerivedStorage(connection, transaction);
             transaction.Commit();
             return _recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed);
         }

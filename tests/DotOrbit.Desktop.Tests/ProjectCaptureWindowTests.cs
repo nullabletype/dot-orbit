@@ -1275,6 +1275,143 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
+    public void ArchiveSearchShowsContextAndKeyboardActivationOpensTheArchivedTask()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var task = work.CreateTaskDraft(project.Id, "Plant bulbs", "Blue **tulips** near the gate", null, null);
+        work.SetCompletion(task.Id, new DateTimeOffset(2026, 9, 27, 12, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 27));
+        work.ArchiveTask(task.Id);
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Archive").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+        var search = Assert.Single(window.GetVisualDescendants().OfType<TextBox>(),
+            textBox => AutomationProperties.GetAutomationId(textBox) == "archive-search");
+        Assert.Equal("Search archived Projects and Tasks", AutomationProperties.GetName(search));
+
+        search.Text = "blue";
+        Dispatcher.UIThread.RunJobs();
+
+        var result = ButtonByAutomationId(window, $"archive-search-task-{task.Id}");
+        Assert.Contains("task-title", result.Classes);
+        Assert.Contains("row-title", result.Classes);
+        Assert.Equal(Colors.Transparent, Assert.IsAssignableFrom<ISolidColorBrush>(result.Background).Color);
+        Assert.True(ButtonByAutomationId(window, $"archive-search-restore-task-{task.Id}").IsEffectivelyVisible);
+        var accessibleName = AutomationProperties.GetName(result);
+        Assert.Contains("Task Plant bulbs", accessibleName, StringComparison.Ordinal);
+        Assert.Contains("Project · Garden", accessibleName, StringComparison.Ordinal);
+        Assert.Contains("Completed 27 Sep 2026", accessibleName, StringComparison.Ordinal);
+        Assert.Contains("Blue tulips near the gate", accessibleName, StringComparison.Ordinal);
+        Assert.DoesNotContain("**", accessibleName, StringComparison.Ordinal);
+
+        Activate(window, result);
+
+        Assert.True(shell.Work!.HasInspector);
+        Assert.Equal("Plant bulbs", shell.Work.Title);
+
+        search.Text = "missing";
+        Dispatcher.UIThread.RunJobs();
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(),
+            text => text.IsEffectivelyVisible && text.Text == "No archived work found");
+
+        var clear = ButtonByAutomationId(window, "archive-search-clear");
+        Assert.True(clear.IsEffectivelyVisible);
+        Assert.Equal("Clear archive search", AutomationProperties.GetName(clear));
+        Assert.Equal(VerticalAlignment.Center, clear.VerticalContentAlignment);
+        Activate(window, clear);
+
+        Assert.Equal(string.Empty, search.Text);
+        Assert.True(shell.Work.ShowArchiveTimeline);
+        Assert.True(search.IsFocused);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void ArchiveSearchResultUsesTheSharedRowRecipeAndItsWholeSurfaceOpensTheMatch()
+    {
+        var work = new MemoryWorkspaceWork();
+        work.CurrentDate = new(2026, 9, 28);
+        var earlierTask = work.CreateStandaloneTask("File appliance receipt", "Filed with the manual", "home", null);
+        work.SetCompletion(earlierTask.Id, new DateTimeOffset(2026, 9, 4, 12, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 4));
+        work.SetArchive(earlierTask.Id, new DateTimeOffset(2026, 9, 28, 13, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 28));
+        work.CurrentDate = new(2026, 9, 29);
+        var task = work.CreateStandaloneTask("File appliance warranty", "Filed with the receipt", "home", null);
+        work.SetCompletion(task.Id, new DateTimeOffset(2026, 9, 5, 12, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 5));
+        work.ArchiveTask(task.Id);
+        var shell = new ShellViewModel(work,
+            new FixedTimeProvider(new DateTimeOffset(2026, 9, 29, 12, 0, 0, TimeSpan.Zero)));
+        shell.PrimaryNavigation.Single(item => item.Title == "Archive").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+        window.FindControl<TextBox>("ArchiveSearchBox")!.Text = "file";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(["Today", "Yesterday"], shell.Work!.ArchiveSearchGroups.Select(group => group.Heading));
+        var searchRows = window.GetVisualDescendants().OfType<Border>()
+            .Where(border => border.Classes.Contains("archive-search-row"))
+            .ToArray();
+        Assert.Equal(2, searchRows.Length);
+        Assert.All(searchRows, row =>
+        {
+            Assert.Contains("archive-row", row.Classes);
+            Assert.Contains("last", row.Classes);
+        });
+
+        var earlierRestore = ButtonByAutomationId(window, $"archive-search-restore-task-{earlierTask.Id}");
+        Assert.Equal("Restore File appliance receipt to Completed", AutomationProperties.GetName(earlierRestore));
+        Activate(window, earlierRestore);
+
+        Assert.False(work.Read().Tasks.Single(item => item.Id == earlierTask.Id).IsArchived);
+        Assert.False(shell.Work.HasInspector);
+        Assert.Single(shell.Work.ArchiveSearchResults);
+        Assert.True(ButtonByAutomationId(window, $"archive-search-restore-task-{task.Id}").IsFocused);
+
+        var result = ButtonByAutomationId(window, $"archive-search-task-{task.Id}");
+        var row = result.GetVisualAncestors().OfType<Border>()
+            .First(border => border.Classes.Contains("archive-search-row"));
+        Assert.Contains("interactive-row", row.Classes);
+        Assert.Contains("selectable-row", row.Classes);
+        Assert.Contains("task-title", result.Classes);
+        Assert.Contains("row-title", result.Classes);
+        Assert.Equal(Colors.Transparent, Assert.IsAssignableFrom<ISolidColorBrush>(result.Background).Color);
+        Assert.InRange(row.Bounds.Height - result.Bounds.Height, 0, 0.5);
+
+        var state = Assert.Single(row.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Archived Task");
+        window.MouseMove(CentreInWindow(state, window), RawInputModifiers.None);
+        Assert.Equal(Color.Parse("#151923"), Assert.IsAssignableFrom<ISolidColorBrush>(row.Background).Color);
+        Assert.Equal(Colors.Transparent, Assert.IsAssignableFrom<ISolidColorBrush>(result.Background).Color);
+        ClickSurface(window, CentreInWindow(state, window));
+
+        Assert.True(shell.Work!.HasInspector);
+        Assert.Equal("File appliance warranty", shell.Work.Title);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void RestoringLastArchiveSearchResultReturnsFocusToSearch()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("File appliance receipt", "Filed with the manual", "home", null);
+        work.SetCompletion(task.Id, new DateTimeOffset(2026, 9, 5, 12, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 5));
+        work.ArchiveTask(task.Id);
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Archive").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+        var search = window.FindControl<TextBox>("ArchiveSearchBox")!;
+        search.Text = "receipt";
+        Dispatcher.UIThread.RunJobs();
+
+        Activate(window, ButtonByAutomationId(window, $"archive-search-restore-task-{task.Id}"));
+
+        Assert.False(work.Read().Tasks.Single().IsArchived);
+        Assert.True(shell.Work!.ShowArchiveSearchEmpty);
+        Assert.True(search.IsFocused);
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public void RestoringLastArchivedTaskMovesFocusToRemainingArchivedProject()
     {
         var work = new MemoryWorkspaceWork();
@@ -2485,7 +2622,9 @@ public sealed class ProjectCaptureWindowTests
         var shortProject = work.CreateProject("Potato Project", "", "work", null);
         for (var index = 0; index < 8; index++) work.CreateTask(shortProject.Id, $"Potato task {index}");
         work.CreateStandaloneTask("A deliberately long standalone task title", "", "work", new DateOnly(2026, 10, 6));
-        var shell = new ShellViewModel(work);
+        var shell = new ShellViewModel(
+            work,
+            new FixedTimeProvider(new DateTimeOffset(2026, 9, 29, 12, 0, 0, TimeSpan.Zero)));
         shell.PrimaryNavigation.Single(item => item.Title == "Categories").SelectCommand.Execute(null);
         var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
         window.Show();

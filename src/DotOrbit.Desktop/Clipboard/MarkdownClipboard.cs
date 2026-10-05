@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
-using DotOrbit.Desktop.Markdown;
+using DotOrbit.Markdown;
 
 namespace DotOrbit.Desktop.Clipboard;
 

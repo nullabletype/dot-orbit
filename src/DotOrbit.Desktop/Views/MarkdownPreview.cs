@@ -4,7 +4,7 @@ using Avalonia.Automation.Peers;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Media;
-using DotOrbit.Desktop.Markdown;
+using DotOrbit.Markdown;
 
 namespace DotOrbit.Desktop.Views;
 

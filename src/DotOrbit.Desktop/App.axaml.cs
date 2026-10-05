@@ -5,7 +5,6 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using DotOrbit.Core.Workspaces;
-using DotOrbit.Desktop.Markdown;
 using DotOrbit.Desktop.ViewModels;
 using DotOrbit.Desktop.Views;
 using DotOrbit.Storage.Sqlite;
