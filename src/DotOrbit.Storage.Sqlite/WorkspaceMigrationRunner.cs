@@ -269,6 +269,7 @@ internal static class WorkspaceMigrationRunner
                 7 => ApplySchemaSevenToEight(connection),
                 8 => ApplySchemaEightToNine(connection),
                 9 => ApplySchemaNineToTen(connection),
+                10 => ApplySchemaTenToEleven(connection),
                 _ => throw new InvalidDataException(),
             };
 
@@ -358,6 +359,14 @@ internal static class WorkspaceMigrationRunner
         SqliteWorkspaceWork.RebuildArchiveSearchIndex(connection);
         ExecuteNonQuery(connection, "PRAGMA user_version = 10;");
         return 10;
+    }
+
+    private static int ApplySchemaTenToEleven(SqliteConnection connection)
+    {
+        ExecuteNonQuery(connection, SqliteWorkspaceWork.TaskBinSchema
+            + SqliteWorkspaceWork.ProjectBinSchema
+            + "PRAGMA user_version = 11;");
+        return 11;
     }
 
     private static int ApplySchemaOneToTwo(SqliteConnection connection)

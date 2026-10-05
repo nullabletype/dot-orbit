@@ -337,6 +337,9 @@ public sealed partial class MainWindow : Window
         if (e.PropertyName == nameof(ProjectCaptureViewModel.ArchiveFocusAutomationId)
             && sender is ProjectCaptureViewModel { ArchiveFocusAutomationId.Length: > 0 } archiveWork)
             Dispatcher.UIThread.Post(() => FocusAutomationId(archiveWork.ArchiveFocusAutomationId), DispatcherPriority.ApplicationIdle);
+        if (e.PropertyName == nameof(ProjectCaptureViewModel.BinFocusAutomationId)
+            && sender is ProjectCaptureViewModel { BinFocusAutomationId.Length: > 0 } binWork)
+            Dispatcher.UIThread.Post(() => FocusAutomationId(binWork.BinFocusAutomationId), DispatcherPriority.ApplicationIdle);
         if (e.PropertyName == nameof(ProjectCaptureViewModel.NeedsCategoryReplacement)
             && sender is ProjectCaptureViewModel categoryWork)
             Dispatcher.UIThread.Post(() =>

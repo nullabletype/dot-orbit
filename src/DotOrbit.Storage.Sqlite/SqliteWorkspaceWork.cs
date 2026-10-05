@@ -154,9 +154,36 @@ internal sealed class SqliteWorkspaceWork(
         );
         """;
 
-    internal const string Schema = ProjectSchema + TaskSchema + ParticipantSchema + TaskParticipantSchema
+    internal const string SchemaTen = ProjectSchema + TaskSchema + ParticipantSchema + TaskParticipantSchema
         + TodayTaskSchema + TaskArchiveSchema + ProjectArchiveSchema + ArchiveSearchSchema
         + "PRAGMA user_version = 10;";
+
+    internal const string TaskBinSchema = """
+        CREATE TABLE task_bins (
+            task_id TEXT NOT NULL PRIMARY KEY REFERENCES tasks(id),
+            removed_instant TEXT NOT NULL,
+            today_lane TEXT CHECK(today_lane IS NULL OR today_lane IN ('planned', 'in_progress'))
+        );
+        CREATE TABLE task_bin_order_anchors (
+            task_id TEXT NOT NULL REFERENCES task_bins(task_id) ON DELETE CASCADE,
+            scope TEXT NOT NULL CHECK(scope IN ('shared', 'project')),
+            anchor_task_id TEXT NOT NULL REFERENCES tasks(id),
+            relative_position INTEGER NOT NULL CHECK(relative_position <> 0),
+            PRIMARY KEY(task_id, scope, anchor_task_id),
+            UNIQUE(task_id, scope, relative_position)
+        );
+        """;
+
+    internal const string ProjectBinSchema = """
+        CREATE TABLE project_bins (
+            project_id TEXT NOT NULL PRIMARY KEY REFERENCES projects(id),
+            removed_instant TEXT NOT NULL
+        );
+        """;
+
+    internal const string Schema = ProjectSchema + TaskSchema + ParticipantSchema + TaskParticipantSchema
+        + TodayTaskSchema + TaskArchiveSchema + ProjectArchiveSchema + ArchiveSearchSchema
+        + TaskBinSchema + ProjectBinSchema + "PRAGMA user_version = 11;";
 
     internal static void ValidateShape(SqliteConnection connection, SqliteTransaction? transaction, string? schema = null)
     {
@@ -173,6 +200,7 @@ internal sealed class SqliteWorkspaceWork(
             || string.Equals(schema, SchemaSeven, StringComparison.Ordinal)
             || string.Equals(schema, SchemaEight, StringComparison.Ordinal)
             || string.Equals(schema, SchemaNine, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaTen, StringComparison.Ordinal)
             || string.Equals(schema, Schema, StringComparison.Ordinal);
         if (hasParticipants)
         {
@@ -182,20 +210,30 @@ internal sealed class SqliteWorkspaceWork(
         var hasToday = string.Equals(schema, SchemaSeven, StringComparison.Ordinal)
             || string.Equals(schema, SchemaEight, StringComparison.Ordinal)
             || string.Equals(schema, SchemaNine, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaTen, StringComparison.Ordinal)
             || string.Equals(schema, Schema, StringComparison.Ordinal);
         if (hasToday)
             ValidateTableDefinition(command, "today_tasks", definitions[4]);
         var hasTaskArchive = string.Equals(schema, SchemaEight, StringComparison.Ordinal)
             || string.Equals(schema, SchemaNine, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaTen, StringComparison.Ordinal)
             || string.Equals(schema, Schema, StringComparison.Ordinal);
         if (hasTaskArchive)
             ValidateTableDefinition(command, "task_archives", definitions[5]);
         var hasProjectArchive = string.Equals(schema, SchemaNine, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaTen, StringComparison.Ordinal)
             || string.Equals(schema, Schema, StringComparison.Ordinal);
         if (hasProjectArchive)
             ValidateTableDefinition(command, "project_archives", definitions[6]);
-        if (string.Equals(schema, Schema, StringComparison.Ordinal))
+        if (string.Equals(schema, SchemaTen, StringComparison.Ordinal)
+            || string.Equals(schema, Schema, StringComparison.Ordinal))
             ValidateTableDefinition(command, "archive_search", definitions[7]);
+        if (string.Equals(schema, Schema, StringComparison.Ordinal))
+        {
+            ValidateTableDefinition(command, "task_bins", definitions[8]);
+            ValidateTableDefinition(command, "task_bin_order_anchors", definitions[9]);
+            ValidateTableDefinition(command, "project_bins", definitions[10]);
+        }
         command.Parameters.Clear();
         command.CommandText = "PRAGMA foreign_key_check;";
         using (var foreignKeys = command.ExecuteReader())
@@ -293,6 +331,19 @@ internal sealed class SqliteWorkspaceWork(
                 """;
             if ((long)command.ExecuteScalar()! != 0) throw new InvalidDataException();
         }
+        if (string.Equals(schema, Schema, StringComparison.Ordinal))
+        {
+            command.CommandText = "SELECT removed_instant FROM task_bins UNION ALL SELECT removed_instant FROM project_bins;";
+            using (var removals = command.ExecuteReader())
+            {
+                while (removals.Read())
+                    if (!DateTimeOffset.TryParseExact(removals.GetString(0), "O", CultureInfo.InvariantCulture,
+                            DateTimeStyles.RoundtripKind, out _))
+                        throw new InvalidDataException();
+            }
+            command.CommandText = "SELECT COUNT(*) FROM today_tasks WHERE task_id IN (SELECT task_id FROM task_bins);";
+            if ((long)command.ExecuteScalar()! != 0) throw new InvalidDataException();
+        }
     }
 
     private static void ValidateTableDefinition(SqliteCommand command, string table, string expected)
@@ -311,6 +362,26 @@ internal sealed class SqliteWorkspaceWork(
         string.Join(' ', definition.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
     public WorkspaceWorkSnapshot Read() => Guard(() => transactions.Read(ReadSnapshot));
+
+    public IReadOnlyList<TaskBinRecord> ReadTaskBin() => Guard(() => transactions.Read((connection, transaction) =>
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT task_id,removed_instant,today_lane
+            FROM task_bins
+            ORDER BY removed_instant DESC,task_id;
+            """;
+        using var reader = command.ExecuteReader();
+        var metadata = new List<(string Id, DateTimeOffset RemovedAt, TodayLane? TodayLane)>();
+        while (reader.Read())
+            metadata.Add((reader.GetString(0), ReadInstant(reader, 1)!.Value,
+                reader.IsDBNull(2) ? null : ParseTodayLane(reader.GetString(2))));
+        reader.Close();
+        return (IReadOnlyList<TaskBinRecord>)metadata
+            .Select(item => ReadTaskBinRecord(connection, transaction, item.Id, item.RemovedAt, item.TodayLane))
+            .ToArray();
+    }));
 
     public IReadOnlyList<ArchiveSearchResult> SearchArchive(string query)
     {
@@ -514,7 +585,7 @@ internal sealed class SqliteWorkspaceWork(
             ShiftSharedOrderForNewTask(connection, transaction);
             using var order = connection.CreateCommand();
             order.Transaction = transaction;
-            order.CommandText = "SELECT COALESCE(MAX(project_position), -1) + 1 FROM tasks WHERE project_id = $project;";
+            order.CommandText = "SELECT COALESCE(MAX(project_position), -1) + 1 FROM tasks WHERE project_id=$project;";
             order.Parameters.AddWithValue("$project", projectId);
             var position = (long)order.ExecuteScalar()!;
             result = new TaskRecord(store.GetIdentifier(), projectId, title, string.Empty, null, null, 0, position);
@@ -543,7 +614,7 @@ internal sealed class SqliteWorkspaceWork(
             {
                 using var order = connection.CreateCommand();
                 order.Transaction = transaction;
-                order.CommandText = "SELECT COALESCE(MAX(project_position), -1) + 1 FROM tasks WHERE project_id = $project;";
+                order.CommandText = "SELECT COALESCE(MAX(project_position), -1) + 1 FROM tasks WHERE project_id=$project;";
                 order.Parameters.AddWithValue("$project", projectId);
                 projectPosition = (long)order.ExecuteScalar()!;
             }
@@ -608,7 +679,7 @@ internal sealed class SqliteWorkspaceWork(
         TaskRecord? result = null;
         Guard(() => transactions.Execute((connection, transaction) =>
         {
-            Require(connection, transaction, "tasks", id);
+            RequireActiveTask(connection, transaction, id);
             var existing = ReadSnapshot(connection, transaction).Tasks.Single(task => task.Id == id);
             if (existing.ProjectId is null && explicitCategoryId is null)
                 throw new ArgumentException("A standalone Task requires an explicit Category.", nameof(explicitCategoryId));
@@ -628,7 +699,7 @@ internal sealed class SqliteWorkspaceWork(
         TaskRecord? result = null;
         Guard(() => transactions.Execute((connection, transaction) =>
         {
-            Require(connection, transaction, "tasks", id);
+            RequireActiveTask(connection, transaction, id);
             var task = ReadSnapshot(connection, transaction).Tasks.Single(item => item.Id == id);
             if (task.IsArchived)
                 throw new InvalidOperationException("An archived Task must be restored before it can be completed.");
@@ -648,7 +719,7 @@ internal sealed class SqliteWorkspaceWork(
         TaskRecord? result = null;
         Guard(() => transactions.Execute((connection, transaction) =>
         {
-            Require(connection, transaction, "tasks", id);
+            RequireActiveTask(connection, transaction, id);
             var snapshot = ReadSnapshot(connection, transaction);
             var task = snapshot.Tasks.Single(item => item.Id == id);
             if (task.IsArchived)
@@ -665,7 +736,7 @@ internal sealed class SqliteWorkspaceWork(
         TaskRecord? result = null;
         Guard(() => transactions.Execute((connection, transaction) =>
         {
-            Require(connection, transaction, "tasks", id);
+            RequireActiveTask(connection, transaction, id);
             var task = ReadSnapshot(connection, transaction).Tasks.Single(item => item.Id == id);
             if (!task.IsComplete)
                 throw new InvalidOperationException("Only a complete Task can be archived.");
@@ -687,11 +758,93 @@ internal sealed class SqliteWorkspaceWork(
         TaskRecord? result = null;
         Guard(() => transactions.Execute((connection, transaction) =>
         {
-            Require(connection, transaction, "tasks", id);
+            RequireActiveTask(connection, transaction, id);
             var task = ReadSnapshot(connection, transaction).Tasks.Single(item => item.Id == id);
             if (!task.IsArchived)
                 throw new InvalidOperationException("The Task is not archived.");
             Execute(connection, transaction, "DELETE FROM task_archives WHERE task_id=$id;", ("$id", id));
+            result = ReadSnapshot(connection, transaction).Tasks.Single(item => item.Id == id);
+        }));
+        return result!;
+    }
+
+    public TaskBinRecord MoveTaskToBin(string id)
+    {
+        TaskBinRecord? result = null;
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            RequireActiveTask(connection, transaction, id);
+            var task = ReadSnapshot(connection, transaction).Tasks.Single(item => item.Id == id);
+            var sharedIds = ReadTaskIdsInSharedOrder(connection, transaction);
+            var sharedIndex = sharedIds.IndexOf(id);
+            var projectIds = task.ProjectId is null
+                ? []
+                : ReadActiveProjectTaskIds(connection, transaction, task.ProjectId);
+            var projectIndex = projectIds.IndexOf(id);
+            var removedAt = timeProvider.GetUtcNow();
+            Execute(connection, transaction, """
+                INSERT INTO task_bins (task_id,removed_instant,today_lane)
+                VALUES ($id,$removed,$lane);
+                """,
+                ("$id", id), ("$removed", removedAt.ToString("O", CultureInfo.InvariantCulture)),
+                ("$lane", task.TodayLane is null ? null : TodayLaneValue(task.TodayLane.Value)));
+            WriteTaskBinOrderAnchors(connection, transaction, id, "shared", sharedIds, sharedIndex);
+            if (task.ProjectId is not null)
+                WriteTaskBinOrderAnchors(connection, transaction, id, "project", projectIds, projectIndex);
+            Execute(connection, transaction, "DELETE FROM today_tasks WHERE task_id=$id;", ("$id", id));
+            sharedIds.Remove(id);
+            RewriteSharedOrder(connection, transaction, sharedIds);
+            if (task.ProjectId is not null)
+            {
+                projectIds.Remove(id);
+                RewriteProjectTaskOrder(connection, transaction, task.ProjectId, projectIds);
+            }
+            result = ReadTaskBinRecord(connection, transaction, id, removedAt, task.TodayLane);
+        }));
+        return result!;
+    }
+
+    public TaskRecord RestoreTaskFromBin(string id)
+    {
+        TaskRecord? result = null;
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            Require(connection, transaction, "tasks", id);
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "SELECT today_lane FROM task_bins WHERE task_id=$id;";
+            command.Parameters.AddWithValue("$id", id);
+            using var reader = command.ExecuteReader();
+            if (!reader.Read()) throw new InvalidOperationException("The Task is not in Bin.");
+            TodayLane? todayLane = reader.IsDBNull(0) ? null : ParseTodayLane(reader.GetString(0));
+            reader.Close();
+            var sharedAnchors = ReadTaskBinOrderAnchors(connection, transaction, id, "shared");
+            var projectAnchors = ReadTaskBinOrderAnchors(connection, transaction, id, "project");
+
+            var stored = ReadStoredTask(connection, transaction, id, todayLane);
+            var parentIsBinned = stored.ProjectId is not null
+                && Exists(connection, transaction, "project_bins", "project_id", stored.ProjectId);
+            TaskBinRestorePolicy.EnsureParentAllowsRestore(parentIsBinned);
+
+            var sharedIds = ReadTaskIdsInSharedOrder(connection, transaction);
+            sharedIds.Insert(TaskBinRestorePolicy.RestoreIndex(sharedIds, sharedAnchors), id);
+            List<string>? projectIds = null;
+            if (stored.ProjectId is not null)
+            {
+                projectIds = ReadActiveProjectTaskIds(connection, transaction, stored.ProjectId);
+                projectIds.Insert(TaskBinRestorePolicy.RestoreIndex(projectIds, projectAnchors), id);
+            }
+            Execute(connection, transaction, "DELETE FROM task_bins WHERE task_id=$id;", ("$id", id));
+            RewriteSharedOrder(connection, transaction, sharedIds);
+            if (stored.ProjectId is not null) RewriteProjectTaskOrder(connection, transaction, stored.ProjectId, projectIds!);
+
+            if (todayLane is not null && !stored.IsComplete
+                && (stored.ProjectId is null
+                    || !Exists(connection, transaction, "project_archives", "project_id", stored.ProjectId)))
+            {
+                Execute(connection, transaction, "INSERT INTO today_tasks (task_id,lane) VALUES ($id,$lane);",
+                    ("$id", id), ("$lane", TodayLaneValue(todayLane.Value)));
+            }
             result = ReadSnapshot(connection, transaction).Tasks.Single(item => item.Id == id);
         }));
         return result!;
@@ -785,7 +938,7 @@ internal sealed class SqliteWorkspaceWork(
         TaskRecord? result = null;
         Guard(() => transactions.Execute((connection, transaction) =>
         {
-            Require(connection, transaction, "tasks", id);
+            RequireActiveTask(connection, transaction, id);
             var snapshot = ReadSnapshot(connection, transaction);
             var task = snapshot.Tasks.Single(item => item.Id == id);
             if (task.IsComplete && lane is not null)
@@ -827,7 +980,7 @@ internal sealed class SqliteWorkspaceWork(
         TodayLaneOrderChange? result = null;
         Guard(() => transactions.Execute((connection, transaction) =>
         {
-            Require(connection, transaction, "tasks", id);
+            RequireActiveTask(connection, transaction, id);
             var orderedTasks = ReadSnapshot(connection, transaction).Tasks.OrderBy(task => task.SharedPosition).ToArray();
             var task = orderedTasks.Single(item => item.Id == id);
             if (task.IsComplete || task.TodayLane is null)
@@ -853,7 +1006,7 @@ internal sealed class SqliteWorkspaceWork(
         SharedTaskOrderChange? result = null;
         Guard(() => transactions.Execute((connection, transaction) =>
         {
-            Require(connection, transaction, "tasks", id);
+            RequireActiveTask(connection, transaction, id);
             var orderedTasks = ReadSnapshot(connection, transaction).Tasks
                 .OrderBy(task => task.SharedPosition)
                 .ToArray();
@@ -910,7 +1063,7 @@ internal sealed class SqliteWorkspaceWork(
         {
             Require(connection, transaction, "projects", projectId);
             var orderedIds = ReadIds(connection, transaction,
-                "SELECT id FROM tasks WHERE project_id=$project ORDER BY project_position,id;", ("$project", projectId));
+                "SELECT id FROM tasks WHERE project_id=$project AND id NOT IN (SELECT task_id FROM task_bins) ORDER BY project_position,id;", ("$project", projectId));
             Move(orderedIds, taskId, targetPosition);
             RewriteProjectTaskOrder(connection, transaction, projectId, orderedIds);
             result = new(projectId, taskId, targetPosition + 1, orderedIds.Count);
@@ -923,7 +1076,7 @@ internal sealed class SqliteWorkspaceWork(
         TaskRecord? result = null;
         Guard(() => transactions.Execute((connection, transaction) =>
         {
-            Require(connection, transaction, "tasks", id);
+            RequireActiveTask(connection, transaction, id);
             var snapshot = ReadSnapshot(connection, transaction);
             var task = snapshot.Tasks.Single(item => item.Id == id);
             if (task.ProjectId is null) throw new ArgumentException("The Task is already standalone.", nameof(id));
@@ -933,7 +1086,7 @@ internal sealed class SqliteWorkspaceWork(
                 "UPDATE tasks SET project_id=NULL, project_position=NULL, explicit_category_id=$category WHERE id=$id;",
                 ("$category", effectiveCategoryId), ("$id", id));
             var sourceIds = ReadIds(connection, transaction,
-                "SELECT id FROM tasks WHERE project_id=$project ORDER BY project_position,id;", ("$project", sourceProjectId));
+                "SELECT id FROM tasks WHERE project_id=$project AND id NOT IN (SELECT task_id FROM task_bins) ORDER BY project_position,id;", ("$project", sourceProjectId));
             RewriteProjectTaskOrder(connection, transaction, sourceProjectId, sourceIds);
             result = ReadSnapshot(connection, transaction).Tasks.Single(item => item.Id == id);
         }));
@@ -945,7 +1098,7 @@ internal sealed class SqliteWorkspaceWork(
         TaskRecord? result = null;
         Guard(() => transactions.Execute((connection, transaction) =>
         {
-            Require(connection, transaction, "tasks", id);
+            RequireActiveTask(connection, transaction, id);
             RequireActiveProject(connection, transaction, projectId);
             var snapshot = ReadSnapshot(connection, transaction);
             var task = snapshot.Tasks.Single(item => item.Id == id);
@@ -966,18 +1119,21 @@ internal sealed class SqliteWorkspaceWork(
             if (sourceProjectId is not null)
             {
                 var sourceIds = ReadIds(connection, transaction,
-                    "SELECT id FROM tasks WHERE project_id=$project ORDER BY project_position,id;", ("$project", sourceProjectId));
+                    "SELECT id FROM tasks WHERE project_id=$project AND id NOT IN (SELECT task_id FROM task_bins) ORDER BY project_position,id;", ("$project", sourceProjectId));
                 RewriteProjectTaskOrder(connection, transaction, sourceProjectId, sourceIds);
             }
 
-            var destinationIds = ReadIds(connection, transaction,
-                "SELECT id FROM tasks WHERE project_id=$project ORDER BY project_position,id;", ("$project", projectId));
+            using var destinationPositionCommand = connection.CreateCommand();
+            destinationPositionCommand.Transaction = transaction;
+            destinationPositionCommand.CommandText = "SELECT COALESCE(MAX(project_position), -1) + 1 FROM tasks WHERE project_id=$project;";
+            destinationPositionCommand.Parameters.AddWithValue("$project", projectId);
+            var destinationPosition = (long)destinationPositionCommand.ExecuteScalar()!;
             var explicitCategoryId = categoriesMatch || categoryChoice == TaskAttachmentCategoryChoice.AdoptProjectCategory
                 ? null
                 : effectiveCategoryId;
             Execute(connection, transaction,
                 "UPDATE tasks SET project_id=$project, project_position=$position, explicit_category_id=$category WHERE id=$id;",
-                ("$project", projectId), ("$position", destinationIds.Count), ("$category", explicitCategoryId), ("$id", id));
+                ("$project", projectId), ("$position", destinationPosition), ("$category", explicitCategoryId), ("$id", id));
             result = ReadSnapshot(connection, transaction).Tasks.Single(item => item.Id == id);
         }));
         return result!;
@@ -985,6 +1141,8 @@ internal sealed class SqliteWorkspaceWork(
 
     private static WorkspaceWorkSnapshot ReadSnapshot(SqliteConnection connection, SqliteTransaction? transaction = null)
     {
+        var hasTaskBins = SchemaObjectExists(connection, transaction, "table", "task_bins");
+        var hasProjectBins = SchemaObjectExists(connection, transaction, "table", "project_bins");
         var categories = new List<WorkspaceCategory>();
         var projects = new List<ProjectRecord>();
         var tasks = new List<TaskRecord>();
@@ -1001,7 +1159,12 @@ internal sealed class SqliteWorkspaceWork(
         command.CommandText = "SELECT project_id,archived_instant,archive_date FROM project_archives;";
         using (var reader = command.ExecuteReader())
             while (reader.Read()) archiveByProject.Add(reader.GetString(0), (ReadInstant(reader, 1)!.Value, ReadDate(reader, 2)!.Value));
-        command.CommandText = "SELECT id,title,description,category_id,target_date,position FROM projects ORDER BY position,id;";
+        command.CommandText = hasProjectBins ? """
+            SELECT id,title,description,category_id,target_date,position
+            FROM projects
+            WHERE id NOT IN (SELECT project_id FROM project_bins)
+            ORDER BY position,id;
+            """ : "SELECT id,title,description,category_id,target_date,position FROM projects ORDER BY position,id;";
         using (var reader = command.ExecuteReader())
             while (reader.Read())
             {
@@ -1032,7 +1195,13 @@ internal sealed class SqliteWorkspaceWork(
         command.CommandText = "SELECT task_id,archived_instant,archive_date FROM task_archives;";
         using (var reader = command.ExecuteReader())
             while (reader.Read()) archiveByTask.Add(reader.GetString(0), (ReadInstant(reader, 1)!.Value, ReadDate(reader, 2)!.Value));
-        command.CommandText = "SELECT id,project_id,title,description,explicit_category_id,due_date,shared_position,project_position,completion_instant,completion_date FROM tasks ORDER BY shared_position,id;";
+        command.CommandText = hasTaskBins ? """
+            SELECT id,project_id,title,description,explicit_category_id,due_date,shared_position,project_position,
+                   completion_instant,completion_date
+            FROM tasks
+            WHERE id NOT IN (SELECT task_id FROM task_bins)
+            ORDER BY shared_position,id;
+            """ : "SELECT id,project_id,title,description,explicit_category_id,due_date,shared_position,project_position,completion_instant,completion_date FROM tasks ORDER BY shared_position,id;";
         using (var reader = command.ExecuteReader())
             while (reader.Read())
             {
@@ -1055,32 +1224,148 @@ internal sealed class SqliteWorkspaceWork(
         return new(categories.AsReadOnly(), projects.AsReadOnly(), tasks.AsReadOnly(), participants.AsReadOnly());
     }
 
+    private static TaskRecord ReadStoredTask(
+        SqliteConnection connection,
+        SqliteTransaction? transaction,
+        string id,
+        TodayLane? todayLane)
+    {
+        var participants = new List<string>();
+        using (var participantCommand = connection.CreateCommand())
+        {
+            participantCommand.Transaction = transaction;
+            participantCommand.CommandText = """
+                SELECT participant_id FROM task_participants
+                WHERE task_id=$id ORDER BY position;
+                """;
+            participantCommand.Parameters.AddWithValue("$id", id);
+            using var participantReader = participantCommand.ExecuteReader();
+            while (participantReader.Read()) participants.Add(participantReader.GetString(0));
+        }
+
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT t.id,t.project_id,t.title,t.description,t.explicit_category_id,t.due_date,
+                   t.shared_position,t.project_position,t.completion_instant,t.completion_date,
+                   a.archived_instant,a.archive_date
+            FROM tasks t
+            LEFT JOIN task_archives a ON a.task_id=t.id
+            WHERE t.id=$id;
+            """;
+        command.Parameters.AddWithValue("$id", id);
+        using var reader = command.ExecuteReader();
+        if (!reader.Read()) throw new InvalidDataException();
+        return new(reader.GetString(0), reader.IsDBNull(1) ? null : reader.GetString(1), reader.GetString(2),
+            reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4), ReadDate(reader, 5),
+            reader.GetInt64(6), reader.IsDBNull(7) ? null : reader.GetInt64(7), ReadInstant(reader, 8),
+            ReadDate(reader, 9), participants.AsReadOnly(), todayLane, ReadInstant(reader, 10), ReadDate(reader, 11));
+    }
+
+    private static TaskBinRecord ReadTaskBinRecord(
+        SqliteConnection connection,
+        SqliteTransaction? transaction,
+        string id,
+        DateTimeOffset removedAt,
+        TodayLane? todayLane)
+    {
+        var task = ReadStoredTask(connection, transaction, id, todayLane);
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT p.title,c.name,CASE WHEN pb.project_id IS NULL THEN 0 ELSE 1 END
+            FROM tasks t
+            LEFT JOIN projects p ON p.id=t.project_id
+            JOIN categories c ON c.id=COALESCE(t.explicit_category_id,p.category_id)
+            LEFT JOIN project_bins pb ON pb.project_id=t.project_id
+            WHERE t.id=$id;
+            """;
+        command.Parameters.AddWithValue("$id", id);
+        using var reader = command.ExecuteReader();
+        if (!reader.Read()) throw new InvalidDataException();
+        var parentIsBinned = reader.GetInt64(2) != 0;
+        return new(task, removedAt, reader.IsDBNull(0) ? null : reader.GetString(0), reader.GetString(1),
+            !parentIsBinned,
+            parentIsBinned ? "Restore the parent Project from Bin before restoring this Task." : null);
+    }
+
+    private static void WriteTaskBinOrderAnchors(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string taskId,
+        string scope,
+        List<string> orderedIds,
+        int taskIndex)
+    {
+        for (var index = 0; index < orderedIds.Count; index++)
+        {
+            if (index == taskIndex) continue;
+            Execute(connection, transaction, """
+                INSERT INTO task_bin_order_anchors (task_id,scope,anchor_task_id,relative_position)
+                VALUES ($task,$scope,$anchor,$relativePosition);
+                """, ("$task", taskId), ("$scope", scope), ("$anchor", orderedIds[index]),
+                ("$relativePosition", index - taskIndex));
+        }
+    }
+
+    private static List<TaskBinOrderAnchor> ReadTaskBinOrderAnchors(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string taskId,
+        string scope)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT anchor_task_id,relative_position
+            FROM task_bin_order_anchors
+            WHERE task_id=$task AND scope=$scope
+            ORDER BY ABS(relative_position),relative_position;
+            """;
+        command.Parameters.AddWithValue("$task", taskId);
+        command.Parameters.AddWithValue("$scope", scope);
+        using var reader = command.ExecuteReader();
+        var anchors = new List<TaskBinOrderAnchor>();
+        while (reader.Read()) anchors.Add(new(reader.GetString(0), reader.GetInt32(1)));
+        return anchors;
+    }
+
     private static void ShiftSharedOrderForNewTask(SqliteConnection connection, SqliteTransaction transaction)
     {
         var orderedIds = ReadTaskIdsInSharedOrder(connection, transaction);
         if (orderedIds.Count == 0) return;
-        Execute(connection, transaction, "UPDATE tasks SET shared_position = shared_position + $offset;", ("$offset", orderedIds.Count));
-        for (var position = 0; position < orderedIds.Count; position++)
-            Execute(connection, transaction, "UPDATE tasks SET shared_position=$position WHERE id=$id;", ("$position", position + 1), ("$id", orderedIds[position]));
+        RewriteSharedOrder(connection, transaction, orderedIds, 1);
     }
 
     private static List<string> ReadTaskIdsInSharedOrder(SqliteConnection connection, SqliteTransaction transaction)
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "SELECT id FROM tasks ORDER BY shared_position,id;";
+        command.CommandText = """
+            SELECT id FROM tasks
+            WHERE id NOT IN (SELECT task_id FROM task_bins)
+            ORDER BY shared_position,id;
+            """;
         using var reader = command.ExecuteReader();
         var ids = new List<string>();
         while (reader.Read()) ids.Add(reader.GetString(0));
         return ids;
     }
 
-    private static void RewriteSharedOrder(SqliteConnection connection, SqliteTransaction transaction, List<string> orderedIds)
+    private static void RewriteSharedOrder(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        List<string> orderedIds,
+        int startingPosition = 0)
     {
-        var offset = orderedIds.Count;
+        var binnedIds = ReadIds(connection, transaction,
+            "SELECT task_id FROM task_bins ORDER BY removed_instant,task_id;");
+        var allIds = orderedIds.Concat(binnedIds.Where(id => !orderedIds.Contains(id, StringComparer.Ordinal))).ToArray();
+        var offset = allIds.Length + startingPosition + 1;
         Execute(connection, transaction, "UPDATE tasks SET shared_position = shared_position + $offset;", ("$offset", offset));
-        for (var position = 0; position < orderedIds.Count; position++)
-            Execute(connection, transaction, "UPDATE tasks SET shared_position=$position WHERE id=$id;", ("$position", position), ("$id", orderedIds[position]));
+        for (var position = 0; position < allIds.Length; position++)
+            Execute(connection, transaction, "UPDATE tasks SET shared_position=$position WHERE id=$id;",
+                ("$position", position + startingPosition), ("$id", allIds[position]));
     }
 
     private static List<string> ReadIds(SqliteConnection connection, SqliteTransaction transaction, string sql, params (string Name, object? Value)[] parameters)
@@ -1114,18 +1399,34 @@ internal sealed class SqliteWorkspaceWork(
 
     private static void RewriteProjectTaskOrder(SqliteConnection connection, SqliteTransaction transaction, string projectId, List<string> orderedIds)
     {
+        var binnedIds = ReadIds(connection, transaction, """
+            SELECT t.id FROM tasks t
+            JOIN task_bins b ON b.task_id=t.id
+            WHERE t.project_id=$project
+            ORDER BY b.removed_instant,b.task_id;
+            """, ("$project", projectId));
+        var allIds = orderedIds.Concat(binnedIds.Where(id => !orderedIds.Contains(id, StringComparer.Ordinal))).ToArray();
         using var offsetCommand = connection.CreateCommand();
         offsetCommand.Transaction = transaction;
         offsetCommand.CommandText = "SELECT COALESCE(MAX(project_position), -1) + $count + 1 FROM tasks WHERE project_id=$project;";
-        offsetCommand.Parameters.AddWithValue("$count", orderedIds.Count);
+        offsetCommand.Parameters.AddWithValue("$count", allIds.Length);
         offsetCommand.Parameters.AddWithValue("$project", projectId);
         var offset = (long)offsetCommand.ExecuteScalar()!;
         Execute(connection, transaction,
             "UPDATE tasks SET project_position = project_position + $offset WHERE project_id=$project;",
             ("$offset", offset), ("$project", projectId));
-        for (var position = 0; position < orderedIds.Count; position++)
-            Execute(connection, transaction, "UPDATE tasks SET project_position=$position WHERE id=$id;", ("$position", position), ("$id", orderedIds[position]));
+        for (var position = 0; position < allIds.Length; position++)
+            Execute(connection, transaction, "UPDATE tasks SET project_position=$position WHERE id=$id;", ("$position", position), ("$id", allIds[position]));
     }
+
+    private static List<string> ReadActiveProjectTaskIds(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string projectId) => ReadIds(connection, transaction, """
+            SELECT id FROM tasks
+            WHERE project_id=$project AND id NOT IN (SELECT task_id FROM task_bins)
+            ORDER BY project_position,id;
+            """, ("$project", projectId));
 
     private static string EffectiveCategoryId(WorkspaceWorkSnapshot snapshot, TaskRecord task) =>
         task.ExplicitCategoryId
@@ -1353,6 +1654,46 @@ internal sealed class SqliteWorkspaceWork(
         command.Parameters.AddWithValue("$id", projectId);
         if ((long)command.ExecuteScalar()! != 0)
             throw new InvalidOperationException("Restore the Project before adding or moving Tasks into it.");
+        if (Exists(connection, transaction, "project_bins", "project_id", projectId))
+            throw new InvalidOperationException("Restore the Project from Bin before adding or moving Tasks into it.");
+    }
+
+    private static void RequireActiveTask(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string taskId)
+    {
+        Require(connection, transaction, "tasks", taskId);
+        if (Exists(connection, transaction, "task_bins", "task_id", taskId))
+            throw new InvalidOperationException("Restore the Task from Bin before changing it.");
+    }
+
+    private static bool Exists(
+        SqliteConnection connection,
+        SqliteTransaction? transaction,
+        string table,
+        string idColumn,
+        string id)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = $"SELECT COUNT(*) FROM {table} WHERE {idColumn}=$id;";
+        command.Parameters.AddWithValue("$id", id);
+        return (long)command.ExecuteScalar()! != 0;
+    }
+
+    private static bool SchemaObjectExists(
+        SqliteConnection connection,
+        SqliteTransaction? transaction,
+        string type,
+        string name)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_schema WHERE type=$type AND name=$name;";
+        command.Parameters.AddWithValue("$type", type);
+        command.Parameters.AddWithValue("$name", name);
+        return (long)command.ExecuteScalar()! == 1;
     }
     private static DateOnly? ReadDate(SqliteDataReader reader, int ordinal) => reader.IsDBNull(ordinal)
         ? null : DateOnly.ParseExact(reader.GetString(ordinal), "yyyy-MM-dd", CultureInfo.InvariantCulture);

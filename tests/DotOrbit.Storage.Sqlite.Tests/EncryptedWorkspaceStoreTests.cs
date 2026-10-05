@@ -25,7 +25,7 @@ public sealed class EncryptedWorkspaceStoreTests
 
         Assert.Equal(WorkspaceCreationStatus.Created, result.Status);
         Assert.NotNull(result.Session);
-        Assert.Equal(10, result.Session.SchemaVersion);
+        Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, result.Session.SchemaVersion);
         Assert.Equal("Personal Admin", result.Session.FirstCategoryName);
 
         var fileBytes = File.ReadAllBytes(fixture.Path);
@@ -38,7 +38,7 @@ public sealed class EncryptedWorkspaceStoreTests
         Assert.Empty(Directory.GetFiles(fixture.Directory, "*.creating*"));
 
         using var inspection = OpenInspectionConnection(fixture.Path, ValidPassphrase, readOnly: true);
-        Assert.Equal(10L, ExecuteScalar<long>(inspection, "PRAGMA user_version;"));
+        Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, ExecuteScalar<long>(inspection, "PRAGMA user_version;"));
         Assert.Equal("chacha20", ExecuteScalar<string>(inspection, "PRAGMA cipher;"));
         Assert.Equal(0L, ExecuteScalar<long>(inspection, "PRAGMA legacy;"));
         Assert.Equal(64007L, ExecuteScalar<long>(inspection, "PRAGMA kdf_iter;"));
@@ -47,7 +47,7 @@ public sealed class EncryptedWorkspaceStoreTests
         Assert.Equal("Personal Admin", ExecuteScalar<string>(inspection, "SELECT name FROM categories;"));
         Assert.Equal(1L, ExecuteScalar<long>(inspection, "SELECT COUNT(*) FROM categories;"));
         Assert.Equal(
-            "categories,projects,tasks,participants,task_participants,today_tasks,task_archives,project_archives,archive_search",
+            "categories,projects,tasks,participants,task_participants,today_tasks,task_archives,project_archives,archive_search,task_bins,task_bin_order_anchors,project_bins",
             ExecuteScalar<string>(
                 inspection,
                 "SELECT group_concat(name, ',') FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND (name = 'archive_search' OR name NOT LIKE 'archive_search_%');"));
@@ -64,7 +64,7 @@ public sealed class EncryptedWorkspaceStoreTests
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
         Assert.NotNull(result.Session);
-        Assert.Equal(10, result.Session.SchemaVersion);
+        Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, result.Session.SchemaVersion);
         Assert.Equal("Home", result.Session.FirstCategoryName);
     }
 

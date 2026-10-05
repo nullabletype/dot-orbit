@@ -24,6 +24,71 @@ namespace DotOrbit.Desktop.Tests;
 public sealed class ProjectCaptureWindowTests
 {
     [AvaloniaFact]
+    public void MoveAndRestoreTaskBinActionsAreKeyboardOperableNamedAndReturnLogicalFocus()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Removed note", "", "home", null);
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+        shell.Work!.SelectTask(task.Id);
+        Dispatcher.UIThread.RunJobs();
+        var move = Assert.Single(window.GetVisualDescendants().OfType<Button>(), button =>
+            AutomationProperties.GetAutomationId(button) == "task-move-to-bin");
+
+        Assert.True(move.IsEffectivelyVisible);
+        Assert.Equal("Move Task to Bin", AutomationProperties.GetName(move));
+        Assert.Contains("restore", AutomationProperties.GetHelpText(move), StringComparison.OrdinalIgnoreCase);
+        Assert.True(move.Focus());
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(shell.Work.HasInspector);
+        var binNavigation = Assert.Single(window.GetVisualDescendants().OfType<RadioButton>(), button =>
+            AutomationProperties.GetAutomationId(button) == "navigation-bin");
+        Assert.True(binNavigation.IsKeyboardFocusWithin);
+        shell.BinNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var restore = Assert.Single(window.GetVisualDescendants().OfType<Button>(), button =>
+            AutomationProperties.GetAutomationId(button) == $"bin-restore-task-{task.Id}");
+        Assert.Equal("Restore Removed note from Bin", AutomationProperties.GetName(restore));
+        Assert.Contains("nearest surviving former position", AutomationProperties.GetHelpText(restore), StringComparison.Ordinal);
+        Assert.True(restore.Focus());
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(binNavigation.IsKeyboardFocusWithin);
+        Assert.Equal("Task restored from Bin.", shell.Work.Message);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void BinnedParentTaskRendersContextAndDisabledRestoreGuidance()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var task = work.CreateTask(project.Id, "Dig");
+        work.MoveTaskToBin(task.Id);
+        work.MarkProjectBinned(project.Id);
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+        shell.BinNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+
+        var restore = Assert.Single(window.GetVisualDescendants().OfType<Button>(), button =>
+            AutomationProperties.GetAutomationId(button) == $"bin-restore-task-{task.Id}");
+        Assert.False(restore.IsEnabled);
+        Assert.Contains("parent Project", AutomationProperties.GetHelpText(restore), StringComparison.Ordinal);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text =>
+            text.IsEffectivelyVisible
+            && text.Text == "Restore the parent Project from Bin before restoring this Task.");
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text =>
+            text.IsEffectivelyVisible && text.Text == "Garden · Home");
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public void CanvasViewsReserveConsistentBottomScrollClearance()
     {
         var shell = new ShellViewModel(new MemoryWorkspaceWork());
@@ -31,7 +96,7 @@ public sealed class ProjectCaptureWindowTests
         window.Show();
 
         var bottomInsets = new List<(string View, double Bottom)>();
-        foreach (var navigation in shell.PrimaryNavigation)
+        foreach (var navigation in shell.PrimaryNavigation.Append(shell.BinNavigation))
         {
             navigation.SelectCommand.Execute(null);
             Dispatcher.UIThread.RunJobs();
@@ -51,7 +116,7 @@ public sealed class ProjectCaptureWindowTests
             && panel.Margin.Right == 32).Content;
         bottomInsets.Add(("Settings", Assert.IsType<StackPanel>(settingsContent).Margin.Bottom));
 
-        Assert.Equal(["Today", "Upcoming", "Backlog", "Projects", "Categories", "Completed", "Archive", "Settings"],
+        Assert.Equal(["Today", "Upcoming", "Backlog", "Projects", "Categories", "Completed", "Archive", "Bin", "Settings"],
             bottomInsets.Select(inset => inset.View));
         Assert.All(bottomInsets, inset => Assert.Equal(16, inset.Bottom));
         window.Close();
