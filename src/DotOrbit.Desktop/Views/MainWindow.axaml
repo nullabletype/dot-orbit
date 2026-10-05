@@ -979,6 +979,48 @@
           </ItemsControl>
         </StackPanel>
       </ScrollViewer>
+      <ScrollViewer Grid.Row="2" IsVisible="{Binding ShowBin}">
+        <StackPanel Margin="{StaticResource ScrollContentInset}" Spacing="10">
+          <Border Classes="empty-state" IsVisible="{Binding Work.HasNoBinnedTasks}" Padding="44">
+            <StackPanel HorizontalAlignment="Center" Spacing="8">
+              <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Text="Bin is empty" />
+              <TextBlock MaxWidth="420" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}"
+                  Text="Tasks you move to Bin will remain available to restore here."
+                  TextAlignment="Center" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+          <Border x:Name="TaskBinListPanel" Classes="list-panel" IsVisible="{Binding Work.HasBinnedTasks}">
+            <ItemsControl ItemsSource="{Binding Work.Bin}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:TaskBinRowViewModel">
+                  <Border Classes="interactive-row separated-row task-row" Classes.last="{Binding IsLast}"
+                      MinHeight="{StaticResource StandardRowHeight}">
+                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+                      <StackPanel VerticalAlignment="Center" Spacing="3">
+                        <TextBlock FontWeight="SemiBold" Text="{Binding Title}" />
+                        <TextBlock FontSize="12" Foreground="{StaticResource QuietTextBrush}"
+                            Text="{Binding ContextText}" />
+                      </StackPanel>
+                      <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="12"
+                          Foreground="{StaticResource MutedTextBrush}" Text="{Binding RemovedText}" />
+                      <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="4">
+                        <Button Classes="view-action task-row-action" Content="Restore"
+                            Command="{Binding RestoreCommand}" IsEnabled="{Binding CanRestore}"
+                            AutomationProperties.AutomationId="{Binding RestoreAutomationId}"
+                            AutomationProperties.Name="{Binding RestoreAccessibleName}"
+                            AutomationProperties.HelpText="{Binding RestoreHelpText}" />
+                        <TextBlock MaxWidth="240" FontSize="11" Foreground="{StaticResource MutedTextBrush}"
+                            IsVisible="{Binding IsRestoreBlocked}" Text="{Binding RestoreBlockedText}"
+                            TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+                      </StackPanel>
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
     </Grid>
 
     <ScrollViewer
@@ -1358,6 +1400,19 @@
           <Button Margin="0,22,0,0" Classes="view-action" Content="Delete category"
               Command="{Binding Work.DeleteCategoryCommand}" IsVisible="{Binding Work.ShowCategoryDelete}"
               AutomationProperties.AutomationId="category-delete" AutomationProperties.Name="Delete category" />
+
+          <Border Margin="0,22,0,0" Padding="0,14,0,0" BorderBrush="{StaticResource LineBrush}"
+              BorderThickness="0,1,0,0" IsVisible="{Binding Work.ShowMoveTaskToBin}">
+            <StackPanel Spacing="8">
+              <Button Classes="view-action" Content="Move Task to Bin"
+                  Command="{Binding Work.MoveTaskToBinCommand}"
+                  AutomationProperties.AutomationId="task-move-to-bin"
+                  AutomationProperties.Name="Move Task to Bin"
+                  AutomationProperties.HelpText="Removes this Task from workspace views. You can restore it from Bin." />
+              <TextBlock FontSize="11" Foreground="{StaticResource QuietTextBrush}" TextWrapping="Wrap"
+                  Text="This action is immediate and recoverable from Bin. Pending valid edits are saved first." />
+            </StackPanel>
+          </Border>
 
           <Grid x:Name="InspectorActions" Margin="0,24,0,0" ColumnDefinitions="*,8,*"
               IsVisible="{Binding Work.ShowExplicitInspectorActions}">

@@ -8,6 +8,120 @@ namespace DotOrbit.Desktop.Tests;
 public sealed class ProjectCaptureViewModelTests
 {
     [Fact]
+    public void MoveToBinFlushesPendingTaskEditsClosesInspectorAndExcludesEveryProjection()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Private note", "Original", "home", new DateOnly(2026, 10, 5));
+        work.SetTaskTodayLane(task.Id, TodayLane.Planned);
+        var model = new ProjectCaptureViewModel(work,
+            new FixedTimeProvider(new DateTimeOffset(2026, 10, 5, 12, 0, 0, TimeSpan.Zero)));
+        model.SelectTask(task.Id);
+        model.Description = "Saved before removal";
+
+        model.MoveTaskToBinCommand.Execute(null);
+
+        Assert.False(model.HasInspector);
+        Assert.Empty(work.Read().Tasks);
+        Assert.Empty(model.Backlog);
+        Assert.Empty(model.TodayPlanned);
+        Assert.Empty(model.UpcomingGroups);
+        Assert.Empty(model.Completed);
+        Assert.Empty(model.Archived);
+        var removed = Assert.Single(model.Bin);
+        Assert.Equal("Saved before removal", removed.Task.Description);
+        Assert.Equal("Private note", removed.Title);
+        Assert.Contains("restore", model.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void InvalidPendingTaskEditPreventsMoveToBinAndRetainsInspector()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Keep me", "", "home", null);
+        var model = new ProjectCaptureViewModel(work);
+        model.SelectTask(task.Id);
+        model.Title = " ";
+
+        model.MoveTaskToBinCommand.Execute(null);
+
+        Assert.True(model.HasInspector);
+        Assert.True(model.NeedsDecision);
+        Assert.Empty(model.Bin);
+        Assert.Single(work.Read().Tasks);
+    }
+
+    [Fact]
+    public void BinOrdersTasksByRemovalInstantNewestFirstAndRestoresWithFeedback()
+    {
+        var work = new MemoryWorkspaceWork();
+        var first = work.CreateStandaloneTask("First removed", "", "home", null);
+        var second = work.CreateStandaloneTask("Second removed", "", "work", null);
+        work.CurrentDate = new DateOnly(2026, 10, 4);
+        work.MoveTaskToBin(first.Id);
+        work.CurrentDate = new DateOnly(2026, 10, 5);
+        work.MoveTaskToBin(second.Id);
+        var model = new ProjectCaptureViewModel(work,
+            new FixedTimeProvider(new DateTimeOffset(2026, 10, 5, 12, 0, 0, TimeSpan.Zero), TimeZoneInfo.Utc));
+
+        Assert.Equal(["Second removed", "First removed"], model.Bin.Select(row => row.Title));
+        Assert.Equal("Removed 5 Oct 2026, 14:00", model.Bin[0].RemovedText);
+        Assert.Equal("Restore Second removed from Bin", model.Bin[0].RestoreAccessibleName);
+
+        model.Bin[0].RestoreCommand.Execute(null);
+
+        Assert.Equal("Task restored from Bin.", model.Message);
+        Assert.Equal("Second removed", Assert.Single(work.Read().Tasks).Title);
+    }
+
+    [Fact]
+    public void BinnedParentKeepsTaskBinContextAndDisablesIndependentRestore()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var task = work.CreateTask(project.Id, "Dig");
+        work.MoveTaskToBin(task.Id);
+        work.MarkProjectBinned(project.Id);
+
+        var model = new ProjectCaptureViewModel(work);
+
+        var row = Assert.Single(model.Bin);
+        Assert.Equal("Garden · Home", row.ContextText);
+        Assert.False(row.CanRestore);
+        Assert.True(row.IsRestoreBlocked);
+        Assert.Equal("Restore the parent Project from Bin before restoring this Task.", row.RestoreBlockedText);
+        row.RestoreCommand.Execute(null);
+        Assert.Equal(task.Id, Assert.Single(model.Bin).Task.Id);
+    }
+
+    [Fact]
+    public void BinWriteFailuresPreserveTheTaskAndExplainThatNothingChanged()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Keep me", "", "home", null);
+        var model = new ProjectCaptureViewModel(work);
+        model.SelectTask(task.Id);
+        work.FailWrites = true;
+
+        model.MoveTaskToBinCommand.Execute(null);
+
+        Assert.True(model.HasInspector);
+        Assert.Equal(task.Id, Assert.Single(work.Read().Tasks).Id);
+        Assert.Empty(model.Bin);
+        Assert.Equal("Could not move the Task to Bin. No changes were made.", model.Message);
+
+        work.FailWrites = false;
+        work.MoveTaskToBin(task.Id);
+        model = new ProjectCaptureViewModel(work);
+        work.FailWrites = true;
+
+        model.Bin.Single().RestoreCommand.Execute(null);
+
+        Assert.Empty(work.Read().Tasks);
+        Assert.Equal(task.Id, Assert.Single(model.Bin).Task.Id);
+        Assert.Equal("Could not restore the Task from Bin. No changes were made.", model.Message);
+    }
+
+    [Fact]
     public void TextAutosaveUsesSixHundredMillisecondsAndPersistsOnlyTheLatestRevision()
     {
         var work = new MemoryWorkspaceWork();
@@ -1521,14 +1635,29 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
 {
     private readonly List<WorkspaceCategory> _categories = [new("home", "Home", 0), new("work", "Work", 1)];
     private readonly List<ProjectRecord> _projects = [];
+    private readonly HashSet<string> _binnedProjectIds = new(StringComparer.Ordinal);
     private readonly List<TaskRecord> _tasks = [];
+    private readonly List<TaskBinRecord> _bin = [];
     private readonly List<ParticipantRecord> _participants = [];
     public bool FailWrites { get; set; }
     public bool FailArchiveSearch { get; set; }
     public DateOnly CurrentDate { get; set; } = new(2026, 9, 29);
     public Action? BeforeBulkArchive { get; set; }
     public int WriteCount { get; private set; }
-    public WorkspaceWorkSnapshot Read() => new(_categories.OrderBy(category => category.Position).ToArray(), _projects.OrderBy(project => project.Position).ToArray(), _tasks.OrderBy(t => t.SharedPosition).ToArray(), _participants.ToArray());
+    public WorkspaceWorkSnapshot Read() => new(_categories.OrderBy(category => category.Position)
+        .ToArray(), _projects.Where(project => !_binnedProjectIds.Contains(project.Id))
+        .OrderBy(project => project.Position).ToArray(), _tasks.Where(task => _bin.All(item => item.Task.Id != task.Id))
+        .OrderBy(t => t.SharedPosition).ToArray(), _participants.ToArray());
+    public IReadOnlyList<TaskBinRecord> ReadTaskBin() => _bin
+        .Select(item => item.Task.ProjectId is { } projectId && _binnedProjectIds.Contains(projectId)
+            ? item with
+            {
+                CanRestore = false,
+                RestoreBlockedReason = "Restore the parent Project from Bin before restoring this Task.",
+            }
+            : item)
+        .OrderByDescending(item => item.RemovedAt).ToArray();
+    public void MarkProjectBinned(string projectId) => _binnedProjectIds.Add(projectId);
     public IReadOnlyList<ArchiveSearchResult> SearchArchive(string query)
     {
         if (FailArchiveSearch) throw new WorkspaceWorkException();
@@ -1545,7 +1674,7 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
                     ArchiveSearchDateKind.Archived, project.ArchiveDate!.Value,
                     string.IsNullOrWhiteSpace(description) ? project.Title : description)));
         }
-        foreach (var task in _tasks.Where(task => task.IsArchived))
+        foreach (var task in _tasks.Where(task => task.IsArchived && _bin.All(item => item.Task.Id != task.Id)))
         {
             var parent = task.ProjectId is null ? null : _projects.Single(project => project.Id == task.ProjectId);
             var categoryId = task.ExplicitCategoryId ?? parent!.CategoryId;
@@ -1780,6 +1909,28 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
         var index = _tasks.FindIndex(task => task.Id == id);
         if (!_tasks[index].IsArchived) throw new InvalidOperationException();
         return _tasks[index] = _tasks[index] with { ArchivedAt = null, ArchiveDate = null };
+    }
+    public TaskBinRecord MoveTaskToBin(string id)
+    {
+        Check();
+        if (_bin.Any(item => item.Task.Id == id)) throw new InvalidOperationException();
+        var index = _tasks.FindIndex(task => task.Id == id);
+        var prior = _tasks[index];
+        var project = prior.ProjectId is null ? null : _projects.Single(item => item.Id == prior.ProjectId);
+        var categoryId = prior.ExplicitCategoryId ?? project!.CategoryId;
+        var removed = new TaskBinRecord(prior, new DateTimeOffset(CurrentDate, new TimeOnly(14, 0), TimeSpan.Zero),
+            project?.Title, _categories.Single(item => item.Id == categoryId).Name, true, null);
+        _tasks[index] = prior with { TodayLane = null };
+        _bin.Add(removed);
+        return removed;
+    }
+    public TaskRecord RestoreTaskFromBin(string id)
+    {
+        Check();
+        var removed = _bin.Single(item => item.Task.Id == id);
+        _bin.Remove(removed);
+        var index = _tasks.FindIndex(task => task.Id == id);
+        return _tasks[index] = removed.Task;
     }
     public ProjectRecord ArchiveProject(string id)
     {

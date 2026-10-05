@@ -34,6 +34,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private bool _upcomingActive;
     private bool _completedActive;
     private bool _archiveActive;
+    private bool _binActive;
     private string _archiveSearchText = string.Empty;
     private string _archiveSearchStatus = string.Empty;
     private bool _archiveSearchFailed;
@@ -69,6 +70,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private string _todayAnnouncement = string.Empty;
     private string _todayFocusAutomationId = string.Empty;
     private string _archiveFocusAutomationId = string.Empty;
+    private string _binFocusAutomationId = string.Empty;
     private string? _pendingArchiveTaskId;
     private BulkTaskArchivePreview? _pendingBulkTaskArchivePreview;
     private int _bulkArchiveCompletedAgeDays = 30;
@@ -90,6 +92,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             ArchiveSearchText = string.Empty;
             ArchiveFocusAutomationId = "archive-search";
         });
+        MoveTaskToBinCommand = new(MoveCurrentTaskToBin);
         AddParticipantCommand = new(AddParticipant);
         AddNewParticipantCommand = new(AddNewParticipant);
         CancelNewParticipantCommand = new(() =>
@@ -138,6 +141,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public ObservableCollection<TaskRowViewModel> Completed { get; } = [];
     public ObservableCollection<ArchivedTaskRowViewModel> Archived { get; } = [];
     public ObservableCollection<ArchivedWorkGroupViewModel> ArchiveGroups { get; } = [];
+    public ObservableCollection<TaskBinRowViewModel> Bin { get; } = [];
     public ObservableCollection<ArchiveSearchResultViewModel> ArchiveSearchResults { get; } = [];
     public ObservableCollection<ArchiveSearchResultGroupViewModel> ArchiveSearchGroups { get; } = [];
     public ObservableCollection<TodayTaskRowViewModel> TodayPlanned { get; } = [];
@@ -157,6 +161,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public RelayCommand NewCategoryCommand { get; }
     public RelayCommand ClearTodayCommand { get; }
     public RelayCommand ClearArchiveSearchCommand { get; }
+    public RelayCommand MoveTaskToBinCommand { get; }
     public RelayCommand AddParticipantCommand { get; }
     public RelayCommand AddNewParticipantCommand { get; }
     public RelayCommand CancelNewParticipantCommand { get; }
@@ -197,6 +202,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             Notify(nameof(ShowParticipants));
             Notify(nameof(ShowMarkdownPreview));
             Notify(nameof(ShowMarkdownEditor));
+            Notify(nameof(ShowMoveTaskToBin));
         }
     }
     public bool HasNoInspector => !HasInspector;
@@ -211,6 +217,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public bool HasArchivedProjects => ArchivedProjects.Count > 0;
     public bool HasArchived => Archived.Count > 0 || ArchivedProjects.Count > 0;
     public bool HasNoArchived => !HasArchived;
+    public bool HasBinnedTasks => Bin.Count > 0;
+    public bool HasNoBinnedTasks => !HasBinnedTasks;
     public string ArchiveSearchText
     {
         get => _archiveSearchText;
@@ -330,6 +338,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public string TaskCompletionDateAccessibleText => ShowTaskCompletionDate
         ? WorkDatePresentation.Accessible(_snapshot.Tasks.Single(task => task.Id == _editingId).CompletionDate, "Completed")
         : string.Empty;
+    public bool ShowMoveTaskToBin => HasInspector && !_editingCategory && !_creating && _editingTask;
     public string InspectorMetaLabel => _editingTask ? "CATEGORY BEHAVIOUR" : "STATUS";
     public string InspectorMetaValue => _editingTask
         ? CategoryHint
@@ -531,6 +540,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public string ReorderFocusAutomationId { get => _reorderFocusAutomationId; private set { _reorderFocusAutomationId = value; Notify(); } }
     public string DialogReturnFocusAutomationId { get => _dialogReturnFocusAutomationId; private set { _dialogReturnFocusAutomationId = value; Notify(); } }
     public string ArchiveFocusAutomationId { get => _archiveFocusAutomationId; private set { _archiveFocusAutomationId = value; Notify(); } }
+    public string BinFocusAutomationId { get => _binFocusAutomationId; private set { _binFocusAutomationId = value; Notify(); } }
     internal DateOnly Today => DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime);
     private bool IsStandaloneTaskDraft => _editingTask && ((_creatingStandaloneTask && (!_creatingTodayTask || TaskContextTarget?.ProjectId is null))
         || (_editingId is not null && _snapshot.Tasks.Single(task => task.Id == _editingId).ProjectId is null));
@@ -709,6 +719,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public void SetCompletedActive(bool active) => _completedActive = active;
 
     public void SetArchiveActive(bool active) => _archiveActive = active;
+    public void SetBinActive(bool active) => _binActive = active;
     public void SetTodayActive(bool active) => _todayActive = active;
 
     public bool RefreshDatePresentation()
@@ -1035,6 +1046,40 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
                     Message = "Task restored to Completed.";
                 }, "Could not restore the Task. No changes were made.")) return;
         });
+    }
+
+    private void MoveCurrentTaskToBin()
+    {
+        if (!ShowMoveTaskToBin || _editingId is null || HasBlockingDialog) return;
+        var taskId = _editingId;
+        ResolveDraftBeforeAction(() =>
+        {
+            if (!Attempt(() =>
+                {
+                    _work.MoveTaskToBin(taskId);
+                    CloseInspector();
+                    Reload();
+                    BinFocusAutomationId = "navigation-bin";
+                    Message = "Task moved to Bin. You can restore it from Bin.";
+                }, "Could not move the Task to Bin. No changes were made.")) return;
+        });
+    }
+
+    internal void RestoreTaskFromBin(string id)
+    {
+        if (HasBlockingDialog) return;
+        var binIndex = Bin.IndexOf(Bin.FirstOrDefault(row => row.Task.Id == id)!);
+        if (!Attempt(() =>
+            {
+                _work.RestoreTaskFromBin(id);
+                Reload();
+                BinFocusAutomationId = _binActive
+                    ? Bin.Count == 0
+                        ? "navigation-bin"
+                        : Bin[Math.Min(Math.Max(binIndex, 0), Bin.Count - 1)].RestoreAutomationId
+                    : $"task-completion-{id}";
+                Message = "Task restored from Bin.";
+            }, "Could not restore the Task from Bin. No changes were made.")) return;
     }
 
     private void RequestTaskContextChange()
@@ -1373,6 +1418,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         Notify(nameof(ShowParticipants)); Notify(nameof(ShowTaskContext)); Notify(nameof(ShowTaskContextAction));
         Notify(nameof(ShowProjectSummary)); Notify(nameof(ProjectSummary));
         Notify(nameof(ShowTaskCompletionDate)); Notify(nameof(TaskCompletionDateText)); Notify(nameof(TaskCompletionDateAccessibleText));
+        Notify(nameof(ShowMoveTaskToBin));
         Notify(nameof(InspectorMetaLabel)); Notify(nameof(InspectorMetaValue));
         Notify(nameof(ShowMarkdownPreview)); Notify(nameof(ShowMarkdownEditor));
         Notify(nameof(ShowExplicitInspectorActions)); Notify(nameof(ShowAutosaveStatus));
@@ -1578,6 +1624,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private void Reload()
     {
         _snapshot = _work.Read();
+        var taskBin = _work.ReadTaskBin();
         RefreshParticipantChoices();
         RefreshBacklogCategories();
         foreach (var removedId in _taskRows.Keys.Except(_snapshot.Tasks.Select(task => task.Id), StringComparer.Ordinal).ToArray())
@@ -1653,6 +1700,14 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             Archived.Add(new(desiredArchived[index], index == desiredArchived.Length - 1));
         RefreshArchiveGroups();
         RefreshArchiveSearch();
+        Bin.Clear();
+        for (var index = 0; index < taskBin.Count; index++)
+        {
+            var item = taskBin[index];
+            Bin.Add(new(this, item, item.ProjectTitle ?? "Standalone Task", item.CategoryName,
+                index == taskBin.Count - 1,
+                TimeZoneInfo.ConvertTime(item.RemovedAt, _timeProvider.LocalTimeZone)));
+        }
         SynchroniseToday(TodayPlanned, _snapshot.Tasks
             .Where(task => IsTaskInActiveWork(task) && !task.IsComplete && !task.IsArchived && task.TodayLane == TodayLane.Planned)
             .OrderBy(task => task.SharedPosition).Select(ToTaskRow).ToArray(), TodayLane.Planned);
@@ -1683,6 +1738,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         Notify(nameof(HasArchivedTasks));
         Notify(nameof(HasArchivedProjects));
         Notify(nameof(HasNoArchived));
+        Notify(nameof(HasBinnedTasks));
+        Notify(nameof(HasNoBinnedTasks));
         Notify(nameof(HasTodayTasks));
         Notify(nameof(HasNoTodayTasks));
         Notify(nameof(HasCompletedToday));
@@ -2008,6 +2065,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         try { action(); return true; }
         catch (WorkspaceWorkException) { Message = failureMessage; return false; }
         catch (ArgumentException) { Message = failureMessage; return false; }
+        catch (InvalidOperationException) { Message = failureMessage; return false; }
     }
 
     internal void MoveUp(string taskId) => MoveTask(taskId, Backlog.IndexOf(Backlog.Single(task => task.Id == taskId)) - 1);
@@ -2265,6 +2323,48 @@ public sealed record CompletedTaskGroupViewModel(string Heading, IReadOnlyList<T
 public sealed record CompletedTaskRowViewModel(TaskRowViewModel Task, bool IsLast);
 public sealed record ArchivedTaskRowViewModel(TaskRowViewModel Task, bool IsLast);
 public sealed record ArchivedProjectRowViewModel(ProjectRowViewModel Project, bool IsLast);
+
+public sealed class TaskBinRowViewModel
+{
+    public TaskBinRowViewModel(
+        ProjectCaptureViewModel owner,
+        TaskBinRecord item,
+        string projectTitle,
+        string categoryName,
+        bool isLast,
+        DateTimeOffset localRemovedAt)
+    {
+        Task = item.Task;
+        ProjectTitle = projectTitle;
+        CategoryName = categoryName;
+        IsLast = isLast;
+        RemovedText = $"Removed {localRemovedAt.ToString("d MMM yyyy, HH:mm", CultureInfo.InvariantCulture)}";
+        CanRestore = item.CanRestore;
+        RestoreBlockedText = item.RestoreBlockedReason ?? string.Empty;
+        RestoreCommand = new(() =>
+        {
+            if (CanRestore) owner.RestoreTaskFromBin(Task.Id);
+        });
+    }
+
+    public TaskRecord Task { get; }
+    public string Title => Task.Title;
+    public string ProjectTitle { get; }
+    public string CategoryName { get; }
+    public string ContextText => $"{ProjectTitle} · {CategoryName}";
+    public string RemovedText { get; }
+    public bool IsLast { get; }
+    public bool CanRestore { get; }
+    public bool IsRestoreBlocked => !CanRestore;
+    public string RestoreBlockedText { get; }
+    public string RestoreAutomationId => $"bin-restore-task-{Task.Id}";
+    public string RestoreAccessibleName => $"Restore {Title} from Bin";
+    public string RestoreHelpText => CanRestore
+        ? $"Restores {Title} to its nearest surviving former position."
+        : RestoreBlockedText;
+    public RelayCommand RestoreCommand { get; }
+}
+
 public sealed record ArchivedWorkRowViewModel(
     DateOnly ArchiveDate,
     DateTimeOffset ArchivedAt,

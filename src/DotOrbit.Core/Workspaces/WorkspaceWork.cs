@@ -3,6 +3,7 @@ namespace DotOrbit.Core.Workspaces;
 public interface IWorkspaceWork
 {
     WorkspaceWorkSnapshot Read();
+    IReadOnlyList<TaskBinRecord> ReadTaskBin();
     IReadOnlyList<ArchiveSearchResult> SearchArchive(string query);
     WorkspaceCategory CreateCategory(string name);
     WorkspaceCategory RenameCategory(string id, string name);
@@ -24,6 +25,8 @@ public interface IWorkspaceWork
     TaskRecord ReopenTask(string id);
     TaskRecord ArchiveTask(string id);
     TaskRecord RestoreTask(string id);
+    TaskBinRecord MoveTaskToBin(string id);
+    TaskRecord RestoreTaskFromBin(string id);
     ProjectRecord ArchiveProject(string id);
     ProjectRecord RestoreProject(string id);
     BulkTaskArchivePreview PreviewBulkTaskArchive(int completedAgeDays);
@@ -117,6 +120,14 @@ public sealed record WorkspaceWorkSnapshot(
 {
     public IReadOnlyList<ParticipantRecord> Participants => ParticipantRecords ?? [];
 }
+public sealed record TaskBinRecord(
+    TaskRecord Task,
+    DateTimeOffset RemovedAt,
+    string? ProjectTitle,
+    string CategoryName,
+    bool CanRestore,
+    string? RestoreBlockedReason);
+public sealed record TaskBinOrderAnchor(string TaskId, int RelativePosition);
 public sealed record SharedTaskOrderChange(string TaskId, int Position, int Count);
 public sealed record TodayLaneOrderChange(string TaskId, TodayLane Lane, int Position, int Count);
 public sealed record ProjectOrderChange(string ProjectId, int Position, int Count);
@@ -138,6 +149,39 @@ public sealed record BulkTaskArchiveResult(
     bool Applied,
     BulkTaskArchivePreview Preview,
     int ArchivedCount);
+
+public static class TaskBinRestorePolicy
+{
+    public static int RestoreIndex(
+        IReadOnlyList<string> survivingIds,
+        IReadOnlyList<TaskBinOrderAnchor> formerOrder)
+    {
+        ArgumentNullException.ThrowIfNull(survivingIds);
+        ArgumentNullException.ThrowIfNull(formerOrder);
+        var nearest = formerOrder
+            .Select(anchor => (Anchor: anchor, Index: IndexOf(survivingIds, anchor.TaskId)))
+            .Where(candidate => candidate.Index >= 0)
+            .OrderBy(candidate => Math.Abs(candidate.Anchor.RelativePosition))
+            .ThenBy(candidate => candidate.Anchor.RelativePosition > 0)
+            .ThenBy(candidate => candidate.Anchor.TaskId, StringComparer.Ordinal)
+            .FirstOrDefault();
+        if (nearest.Anchor is null) return survivingIds.Count;
+        return nearest.Anchor.RelativePosition < 0 ? nearest.Index + 1 : nearest.Index;
+    }
+
+    public static void EnsureParentAllowsRestore(bool parentProjectIsBinned)
+    {
+        if (parentProjectIsBinned)
+            throw new InvalidOperationException("Restore the parent Project before restoring this Task.");
+    }
+
+    private static int IndexOf(IReadOnlyList<string> ids, string id)
+    {
+        for (var index = 0; index < ids.Count; index++)
+            if (string.Equals(ids[index], id, StringComparison.Ordinal)) return index;
+        return -1;
+    }
+}
 
 public static class BulkTaskArchiveThreshold
 {

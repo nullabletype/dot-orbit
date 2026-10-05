@@ -109,4 +109,27 @@ public sealed class ShellViewModelTests
         Assert.Equal("0", archive.CountText);
         Assert.Equal("0 items", archive.AccessibleCount);
     }
+
+    [Fact]
+    public void BinSelectionUsesItsRealSurfaceAndBadgeAppearsOnlyWhileNonEmpty()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Removed note", "", "home", null);
+        var shell = new ShellViewModel(work);
+
+        Assert.Null(shell.BinNavigation.CountText);
+        work.MoveTaskToBin(task.Id);
+        shell.Work!.RefreshFromStore();
+
+        Assert.Equal("1", shell.BinNavigation.CountText);
+        Assert.Equal("1 item", shell.BinNavigation.AccessibleCount);
+        shell.BinNavigation.SelectCommand.Execute(null);
+        Assert.True(shell.ShowBin);
+        Assert.False(shell.ShowEmpty);
+
+        shell.Work.Bin.Single().RestoreCommand.Execute(null);
+        Assert.Null(shell.BinNavigation.CountText);
+        Assert.Empty(shell.BinNavigation.AccessibleCount);
+        Assert.Equal("navigation-bin", shell.Work.BinFocusAutomationId);
+    }
 }

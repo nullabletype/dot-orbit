@@ -18,9 +18,9 @@ public sealed class WorkspaceMigrationTests
 
         using var session = fixture.CreateCurrentWorkspace();
 
-        Assert.Equal(10, session.SchemaVersion);
+        Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, session.SchemaVersion);
         using var connection = OpenInspectionConnection(fixture.WorkspacePath, ValidPassphrase);
-        Assert.Equal(10L, ExecuteScalar<long>(connection, "PRAGMA user_version;"));
+        Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, ExecuteScalar<long>(connection, "PRAGMA user_version;"));
         Assert.Equal(
             "index",
             ExecuteScalar<string>(
@@ -43,7 +43,7 @@ public sealed class WorkspaceMigrationTests
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
         Assert.NotNull(session);
-        Assert.Equal(10, session.SchemaVersion);
+        Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, session.SchemaVersion);
         Assert.Equal("Personal Admin", session.FirstCategoryName);
         var recoveryPath = Assert.Single(
             Directory.GetFiles(
@@ -52,7 +52,7 @@ public sealed class WorkspaceMigrationTests
         AssertSchemaOneWorkspace(recoveryPath, "Personal Admin");
 
         using var migrated = OpenInspectionConnection(fixture.WorkspacePath, ValidPassphrase);
-        Assert.Equal(10L, ExecuteScalar<long>(migrated, "PRAGMA user_version;"));
+        Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, ExecuteScalar<long>(migrated, "PRAGMA user_version;"));
         Assert.Equal(
             1L,
             ExecuteScalar<long>(
@@ -70,7 +70,7 @@ public sealed class WorkspaceMigrationTests
         using var session = result.Session;
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
-        Assert.Equal(10, session?.SchemaVersion);
+        Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, session?.SchemaVersion);
         var snapshot = session!.Work.Read();
         Assert.Equal(["First", "Second"], snapshot.Tasks.Select(task => task.Title));
         Assert.All(snapshot.Tasks, task => Assert.Equal("project", task.ProjectId));
@@ -91,7 +91,7 @@ public sealed class WorkspaceMigrationTests
         using var session = result.Session;
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
-        Assert.Equal(10, session?.SchemaVersion);
+        Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, session?.SchemaVersion);
         var snapshot = session!.Work.Read();
         Assert.Equal(["project-two", "project-one"], snapshot.Projects.Select(project => project.Id));
         Assert.Equal([0L, 1L], snapshot.Projects.Select(project => project.Position));
@@ -138,7 +138,7 @@ public sealed class WorkspaceMigrationTests
         using var session = result.Session;
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
-        Assert.Equal(10, session?.SchemaVersion);
+        Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, session?.SchemaVersion);
         var restored = Assert.Single(session!.Work.Read().Tasks);
         Assert.Equal(taskId, restored.Id);
         Assert.Equal([participantId], restored.Participants);
@@ -174,7 +174,7 @@ public sealed class WorkspaceMigrationTests
         using var session = result.Session;
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
-        Assert.Equal(10, session?.SchemaVersion);
+        Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, session?.SchemaVersion);
         var snapshot = session!.Work.Read();
         var completedTask = snapshot.Tasks.Single(task => task.Id == completedId);
         Assert.True(completedTask.IsComplete);
@@ -183,7 +183,7 @@ public sealed class WorkspaceMigrationTests
         Assert.Equal(TodayLane.Planned, snapshot.Tasks.Single(task => task.Id == plannedId).TodayLane);
         Assert.Single(Directory.GetFiles(fixture.DirectoryPath, "dot-orbit-pre-migration-v7-*.dotorbit-recovery"));
         using var connection = OpenInspectionConnection(fixture.WorkspacePath, ValidPassphrase);
-        Assert.Equal(10L, ExecuteScalar<long>(connection, "PRAGMA user_version;"));
+        Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, ExecuteScalar<long>(connection, "PRAGMA user_version;"));
         Assert.Equal("task_id,archived_instant,archive_date", ExecuteScalar<string>(connection,
             "SELECT group_concat(name, ',') FROM pragma_table_info('task_archives');"));
     }
@@ -208,13 +208,13 @@ public sealed class WorkspaceMigrationTests
         using var session = result.Session;
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
-        Assert.Equal(10, session?.SchemaVersion);
+        Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, session?.SchemaVersion);
         var snapshot = session!.Work.Read();
         Assert.True(snapshot.Tasks.Single(task => task.Id == archivedTaskId).IsArchived);
         Assert.All(snapshot.Projects, project => Assert.False(project.IsArchived));
         Assert.Single(Directory.GetFiles(fixture.DirectoryPath, "dot-orbit-pre-migration-v8-*.dotorbit-recovery"));
         using var connection = OpenInspectionConnection(fixture.WorkspacePath, ValidPassphrase);
-        Assert.Equal(10L, ExecuteScalar<long>(connection, "PRAGMA user_version;"));
+        Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, ExecuteScalar<long>(connection, "PRAGMA user_version;"));
         Assert.Equal("project_id,archived_instant,archive_date", ExecuteScalar<string>(connection,
             "SELECT group_concat(name, ',') FROM pragma_table_info('project_archives');"));
     }
@@ -242,12 +242,12 @@ public sealed class WorkspaceMigrationTests
         using var session = result.Session;
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
-        Assert.Equal(10, session?.SchemaVersion);
+        Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, session?.SchemaVersion);
         Assert.Equal(projectId, Assert.Single(session!.Work.SearchArchive("project notes")).Id);
         Assert.Equal(taskId, Assert.Single(session.Work.SearchArchive("tulip")).Id);
         Assert.Single(Directory.GetFiles(fixture.DirectoryPath, "dot-orbit-pre-migration-v9-*.dotorbit-recovery"));
         using var connection = OpenInspectionConnection(fixture.WorkspacePath, ValidPassphrase);
-        Assert.Equal(10L, ExecuteScalar<long>(connection, "PRAGMA user_version;"));
+        Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, ExecuteScalar<long>(connection, "PRAGMA user_version;"));
         Assert.Equal(2L, ExecuteScalar<long>(connection, "SELECT COUNT(*) FROM archive_search;"));
     }
 
@@ -282,7 +282,7 @@ public sealed class WorkspaceMigrationTests
         using var session = result.Session;
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
-        Assert.Equal(10, session?.SchemaVersion);
+        Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, session?.SchemaVersion);
         Assert.Empty(
             Directory.GetFiles(
                 fixture.DirectoryPath,
@@ -319,7 +319,7 @@ public sealed class WorkspaceMigrationTests
         using var session = result.Session;
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
-        Assert.Equal(10, session?.SchemaVersion);
+        Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, session?.SchemaVersion);
         Assert.Single(
             Directory.GetFiles(
                 fixture.DirectoryPath,
@@ -461,7 +461,7 @@ public sealed class WorkspaceMigrationTests
             using var session = result.Session;
 
             Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
-            Assert.Equal(10, session?.SchemaVersion);
+            Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, session?.SchemaVersion);
         }
     }
 
@@ -479,6 +479,28 @@ public sealed class WorkspaceMigrationTests
         Assert.Null(result.RecoveryPointPath);
         Assert.Equal(original, File.ReadAllBytes(fixture.WorkspacePath));
         Assert.Empty(Directory.GetFiles(fixture.DirectoryPath, "*.dotorbit-recovery"));
+    }
+
+    [Fact]
+    public void SchemaTenMigratesTaskBinShapeToCurrentSchema()
+    {
+        using var fixture = new MigrationFixture();
+        using (fixture.CreateCurrentWorkspace()) { }
+        fixture.DowngradeCurrentToSchemaTen();
+
+        var result = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase());
+        using var session = result.Session;
+
+        Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
+        Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, session?.SchemaVersion);
+        Assert.Empty(session!.Work.ReadTaskBin());
+        using var connection = OpenInspectionConnection(fixture.WorkspacePath, ValidPassphrase);
+        Assert.Equal("task_id,removed_instant,today_lane",
+            ExecuteScalar<string>(connection, "SELECT group_concat(name, ',') FROM pragma_table_info('task_bins');"));
+        Assert.Equal("task_id,scope,anchor_task_id,relative_position",
+            ExecuteScalar<string>(connection, "SELECT group_concat(name, ',') FROM pragma_table_info('task_bin_order_anchors');"));
+        Assert.Equal("project_id,removed_instant",
+            ExecuteScalar<string>(connection, "SELECT group_concat(name, ',') FROM pragma_table_info('project_bins');"));
     }
 
     [Fact]
@@ -501,12 +523,12 @@ public sealed class WorkspaceMigrationTests
 
         Assert.Equal(WorkspaceRestoreStatus.Restored, result.Status);
         Assert.NotNull(restored);
-        Assert.Equal(10, restored.SchemaVersion);
+        Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, restored.SchemaVersion);
         Assert.Equal("Restored category", restored.FirstCategoryName);
         using var inspection = OpenInspectionConnection(
             fixture.WorkspacePath,
             ValidPassphrase);
-        Assert.Equal(10L, ExecuteScalar<long>(inspection, "PRAGMA user_version;"));
+        Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, ExecuteScalar<long>(inspection, "PRAGMA user_version;"));
         Assert.Equal(
             1L,
             ExecuteScalar<long>(
@@ -812,7 +834,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; DROP TABLE today_tasks; PRAGMA user_version = 6;";
+            command.CommandText = "DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; DROP TABLE today_tasks; PRAGMA user_version = 6;";
             command.ExecuteNonQuery();
         }
 
@@ -820,7 +842,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; PRAGMA user_version = 7;";
+            command.CommandText = "DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; PRAGMA user_version = 7;";
             command.ExecuteNonQuery();
         }
 
@@ -828,7 +850,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE archive_search; DROP TABLE project_archives; PRAGMA user_version = 8;";
+            command.CommandText = "DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; PRAGMA user_version = 8;";
             command.ExecuteNonQuery();
         }
 
@@ -836,7 +858,15 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE archive_search; PRAGMA user_version = 9;";
+            command.CommandText = "DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; PRAGMA user_version = 9;";
+            command.ExecuteNonQuery();
+        }
+
+        public void DowngradeCurrentToSchemaTen()
+        {
+            using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
+            using var command = connection.CreateCommand();
+            command.CommandText = "DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; PRAGMA user_version = 10;";
             command.ExecuteNonQuery();
         }
 

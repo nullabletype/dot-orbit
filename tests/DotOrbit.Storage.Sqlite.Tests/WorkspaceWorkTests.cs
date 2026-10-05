@@ -1140,7 +1140,7 @@ public sealed class WorkspaceWorkTests : IDisposable
         }
         using (var session = _store.Open(WorkspacePath, _passphrase).Session!)
         {
-            Assert.Equal(10, session.SchemaVersion);
+            Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, session.SchemaVersion);
             Assert.Equal("original", Assert.Single(session.Work.Read().Categories).Id);
             var project = session.Work.CreateProject("Migrated project", "", "original", null);
             session.Work.CreateTask(project.Id, "Migrated task");
@@ -1209,14 +1209,14 @@ public sealed class WorkspaceWorkTests : IDisposable
     [InlineData("archive_date TEXT NOT NULL", "archive_date TEXT")]
     [InlineData("archive_date TEXT NOT NULL", "archive_date INTEGER NOT NULL")]
     [InlineData("tokenize = 'unicode61 remove_diacritics 2'", "tokenize = 'ascii'")]
-    public void OpenRejectsSchemaTenWithChangedCanonicalDefinitions(string original, string replacement)
+    public void OpenRejectsCurrentSchemaWithChangedCanonicalDefinitions(string original, string replacement)
     {
         _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!.Dispose();
         using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
         {
             using var command = connection.CreateCommand();
             // Rebuild the empty work tables with valid SQL that weakens one schema guarantee.
-            command.CommandText = "DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; DROP TABLE today_tasks; DROP TABLE task_participants; DROP TABLE participants; DROP TABLE tasks; DROP TABLE projects;" +
+            command.CommandText = "DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; DROP TABLE today_tasks; DROP TABLE task_participants; DROP TABLE participants; DROP TABLE tasks; DROP TABLE projects;" +
                 SqliteWorkspaceWork.Schema.Replace(original, replacement, StringComparison.Ordinal);
             command.ExecuteNonQuery();
             Assert.Equal("ok", EncryptedWorkspaceStore.ExecuteScalar<string>(connection, "PRAGMA integrity_check;"));
@@ -1580,7 +1580,7 @@ public sealed class WorkspaceWorkTests : IDisposable
         }
 
         using var session = _store.Open(WorkspacePath, _passphrase).Session!;
-        Assert.Equal(10, session.SchemaVersion);
+        Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, session.SchemaVersion);
         Assert.Equal("Dig", Assert.Single(session.Work.Read().Tasks).Title);
         using var migrated = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadOnly);
         Assert.Equal("id,label,comparison_key", EncryptedWorkspaceStore.ExecuteScalar<string>(migrated,
@@ -1602,6 +1602,244 @@ public sealed class WorkspaceWorkTests : IDisposable
         }
 
         Assert.Equal(WorkspaceOpenStatus.InvalidPassphraseOrStore, _store.Open(WorkspacePath, _passphrase).Status);
+    }
+
+    [Fact]
+    public void MoveTaskToBinExcludesItFromSnapshotAndArchiveSearchThenRestoresItsStateAndOrders()
+    {
+        var time = new ManualTimeProvider(new DateTimeOffset(2026, 10, 5, 9, 30, 0, TimeSpan.Zero));
+        var store = new EncryptedWorkspaceStore(new SystemIdentifierGenerator(), new WorkspaceFileOperations(), time);
+        string targetId;
+        string participantId;
+        using (var session = store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!)
+        {
+            var category = Assert.Single(session.Work.Read().Categories);
+            var project = session.Work.CreateProject("Garden", "", category.Id, null);
+            participantId = session.Work.CreateParticipant("SD").Id;
+            var first = session.Work.CreateTask(project.Id, "First");
+            var target = session.Work.CreateTask(project.Id, "Private tulip note");
+            var last = session.Work.CreateTask(project.Id, "Last");
+            targetId = target.Id;
+            session.Work.UpdateTask(target.Id, target.Title, "Sensitive archive words", category.Id,
+                new DateOnly(2026, 10, 8), new([participantId], []));
+            session.Work.SetTaskTodayLane(target.Id, TodayLane.InProgress);
+
+            var removed = session.Work.MoveTaskToBin(target.Id);
+
+            Assert.Equal(time.GetUtcNow(), removed.RemovedAt);
+            Assert.Equal(TodayLane.InProgress, removed.Task.TodayLane);
+            Assert.DoesNotContain(session.Work.Read().Tasks, task => task.Id == target.Id);
+            Assert.Empty(session.Work.SearchArchive("Sensitive"));
+            Assert.Equal([last.Id, first.Id], session.Work.Read().Tasks.Select(task => task.Id));
+            Assert.Equal([first.Id, last.Id], session.Work.Read().Tasks.OrderBy(task => task.ProjectPosition).Select(task => task.Id));
+            Assert.Throws<InvalidOperationException>(() => session.Work.UpdateTask(target.Id, "Changed", "", category.Id, null));
+        }
+
+        time.SetUtcNow(time.GetUtcNow().AddHours(1));
+        using var reopened = store.Open(WorkspacePath, _passphrase).Session!;
+        var binned = Assert.Single(reopened.Work.ReadTaskBin());
+        Assert.Equal(targetId, binned.Task.Id);
+        Assert.Equal(participantId, Assert.Single(binned.Task.Participants));
+        Assert.Equal(new DateOnly(2026, 10, 8), binned.Task.DueDate);
+        Assert.Equal(TodayLane.InProgress, binned.Task.TodayLane);
+
+        var restored = reopened.Work.RestoreTaskFromBin(targetId);
+
+        Assert.Equal(TodayLane.InProgress, restored.TodayLane);
+        Assert.Equal(participantId, Assert.Single(restored.Participants));
+        Assert.Empty(reopened.Work.ReadTaskBin());
+        Assert.Equal(["Last", "Private tulip note", "First"], reopened.Work.Read().Tasks.Select(task => task.Title));
+        Assert.Equal(["First", "Private tulip note", "Last"], reopened.Work.Read().Tasks
+            .OrderBy(task => task.ProjectPosition).Select(task => task.Title));
+    }
+
+    [Fact]
+    public void BinnedArchivedTaskRetainsCompletionAndArchiveButLeavesSearchUntilRestored()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        var task = session.Work.CreateStandaloneTask("Historic receipt", "Searchable lavender", category.Id, null);
+        session.Work.CompleteTask(task.Id);
+        var archived = session.Work.ArchiveTask(task.Id);
+        Assert.Equal(task.Id, Assert.Single(session.Work.SearchArchive("lavender")).Id);
+
+        session.Work.MoveTaskToBin(task.Id);
+
+        Assert.Empty(session.Work.SearchArchive("lavender"));
+        var binned = Assert.Single(session.Work.ReadTaskBin()).Task;
+        Assert.Equal(archived.CompletedAt, binned.CompletedAt);
+        Assert.Equal(archived.CompletionDate, binned.CompletionDate);
+        Assert.Equal(archived.ArchivedAt, binned.ArchivedAt);
+        Assert.Equal(archived.ArchiveDate, binned.ArchiveDate);
+
+        var restored = session.Work.RestoreTaskFromBin(task.Id);
+        Assert.True(restored.IsComplete);
+        Assert.True(restored.IsArchived);
+        Assert.Equal(task.Id, Assert.Single(session.Work.SearchArchive("lavender")).Id);
+    }
+
+    [Fact]
+    public void ReadTaskBinPersistsMultipleRemovalsNewestFirstAcrossReopen()
+    {
+        var time = new ManualTimeProvider(new DateTimeOffset(2026, 10, 5, 9, 0, 0, TimeSpan.Zero));
+        var store = new EncryptedWorkspaceStore(new SystemIdentifierGenerator(), new WorkspaceFileOperations(), time);
+        using (var session = store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!)
+        {
+            var category = Assert.Single(session.Work.Read().Categories);
+            var first = session.Work.CreateStandaloneTask("First removed", "", category.Id, null);
+            var second = session.Work.CreateStandaloneTask("Second removed", "", category.Id, null);
+            session.Work.MoveTaskToBin(first.Id);
+            time.SetUtcNow(new DateTimeOffset(2026, 10, 5, 11, 30, 0, TimeSpan.Zero));
+            session.Work.MoveTaskToBin(second.Id);
+        }
+
+        using var reopened = store.Open(WorkspacePath, _passphrase).Session!;
+
+        Assert.Equal(["Second removed", "First removed"], reopened.Work.ReadTaskBin().Select(item => item.Task.Title));
+        Assert.Equal(
+            [new DateTimeOffset(2026, 10, 5, 11, 30, 0, TimeSpan.Zero), new DateTimeOffset(2026, 10, 5, 9, 0, 0, TimeSpan.Zero)],
+            reopened.Work.ReadTaskBin().Select(item => item.RemovedAt));
+    }
+
+    [Fact]
+    public void RestoreTaskFromBinRejectsBinnedParentWithoutChangingTaskBin()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var project = session.Work.CreateProject("Garden", "", session.Work.Read().Categories[0].Id, null);
+        var task = session.Work.CreateTask(project.Id, "Dig");
+        session.Work.MoveTaskToBin(task.Id);
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "INSERT INTO project_bins (project_id,removed_instant) VALUES ($id,$instant);";
+            command.Parameters.AddWithValue("$id", project.Id);
+            command.Parameters.AddWithValue("$instant", DateTimeOffset.UtcNow.ToString("O"));
+            command.ExecuteNonQuery();
+        }
+
+        var blocked = Assert.Single(session.Work.ReadTaskBin());
+        Assert.Equal("Garden", blocked.ProjectTitle);
+        Assert.Equal("Home", blocked.CategoryName);
+        Assert.False(blocked.CanRestore);
+        Assert.Contains("parent Project", blocked.RestoreBlockedReason!, StringComparison.Ordinal);
+
+        var exception = Assert.Throws<InvalidOperationException>(() => session.Work.RestoreTaskFromBin(task.Id));
+
+        Assert.Contains("parent Project", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(task.Id, Assert.Single(session.Work.ReadTaskBin()).Task.Id);
+    }
+
+    [Fact]
+    public void MoveAndRestoreTaskFromBinRollBackAtomicallyWhenPersistenceFails()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var project = session.Work.CreateProject("Garden", "", session.Work.Read().Categories[0].Id, null);
+        var first = session.Work.CreateTask(project.Id, "First");
+        var task = session.Work.CreateTask(project.Id, "Keep");
+        var last = session.Work.CreateTask(project.Id, "Last");
+        session.Work.SetTaskTodayLane(task.Id, TodayLane.Planned);
+        var originalSharedOrder = session.Work.Read().Tasks.Select(item => item.Id).ToArray();
+        var originalProjectOrder = session.Work.Read().Tasks.OrderBy(item => item.ProjectPosition).Select(item => item.Id).ToArray();
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "CREATE TRIGGER reject_bin_rewrite BEFORE UPDATE OF shared_position ON tasks BEGIN SELECT RAISE(ABORT, 'private'); END;";
+            command.ExecuteNonQuery();
+        }
+
+        Assert.Throws<WorkspaceWorkException>(() => session.Work.MoveTaskToBin(task.Id));
+        Assert.Equal(TodayLane.Planned, session.Work.Read().Tasks.Single(item => item.Id == task.Id).TodayLane);
+        Assert.Equal(originalSharedOrder, session.Work.Read().Tasks.Select(item => item.Id));
+        Assert.Equal(originalProjectOrder, session.Work.Read().Tasks
+            .OrderBy(item => item.ProjectPosition).Select(item => item.Id));
+        Assert.Empty(session.Work.ReadTaskBin());
+
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "DROP TRIGGER reject_bin_rewrite;";
+            command.ExecuteNonQuery();
+        }
+        session.Work.MoveTaskToBin(task.Id);
+        var activeSharedOrder = session.Work.Read().Tasks.Select(item => item.Id).ToArray();
+        var activeProjectOrder = session.Work.Read().Tasks.OrderBy(item => item.ProjectPosition).Select(item => item.Id).ToArray();
+        Assert.Equal([last.Id, first.Id], activeSharedOrder);
+        Assert.Equal([first.Id, last.Id], activeProjectOrder);
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "CREATE TRIGGER reject_restore_today BEFORE INSERT ON today_tasks BEGIN SELECT RAISE(ABORT, 'private'); END;";
+            command.ExecuteNonQuery();
+        }
+
+        Assert.Throws<WorkspaceWorkException>(() => session.Work.RestoreTaskFromBin(task.Id));
+        Assert.DoesNotContain(session.Work.Read().Tasks, item => item.Id == task.Id);
+        Assert.Equal(activeSharedOrder, session.Work.Read().Tasks.Select(item => item.Id));
+        Assert.Equal(activeProjectOrder, session.Work.Read().Tasks
+            .OrderBy(item => item.ProjectPosition).Select(item => item.Id));
+        var binned = Assert.Single(session.Work.ReadTaskBin());
+        Assert.Equal(task.Id, binned.Task.Id);
+        Assert.Equal(TodayLane.Planned, binned.Task.TodayLane);
+    }
+
+    [Fact]
+    public void RestoreTaskFromBinUsesSurvivingNeighboursAndFallsBackToEndInBothOrders()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var project = session.Work.CreateProject("Garden", "", session.Work.Read().Categories[0].Id, null);
+        var first = session.Work.CreateTask(project.Id, "First");
+        var target = session.Work.CreateTask(project.Id, "Target");
+        var third = session.Work.CreateTask(project.Id, "Third");
+        session.Work.MoveTaskToBin(target.Id);
+        var newest = session.Work.CreateTask(project.Id, "Newest");
+
+        session.Work.RestoreTaskFromBin(target.Id);
+
+        Assert.Equal([newest.Id, third.Id, target.Id, first.Id], session.Work.Read().Tasks.Select(task => task.Id));
+        Assert.Equal([first.Id, target.Id, third.Id, newest.Id], session.Work.Read().Tasks
+            .OrderBy(task => task.ProjectPosition).Select(task => task.Id));
+
+        session.Work.MoveTaskToBin(target.Id);
+        session.Work.MoveTaskToBin(first.Id);
+        session.Work.MoveTaskToBin(third.Id);
+        session.Work.RestoreTaskFromBin(target.Id);
+
+        Assert.Equal([newest.Id, target.Id], session.Work.Read().Tasks.Select(task => task.Id));
+        Assert.Equal([target.Id, newest.Id], session.Work.Read().Tasks
+            .OrderBy(task => task.ProjectPosition).Select(task => task.Id));
+
+        session.Work.MoveTaskToBin(target.Id);
+        session.Work.MoveTaskToBin(newest.Id);
+        session.Work.RestoreTaskFromBin(target.Id);
+
+        Assert.Equal([target.Id], session.Work.Read().Tasks.Select(task => task.Id));
+        Assert.Equal([target.Id], session.Work.Read().Tasks
+            .OrderBy(task => task.ProjectPosition).Select(task => task.Id));
+    }
+
+    [Fact]
+    public void RestoreTaskFromBinChoosesNearestSurvivingAnchorAcrossBothDirections()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var project = session.Work.CreateProject("Garden", "", session.Work.Read().Categories[0].Id, null);
+        var first = session.Work.CreateTask(project.Id, "First");
+        var removedNeighbour = session.Work.CreateTask(project.Id, "Removed neighbour");
+        var target = session.Work.CreateTask(project.Id, "Target");
+        var third = session.Work.CreateTask(project.Id, "Third");
+        var fourth = session.Work.CreateTask(project.Id, "Fourth");
+        session.Work.MoveTaskToBin(target.Id);
+        session.Work.MoveTaskToBin(removedNeighbour.Id);
+        session.Work.MoveTaskInProject(project.Id, first.Id, 2);
+
+        Assert.Equal([third.Id, fourth.Id, first.Id], session.Work.Read().Tasks
+            .OrderBy(task => task.ProjectPosition).Select(task => task.Id));
+
+        session.Work.RestoreTaskFromBin(target.Id);
+
+        Assert.Equal([fourth.Id, third.Id, target.Id, first.Id],
+            session.Work.Read().Tasks.Select(task => task.Id));
+        Assert.Equal([target.Id, third.Id, fourth.Id, first.Id], session.Work.Read().Tasks
+            .OrderBy(task => task.ProjectPosition).Select(task => task.Id));
     }
 
     public void Dispose()
