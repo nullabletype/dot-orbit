@@ -8,6 +8,13 @@
     <Setter Property="CornerRadius" Value="{StaticResource PanelRadius}" />
     <Setter Property="Padding" Value="{StaticResource PanelInset}" />
   </Style>
+  <Style Selector="Border.attention-panel">
+    <Setter Property="Padding" Value="12" />
+    <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AmberBrush}" />
+    <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />
+    <Setter Property="CornerRadius" Value="{StaticResource PanelRadius}" />
+  </Style>
   <Style Selector="Border.empty-state">
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />

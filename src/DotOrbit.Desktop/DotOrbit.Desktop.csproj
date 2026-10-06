@@ -18,6 +18,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../DotOrbit.Core/DotOrbit.Core.csproj" />
+    <ProjectReference Include="../DotOrbit.Export.Json/DotOrbit.Export.Json.csproj" />
     <ProjectReference Include="../DotOrbit.Markdown/DotOrbit.Markdown.csproj" />
     <ProjectReference Include="../DotOrbit.Storage.Sqlite/DotOrbit.Storage.Sqlite.csproj" />
   </ItemGroup>

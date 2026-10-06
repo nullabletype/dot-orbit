@@ -1180,6 +1180,29 @@
 
         <StackPanel Spacing="10">
           <StackPanel Spacing="4">
+            <TextBlock FontSize="20" FontWeight="Bold" Text="Data export" />
+            <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
+                Text="Create a manual unencrypted JSON copy of active and archived workspace data." />
+          </StackPanel>
+          <Border Classes="list-panel">
+            <Border Classes="interactive-row separated-row last" MinHeight="54">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <StackPanel VerticalAlignment="Center" Spacing="2">
+                  <TextBlock FontWeight="SemiBold" Text="Plaintext workspace export" />
+                  <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
+                      Text="Preview the scope, choose a destination, and confirm the unencrypted output." />
+                </StackPanel>
+                <Button x:Name="SettingsPlaintextExportButton" Grid.Column="1" Classes="view-action"
+                    Content="Export workspace JSON" Click="OnOpenPlaintextExport"
+                    AutomationProperties.AutomationId="settings-plaintext-export-open"
+                    AutomationProperties.Name="Export unencrypted workspace JSON" />
+              </Grid>
+            </Border>
+          </Border>
+        </StackPanel>
+
+        <StackPanel Spacing="10">
+          <StackPanel Spacing="4">
             <TextBlock FontSize="20" FontWeight="Bold" Text="Recovery" />
             <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
                 Text="Create and restore portable encrypted recovery points." />

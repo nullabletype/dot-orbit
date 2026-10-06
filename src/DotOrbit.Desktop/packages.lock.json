@@ -218,6 +218,12 @@
       "dotorbit.core": {
         "type": "Project"
       },
+      "dotorbit.export.json": {
+        "type": "Project",
+        "dependencies": {
+          "DotOrbit.Core": "[1.0.0, )"
+        }
+      },
       "dotorbit.markdown": {
         "type": "Project",
         "dependencies": {

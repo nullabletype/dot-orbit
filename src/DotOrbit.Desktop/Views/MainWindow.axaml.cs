@@ -95,6 +95,8 @@ public sealed partial class MainWindow : Window
         SetSessionContext();
         if (this.FindControl<Button>("SettingsRecoveryButton") is { } recoveryButton)
             recoveryButton.IsVisible = session is not null;
+        if (this.FindControl<Button>("SettingsPlaintextExportButton") is { } exportButton)
+            exportButton.IsVisible = session is not null;
         if (this.FindControl<Button>("SettingsPassphraseButton") is { } passphraseButton)
             passphraseButton.IsVisible = session is not null;
         Closed += OnClosed;
@@ -114,6 +116,22 @@ public sealed partial class MainWindow : Window
             var recovery = new RecoveryWindow(_session!.Recovery, ReplaceSession);
             recovery.Closed += (_, _) => Dispatcher.UIThread.Post(() => launcher?.Focus());
             recovery.Show(this);
+        });
+    }
+
+    private void OnOpenPlaintextExport(object? sender, RoutedEventArgs e)
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        var launcher = sender as Control;
+        Navigate(() =>
+        {
+            var export = new PlaintextExportWindow(_session!.Work);
+            export.Closed += (_, _) => Dispatcher.UIThread.Post(() => launcher?.Focus());
+            _ = export.ShowDialog(this);
         });
     }
 

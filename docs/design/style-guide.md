@@ -38,6 +38,7 @@ The implemented recipes live in `src/DotOrbit.Desktop/Styles/ComponentRecipes.ax
 ### Panels and empty states
 
 - `list-panel` supplies the shared surface, border, radius and equal 10px inset. Nested groups may add spacing between groups only.
+- `attention-panel` supplies the shared bounded surface for warnings and consequential confirmations. It uses the amber semantic token, but its text must carry the meaning without relying on colour.
 - `empty-state` supplies the bounded transparent surface. It needs a plain-language heading, explanation and, when applicable, a keyboard-operable next action.
 - A panel does not gain a raised background merely to create visual layers; reserve the raised surface for interaction or deliberate hierarchy.
 - Canvas content uses `ScrollContentInset` and inspector content uses `InspectorScrollContentInset`; scrollbars must not cover text, fields, row actions or panel borders at the minimum window size.

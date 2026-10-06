@@ -2,12 +2,14 @@
   <Folder Name="/src/">
     <Project Path="src/DotOrbit.Core/DotOrbit.Core.csproj" />
     <Project Path="src/DotOrbit.Desktop/DotOrbit.Desktop.csproj" />
+    <Project Path="src/DotOrbit.Export.Json/DotOrbit.Export.Json.csproj" />
     <Project Path="src/DotOrbit.Markdown/DotOrbit.Markdown.csproj" />
     <Project Path="src/DotOrbit.Storage.Sqlite/DotOrbit.Storage.Sqlite.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/DotOrbit.Core.Tests/DotOrbit.Core.Tests.csproj" />
     <Project Path="tests/DotOrbit.Desktop.Tests/DotOrbit.Desktop.Tests.csproj" />
+    <Project Path="tests/DotOrbit.Export.Json.Tests/DotOrbit.Export.Json.Tests.csproj" />
     <Project Path="tests/DotOrbit.Storage.Sqlite.Tests/DotOrbit.Storage.Sqlite.Tests.csproj" />
     <Project Path="tests/DotOrbit.Packaging.Tests/DotOrbit.Packaging.Tests.csproj" />
     <Project Path="tests/DotOrbit.Verification.Tests/DotOrbit.Verification.Tests.csproj" />

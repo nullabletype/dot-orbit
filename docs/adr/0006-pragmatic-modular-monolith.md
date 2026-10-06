@@ -18,6 +18,7 @@ The initial production projects are:
 - `DotOrbit.Core` — domain and application behaviour organised by capabilities such as Projects, Tasks, Today, Categories, Archive, and Bin. It depends only on the .NET base class libraries and exposes small interfaces for application commands, results, and query projections.
 - `DotOrbit.Markdown` — the single sanitised Markdown render model and its plain-text projection, shared by desktop preview, clipboard, and archive search.
 - `DotOrbit.Storage.Sqlite` — the SQLite3MC adapter, including mappings, atomic transactions, search indexes, schema migrations, encrypted store lifecycle, and encrypted backup and restore implementation.
+- `DotOrbit.Export.Json` — deterministic versioned plaintext JSON mapping and atomic publication to an explicitly selected local file.
 - `DotOrbit.Desktop` — Avalonia views and view models plus the desktop composition root, file selection, clipboard, and application lifecycle integration.
 
 Tests align with these projects: core unit tests, real SQLite3MC storage integration tests using temporary files, and focused desktop view-model, headless, and supported-runtime checks. Markdown rendering and explicit plaintext export are separate adapters consumed at the desktop or application edge; neither is part of `DotOrbit.Core`. Additional production projects are introduced only when behaviour is substantial enough to form a deep module with a small interface; deferred features are not scaffolded in advance.
@@ -26,12 +27,12 @@ Dependencies point inward:
 
 ```text
 DotOrbit.Desktop --------> DotOrbit.Core
-        |                        ^
-        +--> DotOrbit.Markdown   |
-        |             ^          |
+        |                       ^  ^
+        +--> DotOrbit.Markdown  |  |
+        +--> DotOrbit.Export.Json--+
         +--> DotOrbit.Storage.Sqlite
-                      |
-                      +----------+
+                     |             |
+                     +-------------+
 ```
 
 `DotOrbit.Core` never references Avalonia or SQLite. `DotOrbit.Storage.Sqlite` implements core-owned persistence needs. `DotOrbit.Desktop` owns composition and connects the application module to the production adapters. A future mobile application can provide another presentation and composition root while reusing the core and, where suitable, the storage adapter; desktop user-interface reuse is not required.
