@@ -1,5 +1,7 @@
 namespace DotOrbit.Packaging;
 
+using System.Text.RegularExpressions;
+
 internal static class Program
 {
     public static int Main(string[] args)
@@ -10,9 +12,10 @@ internal static class Program
             var archivePath = PackageArchive.Build(
                 options.RepositoryRoot,
                 options.RuntimeIdentifier,
+                options.Version,
                 options.NoRestore);
             Console.WriteLine(
-                $"package: runtime={options.RuntimeIdentifier} result=passed archive={archivePath}");
+                $"package: runtime={options.RuntimeIdentifier} version={options.Version} result=passed archive={archivePath}");
             return 0;
         }
         catch (PackageException exception)
@@ -26,14 +29,20 @@ internal static class Program
 internal sealed record PackageOptions(
     string RepositoryRoot,
     string RuntimeIdentifier,
+    string Version,
     bool NoRestore)
 {
+    private static readonly Regex SemanticVersionPattern = new(
+        @"^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$",
+        RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+
     public static PackageOptions Parse(string[] args)
     {
         ArgumentNullException.ThrowIfNull(args);
 
         string? repositoryRoot = null;
         string? runtimeIdentifier = null;
+        string? version = null;
         var noRestore = false;
         for (var index = 0; index < args.Length; index++)
         {
@@ -45,6 +54,9 @@ internal sealed record PackageOptions(
                 case "--runtime" when index + 1 < args.Length:
                     runtimeIdentifier = args[++index];
                     break;
+                case "--version" when index + 1 < args.Length:
+                    version = args[++index];
+                    break;
                 case "--no-restore":
                     noRestore = true;
                     break;
@@ -54,14 +66,20 @@ internal sealed record PackageOptions(
         }
 
         if (string.IsNullOrWhiteSpace(repositoryRoot)
-            || string.IsNullOrWhiteSpace(runtimeIdentifier))
+            || string.IsNullOrWhiteSpace(runtimeIdentifier)
+            || string.IsNullOrWhiteSpace(version))
         {
             throw new PackageException("missing-required-arguments");
+        }
+        if (!SemanticVersionPattern.IsMatch(version))
+        {
+            throw new PackageException("invalid-version");
         }
 
         return new(
             Path.GetFullPath(repositoryRoot),
             runtimeIdentifier,
+            version,
             noRestore);
     }
 }

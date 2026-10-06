@@ -10,6 +10,65 @@ namespace DotOrbit.Packaging.Tests;
 public sealed class PackageArchiveTests
 {
     [Fact]
+    public void PackageOptionsRequireAndPreserveASemanticVersion()
+    {
+        var options = PackageOptions.Parse(
+        [
+            "--repository-root", ".",
+            "--runtime", "osx-arm64",
+            "--version", "1.2.3-rc.1+build.42",
+            "--no-restore",
+        ]);
+
+        Assert.Equal("1.2.3-rc.1+build.42", options.Version);
+        Assert.True(options.NoRestore);
+    }
+
+    [Theory]
+    [InlineData("1.2")]
+    [InlineData("01.2.3")]
+    [InlineData("1.2.3-01")]
+    [InlineData("v1.2.3")]
+    public void PackageOptionsRejectNonCanonicalVersions(string version)
+    {
+        var exception = Assert.Throws<PackageException>(() => PackageOptions.Parse(
+        [
+            "--repository-root", ".",
+            "--runtime", "osx-arm64",
+            "--version", version,
+        ]));
+
+        Assert.Equal("invalid-version", exception.Message);
+    }
+
+    [Fact]
+    public void PackageOptionsRequireAVersion()
+    {
+        var exception = Assert.Throws<PackageException>(() => PackageOptions.Parse(
+        [
+            "--repository-root", ".",
+            "--runtime", "osx-arm64",
+        ]));
+
+        Assert.Equal("missing-required-arguments", exception.Message);
+    }
+
+    [Fact]
+    public void PublishUsesTheExactPackageVersionWithoutAppendingTheCommit()
+    {
+        var arguments = PackageArchive.CreatePublishArguments(
+            "DotOrbit.Desktop.csproj",
+            "publish",
+            "osx-arm64",
+            "1.2.3-rc.1+build.42",
+            noRestore: true);
+
+        Assert.Contains("-p:Version=1.2.3-rc.1+build.42", arguments);
+        Assert.Contains("-p:IncludeSourceRevisionInInformationalVersion=false", arguments);
+        Assert.Contains("--no-restore", arguments);
+    }
+
+    [Fact]
     public void ValidatePublishedFilesAcceptsOnlyTheExpectedExecutable()
     {
         using var fixture = new PublishFixture("dot-orbit");
@@ -88,6 +147,17 @@ public sealed class PackageArchiveTests
         Assert.Equal("manifest-integrity-failed", exception.Message);
     }
 
+    [Fact]
+    public void VerifyArchiveRejectsAMismatchedPackageVersion()
+    {
+        using var fixture = new ArchiveFixture();
+        fixture.CreateArchive(manifestVersion: "1.2.4");
+
+        var exception = Assert.Throws<PackageException>(() => fixture.Verify());
+
+        Assert.Equal("manifest-invalid", exception.Message);
+    }
+
     private sealed class PublishFixture : IDisposable
     {
         public PublishFixture(params string[] files)
@@ -145,7 +215,8 @@ public sealed class PackageArchiveTests
             bool duplicateEntry = false,
             string? unexpectedEntry = null,
             bool omitManifestPayload = false,
-            bool tamperPayload = false)
+            bool tamperPayload = false,
+            string manifestVersion = "1.2.3")
         {
             var payloads = PayloadNames.ToDictionary(
                 name => name,
@@ -164,8 +235,9 @@ public sealed class PackageArchiveTests
                 .ToArray();
             var manifest = JsonSerializer.Serialize(new
             {
-                schemaVersion = 1,
+                schemaVersion = 2,
                 runtimeIdentifier = "win-x64",
+                version = manifestVersion,
                 configuration = "Release",
                 selfContained = true,
                 files = manifestFiles,
@@ -197,6 +269,7 @@ public sealed class PackageArchiveTests
             ArchivePath,
             ExtractedDirectory,
             "win-x64",
+            "1.2.3",
             "dot-orbit.exe",
             usesUnixArchive: false);
 

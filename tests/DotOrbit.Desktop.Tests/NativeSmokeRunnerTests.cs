@@ -5,6 +5,19 @@ namespace DotOrbit.Desktop.Tests;
 
 public sealed class NativeSmokeRunnerTests
 {
+    [Theory]
+    [InlineData("1.2.3", "1.2.3", true)]
+    [InlineData("1.2.3-rc.1+build.42", "1.2.3-rc.1+build.42", true)]
+    [InlineData("1.2.3", "1.2.3+commit", false)]
+    [InlineData(null, "1.2.3", false)]
+    public void PackageSmokeRequiresTheExactExpectedInformationalVersion(
+        string? expected,
+        string? actual,
+        bool matches)
+    {
+        Assert.Equal(matches, PackagedWorkspaceSmoke.MatchesExpectedVersion(expected, actual));
+    }
+
     [Fact]
     public void PackageSmokeArgumentEnablesWorkspaceAndNativeDesktopChecks()
     {

@@ -1,8 +1,14 @@
 name: Release packages
 
 on:
+  push:
+    branches: [main]
+    tags:
+      - "v*.*.*"
   pull_request:
     paths:
+      - .github/scripts/release-controls.mjs
+      - .github/scripts/release-controls.test.mjs
       - .github/workflows/release-packages.yml
       - Directory.Build.props
       - Directory.Packages.props
@@ -25,8 +31,32 @@ permissions:
   contents: read
 
 jobs:
+  admit-source:
+    name: Admit package source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      upload: ${{ steps.source.outputs.upload }}
+      draft-release: ${{ steps.source.outputs.draft-release }}
+      version: ${{ steps.source.outputs.version }}
+    steps:
+      - name: Check out repository and release history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.21.0
+      - name: Test release controls
+        run: node --test .github/scripts/release-controls.test.mjs
+      - name: Classify package source
+        id: source
+        run: node .github/scripts/release-controls.mjs classify
+
   package-and-smoke:
     name: ${{ matrix.runtime }}
+    needs: admit-source
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -79,18 +109,50 @@ jobs:
           --
           --repository-root .
           --runtime ${{ matrix.runtime }}
+          --version ${{ needs.admit-source.outputs.version }}
           --no-restore
       - name: Run packaged encrypted desktop smoke
         timeout-minutes: 2
         shell: bash
         env:
           DOTORBIT_PACKAGE_SMOKE_RECOVERY: ${{ github.workspace }}/tests/DotOrbit.Storage.Sqlite.Tests/Fixtures/portable-current-v12.dotorbit-recovery
+          DOTORBIT_PACKAGE_SMOKE_VERSION: ${{ needs.admit-source.outputs.version }}
         run: ${{ matrix.smoke-command }}
       - name: Upload approved release package
-        if: github.event_name == 'workflow_dispatch'
+        if: needs.admit-source.outputs.upload == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           path: artifacts/packages/${{ matrix.archive }}
           archive: false
           if-no-files-found: error
           retention-days: 7
+
+  prepare-draft-release:
+    name: Prepare draft release
+    if: needs.admit-source.outputs.draft-release == 'true'
+    needs:
+      - admit-source
+      - package-and-smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out release controls
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.21.0
+      - name: Download validated release packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: dot-orbit-*
+          merge-multiple: true
+          skip-decompress: true
+          path: artifacts/release-assets
+      - name: Create or refresh draft release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_ASSET_ROOT: artifacts/release-assets
+        run: node .github/scripts/release-controls.mjs draft-release

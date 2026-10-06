@@ -36,10 +36,12 @@ internal static class PackageArchive
     public static string Build(
         string repositoryRoot,
         string runtimeIdentifier,
+        string version,
         bool noRestore)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(repositoryRoot);
         ArgumentException.ThrowIfNullOrWhiteSpace(runtimeIdentifier);
+        ArgumentException.ThrowIfNullOrWhiteSpace(version);
 
         if (!SupportedRuntimes.TryGetValue(runtimeIdentifier, out var runtime))
         {
@@ -74,7 +76,7 @@ internal static class PackageArchive
         RecreateDirectory(extractedRoot);
         Directory.CreateDirectory(packageRoot);
 
-        Publish(projectPath, publishRoot, runtimeIdentifier, noRestore);
+        Publish(projectPath, publishRoot, runtimeIdentifier, version, noRestore);
         var executablePath = ValidatePublishedFiles(
             publishRoot,
             runtime.ExecutableName);
@@ -119,7 +121,7 @@ internal static class PackageArchive
             File.Copy(payload.Value, Path.Combine(stageRoot, payload.Key));
         }
 
-        WriteManifest(stageRoot, runtimeIdentifier, payloads.Keys);
+        WriteManifest(stageRoot, runtimeIdentifier, version, payloads.Keys);
         if (File.Exists(archivePath))
         {
             File.Delete(archivePath);
@@ -138,6 +140,7 @@ internal static class PackageArchive
             archivePath,
             extractedRoot,
             runtimeIdentifier,
+            version,
             runtime.ExecutableName,
             runtime.UsesUnixArchive);
         return archivePath;
@@ -176,13 +179,40 @@ internal static class PackageArchive
         string projectPath,
         string publishRoot,
         string runtimeIdentifier,
+        string version,
         bool noRestore)
     {
         var startInfo = new ProcessStartInfo("dotnet")
         {
             UseShellExecute = false,
         };
-        foreach (var argument in new[]
+        foreach (var argument in CreatePublishArguments(
+            projectPath,
+            publishRoot,
+            runtimeIdentifier,
+            version,
+            noRestore))
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        using var process = Process.Start(startInfo)
+            ?? throw new PackageException("publish-did-not-start");
+        process.WaitForExit();
+        if (process.ExitCode != 0)
+        {
+            throw new PackageException("publish-failed");
+        }
+    }
+
+    internal static IReadOnlyList<string> CreatePublishArguments(
+        string projectPath,
+        string publishRoot,
+        string runtimeIdentifier,
+        string version,
+        bool noRestore)
+    {
+        var arguments = new List<string>
         {
             "publish",
             projectPath,
@@ -195,28 +225,22 @@ internal static class PackageArchive
             "--output",
             publishRoot,
             "-p:DotOrbitPackage=true",
-        })
-        {
-            startInfo.ArgumentList.Add(argument);
-        }
+            $"-p:Version={version}",
+            "-p:IncludeSourceRevisionInInformationalVersion=false",
+        };
 
         if (noRestore)
         {
-            startInfo.ArgumentList.Add("--no-restore");
+            arguments.Add("--no-restore");
         }
 
-        using var process = Process.Start(startInfo)
-            ?? throw new PackageException("publish-did-not-start");
-        process.WaitForExit();
-        if (process.ExitCode != 0)
-        {
-            throw new PackageException("publish-failed");
-        }
+        return arguments;
     }
 
     private static void WriteManifest(
         string stageRoot,
         string runtimeIdentifier,
+        string version,
         IEnumerable<string> payloadNames)
     {
         var files = payloadNames
@@ -232,8 +256,9 @@ internal static class PackageArchive
             })
             .ToArray();
         var manifest = new PackageManifest(
-            1,
+            2,
             runtimeIdentifier,
+            version,
             "Release",
             true,
             files);
@@ -303,6 +328,7 @@ internal static class PackageArchive
         string archivePath,
         string extractedRoot,
         string runtimeIdentifier,
+        string version,
         string executableName,
         bool usesUnixArchive)
     {
@@ -355,11 +381,12 @@ internal static class PackageArchive
             File.ReadAllText(Path.Combine(extractedRoot, ManifestFileName)),
             ManifestJsonOptions)
             ?? throw new PackageException("manifest-invalid");
-        if (manifest.SchemaVersion != 1
+        if (manifest.SchemaVersion != 2
             || !string.Equals(
                 manifest.RuntimeIdentifier,
                 runtimeIdentifier,
                 StringComparison.Ordinal)
+            || !string.Equals(manifest.Version, version, StringComparison.Ordinal)
             || !string.Equals(manifest.Configuration, "Release", StringComparison.Ordinal)
             || !manifest.SelfContained
             || manifest.Files.Length != expectedEntries.Count - 1)
@@ -450,6 +477,7 @@ internal static class PackageArchive
     private sealed record PackageManifest(
         int SchemaVersion,
         string RuntimeIdentifier,
+        string Version,
         string Configuration,
         bool SelfContained,
         PackageFile[] Files);

@@ -6,7 +6,7 @@ Issue #29 divides the merge boundary between checked-in workflows and live GitHu
 
 - `Build` and `Release packages` cancel an older run of the same workflow for the same pull request, or for the same ref on push/manual dispatch. The workflow name in the concurrency group keeps the two workflows independent.
 - Each `Build` matrix job has a 60-minute limit; each `Release packages` matrix job has a 45-minute limit. The packaged desktop smoke step retains its shorter two-minute limit.
-- Both workflows grant only `contents: read` to `GITHUB_TOKEN`. The manual release-package upload uses the checked-in Release archive and does not require a write permission. See [GitHub artifact policy](github-artifact-policy.md).
+- Both workflows default to `contents: read` for `GITHUB_TOKEN`. The package workflow grants `contents: write` only to the post-smoke job that prepares or refreshes an unpublished draft for an admitted version tag. Package jobs and ordinary `main`, pull-request, and manual runs remain read-only. See [GitHub artifact policy](github-artifact-policy.md).
 
 ## Live ruleset for `main`
 
@@ -19,7 +19,7 @@ Configure one active repository branch ruleset targeting `refs/heads/main` with:
 - Restrict branch deletion and force pushes.
 - No bypass actors. Ordinary and administrator merges must satisfy the same rules. An emergency requires the repository owner to make an explicit temporary ruleset edit, record the reason and affected change, then restore the ruleset immediately and rerun the audit. There is no standing emergency bypass.
 
-Do not add a required human approval count until that review policy is decided. This ruleset does not configure automatic merging or release/tag protection.
+Do not add a required human approval count until that review policy is decided. This ruleset does not configure automatic merging or release/tag protection. Release-package admission compensates for the absent tag ruleset by requiring full SemVer syntax and proving that the tagged commit is contained in `origin/main`; it does not make tag creation or release publication automatic.
 
 ## Rollout and verification
 

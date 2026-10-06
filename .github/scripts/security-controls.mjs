@@ -129,6 +129,7 @@ async function assertSupportDriftAbsent() {
     ["actions/setup-dotnet", "v6.0.0"],
     ["actions/setup-node", "v7.0.0"],
     ["actions/upload-artifact", "v7.0.1"],
+    ["actions/download-artifact", "v8.0.1"],
     ["github/codeql-action", "v4.38.2"],
   ];
   for (const [repository, expected] of actions) {
