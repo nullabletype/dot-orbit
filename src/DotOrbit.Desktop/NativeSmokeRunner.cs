@@ -234,7 +234,7 @@ internal static class PackagedWorkspaceSmoke
         string? portableRecoveryFixturePath)
     {
         Directory.CreateDirectory(directory);
-        var workspacePath = Path.Combine(directory, "workspace.db");
+        var workspacePath = Path.Combine(directory, "workspace.orb");
         var store = new EncryptedWorkspaceStore();
         var passphrase = WorkspacePassphrase.Create(
             SyntheticPassphrase,

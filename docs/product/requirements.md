@@ -207,6 +207,8 @@ Status: working specification derived from the interactive prototype.
 - **DATA-027** An older application refuses a database created by a newer unsupported schema version without modifying it.
 - **DATA-028** Migration tests cover upgrades from every previously released schema still in the supported upgrade path, including interrupted migration and recovery.
 - **DATA-029** Settings contains the persistent Recovery entry; recovery is not a permanent primary-work action.
+- **DATA-030** The default live workspace is `<LocalApplicationData>/dot-orbit/workspace.orb`; `.orb` is a naming convention only, and every open validates encrypted SQLite3MC content, integrity, and schema rather than trusting the extension.
+- **DATA-031** The exact legacy `workspace.db` name is adopted only after a successful validated unlock. Adoption uses same-directory no-overwrite name publication, is resumable through a flushed versioned manifest, preserves exact SQLite and automatic-recovery companions byte-for-byte, and fails closed without storage actions when old and new names are ambiguous.
 
 ## Synchronisation
 

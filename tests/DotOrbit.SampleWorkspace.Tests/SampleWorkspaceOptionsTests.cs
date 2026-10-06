@@ -14,7 +14,7 @@ public sealed class SampleWorkspaceOptionsTests
         var options = SampleWorkspaceOptions.Parse([], repository.Path, currentDate);
 
         Assert.Equal(
-            System.IO.Path.Combine(repository.Path, "artifacts", "sample-workspace", "workspace.db"),
+            System.IO.Path.Combine(repository.Path, "artifacts", "sample-workspace", "workspace.orb"),
             options.OutputPath);
         Assert.Equal(currentDate, options.AnchorDate);
     }

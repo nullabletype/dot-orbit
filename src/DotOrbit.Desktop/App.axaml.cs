@@ -56,7 +56,7 @@ public sealed partial class App : Application
                 else
                 {
                     desktop.MainWindow = new WorkspaceAccessWindow(
-                        new EncryptedWorkspaceStore(),
+                        new DefaultWorkspaceStore(),
                         SystemWorkspacePathProvider.FromArguments(
                             desktop.Args,
                             Environment.CurrentDirectory,
@@ -78,7 +78,7 @@ public sealed partial class App : Application
         var category = CategoryName.Create("Markdown smoke").CategoryName;
         var created = passphrase is null || category is null
             ? WorkspaceCreationResult.Failed()
-            : new EncryptedWorkspaceStore().Create(Path.Combine(directory, "workspace.db"), passphrase, category);
+            : new EncryptedWorkspaceStore().Create(Path.Combine(directory, "workspace.orb"), passphrase, category);
         if (created is not { Status: WorkspaceCreationStatus.Created, Session: { } session })
         {
             Console.Error.WriteLine($"markdown-link-smoke: result=failed code={failureExitCode}");

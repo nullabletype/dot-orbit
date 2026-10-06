@@ -1206,6 +1206,11 @@ public sealed class EncryptedWorkspaceRecoveryTests
             _inner.Copy(sourcePath, candidatePath);
         }
 
+        public void CreateHardLink(string existingPath, string linkPath) =>
+            _inner.CreateHardLink(existingPath, linkPath);
+
+        public string ComputeSha256(string path) => _inner.ComputeSha256(path);
+
         public void Flush(string path)
         {
             if (MaximumPathLength is { } maximumPathLength

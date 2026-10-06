@@ -13,7 +13,7 @@ public sealed class WorkspaceAccessViewModelTests
         var workspacePath = new SystemWorkspacePathProvider().GetDefaultWorkspacePath();
 
         Assert.True(Path.IsPathFullyQualified(workspacePath));
-        Assert.Equal("workspace.db", Path.GetFileName(workspacePath));
+        Assert.Equal("workspace.orb", Path.GetFileName(workspacePath));
         Assert.Equal("dot-orbit", Path.GetFileName(Path.GetDirectoryName(workspacePath)));
     }
 
@@ -28,7 +28,7 @@ public sealed class WorkspaceAccessViewModelTests
             .GetDefaultWorkspacePath();
 
         Assert.Equal(
-            Path.Combine(repository.Path, "artifacts", "sample-workspace", "workspace.db"),
+            Path.Combine(repository.Path, "artifacts", "sample-workspace", "workspace.orb"),
             workspacePath);
     }
 
@@ -45,7 +45,7 @@ public sealed class WorkspaceAccessViewModelTests
             .GetDefaultWorkspacePath();
 
         Assert.Equal(
-            Path.Combine(repository.Path, "artifacts", "sample-workspace", "workspace.db"),
+            Path.Combine(repository.Path, "artifacts", "sample-workspace", "workspace.orb"),
             workspacePath);
     }
 
@@ -104,7 +104,7 @@ public sealed class WorkspaceAccessViewModelTests
             .GetDefaultWorkspacePath();
 
         Assert.Equal(
-            Path.Combine(repository.Path, "artifacts", "sample-workspace", "workspace.db"),
+            Path.Combine(repository.Path, "artifacts", "sample-workspace", "workspace.orb"),
             workspacePath);
     }
 
@@ -130,6 +130,69 @@ public sealed class WorkspaceAccessViewModelTests
         Assert.False(viewModel.IsCreateMode);
         Assert.True(viewModel.IsUnlockMode);
         Assert.Equal("Unlock your workspace", viewModel.Heading);
+    }
+
+    [Theory]
+    [InlineData(DefaultWorkspaceResolutionStatus.Conflict)]
+    [InlineData(DefaultWorkspaceResolutionStatus.Failed)]
+    public void BlockedStartupDoesNotInspectOrMutateStorageAndDisablesEveryAction(
+        DefaultWorkspaceResolutionStatus status)
+    {
+        var store = new StubWorkspaceStore(exists: true);
+        var viewModel = new WorkspaceAccessViewModel(
+            store,
+            new DefaultWorkspaceResolution(status, "/data/workspace.orb"),
+            _ => { });
+
+        Assert.True(viewModel.IsBlocked);
+        Assert.False(viewModel.IsCreateMode);
+        Assert.False(viewModel.IsUnlockMode);
+        Assert.False(viewModel.IsWorkspaceAccessAvailable);
+        Assert.Equal("Workspace needs attention", viewModel.Heading);
+        Assert.DoesNotContain("/data", viewModel.BlockingMessage, StringComparison.Ordinal);
+        Assert.Equal(0, store.ExistsCallCount);
+        Assert.False(viewModel.SubmitCommand.CanExecute(null));
+        Assert.False(viewModel.RestoreMigrationRecoveryCommand.CanExecute(null));
+        Assert.False(viewModel.TogglePassphraseVisibilityCommand.CanExecute(null));
+
+        viewModel.SubmitCommand.Execute(null);
+        viewModel.RestoreMigrationRecoveryCommand.Execute(null);
+        viewModel.TogglePassphraseVisibilityCommand.Execute(null);
+
+        Assert.Equal(0, store.CreateCallCount);
+        Assert.Equal(0, store.OpenCallCount);
+        Assert.Equal(0, store.MigrationRestoreCallCount);
+        Assert.False(viewModel.IsPassphraseVisible);
+    }
+
+    [Theory]
+    [InlineData(WorkspaceOpenStatus.AdoptionConflict)]
+    [InlineData(WorkspaceOpenStatus.AdoptionFailed)]
+    public void AdoptionProblemBecomesANonSensitiveBlockingState(WorkspaceOpenStatus status)
+    {
+        var store = new StubWorkspaceStore(exists: true)
+        {
+            OpenResult = status == WorkspaceOpenStatus.AdoptionConflict
+                ? WorkspaceOpenResult.AdoptionConflict()
+                : WorkspaceOpenResult.AdoptionFailed(),
+        };
+        var viewModel = new WorkspaceAccessViewModel(store, "/secret/user/workspace.db", _ => { })
+        {
+            Passphrase = "correct horse battery",
+        };
+
+        viewModel.SubmitCommand.Execute(null);
+
+        Assert.True(viewModel.IsBlocked);
+        Assert.Empty(viewModel.Passphrase);
+        Assert.False(viewModel.SubmitCommand.CanExecute(null));
+        Assert.DoesNotContain("/secret", viewModel.BlockingMessage, StringComparison.Ordinal);
+        Assert.DoesNotContain("correct horse battery", viewModel.BlockingMessage, StringComparison.Ordinal);
+        Assert.Equal(1, store.OpenCallCount);
+
+        viewModel.SubmitCommand.Execute(null);
+
+        Assert.Equal(1, store.OpenCallCount);
     }
 
     [Fact]
@@ -303,6 +366,8 @@ public sealed class WorkspaceAccessViewModelTests
 
     private sealed class StubWorkspaceStore(bool exists) : IWorkspaceStore
     {
+        public int ExistsCallCount { get; private set; }
+
         public int CreateCallCount { get; private set; }
 
         public int OpenCallCount { get; private set; }
@@ -318,7 +383,11 @@ public sealed class WorkspaceAccessViewModelTests
         public MigrationRecoveryRestoreResult MigrationRestoreResult { get; init; } =
             MigrationRecoveryRestoreResult.Failed();
 
-        public bool Exists(string path) => exists;
+        public bool Exists(string path)
+        {
+            ExistsCallCount++;
+            return exists;
+        }
 
         public WorkspaceCreationResult Create(
             string path,

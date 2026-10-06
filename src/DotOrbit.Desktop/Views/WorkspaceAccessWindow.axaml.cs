@@ -14,7 +14,7 @@ public sealed partial class WorkspaceAccessWindow : Window
     private IWorkspacePathProvider? _workspacePathProvider;
 
     public WorkspaceAccessWindow()
-        : this(new EncryptedWorkspaceStore(), new SystemWorkspacePathProvider())
+        : this(new DefaultWorkspaceStore(), new SystemWorkspacePathProvider())
     {
     }
 
@@ -27,7 +27,7 @@ public sealed partial class WorkspaceAccessWindow : Window
         _workspacePathProvider = workspacePathProvider;
         Initialise(new WorkspaceAccessViewModel(
             workspaceStore,
-            workspacePathProvider.GetDefaultWorkspacePath(),
+            workspacePathProvider.ResolveDefaultWorkspace(),
             OpenDefaultShell));
     }
 
@@ -64,7 +64,7 @@ public sealed partial class WorkspaceAccessWindow : Window
     private void ReturnToWorkspaceAccess()
     {
         var access = new WorkspaceAccessWindow(
-            new EncryptedWorkspaceStore(),
+            new DefaultWorkspaceStore(),
             _workspacePathProvider ?? new SystemWorkspacePathProvider());
         if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
@@ -88,6 +88,11 @@ public sealed partial class WorkspaceAccessWindow : Window
 
     private void FocusInitialField()
     {
+        if (_viewModel.IsBlocked)
+        {
+            return;
+        }
+
         var controlName = _viewModel.IsCreateMode
             ? "FirstCategoryTextBox"
             : "PassphraseTextBox";

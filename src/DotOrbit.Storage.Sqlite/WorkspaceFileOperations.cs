@@ -1,3 +1,8 @@
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using Microsoft.Win32.SafeHandles;
+
 namespace DotOrbit.Storage.Sqlite;
 
 internal interface IWorkspaceFileOperations
@@ -16,6 +21,10 @@ internal interface IWorkspaceFileOperations
 
     void Copy(string sourcePath, string candidatePath);
 
+    void CreateHardLink(string existingPath, string linkPath);
+
+    string ComputeSha256(string path);
+
     void Flush(string path);
 
     void Replace(string candidatePath, string targetPath);
@@ -33,7 +42,7 @@ internal interface IWorkspaceFileOperations
     void DeleteFile(string path);
 }
 
-internal sealed class WorkspaceFileOperations : IWorkspaceFileOperations
+internal sealed partial class WorkspaceFileOperations : IWorkspaceFileOperations
 {
     public string ResolvePath(string path) => Path.GetFullPath(path);
 
@@ -68,6 +77,48 @@ internal sealed class WorkspaceFileOperations : IWorkspaceFileOperations
 
     public void Copy(string sourcePath, string candidatePath) =>
         File.Copy(sourcePath, candidatePath, overwrite: false);
+
+    public void CreateHardLink(string existingPath, string linkPath)
+    {
+        var succeeded = OperatingSystem.IsWindows()
+            ? NativeMethods.CreateHardLinkWindows(linkPath, existingPath, IntPtr.Zero) != 0
+            : NativeMethods.CreateHardLinkUnix(existingPath, linkPath) == 0;
+        if (succeeded)
+        {
+            return;
+        }
+
+        var error = Marshal.GetLastPInvokeError();
+        throw new IOException(
+            "The encrypted workspace name could not be linked safely.",
+            new Win32Exception(error));
+    }
+
+    public string ComputeSha256(string path)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            return Convert.ToHexString(SHA256.HashData(stream));
+        }
+
+        var descriptor = NativeMethods.OpenUnix(path, 0);
+        if (descriptor < 0)
+        {
+            var error = Marshal.GetLastPInvokeError();
+            throw new IOException(
+                "The encrypted workspace could not be fingerprinted safely.",
+                new Win32Exception(error));
+        }
+
+        using var handle = new SafeFileHandle(new IntPtr(descriptor), ownsHandle: true);
+        using var nativeStream = new FileStream(handle, FileAccess.Read);
+        return Convert.ToHexString(SHA256.HashData(nativeStream));
+    }
 
     public void Flush(string path)
     {
@@ -118,4 +169,33 @@ internal sealed class WorkspaceFileOperations : IWorkspaceFileOperations
         File.Move(candidatePath, targetPath, overwrite: true);
 
     public void DeleteFile(string path) => File.Delete(path);
+
+    private static partial class NativeMethods
+    {
+        [LibraryImport(
+            "kernel32",
+            EntryPoint = "CreateHardLinkW",
+            StringMarshalling = StringMarshalling.Utf16,
+            SetLastError = true)]
+        internal static partial int CreateHardLinkWindows(
+            string fileName,
+            string existingFileName,
+            IntPtr securityAttributes);
+
+        [LibraryImport(
+            "libc",
+            EntryPoint = "link",
+            StringMarshalling = StringMarshalling.Utf8,
+            SetLastError = true)]
+        internal static partial int CreateHardLinkUnix(
+            string existingPath,
+            string newPath);
+
+        [LibraryImport(
+            "libc",
+            EntryPoint = "open",
+            StringMarshalling = StringMarshalling.Utf8,
+            SetLastError = true)]
+        internal static partial int OpenUnix(string path, int flags);
+    }
 }

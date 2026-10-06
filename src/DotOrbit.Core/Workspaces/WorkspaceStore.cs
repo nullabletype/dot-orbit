@@ -185,6 +185,8 @@ public enum WorkspaceOpenStatus
     InvalidPassphraseOrStore,
     UnsupportedSchema,
     MigrationFailed,
+    AdoptionConflict,
+    AdoptionFailed,
     Failed,
 }
 
@@ -217,6 +219,12 @@ public sealed class WorkspaceOpenResult
 
     public static WorkspaceOpenResult MigrationFailed(string? recoveryPointPath = null) =>
         new(WorkspaceOpenStatus.MigrationFailed, null, recoveryPointPath);
+
+    public static WorkspaceOpenResult AdoptionConflict() =>
+        new(WorkspaceOpenStatus.AdoptionConflict, null);
+
+    public static WorkspaceOpenResult AdoptionFailed() =>
+        new(WorkspaceOpenStatus.AdoptionFailed, null);
 
     public static WorkspaceOpenResult Failed() => new(WorkspaceOpenStatus.Failed, null);
 
