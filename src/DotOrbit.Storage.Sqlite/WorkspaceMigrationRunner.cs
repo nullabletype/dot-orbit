@@ -271,6 +271,7 @@ internal static class WorkspaceMigrationRunner
                 9 => ApplySchemaNineToTen(connection),
                 10 => ApplySchemaTenToEleven(connection),
                 11 => ApplySchemaElevenToTwelve(connection),
+                12 => ApplySchemaTwelveToThirteen(connection),
                 _ => throw new InvalidDataException(),
             };
 
@@ -375,6 +376,27 @@ internal static class WorkspaceMigrationRunner
         ExecuteNonQuery(connection, SqliteWorkspaceWork.ProjectBinAggregateSchema
             + "PRAGMA user_version = 12;");
         return 12;
+    }
+
+    private static int ApplySchemaTwelveToThirteen(SqliteConnection connection)
+    {
+        ExecuteNonQuery(connection, SqliteWorkspaceWork.CategoryIdentitySchema + """
+            INSERT INTO category_identities (category_id, colour_key)
+            SELECT id,
+                CASE ((row_number() OVER (ORDER BY position, id) - 1) % 8)
+                    WHEN 0 THEN 'orchid'
+                    WHEN 1 THEN 'violet'
+                    WHEN 2 THEN 'indigo'
+                    WHEN 3 THEN 'ocean'
+                    WHEN 4 THEN 'teal'
+                    WHEN 5 THEN 'lime'
+                    WHEN 6 THEN 'tangerine'
+                    ELSE 'rose'
+                END
+            FROM categories;
+            PRAGMA user_version = 13;
+            """);
+        return 13;
     }
 
     private static int ApplySchemaOneToTwo(SqliteConnection connection)

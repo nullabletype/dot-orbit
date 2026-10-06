@@ -1,0 +1,22 @@
+<UserControl
+    x:Class="DotOrbit.Desktop.Views.CategoryPill"
+    x:Name="Root"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:views="using:DotOrbit.Desktop.Views"
+    Focusable="False"
+    IsHitTestVisible="False"
+    MaxWidth="240"
+    AutomationProperties.AccessibilityView="Raw">
+  <Border Classes="category-pill">
+    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="5">
+      <views:CategoryIdentityMarker CategoryName="{Binding CategoryName, ElementName=Root}"
+          ColourKey="{Binding ColourKey, ElementName=Root}" />
+      <Path Grid.Column="1" Classes="category-pill-override-icon" Width="12" Height="12"
+          IsVisible="{Binding HasOverride, ElementName=Root}"
+          Data="{StaticResource CategoryOverrideIconData}" Fill="Transparent"
+          Stroke="{DynamicResource QuietTextBrush}" StrokeLineCap="Round" StrokeJoin="Round"
+          StrokeThickness="1.6" Stretch="Uniform" AutomationProperties.AccessibilityView="Raw" />
+    </Grid>
+  </Border>
+</UserControl>

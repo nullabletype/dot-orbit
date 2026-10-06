@@ -65,6 +65,9 @@ Status: working specification derived from the interactive prototype.
 - **CAT-013** The domain has no hidden Uncategorised value and always retains at least one Category.
 - **CAT-014** First-run setup creates the first Category before Projects or Tasks can be added.
 - **CAT-015** Within each Category, Projects appear in global Project order and standalone Tasks appear in shared Backlog order; the Categories view has no category-local item order.
+- **CAT-016** Every Category has one required named colour from the checked-in identity palette. The stable palette key is persisted, colours need not be unique, and the Category name remains canonical.
+- **CAT-017** Category colour is presentation metadata only. It does not affect membership, inheritance, ordering, completion, Today, or any other workflow behaviour.
+- **CAT-018** Existing Categories receive deterministic persisted colours during forward migration; later rename or reorder does not recalculate them.
 
 ## Ordering
 
@@ -175,6 +178,9 @@ Status: working specification derived from the interactive prototype.
 - **DESK-006** Settings offers Dark and Light colour themes. A change applies immediately across the main, unlock, recovery, and passphrase windows and is remembered on the local device without storing it in the encrypted workspace.
 - **DESK-007** Every Task, Project, and Category identity heading uses its shared decorative work-type icon in a compact fixed-width slot immediately beside the title. Interactive rows identify the work type and relationship in their accessible name so the icon is not announced twice and no action relies on icon or colour alone.
 - **DESK-008** Task secondary text starts with its Project or `Standalone`, Project secondary text contains Category and total Task count, and Category secondary text contains Project and standalone Task counts. An explicit Task Category override is reinforced by a decorative fork symbol and named as a Category override in the row's accessible text.
+- **DESK-009** Category creation and editing offer eight keyboard-operable named colour choices with visible selection, focus, and live preview. Colour participates in the Category's explicit Save, Cancel, and dirty-navigation draft.
+- **DESK-010** Backlog, expanded Project Tasks, standalone Tasks under Categories, and Completed show the effective Category as a non-actionable marker-and-name pill. The existing decorative fork appears inside that pill only for an attached Task with an explicit Category override. Today, Upcoming, Archive, and Bin retain their current row presentation until separately scoped.
+- **DESK-011** Category headings, Category choices, and Project Category metadata use the same non-actionable colour-and-name marker without adding a focus stop. Every containing row retains the full Category name and relationship in accessible text; no meaning relies on colour or the fork alone.
 
 ## Persistence and recovery
 

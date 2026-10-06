@@ -14,7 +14,7 @@ An independently completable item that is standalone or belongs to one Project. 
 
 ### Category
 
-A user-managed grouping for Projects and standalone Tasks. A Project Task inherits its Project's Category unless explicitly overridden; a standalone Task has an explicit Category. Categories have their own manual order.
+A user-managed grouping for Projects and standalone Tasks. A Project Task inherits its Project's Category unless explicitly overridden; a standalone Task has an explicit Category. Categories have their own manual order and one required named colour for local visual identification. The name remains the canonical Category identity; colour does not affect behaviour and need not be unique.
 
 ### Today
 
@@ -103,3 +103,4 @@ A recoverable soft-deletion state for work the user intends to remove. Bin is di
 39. A newly created Task starts at the top of shared Task order and, when attached, at the end of its Project order; new Projects and Categories start at the end of their respective orders.
 40. Quick-add is an explicit immediate action in Projects and Backlog that creates a title-only Task and returns focus to a fresh entry field for rapid sequential capture.
 41. Backlog quick-add creates standalone Tasks using an explicitly selected Category that remains selected only for the current rapid-entry session.
+42. A Category's persisted colour is identity metadata only; renaming or reordering the Category never recalculates it, and changing it never rewrites Project or Task references.

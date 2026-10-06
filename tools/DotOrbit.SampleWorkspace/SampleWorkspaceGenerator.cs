@@ -145,9 +145,11 @@ internal static class SampleWorkspaceGenerator
         {
             ["work"] = work.Read().Categories.Single().Id,
         };
+        var firstCategory = work.Read().Categories.Single();
+        work.UpdateCategory(firstCategory.Id, firstCategory.Name, Categories[0].ColourKey);
         foreach (var definition in Categories.Skip(1))
         {
-            categoryIds.Add(definition.Key, work.CreateCategory(definition.Name).Id);
+            categoryIds.Add(definition.Key, work.CreateCategory(definition.Name, definition.ColourKey).Id);
         }
 
         var participantIds = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -284,12 +286,12 @@ internal static class SampleWorkspaceGenerator
 
     private static readonly CategoryDefinition[] Categories =
     [
-        new("work", "Work"),
-        new("home", "Home"),
-        new("health", "Health"),
-        new("learning", "Learning & creative practice"),
-        new("errands", "Errands"),
-        new("someday", "Someday"),
+        new("work", "Work", "indigo"),
+        new("home", "Home", "teal"),
+        new("health", "Health", "lime"),
+        new("learning", "Learning & creative practice", "violet"),
+        new("errands", "Errands", "tangerine"),
+        new("someday", "Someday", "rose"),
     ];
 
     private static readonly ParticipantDefinition[] Participants =
@@ -407,7 +409,7 @@ internal static class SampleWorkspaceGenerator
         new(key, null, null, title, description, categoryKey, dueDateOffset, todayLane,
             completionDateOffset, participantKeys);
 
-    private sealed record CategoryDefinition(string Key, string Name);
+    private sealed record CategoryDefinition(string Key, string Name, string ColourKey);
     private sealed record ParticipantDefinition(string Key, string Label);
     private sealed record ArchivedTaskDefinition(string TaskKey, int ArchiveDateOffset);
     private sealed record ArchivedProjectDefinition(string ProjectKey, int ArchiveDateOffset);

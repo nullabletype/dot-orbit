@@ -13,6 +13,10 @@
     MinHeight="600"
     Background="{DynamicResource BackgroundBrush}">
   <Window.Resources>
+    <ControlTheme x:Key="NamedCategoryComboBoxItemTheme" TargetType="ComboBoxItem"
+        BasedOn="{StaticResource {x:Type ComboBoxItem}}">
+      <Setter Property="AutomationProperties.Name" Value="{ReflectionBinding Name}" />
+    </ControlTheme>
     <DataTemplate x:Key="NavigationItemTemplate" x:DataType="vm:NavigationItemViewModel">
       <RadioButton
           AutomationProperties.AutomationId="{Binding AutomationId}"
@@ -58,14 +62,32 @@
           </Grid>
       </StackPanel>
     </DataTemplate>
+    <DataTemplate x:Key="CategoryPillTaskIdentityTemplate" x:DataType="vm:TaskRowViewModel">
+      <StackPanel Spacing="3">
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+            <views:WorkTypeIcon WorkType="Task" />
+            <TextBlock Grid.Column="1" Classes="work-identity-title" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+          </Grid>
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <TextBlock Classes="work-identity-context" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
+                Text="{Binding RelationshipText}" TextTrimming="CharacterEllipsis" />
+            <views:CategoryPill Grid.Column="1" CategoryName="{Binding CategoryName}"
+                ColourKey="{Binding CategoryColourKey}" HasOverride="{Binding HasCategoryOverride}" />
+          </Grid>
+      </StackPanel>
+    </DataTemplate>
     <DataTemplate x:Key="CategoryTaskIdentityTemplate" x:DataType="vm:TaskRowViewModel">
       <StackPanel Spacing="3">
           <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
             <views:WorkTypeIcon WorkType="Task" />
             <TextBlock Grid.Column="1" Classes="work-identity-title" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
           </Grid>
-          <TextBlock Classes="work-identity-context" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
-              Text="{Binding CategoryGroupRelationshipText}" />
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <TextBlock Classes="work-identity-context" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
+                Text="{Binding CategoryGroupRelationshipText}" />
+            <views:CategoryPill Grid.Column="1" CategoryName="{Binding CategoryName}"
+                ColourKey="{Binding CategoryColourKey}" HasOverride="False" />
+          </Grid>
       </StackPanel>
     </DataTemplate>
     <DataTemplate x:Key="ProjectIdentityTemplate" x:DataType="vm:ProjectRowViewModel">
@@ -75,16 +97,20 @@
             <TextBlock Grid.Column="1" Classes="work-identity-title" FontSize="15" FontWeight="Bold"
                 Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
           </Grid>
-          <TextBlock Classes="work-identity-context" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
-              Text="{Binding RelationshipText}" TextTrimming="CharacterEllipsis" />
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="7">
+            <views:CategoryIdentityMarker Classes="category-metadata-identity"
+                CategoryName="{Binding CategoryName}" ColourKey="{Binding CategoryColourKey}" />
+            <TextBlock Grid.Column="1" Classes="work-identity-context" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
+                Text="{Binding TaskCountText}" TextTrimming="CharacterEllipsis" />
+          </Grid>
       </StackPanel>
     </DataTemplate>
     <DataTemplate x:Key="CategoryIdentityTemplate" x:DataType="vm:CategoryGroupViewModel">
       <StackPanel Spacing="3">
           <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
             <views:WorkTypeIcon WorkType="Category" />
-            <TextBlock Grid.Column="1" Classes="work-identity-title" FontSize="15" FontWeight="Bold"
-                Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+            <views:CategoryIdentityMarker Grid.Column="1" Classes="category-heading-identity"
+                CategoryName="{Binding Name}" ColourKey="{Binding ColourKey}" />
           </Grid>
           <TextBlock Classes="work-identity-context" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
               Text="{Binding Summary}" TextTrimming="CharacterEllipsis" />
@@ -553,7 +579,7 @@
                                       Classes="task-title project-task-title row-title"
                                       AutomationProperties.Name="{Binding AccessibleName}"
                                       Command="{Binding SelectCommand}">
-                                    <ContentControl Content="{Binding}" ContentTemplate="{StaticResource TaskIdentityTemplate}" />
+                                    <ContentControl Content="{Binding}" ContentTemplate="{StaticResource CategoryPillTaskIdentityTemplate}" />
                                   </Button>
                                   <StackPanel Grid.Column="3" VerticalAlignment="Center">
                                     <TextBlock Classes="task-date" Text="{Binding DateText}"
@@ -604,11 +630,12 @@
               <ComboBox
                   ItemsSource="{Binding Work.BacklogCategories}"
                   SelectedItem="{Binding Work.BacklogQuickCategory, Mode=TwoWay}"
+                  ItemContainerTheme="{StaticResource NamedCategoryComboBoxItemTheme}"
                   PlaceholderText="Choose category"
                   AutomationProperties.Name="Standalone task category">
                 <ComboBox.ItemTemplate>
                   <DataTemplate x:DataType="vm:CategoryChoice">
-                    <TextBlock Text="{Binding Name}" />
+                    <views:CategoryIdentityMarker CategoryName="{Binding Name}" ColourKey="{Binding ColourKey}" />
                   </DataTemplate>
                 </ComboBox.ItemTemplate>
               </ComboBox>
@@ -657,7 +684,7 @@
                         Classes="task-title backlog-task-title row-title"
                         Command="{Binding SelectCommand}"
                         AutomationProperties.Name="{Binding AccessibleName}">
-                      <ContentControl Content="{Binding}" ContentTemplate="{StaticResource TaskIdentityTemplate}" />
+                      <ContentControl Content="{Binding}" ContentTemplate="{StaticResource CategoryPillTaskIdentityTemplate}" />
                     </Button>
                     <TextBlock Grid.Column="3" Classes="task-date" Text="{Binding DateText}"
                         AutomationProperties.Name="{Binding DateAccessibleText}" />
@@ -824,7 +851,7 @@
                                   AutomationProperties.Name="{Binding Task.CompletionAccessibleName}" />
                               <Button Grid.Column="1" Classes="task-title row-title" Command="{Binding Task.SelectCommand}"
                                   AutomationProperties.Name="{Binding Task.AccessibleName}">
-                                <ContentControl Content="{Binding Task}" ContentTemplate="{StaticResource TaskIdentityTemplate}" />
+                                <ContentControl Content="{Binding Task}" ContentTemplate="{StaticResource CategoryPillTaskIdentityTemplate}" />
                               </Button>
                               <TextBlock Grid.Column="2" Classes="task-completion-date" Text="{Binding Task.CompletionDateText}" />
                               <Button Grid.Column="3" Classes="view-action task-row-action" Margin="8,0,0,0"
@@ -1323,6 +1350,29 @@
           <TextBlock Classes="validation-message" Margin="7,4,0,0"
               Text="{Binding Work.TitleValidationMessage}"
               IsVisible="{Binding Work.HasTitleValidationError}" />
+          <Border Margin="0,22,0,0" Padding="0,20,0,0" BorderBrush="{DynamicResource LineBrush}"
+              BorderThickness="0,1,0,0" IsVisible="{Binding Work.ShowCategoryInspector}">
+            <StackPanel Spacing="10">
+              <TextBlock Classes="inspector-label" Text="COLOUR" />
+              <views:CategoryIdentityMarker HorizontalAlignment="Left" MinWidth="150"
+                  CategoryName="{Binding Work.CategoryPreviewName}"
+                  ColourKey="{Binding Work.CategoryColourKey}" />
+              <ComboBox Classes="inspector-field" ItemsSource="{Binding Work.CategoryColourChoices}"
+                  SelectedItem="{Binding Work.SelectedCategoryColour, Mode=TwoWay}"
+                  ItemContainerTheme="{StaticResource NamedCategoryComboBoxItemTheme}"
+                  AutomationProperties.AutomationId="category-colour"
+                  AutomationProperties.Name="Category colour"
+                  AutomationProperties.ItemStatus="{Binding Work.SelectedCategoryColour.Name}">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:CategoryColourChoice">
+                    <views:CategoryIdentityMarker CategoryName="{Binding Name}" ColourKey="{Binding Key}" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <TextBlock FontSize="11" Foreground="{DynamicResource QuietTextBrush}" TextWrapping="Wrap"
+                  Text="Colour identifies this Category throughout the workspace; the Category name remains the accessible identity." />
+            </StackPanel>
+          </Border>
           <TextBlock
               Margin="0,2,0,0"
               IsVisible="{Binding Work.ShowProjectSummary}"
@@ -1410,11 +1460,12 @@
                   Classes="inspector-field"
                   ItemsSource="{Binding Work.Categories}"
                   SelectedItem="{Binding Work.Category, Mode=TwoWay}"
+                  ItemContainerTheme="{StaticResource NamedCategoryComboBoxItemTheme}"
                   HorizontalAlignment="Stretch"
                   AutomationProperties.Name="Category">
                 <ComboBox.ItemTemplate>
                   <DataTemplate x:DataType="vm:CategoryChoice">
-                    <TextBlock Text="{Binding Name}" />
+                    <views:CategoryIdentityMarker CategoryName="{Binding Name}" ColourKey="{Binding ColourKey}" />
                   </DataTemplate>
                 </ComboBox.ItemTemplate>
               </ComboBox>
@@ -1575,9 +1626,12 @@
         </StackPanel>
         <ComboBox x:Name="CategoryReplacement" Classes="inspector-field"
             ItemsSource="{Binding Work.CategoryReplacementChoices}" SelectedItem="{Binding Work.CategoryReplacement, Mode=TwoWay}"
+            ItemContainerTheme="{StaticResource NamedCategoryComboBoxItemTheme}"
             AutomationProperties.Name="Replacement category">
           <ComboBox.ItemTemplate>
-            <DataTemplate x:DataType="vm:CategoryChoice"><TextBlock Text="{Binding Name}" /></DataTemplate>
+            <DataTemplate x:DataType="vm:CategoryChoice">
+              <views:CategoryIdentityMarker CategoryName="{Binding Name}" ColourKey="{Binding ColourKey}" />
+            </DataTemplate>
           </ComboBox.ItemTemplate>
         </ComboBox>
         <StackPanel Orientation="Horizontal" Spacing="12">

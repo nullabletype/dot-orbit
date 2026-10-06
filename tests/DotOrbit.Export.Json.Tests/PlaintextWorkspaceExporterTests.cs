@@ -16,14 +16,14 @@ public sealed class PlaintextWorkspaceExporterTests : IDisposable
         "orbit-export-" + Guid.NewGuid().ToString("N"));
 
     [Fact]
-    public void ExportWritesTheDocumentedVersionOneContractWithoutLosingRelationshipsOrState()
+    public void ExportWritesTheDocumentedVersionTwoContractWithoutLosingRelationshipsOrState()
     {
         var completedAt = new DateTimeOffset(2026, 10, 5, 9, 30, 0, TimeSpan.FromHours(1));
         var archivedAt = new DateTimeOffset(2026, 10, 6, 11, 45, 0, TimeSpan.Zero);
         var snapshot = new WorkspaceWorkSnapshot(
             [
-                new("work", "Work", 8),
-                new("home", "Home", 2),
+                new("work", "Work", 8, "rose"),
+                new("home", "Home", 2, "teal"),
             ],
             [
                 new("archived-project", "Old plan", "History", "work", null, 7, archivedAt, new(2026, 10, 6)),
@@ -53,8 +53,10 @@ public sealed class PlaintextWorkspaceExporterTests : IDisposable
             .Select(item => item.GetProperty("id").GetString()));
         Assert.Equal([2L, 8L], root.GetProperty("categories").EnumerateArray()
             .Select(item => item.GetProperty("position").GetInt64()));
+        Assert.Equal(["teal", "rose"], root.GetProperty("categories").EnumerateArray()
+            .Select(item => item.GetProperty("colourKey").GetString()));
         Assert.All(root.GetProperty("categories").EnumerateArray(), category =>
-            Assert.Equal(["id", "name", "position"], category.EnumerateObject().Select(property => property.Name)));
+            Assert.Equal(["id", "name", "position", "colourKey"], category.EnumerateObject().Select(property => property.Name)));
         Assert.Equal(["alex", "zoe"], root.GetProperty("participants").EnumerateArray()
             .Select(item => item.GetProperty("id").GetString()));
         Assert.All(root.GetProperty("participants").EnumerateArray(), participant =>
@@ -109,8 +111,8 @@ public sealed class PlaintextWorkspaceExporterTests : IDisposable
     [Fact]
     public void ExportIsByteDeterministicAndUnicodeContentRoundTripsThroughValidJson()
     {
-        var category = new WorkspaceCategory("cat", "Café ☕", 0);
-        var otherCategory = new WorkspaceCategory("other", "Other", 1);
+        var category = new WorkspaceCategory("cat", "Café ☕", 0, "indigo");
+        var otherCategory = new WorkspaceCategory("other", "Other", 1, "lime");
         var project = new ProjectRecord("project", "Plan \"A\" 🪴", "Line one\nLine two\\end", "cat", null, 0);
         var otherProject = new ProjectRecord("other-project", "Other", "", "other", null, 1);
         var task = new TaskRecord("task", "project", "日本語", "Emoji 👩🏽‍💻", null, null, 0, 0);
@@ -133,6 +135,7 @@ public sealed class PlaintextWorkspaceExporterTests : IDisposable
         Assert.Equal(firstBytes, secondBytes);
         using var document = JsonDocument.Parse(firstBytes);
         Assert.Equal("Café ☕", document.RootElement.GetProperty("categories")[0].GetProperty("name").GetString());
+        Assert.Equal("indigo", document.RootElement.GetProperty("categories")[0].GetProperty("colourKey").GetString());
         Assert.Equal("Plan \"A\" 🪴", document.RootElement.GetProperty("projects").GetProperty("active")[0]
             .GetProperty("title").GetString());
         Assert.Equal("Line one\nLine two\\end", document.RootElement.GetProperty("projects").GetProperty("active")[0]

@@ -528,6 +528,32 @@ public sealed class WorkspaceMigrationTests
     }
 
     [Fact]
+    public void SchemaTwelveBackfillsStableCategoryColoursInPersistedOrder()
+    {
+        using var fixture = new MigrationFixture();
+        using (var current = fixture.CreateCurrentWorkspace())
+        {
+            for (var index = 1; index < 10; index++)
+                current.Work.CreateCategory($"Category {index}", "rose");
+        }
+        fixture.DowngradeCurrentToSchemaTwelve();
+
+        var result = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase());
+        using var session = result.Session;
+
+        Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
+        Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, session?.SchemaVersion);
+        Assert.Equal(
+            ["orchid", "violet", "indigo", "ocean", "teal", "lime", "tangerine", "rose", "orchid", "violet"],
+            session!.Work.Read().Categories.Select(category => category.ColourKey));
+
+        var category = session.Work.Read().Categories[8];
+        session.Work.RenameCategory(category.Id, "Renamed");
+        session.Work.MoveCategory(category.Id, 0);
+        Assert.Equal("orchid", session.Work.Read().Categories.Single(item => item.Id == category.Id).ColourKey);
+    }
+
+    [Fact]
     public void RestoreOfASchemaOneRecoveryPointReopensThroughTheSupportedMigration()
     {
         using var fixture = new MigrationFixture();
@@ -858,7 +884,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; DROP TABLE today_tasks; PRAGMA user_version = 6;";
+            command.CommandText = "DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; DROP TABLE today_tasks; PRAGMA user_version = 6;";
             command.ExecuteNonQuery();
         }
 
@@ -866,7 +892,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; PRAGMA user_version = 7;";
+            command.CommandText = "DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; PRAGMA user_version = 7;";
             command.ExecuteNonQuery();
         }
 
@@ -874,7 +900,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; PRAGMA user_version = 8;";
+            command.CommandText = "DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; PRAGMA user_version = 8;";
             command.ExecuteNonQuery();
         }
 
@@ -882,7 +908,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; PRAGMA user_version = 9;";
+            command.CommandText = "DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; PRAGMA user_version = 9;";
             command.ExecuteNonQuery();
         }
 
@@ -890,7 +916,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; PRAGMA user_version = 10;";
+            command.CommandText = "DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; PRAGMA user_version = 10;";
             command.ExecuteNonQuery();
         }
 
@@ -898,7 +924,15 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; PRAGMA user_version = 11;";
+            command.CommandText = "DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; PRAGMA user_version = 11;";
+            command.ExecuteNonQuery();
+        }
+
+        public void DowngradeCurrentToSchemaTwelve()
+        {
+            using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
+            using var command = connection.CreateCommand();
+            command.CommandText = "DROP TABLE category_identities; PRAGMA user_version = 12;";
             command.ExecuteNonQuery();
         }
 

@@ -101,10 +101,11 @@
                     <views:WorkTypeIcon x:Name="ReferenceTaskWorkTypeIcon" WorkType="Task" />
                     <TextBlock Grid.Column="1" Classes="work-identity-title" Text="Review planting plan" />
                   </Grid>
-                  <Grid ColumnDefinitions="*,*" ColumnSpacing="6">
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                     <TextBlock Classes="work-identity-context" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
                         Text="Garden" TextTrimming="CharacterEllipsis" />
-                    <views:CategoryOverrideIndicator x:Name="ReferenceCategoryOverrideIndicator" Grid.Column="1" Text="Work" />
+                    <views:CategoryPill x:Name="ReferenceCategoryPill" Grid.Column="1"
+                        CategoryName="Work" ColourKey="rose" HasOverride="True" />
                   </Grid>
               </StackPanel>
             </Border>
@@ -115,7 +116,11 @@
                     <views:WorkTypeIcon x:Name="ReferenceProjectWorkTypeIcon" WorkType="Project" />
                     <TextBlock Grid.Column="1" Classes="work-identity-title" FontWeight="SemiBold" Text="Garden" />
                   </Grid>
-                  <TextBlock Classes="work-identity-context" FontSize="12" Foreground="{DynamicResource QuietTextBrush}" Text="Home · 4 Tasks" />
+                  <Grid ColumnDefinitions="Auto,*" ColumnSpacing="7">
+                    <views:CategoryIdentityMarker CategoryName="Home" ColourKey="teal" />
+                    <TextBlock Grid.Column="1" Classes="work-identity-context" FontSize="12"
+                        Foreground="{DynamicResource QuietTextBrush}" Text="4 Tasks" />
+                  </Grid>
               </StackPanel>
             </Border>
             <Border Classes="interactive-row separated-row last" MinHeight="{StaticResource StandardRowHeight}"
@@ -123,11 +128,31 @@
               <StackPanel Margin="6,0" VerticalAlignment="Center" Spacing="3">
                   <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
                     <views:WorkTypeIcon x:Name="ReferenceCategoryWorkTypeIcon" WorkType="Category" />
-                    <TextBlock Grid.Column="1" Classes="work-identity-title" FontWeight="SemiBold" Text="Home" />
+                    <views:CategoryIdentityMarker Grid.Column="1" CategoryName="Home" ColourKey="teal" />
                   </Grid>
                   <TextBlock Classes="work-identity-context" FontSize="12" Foreground="{DynamicResource QuietTextBrush}" Text="2 Projects · 3 standalone Tasks" />
               </StackPanel>
             </Border>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="list-panel">
+          <StackPanel Spacing="10">
+            <TextBlock Classes="eyebrow" Text="CATEGORY IDENTITY" />
+            <WrapPanel Orientation="Horizontal" ItemWidth="120" ItemHeight="28">
+              <views:CategoryIdentityMarker CategoryName="Orchid" ColourKey="orchid" />
+              <views:CategoryIdentityMarker CategoryName="Violet" ColourKey="violet" />
+              <views:CategoryIdentityMarker CategoryName="Indigo" ColourKey="indigo" />
+              <views:CategoryIdentityMarker CategoryName="Ocean" ColourKey="ocean" />
+              <views:CategoryIdentityMarker CategoryName="Teal" ColourKey="teal" />
+              <views:CategoryIdentityMarker CategoryName="Lime" ColourKey="lime" />
+              <views:CategoryIdentityMarker CategoryName="Tangerine" ColourKey="tangerine" />
+              <views:CategoryIdentityMarker CategoryName="Rose" ColourKey="rose" />
+            </WrapPanel>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <views:CategoryPill CategoryName="Inherited category" ColourKey="ocean" />
+              <views:CategoryPill CategoryName="Task override" ColourKey="tangerine" HasOverride="True" />
+            </StackPanel>
           </StackPanel>
         </Border>
 

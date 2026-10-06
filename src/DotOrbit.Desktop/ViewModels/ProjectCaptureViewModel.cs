@@ -24,7 +24,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private string _description = string.Empty;
     private string _date = string.Empty;
     private CategoryChoice? _category;
-    private (string Title, string Description, string Date, string? CategoryId, string Participants) _original;
+    private string _categoryColourKey = IdentityColourPalette.DefaultKey;
+    private (string Title, string Description, string Date, string? CategoryId, string CategoryColourKey, string Participants) _original;
     private string _message = string.Empty;
     private bool _hasInspector;
     private string _backlogQuickTitle = string.Empty;
@@ -157,6 +158,10 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public ObservableCollection<CategoryChoice> BacklogCategories { get; } = [];
     public ObservableCollection<CategoryGroupViewModel> CategoryGroups { get; } = [];
     public ObservableCollection<CategoryChoice> CategoryReplacementChoices { get; } = [];
+    public IReadOnlyList<CategoryColourChoice> CategoryColourChoices { get; } =
+        IdentityColourPalette.Keys
+            .Select(key => new CategoryColourChoice(key, CultureInfo.InvariantCulture.TextInfo.ToTitleCase(key)))
+            .ToArray();
     public ObservableCollection<TaskContextChoice> TaskContextChoices { get; } = [];
     public ObservableCollection<ParticipantChoice> AvailableParticipants { get; } = [];
     public ObservableCollection<ParticipantDraftViewModel> SelectedParticipants { get; } = [];
@@ -419,7 +424,11 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             if (_loadingDraft) { _title = value; return; }
             if (string.Equals(_title, value, StringComparison.Ordinal)) return;
             _title = value;
-            if (_editingCategory) CategoryNameValidationMessage = string.Empty;
+            if (_editingCategory)
+            {
+                CategoryNameValidationMessage = string.Empty;
+                Notify(nameof(CategoryPreviewName));
+            }
             else
             {
                 _workTitleValidationMessage = string.Empty;
@@ -471,6 +480,28 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         }
     }
     public bool HasCategoryNameValidationError => !string.IsNullOrEmpty(CategoryNameValidationMessage);
+    public string CategoryColourKey
+    {
+        get => _categoryColourKey;
+        set
+        {
+            if (!IdentityColourPalette.IsSupported(value)
+                || string.Equals(_categoryColourKey, value, StringComparison.Ordinal)) return;
+            _categoryColourKey = value;
+            Notify();
+            Notify(nameof(SelectedCategoryColour));
+            DraftChanged(immediate: true);
+        }
+    }
+    public CategoryColourChoice? SelectedCategoryColour
+    {
+        get => CategoryColourChoices.Single(choice => choice.Key == CategoryColourKey);
+        set
+        {
+            if (value is not null) CategoryColourKey = value.Key;
+        }
+    }
+    public string CategoryPreviewName => string.IsNullOrWhiteSpace(Title) ? "Category name" : Title.Trim();
     public string TitleValidationMessage => _editingCategory ? CategoryNameValidationMessage : _workTitleValidationMessage;
     public bool HasTitleValidationError => !string.IsNullOrEmpty(TitleValidationMessage);
     public string DateValidationMessage
@@ -848,7 +879,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         _pendingCategoryDeleteId = id;
         CategoryReplacementChoices.Clear();
         foreach (var category in _snapshot.Categories.Where(category => category.Id != id))
-            CategoryReplacementChoices.Add(new(category.Id, category.Name));
+            CategoryReplacementChoices.Add(new(category.Id, category.Name, category.ColourKey));
         CategoryReplacement = CategoryReplacementChoices.FirstOrDefault();
         Notify(nameof(NeedsCategoryReplacement));
         Notify(nameof(CategoryDeleteHeading));
@@ -1391,7 +1422,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         _creatingStandaloneTask = false;
         _creatingTodayTask = false;
         _editingId = null;
-        SetCategoryDraft(string.Empty);
+        SetCategoryDraft(string.Empty, IdentityColourPalette.KeyForPosition(_snapshot.Categories.Count));
     }
 
     private void LoadCategory(string id)
@@ -1403,10 +1434,10 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         _creating = false;
         _creatingStandaloneTask = false;
         _creatingTodayTask = false;
-        SetCategoryDraft(category.Name);
+        SetCategoryDraft(category.Name, category.ColourKey);
     }
 
-    private void SetCategoryDraft(string name)
+    private void SetCategoryDraft(string name, string colourKey)
     {
         _loadingDraft = true;
         try
@@ -1418,6 +1449,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             _editingMarkdown = false;
             _date = string.Empty;
             _category = null;
+            _categoryColourKey = colourKey;
             SelectedParticipants.Clear();
             _newParticipantLabel = string.Empty;
             _participantToAdd = null;
@@ -1429,6 +1461,9 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             Notify(nameof(MarkdownPreviewAutomationName));
             Notify(nameof(Date));
             Notify(nameof(Category));
+            Notify(nameof(CategoryColourKey));
+            Notify(nameof(SelectedCategoryColour));
+            Notify(nameof(CategoryPreviewName));
             CategoryNameValidationMessage = string.Empty;
             _workTitleValidationMessage = string.Empty;
             DateValidationMessage = string.Empty;
@@ -1443,6 +1478,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             _description = string.Empty;
             _date = string.Empty;
             _category = null;
+            _categoryColourKey = colourKey;
             _loadingDraft = false;
         }
     }
@@ -1467,9 +1503,11 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             if (TaskContextTarget?.ProjectId is { } projectId)
             {
                 var project = _snapshot.Projects.Single(item => item.Id == projectId);
-                Categories.Add(new(null, $"Inherit — {CategoryName(project.CategoryId)}"));
+                var inheritedCategory = CategoryById(project.CategoryId);
+                Categories.Add(new(null, $"Inherit — {inheritedCategory.Name}", inheritedCategory.ColourKey));
             }
-            foreach (var category in _snapshot.Categories) Categories.Add(new(category.Id, category.Name));
+            foreach (var category in _snapshot.Categories)
+                Categories.Add(new(category.Id, category.Name, category.ColourKey));
             Category = Categories.FirstOrDefault(item => item.Id == selectedId)
                 ?? Categories.FirstOrDefault(item => item.Id is null);
         }
@@ -1493,14 +1531,17 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             {
                 var task = _snapshot.Tasks.Single(t => t.Id == _editingId);
                 var project = _snapshot.Projects.Single(p => p.Id == task.ProjectId);
-                Categories.Add(new(null, $"Inherit — {CategoryName(project.CategoryId)}"));
+                var inheritedCategory = CategoryById(project.CategoryId);
+                Categories.Add(new(null, $"Inherit — {inheritedCategory.Name}", inheritedCategory.ColourKey));
             }
-            foreach (var category in _snapshot.Categories) Categories.Add(new(category.Id, category.Name));
+            foreach (var category in _snapshot.Categories)
+                Categories.Add(new(category.Id, category.Name, category.ColourKey));
             _title = title;
             _description = description;
             _renderedDescription = SanitisedMarkdownRenderer.Render(description);
             _editingMarkdown = false;
             _date = dateText;
+            _categoryColourKey = IdentityColourPalette.DefaultKey;
             categoryChoice = Categories.FirstOrDefault(c => c.Id == categoryId);
             _category = categoryChoice;
             SelectedParticipants.Clear();
@@ -1685,8 +1726,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         try
         {
             categoryId = _creating
-                ? _work.CreateCategory(Title).Id
-                : _work.RenameCategory(_editingId!, Title).Id;
+                ? _work.CreateCategory(Title, CategoryColourKey).Id
+                : _work.UpdateCategory(_editingId!, Title, CategoryColourKey).Id;
         }
         catch (ArgumentException)
         {
@@ -1750,10 +1791,11 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         if (closesInspector) CloseInspector();
         destination?.Invoke();
     }
-    private (string Title, string Description, string Date, string? CategoryId, string Participants) Fingerprint() =>
-        (Title, Description, Date, Category?.Id,
+    private (string Title, string Description, string Date, string? CategoryId, string CategoryColourKey, string Participants) Fingerprint() =>
+        (Title, Description, Date, Category?.Id, CategoryColourKey,
             string.Join('\u001f', SelectedParticipants.Select(item => item.Id is null ? $"new:{item.Label}" : $"id:{item.Id}")));
-    private string CategoryName(string id) => _snapshot.Categories.Single(c => c.Id == id).Name;
+    private WorkspaceCategory CategoryById(string id) => _snapshot.Categories.Single(category => category.Id == id);
+    private string CategoryName(string id) => CategoryById(id).Name;
     private string EffectiveCategoryId(TaskRecord task) => task.ExplicitCategoryId
         ?? _snapshot.Projects.Single(project => project.Id == task.ProjectId).CategoryId;
     private void Reload()
@@ -1774,7 +1816,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         {
             var project = activeProjects[projectIndex];
             var row = existing.GetValueOrDefault(project.Id) ?? new ProjectRowViewModel(this, project.Id);
-            row.Refresh(project, ProjectWorkSummary.From(_snapshot, project.Id), CategoryName(project.CategoryId), _snapshot.Tasks.Where(t => t.ProjectId == project.Id).OrderBy(t => t.ProjectPosition).Select(ToTaskRow));
+            row.Refresh(project, ProjectWorkSummary.From(_snapshot, project.Id), CategoryById(project.CategoryId), _snapshot.Tasks.Where(t => t.ProjectId == project.Id).OrderBy(t => t.ProjectPosition).Select(ToTaskRow));
             row.SetPosition(projectIndex + 1, activeProjects.Length);
             Projects.Add(row);
         }
@@ -1787,7 +1829,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         {
             var project = archivedProjects[projectIndex];
             var row = existing.GetValueOrDefault(project.Id) ?? new ProjectRowViewModel(this, project.Id);
-            row.Refresh(project, ProjectWorkSummary.From(_snapshot, project.Id), CategoryName(project.CategoryId),
+            row.Refresh(project, ProjectWorkSummary.From(_snapshot, project.Id), CategoryById(project.CategoryId),
                 _snapshot.Tasks.Where(task => task.ProjectId == project.Id).OrderBy(task => task.ProjectPosition).Select(ToTaskRow));
             ArchivedProjects.Add(new(row, projectIndex == archivedProjects.Length - 1));
         }
@@ -1922,7 +1964,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             row = new(this, task.Id);
             _taskRows.Add(task.Id, row);
         }
-        row.Refresh(task, CategoryName(categoryId), projectTitle, inherited, Today);
+        var category = CategoryById(categoryId);
+        row.Refresh(task, category.Name, category.ColourKey, projectTitle, inherited, Today);
         return row;
     }
 
@@ -1930,7 +1973,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     {
         var selectedId = BacklogQuickCategory?.Id;
         BacklogCategories.Clear();
-        foreach (var category in _snapshot.Categories) BacklogCategories.Add(new(category.Id, category.Name));
+        foreach (var category in _snapshot.Categories)
+            BacklogCategories.Add(new(category.Id, category.Name, category.ColourKey));
         BacklogQuickCategory = BacklogCategories.FirstOrDefault(category => category.Id == selectedId);
     }
 
@@ -2373,7 +2417,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private void Notify([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new(name));
 }
 
-public sealed record CategoryChoice(string? Id, string Name);
+public sealed record CategoryChoice(string? Id, string Name, string ColourKey = IdentityColourPalette.DefaultKey);
+public sealed record CategoryColourChoice(string Key, string Name);
 public sealed record TaskContextChoice(string? ProjectId, string Name);
 public sealed record ParticipantChoice(string? Id, string Label, bool IsNew = false)
 {
@@ -2433,6 +2478,7 @@ public sealed class CategoryGroupViewModel : INotifyPropertyChanged
         _owner = owner;
         Id = category.Id;
         Name = category.Name;
+        ColourKey = category.ColourKey;
         _position = position;
         _count = count;
         _isExpanded = isExpanded;
@@ -2450,6 +2496,7 @@ public sealed class CategoryGroupViewModel : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
     public string Id { get; }
     public string Name { get; }
+    public string ColourKey { get; }
     public int ProjectCount => Projects.Count;
     public int StandaloneTaskCount => StandaloneTasks.Count;
     public bool HasProjects => ProjectCount > 0;
@@ -2723,6 +2770,7 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
     private readonly ProjectCaptureViewModel _owner;
     private string _title = string.Empty;
     private string _categoryName = string.Empty;
+    private string _categoryColourKey = IdentityColourPalette.DefaultKey;
     private string _categoryDisplay = string.Empty;
     private string? _projectTitle;
     private bool _usesInheritedCategory;
@@ -2762,6 +2810,7 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
     public string? ProjectId => _projectId;
     public string Title => _title;
     public string CategoryName => _categoryName;
+    public string CategoryColourKey => _categoryColourKey;
     public string CategoryDisplay => _categoryDisplay;
     public string RelationshipText => _projectTitle ?? "Standalone";
     public string BroadRelationshipText => _projectTitle is null
@@ -2832,12 +2881,14 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
     public void Refresh(
         TaskRecord task,
         string categoryName,
+        string categoryColourKey,
         string? projectTitle,
         bool usesInheritedCategory,
         DateOnly today)
     {
         _title = task.Title;
         _categoryName = categoryName;
+        _categoryColourKey = categoryColourKey;
         _projectTitle = projectTitle;
         _usesInheritedCategory = usesInheritedCategory;
         _categoryDisplay = BroadRelationshipText;
@@ -2850,6 +2901,7 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
         _completionDateText = task.CompletionDate is { } completionDate ? $"Completed {completionDate:d MMM yyyy}" : string.Empty;
         Notify(nameof(Title));
         Notify(nameof(CategoryName));
+        Notify(nameof(CategoryColourKey));
         Notify(nameof(CategoryDisplay));
         Notify(nameof(RelationshipText));
         Notify(nameof(BroadRelationshipText));
@@ -2932,7 +2984,9 @@ public sealed class ProjectRowViewModel : INotifyPropertyChanged
     public string ProgressText { get; private set; } = string.Empty;
     public string AccessibleStatus => $"{Status}, {ProgressText}";
     public string CategoryName { get; private set; } = string.Empty;
+    public string CategoryColourKey { get; private set; } = IdentityColourPalette.DefaultKey;
     public int TaskCount { get; private set; }
+    public string TaskCountText => $"{TaskCount} {(TaskCount == 1 ? "Task" : "Tasks")}";
     public string RelationshipText =>
         $"{CategoryName} · {TaskCount} {(TaskCount == 1 ? "Task" : "Tasks")}";
     public string StatusText => $"{Status} · {ProgressText}";
@@ -2991,13 +3045,14 @@ public sealed class ProjectRowViewModel : INotifyPropertyChanged
     public RelayCommand RestoreCommand { get; }
     public ObservableCollection<TaskRowViewModel> Tasks { get; } = [];
     public bool Submit() { if (!_owner.QuickAdd(Id, QuickTitle)) return false; QuickTitle = string.Empty; return true; }
-    public void Refresh(ProjectRecord project, ProjectWorkSummary summary, string category, IEnumerable<TaskRowViewModel> tasks)
+    public void Refresh(ProjectRecord project, ProjectWorkSummary summary, WorkspaceCategory category, IEnumerable<TaskRowViewModel> tasks)
     {
         Title = project.Title;
         Status = summary.Status;
         IsArchived = project.IsArchived;
         ProgressText = $"{summary.CompletedCount}/{summary.TaskCount} tasks";
-        CategoryName = category;
+        CategoryName = category.Name;
+        CategoryColourKey = category.ColourKey;
         TaskCount = summary.TaskCount;
         TargetText = WorkDatePresentation.Relative(project.TargetDate, _owner.Today);
         TargetAccessibleText = WorkDatePresentation.Accessible(project.TargetDate, "Target");
@@ -3006,7 +3061,7 @@ public sealed class ProjectRowViewModel : INotifyPropertyChanged
         Tasks.Clear();
         foreach (var task in tasks) Tasks.Add(task);
         for (var index = 0; index < Tasks.Count; index++) Tasks[index].SetProjectPosition(index + 1, Tasks.Count);
-        Summary = $"{summary.Status} · {summary.CompletedCount} of {summary.TaskCount} Tasks · {category}"
+        Summary = $"{summary.Status} · {summary.CompletedCount} of {summary.TaskCount} Tasks · {category.Name}"
             + (string.IsNullOrEmpty(TargetText) ? string.Empty : $" · {TargetText}");
         PropertyChanged?.Invoke(this, new(nameof(Title)));
         PropertyChanged?.Invoke(this, new(nameof(Summary)));
@@ -3018,7 +3073,9 @@ public sealed class ProjectRowViewModel : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new(nameof(ProgressText)));
         PropertyChanged?.Invoke(this, new(nameof(AccessibleStatus)));
         PropertyChanged?.Invoke(this, new(nameof(CategoryName)));
+        PropertyChanged?.Invoke(this, new(nameof(CategoryColourKey)));
         PropertyChanged?.Invoke(this, new(nameof(TaskCount)));
+        PropertyChanged?.Invoke(this, new(nameof(TaskCountText)));
         PropertyChanged?.Invoke(this, new(nameof(RelationshipText)));
         PropertyChanged?.Invoke(this, new(nameof(StatusText)));
         PropertyChanged?.Invoke(this, new(nameof(MetadataText)));

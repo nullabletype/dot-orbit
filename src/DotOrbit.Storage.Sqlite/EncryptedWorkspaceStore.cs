@@ -6,7 +6,7 @@ namespace DotOrbit.Storage.Sqlite;
 
 public sealed class EncryptedWorkspaceStore : IWorkspaceStore
 {
-    public const int CurrentSchemaVersion = 12;
+    public const int CurrentSchemaVersion = 13;
 
     internal const string CipherName = "chacha20";
     internal const int KdfIterations = 64007;
@@ -133,6 +133,15 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
                 workSchema.Transaction = transaction;
                 workSchema.CommandText = SqliteWorkspaceWork.Schema;
                 workSchema.ExecuteNonQuery();
+                using var identity = connection.CreateCommand();
+                identity.Transaction = transaction;
+                identity.CommandText = """
+                    INSERT INTO category_identities (category_id, colour_key)
+                    VALUES ($id, $colour);
+                    """;
+                identity.Parameters.AddWithValue("$id", command.Parameters["$id"].Value);
+                identity.Parameters.AddWithValue("$colour", IdentityColourPalette.DefaultKey);
+                identity.ExecuteNonQuery();
                 transaction.Commit();
 
                 ValidateIntegrity(connection);
@@ -728,7 +737,11 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         {
             SqliteWorkspaceWork.ValidateShape(connection, transaction, SqliteWorkspaceWork.SchemaEleven);
         }
-        else if (schemaVersion >= 12)
+        else if (schemaVersion == 12)
+        {
+            SqliteWorkspaceWork.ValidateShape(connection, transaction, SqliteWorkspaceWork.SchemaTwelve);
+        }
+        else if (schemaVersion >= 13)
         {
             SqliteWorkspaceWork.ValidateShape(connection, transaction);
         }

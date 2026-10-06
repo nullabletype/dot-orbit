@@ -66,4 +66,4 @@ Identifiers and semantic relationships are deterministic for a fixed anchor date
 
 ## Evolving the scenario
 
-Add a new state only through its released production domain API. Task and Project Archive examples use their production commands; Bin, Category identity, and Project identity examples must wait for their implementation slices. Do not fabricate future rows through direct SQL. Keep the scenario readable, synthetic, invariant-valid, and broad enough to exercise the changed projection without turning it into a migration fixture or a replacement for focused tests.
+Add a new state only through its released production domain API. Task and Project Archive examples and Category identity colours use their production commands; Bin and Project identity examples must wait for their implementation slices. Do not fabricate future rows through direct SQL. Keep the scenario readable, synthetic, invariant-valid, and broad enough to exercise the changed projection without turning it into a migration fixture or a replacement for focused tests.

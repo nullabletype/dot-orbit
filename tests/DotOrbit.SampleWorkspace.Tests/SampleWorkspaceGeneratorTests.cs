@@ -48,6 +48,9 @@ public sealed class SampleWorkspaceGeneratorTests
             ["Work", "Home", "Health", "Learning & creative practice", "Errands", "Someday"],
             snapshot.Categories.Select(category => category.Name));
         Assert.Equal(
+            ["indigo", "teal", "lime", "violet", "tangerine", "rose"],
+            snapshot.Categories.Select(category => category.ColourKey));
+        Assert.Equal(
             ["AB", "Coach", "Garden pal", "MK", "SD", "Unused", "Zoë"],
             snapshot.Participants.Select(participant => participant.Label));
         Assert.Null(session.Recovery.AutomaticRecoveryDirectoryPath);
@@ -122,6 +125,7 @@ public sealed class SampleWorkspaceGeneratorTests
         var second = secondSession.Work.Read();
 
         Assert.Equal(first.Categories.Select(item => item.Id), second.Categories.Select(item => item.Id));
+        Assert.Equal(first.Categories.Select(item => item.ColourKey), second.Categories.Select(item => item.ColourKey));
         Assert.Equal(first.Projects.Select(item => item.Id), second.Projects.Select(item => item.Id));
         Assert.Equal(first.Tasks.Select(item => item.Id), second.Tasks.Select(item => item.Id));
         Assert.Equal(first.Participants.Select(item => item.Id), second.Participants.Select(item => item.Id));

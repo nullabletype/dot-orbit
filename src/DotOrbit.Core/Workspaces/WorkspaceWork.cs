@@ -7,8 +7,9 @@ public interface IWorkspaceWork
     IReadOnlyList<ProjectBinRecord> ReadProjectBin();
     EmptyBinPreview PreviewEmptyBin();
     IReadOnlyList<ArchiveSearchResult> SearchArchive(string query);
-    WorkspaceCategory CreateCategory(string name);
+    WorkspaceCategory CreateCategory(string name, string? colourKey = null);
     WorkspaceCategory RenameCategory(string id, string name);
+    WorkspaceCategory UpdateCategory(string id, string name, string colourKey);
     void DeleteCategory(string id, string? replacementCategoryId = null);
     ParticipantRecord CreateParticipant(string label);
     ParticipantRecord RenameParticipant(string id, string label);
@@ -79,7 +80,11 @@ public enum TodayLane
     InProgress,
 }
 
-public sealed record WorkspaceCategory(string Id, string Name, long Position);
+public sealed record WorkspaceCategory(
+    string Id,
+    string Name,
+    long Position,
+    string ColourKey = IdentityColourPalette.DefaultKey);
 public sealed record ParticipantRecord(string Id, string Label);
 public sealed record ParticipantDraftChange(
     IReadOnlyCollection<string> ParticipantIds,

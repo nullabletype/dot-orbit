@@ -90,10 +90,28 @@ public sealed class StyleGuideWindowTests
             navigation.PrimaryNavigation.Single(item => item.Title == "Projects").IconData);
         Assert.Equal(WorkTypeIconGeometry.CategoryPath,
             navigation.PrimaryNavigation.Single(item => item.Title == "Categories").IconData);
-        var categoryOverrideIndicator = window.FindControl<CategoryOverrideIndicator>("ReferenceCategoryOverrideIndicator")!;
-        Assert.Equal(AccessibilityView.Raw, AutomationProperties.GetAccessibilityView(categoryOverrideIndicator));
-        var categoryOverride = Assert.Single(categoryOverrideIndicator.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>());
+        var categoryPill = window.FindControl<CategoryPill>("ReferenceCategoryPill")!;
+        Assert.Equal(AccessibilityView.Raw, AutomationProperties.GetAccessibilityView(categoryPill));
+        Assert.False(categoryPill.Focusable);
+        Assert.False(categoryPill.IsHitTestVisible);
+        Assert.Equal("Work", categoryPill.CategoryName);
+        Assert.Equal("rose", categoryPill.ColourKey);
+        Assert.True(categoryPill.HasOverride);
+        var categoryOverride = Assert.Single(categoryPill.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>());
         Assert.Equal(AccessibilityView.Raw, AutomationProperties.GetAccessibilityView(categoryOverride));
+        var paletteNames = new[] { "Orchid", "Violet", "Indigo", "Ocean", "Teal", "Lime", "Tangerine", "Rose" };
+        var paletteMarkers = window.GetVisualDescendants().OfType<CategoryIdentityMarker>()
+            .Where(marker => paletteNames.Contains(marker.CategoryName, StringComparer.Ordinal))
+            .ToArray();
+        Assert.Equal(8, paletteMarkers.Length);
+        Assert.All(paletteMarkers, marker =>
+        {
+            Assert.False(marker.Focusable);
+            Assert.False(marker.IsHitTestVisible);
+            Assert.Equal(AccessibilityView.Raw, AutomationProperties.GetAccessibilityView(marker));
+        });
+        Assert.Equal(8, paletteMarkers.Select(marker => Solid(Assert.Single(
+            marker.GetVisualDescendants().OfType<Ellipse>()).Fill).Color).Distinct().Count());
         var identityNames = window.GetVisualDescendants().OfType<Border>()
             .Select(AutomationProperties.GetName)
             .OfType<string>()

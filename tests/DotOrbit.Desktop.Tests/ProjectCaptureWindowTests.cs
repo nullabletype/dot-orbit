@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Automation.Peers;
+using Avalonia.Automation.Provider;
 using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
 using Avalonia.Controls.Primitives;
@@ -2200,23 +2201,142 @@ public sealed class ProjectCaptureWindowTests
         var window = new MainWindow { DataContext = shell };
         window.Show();
 
-        AssertRelationshipMetadata("Inherited task", "Garden", "Inherited Category Home");
-        AssertRelationshipMetadata("Overridden task", "Garden", "Category override Work");
-        AssertRelationshipMetadata("Standalone task", "Standalone · Work", "Standalone. Category Work");
+        AssertRelationshipMetadata("Inherited task", "Garden", "Home", false, "Inherited Category Home");
+        AssertRelationshipMetadata("Overridden task", "Garden", "Work", true, "Category override Work");
+        AssertRelationshipMetadata("Standalone task", "Standalone", "Work", false, "Standalone. Category Work");
         window.Close();
 
-        void AssertRelationshipMetadata(string title, string visibleRelationship, string accessibleRelationship)
+        void AssertRelationshipMetadata(
+            string title,
+            string visibleRelationship,
+            string categoryName,
+            bool hasOverride,
+            string accessibleRelationship)
         {
             var row = Assert.Single(window.GetVisualDescendants().OfType<Border>(),
                 border => border.Classes.Contains("backlog-row") && border.DataContext is TaskRowViewModel task && task.Title == title);
             var relationship = Assert.Single(row.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == visibleRelationship);
             Assert.True(relationship.IsEffectivelyVisible);
+            var pill = Assert.Single(row.GetVisualDescendants().OfType<CategoryPill>());
+            Assert.Equal(categoryName, pill.CategoryName);
+            Assert.Equal(hasOverride, pill.HasOverride);
+            Assert.True(pill.IsEffectivelyVisible);
             var taskButton = Assert.Single(row.GetVisualDescendants().OfType<Button>(),
                 button => button.Classes.Contains("backlog-task-title"));
             var peer = ControlAutomationPeer.CreatePeerForElement(taskButton);
             Assert.Contains($"Task {title}", peer.GetName(), StringComparison.Ordinal);
             Assert.Contains(accessibleRelationship, peer.GetName(), StringComparison.Ordinal);
         }
+    }
+
+    [AvaloniaFact]
+    public void CategoryPillsAppearOnlyOnTheFourScopedTaskSurfaces()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var attached = work.CreateTaskDraft(project.Id, "Attached", "", null,
+            new DateOnly(2026, 10, 7));
+        work.SetTaskTodayLane(attached.Id, TodayLane.Planned);
+        var standalone = work.CreateStandaloneTask("Standalone", "", "work", null);
+        var completed = work.CreateTask(project.Id, "Completed");
+        work.CompleteTask(completed.Id);
+        var archived = work.CreateStandaloneTask("Archived", "", "home", null);
+        work.CompleteTask(archived.Id);
+        work.ArchiveTask(archived.Id);
+        var binned = work.CreateStandaloneTask("Binned", "", "work", null);
+        work.MoveTaskToBin(binned.Id);
+        var shell = new ShellViewModel(work,
+            new FixedTimeProvider(new DateTimeOffset(2026, 10, 5, 12, 0, 0, TimeSpan.Zero)));
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+
+        AssertScopedSurface("Projects", attached.Id, "Home");
+        AssertScopedSurface("Backlog", standalone.Id, "Work");
+        AssertScopedSurface("Categories", standalone.Id, "Work");
+        AssertScopedSurface("Completed", completed.Id, "Home");
+
+        SelectView(shell, "Today");
+        Dispatcher.UIThread.RunJobs();
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<CategoryPill>(), pill => pill.IsEffectivelyVisible);
+        SelectView(shell, "Upcoming");
+        Dispatcher.UIThread.RunJobs();
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<CategoryPill>(), pill => pill.IsEffectivelyVisible);
+        SelectView(shell, "Archive");
+        Dispatcher.UIThread.RunJobs();
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<CategoryPill>(), pill => pill.IsEffectivelyVisible);
+        SelectView(shell, "Bin");
+        Dispatcher.UIThread.RunJobs();
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<CategoryPill>(), pill => pill.IsEffectivelyVisible);
+        window.Close();
+
+        void AssertScopedSurface(string view, string taskId, string categoryName)
+        {
+            SelectView(shell, view);
+            Dispatcher.UIThread.RunJobs();
+            var button = Assert.Single(window.GetVisualDescendants().OfType<Button>(), candidate =>
+                candidate.IsEffectivelyVisible
+                && candidate.Classes.Contains("row-title")
+                && (candidate.DataContext is TaskRowViewModel task && task.Id == taskId
+                    || candidate.DataContext is CategoryTaskRowViewModel categoryTask && categoryTask.Task.Id == taskId
+                    || candidate.DataContext is CompletedTaskRowViewModel completedTask && completedTask.Task.Id == taskId));
+            var pill = Assert.Single(button.GetVisualDescendants().OfType<CategoryPill>(), candidate => candidate.IsEffectivelyVisible);
+            Assert.Equal(categoryName, pill.CategoryName);
+            Assert.Equal(AccessibilityView.Raw, AutomationProperties.GetAccessibilityView(pill));
+        }
+    }
+
+    [AvaloniaFact]
+    public void CategoryInspectorOffersEightKeyboardReachableColoursAndLivePreview()
+    {
+        var work = new MemoryWorkspaceWork();
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+        SelectView(shell, "Categories");
+        Dispatcher.UIThread.RunJobs();
+        Activate(window, NamedButton(window, "New category"));
+        Dispatcher.UIThread.RunJobs();
+
+        var picker = Assert.IsType<ComboBox>(window.GetVisualDescendants().Single(control =>
+            control is ComboBox combo && AutomationProperties.GetAutomationId(combo) == "category-colour"));
+        Assert.Equal(8, picker.ItemCount);
+        Assert.True(picker.Focusable);
+        Assert.True(picker.Focus(NavigationMethod.Tab));
+        Assert.True(picker.IsKeyboardFocusWithin);
+        Assert.Equal("Indigo", AutomationProperties.GetItemStatus(picker));
+        picker.IsDropDownOpen = true;
+        Dispatcher.UIThread.RunJobs();
+        var options = Enumerable.Range(0, picker.ItemCount)
+            .Select(index => Assert.IsType<ComboBoxItem>(picker.ContainerFromIndex(index)))
+            .ToArray();
+        Assert.Equal(shell.Work!.CategoryColourChoices.Select(choice => choice.Name),
+            options.Select(AutomationProperties.GetName));
+        Assert.All(options, option =>
+        {
+            var peer = ControlAutomationPeer.CreatePeerForElement(option);
+            Assert.Equal(AutomationControlType.ComboBoxItem, peer.GetAutomationControlType());
+            Assert.NotNull(peer.GetProvider<ISelectionItemProvider>());
+        });
+        Assert.True(ControlAutomationPeer.CreatePeerForElement(options[2])
+            .GetProvider<ISelectionItemProvider>()!.IsSelected);
+        picker.IsDropDownOpen = false;
+        window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+        window.KeyReleaseQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("ocean", shell.Work.CategoryColourKey);
+        Assert.Equal("Ocean", AutomationProperties.GetItemStatus(picker));
+        var preview = Assert.Single(window.GetVisualDescendants().OfType<CategoryIdentityMarker>(), marker =>
+            marker.IsEffectivelyVisible && marker.CategoryName == "Category name" && marker.ColourKey == "ocean");
+        Assert.False(preview.Focusable);
+        Assert.False(preview.IsHitTestVisible);
+
+        shell.Work.Title = "Errands";
+        shell.Work.SelectedCategoryColour = shell.Work.CategoryColourChoices.Single(choice => choice.Key == "tangerine");
+        Dispatcher.UIThread.RunJobs();
+        Assert.Contains(window.GetVisualDescendants().OfType<CategoryIdentityMarker>(), marker =>
+            marker.IsEffectivelyVisible && marker.CategoryName == "Errands" && marker.ColourKey == "tangerine");
+        Assert.True(shell.Work.IsDirty);
+        window.Close();
     }
 
     [AvaloniaFact]
@@ -2240,17 +2360,20 @@ public sealed class ProjectCaptureWindowTests
             text.Classes.Contains("work-identity-title"));
         var relationship = Assert.Single(button.GetVisualDescendants().OfType<TextBlock>(), text =>
             text.Classes.Contains("work-identity-context"));
-        var overrideIndicator = Assert.Single(button.GetVisualDescendants().OfType<CategoryOverrideIndicator>(),
-            indicator => indicator.IsEffectivelyVisible);
-        var overrideText = Assert.Single(overrideIndicator.GetVisualDescendants().OfType<TextBlock>());
+        var pill = Assert.Single(button.GetVisualDescendants().OfType<CategoryPill>());
+        var overrideIcon = Assert.Single(pill.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>(),
+            icon => icon.Classes.Contains("category-pill-override-icon") && icon.IsEffectivelyVisible);
+        var categoryText = Assert.Single(pill.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == overrideCategory.Name);
         var date = Assert.Single(row.GetVisualDescendants().OfType<TextBlock>(), text => text.Classes.Contains("task-date"));
 
         Assert.Equal(14, icon.Bounds.Width);
         Assert.InRange(OriginInWindow(title, window).X - (OriginInWindow(icon, window).X + icon.Bounds.Width), 5, 7);
         Assert.InRange(CentreInWindow(icon, window).Y - CentreInWindow(title, window).Y, 0.75, 1.25);
         Assert.Equal(TextTrimming.CharacterEllipsis, relationship.TextTrimming);
-        Assert.Equal(TextTrimming.CharacterEllipsis, overrideText.TextTrimming);
-        Assert.InRange(overrideIndicator.Bounds.Width, 13, 180);
+        Assert.Equal(TextTrimming.CharacterEllipsis, categoryText.TextTrimming);
+        Assert.True(pill.HasOverride);
+        Assert.True(overrideIcon.Bounds.Width > 0);
+        Assert.InRange(pill.Bounds.Width, 25, 240);
         Assert.True(
             OriginInWindow(button, window).X + button.Bounds.Width <= OriginInWindow(date, window).X,
             "The identity column must end before the right-aligned date column.");

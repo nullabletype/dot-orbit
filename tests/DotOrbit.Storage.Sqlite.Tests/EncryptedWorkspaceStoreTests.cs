@@ -46,8 +46,10 @@ public sealed class EncryptedWorkspaceStoreTests
         Assert.Equal(1L, ExecuteScalar<long>(inspection, "PRAGMA hmac_check;"));
         Assert.Equal("Personal Admin", ExecuteScalar<string>(inspection, "SELECT name FROM categories;"));
         Assert.Equal(1L, ExecuteScalar<long>(inspection, "SELECT COUNT(*) FROM categories;"));
+        Assert.Equal(IdentityColourPalette.DefaultKey,
+            ExecuteScalar<string>(inspection, "SELECT colour_key FROM category_identities;"));
         Assert.Equal(
-            "categories,projects,tasks,participants,task_participants,today_tasks,task_archives,project_archives,archive_search,task_bins,task_bin_order_anchors,project_bins,project_bin_tasks,project_bin_order_anchors",
+            "categories,projects,tasks,participants,task_participants,today_tasks,task_archives,project_archives,archive_search,task_bins,task_bin_order_anchors,project_bins,project_bin_tasks,project_bin_order_anchors,category_identities",
             ExecuteScalar<string>(
                 inspection,
                 "SELECT group_concat(name, ',') FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND (name = 'archive_search' OR name NOT LIKE 'archive_search_%');"));
@@ -203,6 +205,8 @@ public sealed class EncryptedWorkspaceStoreTests
             command.CommandText = """
                 INSERT INTO categories (id, name, position)
                 VALUES ('second-category', 'Work', 1);
+                INSERT INTO category_identities (category_id, colour_key)
+                VALUES ('second-category', 'violet');
                 """;
             command.ExecuteNonQuery();
         }
