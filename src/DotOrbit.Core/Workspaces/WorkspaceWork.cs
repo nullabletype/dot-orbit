@@ -4,6 +4,8 @@ public interface IWorkspaceWork
 {
     WorkspaceWorkSnapshot Read();
     IReadOnlyList<TaskBinRecord> ReadTaskBin();
+    IReadOnlyList<ProjectBinRecord> ReadProjectBin();
+    EmptyBinPreview PreviewEmptyBin();
     IReadOnlyList<ArchiveSearchResult> SearchArchive(string query);
     WorkspaceCategory CreateCategory(string name);
     WorkspaceCategory RenameCategory(string id, string name);
@@ -27,6 +29,9 @@ public interface IWorkspaceWork
     TaskRecord RestoreTask(string id);
     TaskBinRecord MoveTaskToBin(string id);
     TaskRecord RestoreTaskFromBin(string id);
+    ProjectBinRecord MoveProjectToBin(string id);
+    ProjectRecord RestoreProjectFromBin(string id);
+    EmptyBinResult EmptyBin(EmptyBinPreview confirmedPreview);
     ProjectRecord ArchiveProject(string id);
     ProjectRecord RestoreProject(string id);
     BulkTaskArchivePreview PreviewBulkTaskArchive(int completedAgeDays);
@@ -127,6 +132,30 @@ public sealed record TaskBinRecord(
     string CategoryName,
     bool CanRestore,
     string? RestoreBlockedReason);
+public sealed record ProjectBinRecord(
+    ProjectRecord Project,
+    DateTimeOffset RemovedAt,
+    string CategoryName,
+    int TaskCount);
+public sealed record EmptyBinPreview(
+    IReadOnlyList<string> ProjectIds,
+    IReadOnlyList<string> TaskIds)
+{
+    public int ProjectCount => ProjectIds.Count;
+    public int TaskCount => TaskIds.Count;
+    public bool IsEmpty => ProjectCount == 0 && TaskCount == 0;
+    public bool Matches(EmptyBinPreview? other) => other is not null
+        && ProjectIds.SequenceEqual(other.ProjectIds, StringComparer.Ordinal)
+        && TaskIds.SequenceEqual(other.TaskIds, StringComparer.Ordinal);
+}
+public enum EmptyBinStatus
+{
+    Emptied,
+    PreviewChanged,
+    RecoveryPointCreationFailed,
+    Failed,
+}
+public sealed record EmptyBinResult(EmptyBinStatus Status, EmptyBinPreview Preview);
 public sealed record TaskBinOrderAnchor(string TaskId, int RelativePosition);
 public sealed record SharedTaskOrderChange(string TaskId, int Position, int Count);
 public sealed record TodayLaneOrderChange(string TaskId, TodayLane Lane, int Position, int Count);
@@ -181,6 +210,14 @@ public static class TaskBinRestorePolicy
             if (string.Equals(ids[index], id, StringComparison.Ordinal)) return index;
         return -1;
     }
+}
+
+public static class ProjectBinRestorePolicy
+{
+    public static int RestoreIndex(
+        IReadOnlyList<string> survivingIds,
+        IReadOnlyList<TaskBinOrderAnchor> formerOrder) =>
+        TaskBinRestorePolicy.RestoreIndex(survivingIds, formerOrder);
 }
 
 public static class BulkTaskArchiveThreshold

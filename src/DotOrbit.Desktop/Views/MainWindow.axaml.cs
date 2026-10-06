@@ -334,6 +334,15 @@ public sealed partial class MainWindow : Window
                 else
                     FocusAutomationId(bulkArchiveConfirmation.DialogReturnFocusAutomationId);
             }, DispatcherPriority.ApplicationIdle);
+        if (e.PropertyName == nameof(ProjectCaptureViewModel.NeedsEmptyBinConfirmation)
+            && sender is ProjectCaptureViewModel emptyBinConfirmation)
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (emptyBinConfirmation.NeedsEmptyBinConfirmation)
+                    this.FindControl<Button>("ConfirmEmptyBinButton")?.Focus();
+                else
+                    FocusAutomationId(emptyBinConfirmation.BinFocusAutomationId);
+            }, DispatcherPriority.ApplicationIdle);
         if (e.PropertyName == nameof(ProjectCaptureViewModel.ArchiveFocusAutomationId)
             && sender is ProjectCaptureViewModel { ArchiveFocusAutomationId.Length: > 0 } archiveWork)
             Dispatcher.UIThread.Post(() => FocusAutomationId(archiveWork.ArchiveFocusAutomationId), DispatcherPriority.ApplicationIdle);

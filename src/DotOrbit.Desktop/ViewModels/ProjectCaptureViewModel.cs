@@ -73,6 +73,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private string _binFocusAutomationId = string.Empty;
     private string? _pendingArchiveTaskId;
     private BulkTaskArchivePreview? _pendingBulkTaskArchivePreview;
+    private EmptyBinPreview? _pendingEmptyBinPreview;
     private int _bulkArchiveCompletedAgeDays = 30;
     private int _bulkArchiveAffectedCount;
 
@@ -93,6 +94,10 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             ArchiveFocusAutomationId = "archive-search";
         });
         MoveTaskToBinCommand = new(MoveCurrentTaskToBin);
+        MoveProjectToBinCommand = new(MoveCurrentProjectToBin);
+        RequestEmptyBinCommand = new(RequestEmptyBin);
+        ConfirmEmptyBinCommand = new(ConfirmEmptyBin);
+        CancelEmptyBinCommand = new(CancelEmptyBin);
         AddParticipantCommand = new(AddParticipant);
         AddNewParticipantCommand = new(AddNewParticipant);
         CancelNewParticipantCommand = new(() =>
@@ -141,7 +146,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public ObservableCollection<TaskRowViewModel> Completed { get; } = [];
     public ObservableCollection<ArchivedTaskRowViewModel> Archived { get; } = [];
     public ObservableCollection<ArchivedWorkGroupViewModel> ArchiveGroups { get; } = [];
-    public ObservableCollection<TaskBinRowViewModel> Bin { get; } = [];
+    public ObservableCollection<BinRowViewModel> Bin { get; } = [];
     public ObservableCollection<ArchiveSearchResultViewModel> ArchiveSearchResults { get; } = [];
     public ObservableCollection<ArchiveSearchResultGroupViewModel> ArchiveSearchGroups { get; } = [];
     public ObservableCollection<TodayTaskRowViewModel> TodayPlanned { get; } = [];
@@ -162,6 +167,10 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public RelayCommand ClearTodayCommand { get; }
     public RelayCommand ClearArchiveSearchCommand { get; }
     public RelayCommand MoveTaskToBinCommand { get; }
+    public RelayCommand MoveProjectToBinCommand { get; }
+    public RelayCommand RequestEmptyBinCommand { get; }
+    public RelayCommand ConfirmEmptyBinCommand { get; }
+    public RelayCommand CancelEmptyBinCommand { get; }
     public RelayCommand AddParticipantCommand { get; }
     public RelayCommand AddNewParticipantCommand { get; }
     public RelayCommand CancelNewParticipantCommand { get; }
@@ -203,6 +212,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             Notify(nameof(ShowMarkdownPreview));
             Notify(nameof(ShowMarkdownEditor));
             Notify(nameof(ShowMoveTaskToBin));
+            Notify(nameof(ShowMoveProjectToBin));
         }
     }
     public bool HasNoInspector => !HasInspector;
@@ -217,8 +227,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public bool HasArchivedProjects => ArchivedProjects.Count > 0;
     public bool HasArchived => Archived.Count > 0 || ArchivedProjects.Count > 0;
     public bool HasNoArchived => !HasArchived;
-    public bool HasBinnedTasks => Bin.Count > 0;
-    public bool HasNoBinnedTasks => !HasBinnedTasks;
+    public bool HasBinnedWork => Bin.Count > 0;
+    public bool HasNoBinnedWork => !HasBinnedWork;
     public string ArchiveSearchText
     {
         get => _archiveSearchText;
@@ -249,8 +259,9 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public bool NeedsAttachmentChoice => _pendingAttachmentTaskId is not null;
     public bool NeedsArchiveConfirmation => _pendingArchiveTaskId is not null;
     public bool NeedsBulkTaskArchiveConfirmation => _pendingBulkTaskArchivePreview is not null;
+    public bool NeedsEmptyBinConfirmation => _pendingEmptyBinPreview is not null;
     public bool HasBlockingDialog => NeedsDecision || NeedsCategoryReplacement || NeedsAttachmentChoice
-        || NeedsArchiveConfirmation || NeedsBulkTaskArchiveConfirmation;
+        || NeedsArchiveConfirmation || NeedsBulkTaskArchiveConfirmation || NeedsEmptyBinConfirmation;
     public bool IsDirty => HasInspector && _original != Fingerprint();
     public bool ShowExplicitInspectorActions => HasInspector && _editingCategory;
     public bool ShowAutosaveStatus => HasInspector && !_editingCategory;
@@ -339,6 +350,13 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         ? WorkDatePresentation.Accessible(_snapshot.Tasks.Single(task => task.Id == _editingId).CompletionDate, "Completed")
         : string.Empty;
     public bool ShowMoveTaskToBin => HasInspector && !_editingCategory && !_creating && _editingTask;
+    public bool ShowMoveProjectToBin => HasInspector && !_editingCategory && !_creating && !_editingTask;
+    public string EmptyBinConfirmationHeading => NeedsEmptyBinConfirmation
+        ? "Permanently empty Bin?"
+        : string.Empty;
+    public string EmptyBinConfirmationBody => _pendingEmptyBinPreview is null
+        ? string.Empty
+        : $"This permanently deletes {_pendingEmptyBinPreview.ProjectCount} {Plural(_pendingEmptyBinPreview.ProjectCount, "Project", "Projects")} and {_pendingEmptyBinPreview.TaskCount} {Plural(_pendingEmptyBinPreview.TaskCount, "Task", "Tasks")} from this workspace. A validated encrypted recovery point is created first and retained separately. Existing automatic backups may contain earlier copies until normal pruning removes them, and filesystem snapshots may also retain copies; this is not forensic erasure.";
     public string InspectorMetaLabel => _editingTask ? "CATEGORY BEHAVIOUR" : "STATUS";
     public string InspectorMetaValue => _editingTask
         ? CategoryHint
@@ -1065,10 +1083,27 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         });
     }
 
+    private void MoveCurrentProjectToBin()
+    {
+        if (!ShowMoveProjectToBin || _editingId is null || HasBlockingDialog) return;
+        var projectId = _editingId;
+        ResolveDraftBeforeAction(() =>
+        {
+            if (!Attempt(() =>
+                {
+                    _work.MoveProjectToBin(projectId);
+                    CloseInspector();
+                    Reload();
+                    BinFocusAutomationId = "navigation-bin";
+                    Message = "Project and its Tasks moved to Bin. You can restore the aggregate from Bin.";
+                }, "Could not move the Project to Bin. No changes were made.")) return;
+        });
+    }
+
     internal void RestoreTaskFromBin(string id)
     {
         if (HasBlockingDialog) return;
-        var binIndex = Bin.IndexOf(Bin.FirstOrDefault(row => row.Task.Id == id)!);
+        var binIndex = Bin.IndexOf(Bin.FirstOrDefault(row => row.Task?.Id == id)!);
         if (!Attempt(() =>
             {
                 _work.RestoreTaskFromBin(id);
@@ -1117,6 +1152,86 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             Notify(nameof(AdoptCategoryLabel));
             Notify(nameof(HasBlockingDialog));
         });
+    }
+
+    internal void RestoreProjectFromBin(string id)
+    {
+        if (HasBlockingDialog) return;
+        var binIndex = Bin.IndexOf(Bin.FirstOrDefault(row => row.Project?.Id == id)!);
+        if (!Attempt(() =>
+            {
+                _work.RestoreProjectFromBin(id);
+                Reload();
+                BinFocusAutomationId = _binActive
+                    ? Bin.Count == 0
+                        ? "navigation-bin"
+                        : Bin[Math.Min(Math.Max(binIndex, 0), Bin.Count - 1)].RestoreAutomationId
+                    : $"project-select-{id}";
+                Message = "Project and its Tasks restored from Bin.";
+            }, "Could not restore the Project from Bin. No changes were made.")) return;
+    }
+
+    private void RequestEmptyBin()
+    {
+        if (HasBlockingDialog) return;
+        EmptyBinPreview? preview = null;
+        if (!Attempt(() => preview = _work.PreviewEmptyBin(),
+                "Could not inspect Bin. No changes were made.")) return;
+        if (preview is null || preview.IsEmpty) return;
+        _pendingEmptyBinPreview = preview;
+        Notify(nameof(NeedsEmptyBinConfirmation));
+        Notify(nameof(EmptyBinConfirmationHeading));
+        Notify(nameof(EmptyBinConfirmationBody));
+        Notify(nameof(HasBlockingDialog));
+    }
+
+    private void ConfirmEmptyBin()
+    {
+        if (_pendingEmptyBinPreview is null) return;
+        EmptyBinResult? result = null;
+        if (!Attempt(() => result = _work.EmptyBin(_pendingEmptyBinPreview),
+                "Could not empty Bin. Nothing was deleted."))
+        {
+            CloseEmptyBinConfirmation();
+            Reload();
+            BinFocusAutomationId = "empty-bin";
+            return;
+        }
+        var completed = result!;
+        if (completed.Status == EmptyBinStatus.PreviewChanged)
+        {
+            _pendingEmptyBinPreview = completed.Preview;
+            Reload();
+            Notify(nameof(EmptyBinConfirmationBody));
+            Message = "Bin changed. Review the updated counts before confirming again.";
+            return;
+        }
+
+        CloseEmptyBinConfirmation();
+        Reload();
+        BinFocusAutomationId = completed.Status == EmptyBinStatus.Emptied ? "navigation-bin" : "empty-bin";
+        Message = completed.Status switch
+        {
+            EmptyBinStatus.Emptied => "Bin emptied after creating a validated encrypted recovery point.",
+            EmptyBinStatus.RecoveryPointCreationFailed => "Could not empty Bin because a validated recovery point could not be created. Nothing was deleted.",
+            _ => "Could not empty Bin. Nothing was deleted.",
+        };
+    }
+
+    private void CancelEmptyBin()
+    {
+        if (_pendingEmptyBinPreview is null) return;
+        CloseEmptyBinConfirmation();
+        BinFocusAutomationId = "empty-bin";
+    }
+
+    private void CloseEmptyBinConfirmation()
+    {
+        _pendingEmptyBinPreview = null;
+        Notify(nameof(NeedsEmptyBinConfirmation));
+        Notify(nameof(EmptyBinConfirmationHeading));
+        Notify(nameof(EmptyBinConfirmationBody));
+        Notify(nameof(HasBlockingDialog));
     }
 
     private void ResolveDraftBeforeAction(Action action)
@@ -1419,6 +1534,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         Notify(nameof(ShowProjectSummary)); Notify(nameof(ProjectSummary));
         Notify(nameof(ShowTaskCompletionDate)); Notify(nameof(TaskCompletionDateText)); Notify(nameof(TaskCompletionDateAccessibleText));
         Notify(nameof(ShowMoveTaskToBin));
+        Notify(nameof(ShowMoveProjectToBin));
         Notify(nameof(InspectorMetaLabel)); Notify(nameof(InspectorMetaValue));
         Notify(nameof(ShowMarkdownPreview)); Notify(nameof(ShowMarkdownEditor));
         Notify(nameof(ShowExplicitInspectorActions)); Notify(nameof(ShowAutosaveStatus));
@@ -1625,6 +1741,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     {
         _snapshot = _work.Read();
         var taskBin = _work.ReadTaskBin();
+        var projectBin = _work.ReadProjectBin();
         RefreshParticipantChoices();
         RefreshBacklogCategories();
         foreach (var removedId in _taskRows.Keys.Except(_snapshot.Tasks.Select(task => task.Id), StringComparer.Ordinal).ToArray())
@@ -1701,12 +1818,22 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         RefreshArchiveGroups();
         RefreshArchiveSearch();
         Bin.Clear();
-        for (var index = 0; index < taskBin.Count; index++)
+        var binRows = projectBin
+            .Select(item => BinRowViewModel.ForProject(
+                this,
+                item,
+                TimeZoneInfo.ConvertTime(item.RemovedAt, _timeProvider.LocalTimeZone)))
+            .Concat(taskBin.Select(item => BinRowViewModel.ForTask(
+                this,
+                item,
+                TimeZoneInfo.ConvertTime(item.RemovedAt, _timeProvider.LocalTimeZone))))
+            .OrderByDescending(item => item.RemovedAt)
+            .ThenBy(item => item.Title, StringComparer.Ordinal)
+            .ToArray();
+        for (var index = 0; index < binRows.Length; index++)
         {
-            var item = taskBin[index];
-            Bin.Add(new(this, item, item.ProjectTitle ?? "Standalone Task", item.CategoryName,
-                index == taskBin.Count - 1,
-                TimeZoneInfo.ConvertTime(item.RemovedAt, _timeProvider.LocalTimeZone)));
+            binRows[index].IsLast = index == binRows.Length - 1;
+            Bin.Add(binRows[index]);
         }
         SynchroniseToday(TodayPlanned, _snapshot.Tasks
             .Where(task => IsTaskInActiveWork(task) && !task.IsComplete && !task.IsArchived && task.TodayLane == TodayLane.Planned)
@@ -1738,8 +1865,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         Notify(nameof(HasArchivedTasks));
         Notify(nameof(HasArchivedProjects));
         Notify(nameof(HasNoArchived));
-        Notify(nameof(HasBinnedTasks));
-        Notify(nameof(HasNoBinnedTasks));
+        Notify(nameof(HasBinnedWork));
+        Notify(nameof(HasNoBinnedWork));
         Notify(nameof(HasTodayTasks));
         Notify(nameof(HasNoTodayTasks));
         Notify(nameof(HasCompletedToday));
@@ -2068,6 +2195,9 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         catch (InvalidOperationException) { Message = failureMessage; return false; }
     }
 
+    private static string Plural(int count, string singular, string plural) =>
+        count == 1 ? singular : plural;
+
     internal void MoveUp(string taskId) => MoveTask(taskId, Backlog.IndexOf(Backlog.Single(task => task.Id == taskId)) - 1);
     internal void MoveDown(string taskId) => MoveTask(taskId, Backlog.IndexOf(Backlog.Single(task => task.Id == taskId)) + 1);
     internal void MoveToTop(string taskId) => MoveTask(taskId, 0);
@@ -2324,43 +2454,70 @@ public sealed record CompletedTaskRowViewModel(TaskRowViewModel Task, bool IsLas
 public sealed record ArchivedTaskRowViewModel(TaskRowViewModel Task, bool IsLast);
 public sealed record ArchivedProjectRowViewModel(ProjectRowViewModel Project, bool IsLast);
 
-public sealed class TaskBinRowViewModel
+public sealed class BinRowViewModel
 {
-    public TaskBinRowViewModel(
+    private BinRowViewModel(
         ProjectCaptureViewModel owner,
-        TaskBinRecord item,
-        string projectTitle,
-        string categoryName,
-        bool isLast,
+        ProjectBinRecord? projectItem,
+        TaskBinRecord? taskItem,
         DateTimeOffset localRemovedAt)
     {
-        Task = item.Task;
-        ProjectTitle = projectTitle;
-        CategoryName = categoryName;
-        IsLast = isLast;
+        Project = projectItem?.Project;
+        Task = taskItem?.Task;
+        CategoryName = projectItem?.CategoryName ?? taskItem!.CategoryName;
+        ProjectTitle = projectItem is not null
+            ? projectItem.Project.Title
+            : taskItem!.ProjectTitle ?? "Standalone Task";
+        TaskCount = projectItem?.TaskCount ?? 0;
+        RemovedAt = localRemovedAt;
         RemovedText = $"Removed {localRemovedAt.ToString("d MMM yyyy, HH:mm", CultureInfo.InvariantCulture)}";
-        CanRestore = item.CanRestore;
-        RestoreBlockedText = item.RestoreBlockedReason ?? string.Empty;
+        CanRestore = projectItem is not null || taskItem!.CanRestore;
+        RestoreBlockedText = taskItem?.RestoreBlockedReason ?? string.Empty;
         RestoreCommand = new(() =>
         {
-            if (CanRestore) owner.RestoreTaskFromBin(Task.Id);
+            if (!CanRestore) return;
+            if (Project is not null) owner.RestoreProjectFromBin(Project.Id);
+            else owner.RestoreTaskFromBin(Task!.Id);
         });
     }
 
-    public TaskRecord Task { get; }
-    public string Title => Task.Title;
+    public static BinRowViewModel ForProject(
+        ProjectCaptureViewModel owner,
+        ProjectBinRecord item,
+        DateTimeOffset localRemovedAt) => new(owner, item, null, localRemovedAt);
+
+    public static BinRowViewModel ForTask(
+        ProjectCaptureViewModel owner,
+        TaskBinRecord item,
+        DateTimeOffset localRemovedAt) => new(owner, null, item, localRemovedAt);
+
+    public ProjectRecord? Project { get; }
+    public TaskRecord? Task { get; }
+    public bool IsProject => Project is not null;
+    public bool IsTask => Task is not null;
+    public string Title => Project?.Title ?? Task!.Title;
     public string ProjectTitle { get; }
     public string CategoryName { get; }
-    public string ContextText => $"{ProjectTitle} · {CategoryName}";
+    public int TaskCount { get; }
+    public string ContextText => IsProject
+        ? $"Project aggregate · {TaskCount} {(TaskCount == 1 ? "Task" : "Tasks")} · {CategoryName}"
+        : $"{ProjectTitle} · {CategoryName}";
+    public DateTimeOffset RemovedAt { get; }
     public string RemovedText { get; }
-    public bool IsLast { get; }
+    public bool IsLast { get; internal set; }
     public bool CanRestore { get; }
     public bool IsRestoreBlocked => !CanRestore;
     public string RestoreBlockedText { get; }
-    public string RestoreAutomationId => $"bin-restore-task-{Task.Id}";
-    public string RestoreAccessibleName => $"Restore {Title} from Bin";
+    public string RestoreAutomationId => IsProject
+        ? $"bin-restore-project-{Project!.Id}"
+        : $"bin-restore-task-{Task!.Id}";
+    public string RestoreAccessibleName => IsProject
+        ? $"Restore {Title} Project and its Tasks from Bin"
+        : $"Restore {Title} from Bin";
     public string RestoreHelpText => CanRestore
-        ? $"Restores {Title} to its nearest surviving former position."
+        ? IsProject
+            ? $"Restores {Title} and its Tasks to their nearest surviving former positions."
+            : $"Restores {Title} to its nearest surviving former position."
         : RestoreBlockedText;
     public RelayCommand RestoreCommand { get; }
 }

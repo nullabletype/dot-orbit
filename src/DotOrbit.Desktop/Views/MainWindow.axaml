@@ -981,18 +981,27 @@
       </ScrollViewer>
       <ScrollViewer Grid.Row="2" IsVisible="{Binding ShowBin}">
         <StackPanel Margin="{StaticResource ScrollContentInset}" Spacing="10">
-          <Border Classes="empty-state" IsVisible="{Binding Work.HasNoBinnedTasks}" Padding="44">
+          <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding Work.HasBinnedWork}">
+            <TextBlock VerticalAlignment="Center" Foreground="{StaticResource MutedTextBrush}"
+                Text="Restore work here, or permanently clear every item after a validated encrypted recovery point." TextWrapping="Wrap" />
+            <Button x:Name="EmptyBinButton" Grid.Column="1" Classes="view-action" Content="Empty Bin"
+                Command="{Binding Work.RequestEmptyBinCommand}"
+                AutomationProperties.AutomationId="empty-bin"
+                AutomationProperties.Name="Empty Bin permanently"
+                AutomationProperties.HelpText="Shows exact Project and Task counts and recovery retention guidance before deletion." />
+          </Grid>
+          <Border Classes="empty-state" IsVisible="{Binding Work.HasNoBinnedWork}" Padding="44">
             <StackPanel HorizontalAlignment="Center" Spacing="8">
               <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Text="Bin is empty" />
               <TextBlock MaxWidth="420" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}"
-                  Text="Tasks you move to Bin will remain available to restore here."
+                  Text="Projects and Tasks you move to Bin will remain available to restore here."
                   TextAlignment="Center" TextWrapping="Wrap" />
             </StackPanel>
           </Border>
-          <Border x:Name="TaskBinListPanel" Classes="list-panel" IsVisible="{Binding Work.HasBinnedTasks}">
+          <Border x:Name="BinListPanel" Classes="list-panel" IsVisible="{Binding Work.HasBinnedWork}">
             <ItemsControl ItemsSource="{Binding Work.Bin}">
               <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="vm:TaskBinRowViewModel">
+                <DataTemplate x:DataType="vm:BinRowViewModel">
                   <Border Classes="interactive-row separated-row task-row" Classes.last="{Binding IsLast}"
                       MinHeight="{StaticResource StandardRowHeight}">
                     <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
@@ -1414,6 +1423,19 @@
             </StackPanel>
           </Border>
 
+          <Border Margin="0,22,0,0" Padding="0,14,0,0" BorderBrush="{StaticResource LineBrush}"
+              BorderThickness="0,1,0,0" IsVisible="{Binding Work.ShowMoveProjectToBin}">
+            <StackPanel Spacing="8">
+              <Button Classes="view-action" Content="Move Project to Bin"
+                  Command="{Binding Work.MoveProjectToBinCommand}"
+                  AutomationProperties.AutomationId="project-move-to-bin"
+                  AutomationProperties.Name="Move Project and its Tasks to Bin"
+                  AutomationProperties.HelpText="Removes this Project and all its Tasks from workspace views as one recoverable aggregate." />
+              <TextBlock FontSize="11" Foreground="{StaticResource QuietTextBrush}" TextWrapping="Wrap"
+                  Text="This action is immediate and recoverable as one aggregate from Bin. Pending valid edits are saved first." />
+            </StackPanel>
+          </Border>
+
           <Grid x:Name="InspectorActions" Margin="0,24,0,0" ColumnDefinitions="*,8,*"
               IsVisible="{Binding Work.ShowExplicitInspectorActions}">
             <Button
@@ -1496,6 +1518,25 @@
           <Button Classes="view-action" Content="Cancel" Command="{Binding Work.CancelBulkTaskArchiveCommand}"
               AutomationProperties.AutomationId="bulk-archive-cancel"
               AutomationProperties.Name="Cancel bulk Task archive" />
+        </StackPanel>
+      </StackPanel>
+    </Border>
+    <Border Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Classes="decision-overlay"
+        IsVisible="{Binding Work.NeedsEmptyBinConfirmation}">
+      <StackPanel Width="540" Spacing="16" AutomationProperties.LiveSetting="Assertive">
+        <StackPanel Spacing="5">
+          <TextBlock Text="{Binding Work.EmptyBinConfirmationHeading}" FontSize="20" FontWeight="Bold" />
+          <TextBlock Text="{Binding Work.EmptyBinConfirmationBody}" Foreground="{StaticResource MutedTextBrush}"
+              TextWrapping="Wrap" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Spacing="12">
+          <Button x:Name="ConfirmEmptyBinButton" Classes="primary-action" Content="Permanently empty Bin"
+              Command="{Binding Work.ConfirmEmptyBinCommand}"
+              AutomationProperties.AutomationId="empty-bin-confirm"
+              AutomationProperties.Name="Permanently empty Bin after creating a validated encrypted recovery point" />
+          <Button Classes="view-action" Content="Cancel" Command="{Binding Work.CancelEmptyBinCommand}"
+              AutomationProperties.AutomationId="empty-bin-cancel"
+              AutomationProperties.Name="Cancel emptying Bin" />
         </StackPanel>
       </StackPanel>
     </Border>

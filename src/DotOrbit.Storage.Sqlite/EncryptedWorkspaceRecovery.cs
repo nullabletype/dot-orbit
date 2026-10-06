@@ -185,7 +185,8 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
     private RecoveryPointCreationResult CreateRecoveryPointCore(
         string directoryPath,
         string fileNamePrefix,
-        bool includePointIdentifier)
+        bool includePointIdentifier,
+        SqliteConnection? existingSource = null)
     {
         var passphrase = GetPassphrase();
         var directory = _fileOperations.ResolvePath(directoryPath);
@@ -201,14 +202,20 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
             directory,
             $".{Path.GetFileName(recoveryPointPath)}.creating");
 
+        SqliteConnection? ownedSource = null;
         try
         {
             _fileOperations.EnsureDirectory(directory);
-            using var source = EncryptedWorkspaceStore.OpenConnection(
-                _workspacePath,
-                passphrase,
-                SqliteOpenMode.ReadOnly);
-            EncryptedWorkspaceStore.ConfigureConnection(source);
+            var source = existingSource;
+            if (source is null)
+            {
+                ownedSource = EncryptedWorkspaceStore.OpenConnection(
+                    _workspacePath,
+                    passphrase,
+                    SqliteOpenMode.ReadOnly);
+                EncryptedWorkspaceStore.ConfigureConnection(ownedSource);
+                source = ownedSource;
+            }
             var sourceInspection = EncryptedWorkspaceStore.InspectWorkspace(source);
             if (sourceInspection.Status != EncryptedWorkspaceStore.WorkspaceInspectionStatus.Valid)
             {
@@ -254,6 +261,7 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
         }
         finally
         {
+            ownedSource?.Dispose();
             _fileOperations.DeleteCandidate(candidatePath);
         }
     }
@@ -271,6 +279,24 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
                     directoryPath,
                     "dot-orbit-pre-passphrase-rotation-",
                     includePointIdentifier: true);
+        }
+    }
+
+    internal RecoveryPointCreationResult CreateEmptyBinRecoveryPoint(SqliteConnection source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        lock (_gate)
+        {
+            ThrowIfClosed();
+            var directoryPath = _automaticRecoveryDirectoryPath
+                ?? Path.GetDirectoryName(_workspacePath);
+            return string.IsNullOrEmpty(directoryPath)
+                ? RecoveryPointCreationResult.Failed()
+                : CreateRecoveryPointCore(
+                    directoryPath,
+                    "dot-orbit-pre-empty-bin-",
+                    includePointIdentifier: true,
+                    source);
         }
     }
 

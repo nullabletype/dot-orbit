@@ -1216,7 +1216,7 @@ public sealed class WorkspaceWorkTests : IDisposable
         {
             using var command = connection.CreateCommand();
             // Rebuild the empty work tables with valid SQL that weakens one schema guarantee.
-            command.CommandText = "DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; DROP TABLE today_tasks; DROP TABLE task_participants; DROP TABLE participants; DROP TABLE tasks; DROP TABLE projects;" +
+            command.CommandText = "DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; DROP TABLE today_tasks; DROP TABLE task_participants; DROP TABLE participants; DROP TABLE tasks; DROP TABLE projects;" +
                 SqliteWorkspaceWork.Schema.Replace(original, replacement, StringComparison.Ordinal);
             command.ExecuteNonQuery();
             Assert.Equal("ok", EncryptedWorkspaceStore.ExecuteScalar<string>(connection, "PRAGMA integrity_check;"));
@@ -1842,8 +1842,285 @@ public sealed class WorkspaceWorkTests : IDisposable
             .OrderBy(task => task.ProjectPosition).Select(task => task.Id));
     }
 
+    [Fact]
+    public void MoveAndRestoreProjectBinAggregatePreservesStateOrdersAndPriorTaskBinVisibility()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        var before = session.Work.CreateProject("Before", "", category.Id, null);
+        var target = session.Work.CreateProject("Target", "", category.Id, null);
+        var after = session.Work.CreateProject("After", "", category.Id, null);
+        var planned = session.Work.CreateTask(target.Id, "Planned");
+        var archived = session.Work.CreateTask(target.Id, "Archived");
+        var preBinned = session.Work.CreateTask(target.Id, "Already binned");
+        session.Work.SetTaskTodayLane(planned.Id, TodayLane.InProgress);
+        session.Work.CompleteTask(archived.Id);
+        session.Work.ArchiveTask(archived.Id);
+        session.Work.MoveTaskToBin(preBinned.Id);
+
+        var removed = session.Work.MoveProjectToBin(target.Id);
+
+        Assert.Equal(target.Id, removed.Project.Id);
+        Assert.Equal(3, removed.TaskCount);
+        Assert.DoesNotContain(session.Work.Read().Projects, item => item.Id == target.Id);
+        Assert.DoesNotContain(session.Work.Read().Tasks, item => item.ProjectId == target.Id);
+        Assert.Empty(session.Work.SearchArchive("Archived"));
+        var blocked = Assert.Single(session.Work.ReadTaskBin());
+        Assert.Equal(preBinned.Id, blocked.Task.Id);
+        Assert.False(blocked.CanRestore);
+        var added = session.Work.CreateProject("Added", "", category.Id, null);
+        session.Work.MoveProject(after.Id, 0);
+
+        var restored = session.Work.RestoreProjectFromBin(target.Id);
+
+        Assert.Equal(target.Id, restored.Id);
+        Assert.Equal([after.Id, before.Id, target.Id, added.Id], session.Work.Read().Projects.Select(item => item.Id));
+        var restoredTasks = session.Work.Read().Tasks.Where(item => item.ProjectId == target.Id).ToArray();
+        Assert.Equal(TodayLane.InProgress, restoredTasks.Single(item => item.Id == planned.Id).TodayLane);
+        Assert.True(restoredTasks.Single(item => item.Id == archived.Id).IsArchived);
+        Assert.Equal(archived.Id, Assert.Single(session.Work.SearchArchive("Archived")).Id);
+        Assert.DoesNotContain(restoredTasks, item => item.Id == preBinned.Id);
+        Assert.Equal([archived.Id, planned.Id], restoredTasks.Select(item => item.Id));
+        Assert.Equal([planned.Id, archived.Id], restoredTasks
+            .OrderBy(item => item.ProjectPosition).Select(item => item.Id));
+        Assert.Equal(preBinned.Id, Assert.Single(session.Work.ReadTaskBin()).Task.Id);
+    }
+
+    [Fact]
+    public void BinnedTaskStopsContributingToProjectSummaryUntilRestored()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var project = session.Work.CreateProject("Garden", "", session.Work.Read().Categories[0].Id, null);
+        var completed = session.Work.CreateTask(project.Id, "Completed");
+        var incomplete = session.Work.CreateTask(project.Id, "Incomplete");
+        completed = session.Work.CompleteTask(completed.Id);
+        var before = ProjectWorkSummary.From(session.Work.Read(), project.Id);
+        Assert.Equal("In progress", before.Status);
+        Assert.Equal(1, before.CompletedCount);
+        Assert.Equal(2, before.TaskCount);
+        Assert.Null(before.CompletionDate);
+
+        session.Work.MoveTaskToBin(incomplete.Id);
+
+        var whileBinned = ProjectWorkSummary.From(session.Work.Read(), project.Id);
+        Assert.Equal("Complete", whileBinned.Status);
+        Assert.Equal(1, whileBinned.CompletedCount);
+        Assert.Equal(1, whileBinned.TaskCount);
+        Assert.Equal(completed.CompletionDate, whileBinned.CompletionDate);
+
+        session.Work.RestoreTaskFromBin(incomplete.Id);
+
+        var restored = ProjectWorkSummary.From(session.Work.Read(), project.Id);
+        Assert.Equal("In progress", restored.Status);
+        Assert.Equal(1, restored.CompletedCount);
+        Assert.Equal(2, restored.TaskCount);
+        Assert.Null(restored.CompletionDate);
+    }
+
+    [Fact]
+    public void EmptyBinCreatesValidatedRecoveryThenDeletesEveryBinnedAggregateTransactionally()
+    {
+        var recoveryDirectory = Path.Combine(_directory, "recovery");
+        using (var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!)
+        {
+            Assert.Equal(RecoveryDirectoryConfigurationStatus.Configured,
+                session.Recovery.ConfigureAutomaticRecoveryDirectory(recoveryDirectory).Status);
+            var category = Assert.Single(session.Work.Read().Categories);
+            var project = session.Work.CreateProject("Delete project", "", category.Id, null);
+            session.Work.CreateTask(project.Id, "Delete child");
+            var standalone = session.Work.CreateStandaloneTask("Delete standalone", "", category.Id, null);
+            session.Work.MoveProjectToBin(project.Id);
+            session.Work.MoveTaskToBin(standalone.Id);
+            var preview = session.Work.PreviewEmptyBin();
+            Assert.Equal(1, preview.ProjectCount);
+            Assert.Equal(2, preview.TaskCount);
+
+            var result = session.Work.EmptyBin(preview);
+
+            Assert.Equal(EmptyBinStatus.Emptied, result.Status);
+            Assert.True(session.Work.PreviewEmptyBin().IsEmpty);
+            Assert.Empty(session.Work.ReadProjectBin());
+            Assert.Empty(session.Work.ReadTaskBin());
+        }
+
+        using var reopened = _store.Open(WorkspacePath, _passphrase).Session!;
+        Assert.True(reopened.Work.PreviewEmptyBin().IsEmpty);
+        Assert.Empty(reopened.Work.Read().Projects);
+        Assert.Empty(reopened.Work.Read().Tasks);
+        var recoveryPath = Assert.Single(Directory.GetFiles(recoveryDirectory, "dot-orbit-pre-empty-bin-*.dotorbit-recovery"));
+        using var recovery = _store.Open(recoveryPath, _passphrase).Session!;
+        Assert.Equal(1, recovery.Work.PreviewEmptyBin().ProjectCount);
+        Assert.Equal(2, recovery.Work.PreviewEmptyBin().TaskCount);
+    }
+
+    [Fact]
+    public void EmptyBinFailureBeforeCommitRollsBackAndSurvivesRestart()
+    {
+        var store = new EncryptedWorkspaceStore(
+            new SystemIdentifierGenerator(),
+            new WorkspaceFileOperations(),
+            TimeProvider.System,
+            emptyBinCheckpoint: checkpoint =>
+            {
+                if (checkpoint == EmptyBinCheckpoint.BeforeCommit)
+                    throw new InvalidOperationException("Injected interruption.");
+            });
+        using (var session = store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!)
+        {
+            var category = Assert.Single(session.Work.Read().Categories);
+            var task = session.Work.CreateStandaloneTask("Keep", "", category.Id, null);
+            session.Work.MoveTaskToBin(task.Id);
+            var preview = session.Work.PreviewEmptyBin();
+
+            Assert.Equal(EmptyBinStatus.Failed, session.Work.EmptyBin(preview).Status);
+            Assert.Equal(preview.TaskIds, session.Work.PreviewEmptyBin().TaskIds);
+        }
+
+        using var reopened = store.Open(WorkspacePath, _passphrase).Session!;
+        Assert.Equal("Keep", Assert.Single(reopened.Work.ReadTaskBin()).Task.Title);
+    }
+
+    [Fact]
+    public async Task EmptyBinHoldsExclusiveConnectionAcrossRecoveryAndDeletion()
+    {
+        var recoveryDirectory = Path.Combine(_directory, "recovery");
+        using var competingWriteCompleted = new ManualResetEventSlim();
+        IWorkspaceSession? competingSession = null;
+        string? categoryId = null;
+        Task<TaskRecord>? competingWrite = null;
+        var competingWriteFinishedBeforeDelete = false;
+        var store = new EncryptedWorkspaceStore(
+            new SystemIdentifierGenerator(),
+            new WorkspaceFileOperations(),
+            TimeProvider.System,
+            emptyBinCheckpoint: checkpoint =>
+            {
+                if (checkpoint != EmptyBinCheckpoint.RecoveryPointValidated) return;
+                competingWrite = Task.Run(() =>
+                {
+                    try { return competingSession!.Work.CreateStandaloneTask("Concurrent", "", categoryId!, null); }
+                    finally { competingWriteCompleted.Set(); }
+                });
+                competingWriteFinishedBeforeDelete = competingWriteCompleted.Wait(TimeSpan.FromMilliseconds(500));
+            });
+        using var session = store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        Assert.Equal(RecoveryDirectoryConfigurationStatus.Configured,
+            session.Recovery.ConfigureAutomaticRecoveryDirectory(recoveryDirectory).Status);
+        categoryId = Assert.Single(session.Work.Read().Categories).Id;
+        var removed = session.Work.CreateStandaloneTask("Delete", "", categoryId, null);
+        session.Work.MoveTaskToBin(removed.Id);
+        competingSession = store.Open(WorkspacePath, _passphrase).Session!;
+        using (competingSession)
+        {
+            var result = session.Work.EmptyBin(session.Work.PreviewEmptyBin());
+            var concurrent = await competingWrite!;
+
+            Assert.Equal(EmptyBinStatus.Emptied, result.Status);
+            Assert.False(competingWriteFinishedBeforeDelete);
+            Assert.Equal(concurrent.Id, Assert.Single(session.Work.Read().Tasks).Id);
+        }
+
+        var recoveryPath = Assert.Single(Directory.GetFiles(recoveryDirectory, "dot-orbit-pre-empty-bin-*.dotorbit-recovery"));
+        using var recovery = store.Open(recoveryPath, _passphrase).Session!;
+        Assert.Equal(removed.Id, Assert.Single(recovery.Work.ReadTaskBin()).Task.Id);
+        Assert.DoesNotContain(recovery.Work.Read().Tasks, item => item.Title == "Concurrent");
+    }
+
+    [Fact]
+    public void EmptyBinRecoveryPublicationFailurePreservesBin()
+    {
+        var store = new EncryptedWorkspaceStore(
+            new SystemIdentifierGenerator(),
+            new EmptyBinFileOperations(failRecoveryPublication: true),
+            TimeProvider.System);
+        using var session = store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        var task = session.Work.CreateStandaloneTask("Keep", "", category.Id, null);
+        session.Work.MoveTaskToBin(task.Id);
+        var preview = session.Work.PreviewEmptyBin();
+
+        var result = session.Work.EmptyBin(preview);
+
+        Assert.Equal(EmptyBinStatus.RecoveryPointCreationFailed, result.Status);
+        Assert.Equal(task.Id, Assert.Single(session.Work.ReadTaskBin()).Task.Id);
+    }
+
+    [Fact]
+    public void EmptyBinRejectsStaleIdentityPreviewBeforeCreatingRecovery()
+    {
+        var recoveryDirectory = Path.Combine(_directory, "recovery");
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        Assert.Equal(RecoveryDirectoryConfigurationStatus.Configured,
+            session.Recovery.ConfigureAutomaticRecoveryDirectory(recoveryDirectory).Status);
+        var category = Assert.Single(session.Work.Read().Categories);
+        var first = session.Work.CreateStandaloneTask("First", "", category.Id, null);
+        session.Work.MoveTaskToBin(first.Id);
+        var stale = session.Work.PreviewEmptyBin();
+        var second = session.Work.CreateStandaloneTask("Second", "", category.Id, null);
+        session.Work.MoveTaskToBin(second.Id);
+
+        var result = session.Work.EmptyBin(stale);
+
+        Assert.Equal(EmptyBinStatus.PreviewChanged, result.Status);
+        Assert.Equal(2, result.Preview.TaskCount);
+        Assert.Equal(2, session.Work.ReadTaskBin().Count);
+        Assert.Empty(Directory.GetFiles(recoveryDirectory, "dot-orbit-pre-empty-bin-*.dotorbit-recovery"));
+    }
+
+    [Fact]
+    public void MoveProjectToBinRollsBackWholeAggregateWhenMembershipWriteFails()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var project = session.Work.CreateProject("Garden", "", session.Work.Read().Categories[0].Id, null);
+        var first = session.Work.CreateTask(project.Id, "First");
+        var second = session.Work.CreateTask(project.Id, "Second");
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "CREATE TRIGGER reject_project_bin_membership BEFORE INSERT ON project_bin_tasks BEGIN SELECT RAISE(ABORT, 'private'); END;";
+            command.ExecuteNonQuery();
+        }
+
+        Assert.Throws<WorkspaceWorkException>(() => session.Work.MoveProjectToBin(project.Id));
+
+        Assert.Equal(project.Id, Assert.Single(session.Work.Read().Projects).Id);
+        Assert.Equal([second.Id, first.Id], session.Work.Read().Tasks.Select(item => item.Id));
+        Assert.Empty(session.Work.ReadProjectBin());
+        Assert.Empty(session.Work.ReadTaskBin());
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_directory)) Directory.Delete(_directory, recursive: true);
+    }
+
+    private sealed class EmptyBinFileOperations(bool failRecoveryPublication) : IWorkspaceFileOperations
+    {
+        private readonly WorkspaceFileOperations _inner = new();
+
+        public string ResolvePath(string path) => _inner.ResolvePath(path);
+        public bool Exists(string path) => _inner.Exists(path);
+        public void EnsureParentDirectory(string path) => _inner.EnsureParentDirectory(path);
+        public void EnsureDirectory(string path) => _inner.EnsureDirectory(path);
+        public string GetCandidatePath(string targetPath, string identifier) =>
+            _inner.GetCandidatePath(targetPath, identifier);
+        public void Publish(string candidatePath, string targetPath)
+        {
+            if (failRecoveryPublication
+                && targetPath.Contains("pre-empty-bin", StringComparison.Ordinal))
+                throw new IOException("Injected recovery publication failure.");
+            _inner.Publish(candidatePath, targetPath);
+        }
+        public void Copy(string sourcePath, string candidatePath) => _inner.Copy(sourcePath, candidatePath);
+        public void Flush(string path) => _inner.Flush(path);
+        public void Replace(string candidatePath, string targetPath) => _inner.Replace(candidatePath, targetPath);
+        public void DeleteCandidate(string candidatePath) => _inner.DeleteCandidate(candidatePath);
+        public IReadOnlyList<string> EnumerateFiles(string directoryPath, string pattern) =>
+            _inner.EnumerateFiles(directoryPath, pattern);
+        public string ReadAllText(string path) => _inner.ReadAllText(path);
+        public void WriteAllText(string path, string contents) => _inner.WriteAllText(path, contents);
+        public void PublishOrReplace(string candidatePath, string targetPath) =>
+            _inner.PublishOrReplace(candidatePath, targetPath);
+        public void DeleteFile(string path) => _inner.DeleteFile(path);
     }
 }
