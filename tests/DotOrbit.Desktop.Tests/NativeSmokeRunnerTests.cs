@@ -27,4 +27,23 @@ public sealed class NativeSmokeRunnerTests
         Assert.Equal(0, exitCode);
         Assert.False(Directory.Exists(directory));
     }
+
+    [Fact]
+    public void PackagedWorkspaceSmokeRestoresCheckedInPortableRecoveryFixture()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"dot-orbit-package-portability-test-{Guid.NewGuid():N}");
+        var recoveryFixturePath = Path.Combine(
+            AppContext.BaseDirectory,
+            "Fixtures",
+            "portable-current-v12.dotorbit-recovery");
+
+        Assert.True(File.Exists(recoveryFixturePath));
+
+        var exitCode = PackagedWorkspaceSmoke.Run(directory, recoveryFixturePath);
+
+        Assert.Equal(0, exitCode);
+        Assert.False(Directory.Exists(directory));
+    }
 }

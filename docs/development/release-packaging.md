@@ -29,14 +29,18 @@ Run the self-contained apphost directly, matching the archive's target runtime a
 ./artifacts/package-smoke/osx-arm64/dot-orbit --package-smoke
 
 # Linux/X11
-xvfb-run --auto-servernum ./artifacts/package-smoke/linux-x64/dot-orbit --package-smoke
+xvfb-run --auto-servernum --auth-file=artifacts/package-smoke/linux-x64/dot-orbit-xvfb.auth ./artifacts/package-smoke/linux-x64/dot-orbit --package-smoke
 
 # Windows PowerShell
 ./artifacts/package-smoke/win-x64/dot-orbit.exe --package-smoke
 ```
 
-The package smoke creates a synthetic encrypted SQLite3MC workspace in a temporary directory, closes it, reopens and validates it, removes it, then exercises the real Avalonia Today-to-Archive keyboard journey and closes cleanly. Its diagnostics contain fixed phase and result metadata only.
+The package smoke creates a synthetic encrypted SQLite3MC workspace in a temporary directory, closes it, reopens and validates it, restores the external portable recovery fixture when `DOTORBIT_PACKAGE_SMOKE_RECOVERY` names it, removes the temporary workspace, then exercises the real Avalonia Today-to-Archive keyboard journey and closes cleanly. Its diagnostics contain fixed phase and result metadata only.
+
+Before packaging, every runtime job restores the same checked-in synthetic encrypted recovery fixture through the storage integration test. After packaging, the extracted self-contained app restores those identical external bytes again through its bundled runtime before continuing the native UI journey. This proves Windows x64, Linux x64, macOS x64, and macOS arm64 compatibility rather than only proving separate same-host databases. The fixture is not included in the release archive; its provenance, public test-only passphrase, and pinned digest are recorded beside it under `tests/DotOrbit.Storage.Sqlite.Tests/Fixtures`.
 
 ## CI and artifact boundary
 
 `.github/workflows/release-packages.yml` builds and smokes all four packages for relevant pull requests without uploading anything. Its manual `workflow_dispatch` path is the only workflow allowed to upload these already-validated archives. The uploaded file is the final archive itself, not a publish directory or a second archive containing evidence.
+
+Do not dispatch the upload path until the selected source commit has passed the canonical exact-SHA evidence gate and all four package jobs. Confirm that the manual run's resolved commit SHA matches that recorded evidence before treating its archives as release candidates. A branch name or a prior successful run is not sufficient evidence for a different commit.

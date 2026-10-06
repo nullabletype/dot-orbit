@@ -142,6 +142,22 @@ public sealed class VerificationGateTests
     }
 
     [Fact]
+    public void LinuxSmokeUsesExplicitAuthenticationFileToAvoidXvfbTemporaryDirectoryCleanup()
+    {
+        const string workingDirectory = "/snapshot";
+
+        var request = VerificationGate.CreateSmokeRequest(
+            workingDirectory,
+            "--native-smoke-failure=navigation",
+            isLinux: true);
+
+        Assert.Equal("xvfb-run", request.FileName);
+        Assert.Contains(
+            $"--auth-file={Path.Combine(workingDirectory, "src", "DotOrbit.Desktop", "obj", "dot-orbit-xvfb.auth")}",
+            request.Arguments);
+    }
+
+    [Fact]
     public void PackageAuditRequiresValidJsonWithNoReportedPackages()
     {
         const string clean = """{"version":1,"parameters":"--vulnerable --include-transitive","sources":["https://api.nuget.org/v3/index.json"],"projects":[{"path":"clean.csproj","frameworks":[{"framework":"net10.0","topLevelPackages":[],"transitivePackages":[]}]}]}""";

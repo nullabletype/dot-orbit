@@ -13,6 +13,7 @@ on:
       - global.json
       - licenses/**
       - src/**
+      - tests/DotOrbit.Storage.Sqlite.Tests/**
       - tools/**
   workflow_dispatch:
 
@@ -39,7 +40,7 @@ jobs:
           - os: ubuntu-24.04
             runtime: linux-x64
             archive: dot-orbit-linux-x64.tar.gz
-            smoke-command: xvfb-run --auto-servernum ./artifacts/package-smoke/linux-x64/dot-orbit --package-smoke
+            smoke-command: xvfb-run --auto-servernum --auth-file=artifacts/package-smoke/linux-x64/dot-orbit-xvfb.auth ./artifacts/package-smoke/linux-x64/dot-orbit --package-smoke
           - os: macos-26-intel
             runtime: osx-x64
             archive: dot-orbit-osx-x64.tar.gz
@@ -63,6 +64,12 @@ jobs:
           dotnet-version: 10.0.401
       - name: Restore locked dependencies
         run: dotnet restore DotOrbit.slnx --locked-mode --configfile NuGet.Config
+      - name: Verify portable encrypted recovery
+        run: >-
+          dotnet test
+          --project tests/DotOrbit.Storage.Sqlite.Tests/DotOrbit.Storage.Sqlite.Tests.csproj
+          --configuration Release
+          --filter-method "*CheckedInRecoveryFixtureRestoresOnEverySupportedRuntime*"
       - name: Assemble and validate package
         run: >-
           dotnet run
@@ -76,6 +83,8 @@ jobs:
       - name: Run packaged encrypted desktop smoke
         timeout-minutes: 2
         shell: bash
+        env:
+          DOTORBIT_PACKAGE_SMOKE_RECOVERY: ${{ github.workspace }}/tests/DotOrbit.Storage.Sqlite.Tests/Fixtures/portable-current-v12.dotorbit-recovery
         run: ${{ matrix.smoke-command }}
       - name: Upload approved release package
         if: github.event_name == 'workflow_dispatch'

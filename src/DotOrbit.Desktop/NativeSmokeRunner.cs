@@ -178,21 +178,27 @@ internal static class PackagedWorkspaceSmoke
 {
     internal const int WorkspaceFailureExitCode = 22;
 
-    private const string SyntheticPassphrase = "synthetic package smoke passphrase";
+    private const string PortableRecoveryEnvironmentVariable = "DOTORBIT_PACKAGE_SMOKE_RECOVERY";
+    private const string SyntheticPassphrase = "dot-orbit sample only";
     private const string SyntheticCategory = "Package smoke";
+    private const string PortableRecoveryCategory = "Work";
 
-    public static int Run() => Run(Path.Combine(
-        Path.GetTempPath(),
-        $"dot-orbit-package-smoke-{Guid.NewGuid():N}"));
+    public static int Run() => Run(
+        Path.Combine(
+            Path.GetTempPath(),
+            $"dot-orbit-package-smoke-{Guid.NewGuid():N}"),
+        Environment.GetEnvironmentVariable(PortableRecoveryEnvironmentVariable));
 
-    internal static int Run(string directory)
+    internal static int Run(string directory) => Run(directory, null);
+
+    internal static int Run(string directory, string? portableRecoveryFixturePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(directory);
 
         int exitCode;
         try
         {
-            exitCode = ExerciseWorkspace(directory);
+            exitCode = ExerciseWorkspace(directory, portableRecoveryFixturePath);
         }
         catch (IOException)
         {
@@ -223,7 +229,9 @@ internal static class PackagedWorkspaceSmoke
         return exitCode;
     }
 
-    private static int ExerciseWorkspace(string directory)
+    private static int ExerciseWorkspace(
+        string directory,
+        string? portableRecoveryFixturePath)
     {
         Directory.CreateDirectory(directory);
         var workspacePath = Path.Combine(directory, "workspace.db");
@@ -263,14 +271,58 @@ internal static class PackagedWorkspaceSmoke
             }
         }
 
+        if (!string.IsNullOrWhiteSpace(portableRecoveryFixturePath)
+            && !RestorePortableRecovery(
+                store,
+                workspacePath,
+                portableRecoveryFixturePath,
+                directory))
+        {
+            return Fail("portable-recovery");
+        }
+
         Console.WriteLine("package-smoke: phase=encrypted-workspace result=passed");
         return 0;
     }
 
-    private static int Fail()
+    private static bool RestorePortableRecovery(
+        EncryptedWorkspaceStore store,
+        string workspacePath,
+        string portableRecoveryFixturePath,
+        string directory)
+    {
+        var current = store.Open(
+            workspacePath,
+            WorkspacePassphrase.ForUnlock(SyntheticPassphrase)!);
+        using var currentSession = current.Session;
+        if (current.Status != WorkspaceOpenStatus.Opened || currentSession is null)
+        {
+            return false;
+        }
+
+        var restored = currentSession.Recovery.Restore(
+            portableRecoveryFixturePath,
+            Path.Combine(directory, "pre-restore-recovery"));
+        using var restoredSession = restored.Session;
+        if (restored.Status != WorkspaceRestoreStatus.Restored
+            || restoredSession is null
+            || restoredSession.SchemaVersion != EncryptedWorkspaceStore.CurrentSchemaVersion
+            || !string.Equals(
+                restoredSession.FirstCategoryName,
+                PortableRecoveryCategory,
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        Console.WriteLine("package-smoke: phase=portable-recovery result=passed");
+        return true;
+    }
+
+    private static int Fail(string phase = "encrypted-workspace")
     {
         Console.Error.WriteLine(
-            $"package-smoke: phase=encrypted-workspace result=failed code={WorkspaceFailureExitCode}");
+            $"package-smoke: phase={phase} result=failed code={WorkspaceFailureExitCode}");
         return WorkspaceFailureExitCode;
     }
 }
