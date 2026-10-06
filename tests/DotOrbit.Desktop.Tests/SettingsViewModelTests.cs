@@ -77,4 +77,45 @@ public sealed class SettingsViewModelTests
         Assert.False(settings.Participants[0].IsEditing);
         Assert.True(settings.Participants[1].IsEditing);
     }
+
+    [Fact]
+    public void ThemeSelectionAppliesAndAnnouncesOnlyAfterPersistenceSucceeds()
+    {
+        var themes = new RecordingThemeService(ApplicationTheme.Dark);
+        var settings = new SettingsViewModel(new MemoryWorkspaceWork(), () => { }, themes);
+
+        Assert.Equal("Dark", settings.SelectedTheme.Name);
+        Assert.Equal("Dark theme selected", settings.ThemeStatus);
+
+        settings.SelectedTheme = settings.ThemeOptions.Single(option => option.Value == ApplicationTheme.Light);
+
+        Assert.Equal(ApplicationTheme.Light, themes.CurrentTheme);
+        Assert.Equal("Light", settings.SelectedTheme.Name);
+        Assert.Equal("Light theme selected.", settings.Announcement);
+
+        themes.AllowChange = false;
+        settings.SelectedTheme = settings.ThemeOptions.Single(option => option.Value == ApplicationTheme.Dark);
+
+        Assert.Equal(ApplicationTheme.Light, themes.CurrentTheme);
+        Assert.Equal("Light", settings.SelectedTheme.Name);
+        Assert.Contains("previous theme is still active", settings.Announcement, StringComparison.Ordinal);
+    }
+
+    private sealed class RecordingThemeService(ApplicationTheme theme) : IApplicationThemeService
+    {
+        public ApplicationTheme CurrentTheme { get; private set; } = theme;
+
+        public bool AllowChange { get; set; } = true;
+
+        public bool TrySetTheme(ApplicationTheme theme)
+        {
+            if (!AllowChange)
+            {
+                return false;
+            }
+
+            CurrentTheme = theme;
+            return true;
+        }
+    }
 }

@@ -333,13 +333,27 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public string InspectorHeading => _editingCategory
         ? (_creating ? "New category" : "Category details")
         : _creating ? (_editingTask ? "New task" : "New project") : _editingTask ? "Task details" : "Project details";
-    public string TitleAutomationName => _editingCategory ? "Category name" : "Title";
+    public string TitleAutomationName => _editingCategory
+        ? "Category name"
+        : _editingTask ? "Task title" : "Project title";
+    public bool ShowTaskIdentityIcon => HasInspector && _editingTask && !_editingCategory;
+    public bool ShowProjectIdentityIcon => HasInspector && !_editingTask && !_editingCategory;
+    public bool ShowCategoryIdentityIcon => HasInspector && _editingCategory;
+    public string InspectorIdentityAccessibleText => !HasInspector
+        ? string.Empty
+        : _creating
+            ? $"New {(_editingCategory ? "Category" : _editingTask ? "Task" : "Project")}"
+            : _editingCategory
+                ? CategoryGroups.Single(category => category.Id == _editingId).SelectionAccessibleName
+                : _editingTask
+                    ? _taskRows[_editingId!].AccessibleName
+                    : InspectorProjectRow.AccessibleName;
     public bool ShowProjectSummary => HasInspector && !_editingCategory && !_creating && !_editingTask;
     public string ProjectSummary => ShowProjectSummary
-        ? Projects.Single(p => p.Id == _editingId).Summary
-            + (string.IsNullOrEmpty(Projects.Single(p => p.Id == _editingId).CompletionDateText)
+        ? InspectorProjectRow.Summary
+            + (string.IsNullOrEmpty(InspectorProjectRow.CompletionDateText)
                 ? " · No completion date"
-                : $" · {Projects.Single(p => p.Id == _editingId).CompletionDateText}")
+                : $" · {InspectorProjectRow.CompletionDateText}")
         : string.Empty;
     public bool ShowTaskCompletionDate => HasInspector && !_editingCategory && !_creating && _editingTask
         && _snapshot.Tasks.Single(task => task.Id == _editingId).CompletionDate is not null;
@@ -361,8 +375,11 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public string InspectorMetaValue => _editingTask
         ? CategoryHint
         : ShowProjectSummary
-            ? $"{Projects.Single(p => p.Id == _editingId).Status} · {Projects.Single(p => p.Id == _editingId).ProgressText}"
+            ? $"{InspectorProjectRow.Status} · {InspectorProjectRow.ProgressText}"
             : "Not started · 0/0 tasks";
+    private ProjectRowViewModel InspectorProjectRow =>
+        Projects.Concat(ArchivedProjects.Select(row => row.Project))
+            .Single(project => project.Id == _editingId);
     public string SaveLabel => _creating ? "Create" : "Save";
     public string DecisionHeading => _editingCategory ? "Save your changes before leaving?" : "Changes could not be saved";
     public string DecisionBody => _editingCategory
@@ -1529,6 +1546,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private void NotifyInspectorPresentation()
     {
         Notify(nameof(InspectorHeading)); Notify(nameof(TitleAutomationName)); Notify(nameof(SaveLabel)); Notify(nameof(DateLabel));
+        Notify(nameof(ShowTaskIdentityIcon)); Notify(nameof(ShowProjectIdentityIcon)); Notify(nameof(ShowCategoryIdentityIcon));
+        Notify(nameof(InspectorIdentityAccessibleText));
         Notify(nameof(ShowWorkInspector)); Notify(nameof(ShowCategoryInspector)); Notify(nameof(ShowCategoryDelete));
         Notify(nameof(ShowParticipants)); Notify(nameof(ShowTaskContext)); Notify(nameof(ShowTaskContextAction));
         Notify(nameof(ShowProjectSummary)); Notify(nameof(ProjectSummary));
@@ -1893,6 +1912,9 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private TaskRowViewModel ToTaskRow(TaskRecord task)
     {
         var inherited = task.ProjectId is not null && task.ExplicitCategoryId is null;
+        var projectTitle = task.ProjectId is null
+            ? null
+            : _snapshot.Projects.Single(project => project.Id == task.ProjectId).Title;
         var categoryId = task.ExplicitCategoryId
             ?? _snapshot.Projects.Single(project => project.Id == task.ProjectId).CategoryId;
         if (!_taskRows.TryGetValue(task.Id, out var row))
@@ -1900,7 +1922,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             row = new(this, task.Id);
             _taskRows.Add(task.Id, row);
         }
-        row.Refresh(task, CategoryName(categoryId), task.ProjectId is null ? "standalone" : inherited ? "inherited" : "override", Today);
+        row.Refresh(task, CategoryName(categoryId), projectTitle, inherited, Today);
         return row;
     }
 
@@ -2005,8 +2027,29 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
                          .OrderByDescending(group => group.Key.Start))
             {
                 var groupMatches = group.ToArray();
-                var rows = groupMatches.Select((match, index) => new ArchiveSearchResultViewModel(
-                    this, match.Result, index == groupMatches.Length - 1)).ToArray();
+                var rows = groupMatches.Select((match, index) =>
+                {
+                    if (match.Result.RecordType == ArchiveSearchRecordType.Project)
+                    {
+                        var project = ArchivedProjects.Single(row => row.Project.Id == match.Result.Id).Project;
+                        return new ArchiveSearchResultViewModel(
+                            this,
+                            match.Result,
+                            project.RelationshipText,
+                            false,
+                            string.Empty,
+                            index == groupMatches.Length - 1);
+                    }
+
+                    var task = _taskRows[match.Result.Id];
+                    return new ArchiveSearchResultViewModel(
+                        this,
+                        match.Result,
+                        task.BroadRelationshipText,
+                        task.HasCategoryOverride,
+                        task.CategoryOverrideText,
+                        index == groupMatches.Length - 1);
+                }).ToArray();
                 foreach (var row in rows) ArchiveSearchResults.Add(row);
                 ArchiveSearchGroups.Add(new(group.Key.Heading, rows));
             }
@@ -2422,7 +2465,7 @@ public sealed class CategoryGroupViewModel : INotifyPropertyChanged
     public string MoveDownAccessibleName => $"Move {Name} down in Categories";
     public string MoveToTopAccessibleName => $"Move {Name} to top of Categories";
     public string MoveToBottomAccessibleName => $"Move {Name} to bottom of Categories";
-    public string SelectionAccessibleName => $"Edit {Name} category";
+    public string SelectionAccessibleName => $"Category {Name}. {Summary}";
     public bool IsExpanded
     {
         get => _isExpanded;
@@ -2435,7 +2478,7 @@ public sealed class CategoryGroupViewModel : INotifyPropertyChanged
         }
     }
     public string ExpansionAccessibleName => $"{(IsExpanded ? "Collapse" : "Expand")} {Name} category";
-    public string Summary => $"{ProjectCount} {(ProjectCount == 1 ? "project" : "projects")} · {StandaloneTaskCount} standalone {(StandaloneTaskCount == 1 ? "task" : "tasks")}";
+    public string Summary => $"{ProjectCount} {(ProjectCount == 1 ? "Project" : "Projects")} · {StandaloneTaskCount} standalone {(StandaloneTaskCount == 1 ? "Task" : "Tasks")}";
     public RelayCommand SelectCommand { get; }
     public RelayCommand MoveUpCommand { get; }
     public RelayCommand MoveDownCommand { get; }
@@ -2467,7 +2510,7 @@ public sealed class BinRowViewModel
         CategoryName = projectItem?.CategoryName ?? taskItem!.CategoryName;
         ProjectTitle = projectItem is not null
             ? projectItem.Project.Title
-            : taskItem!.ProjectTitle ?? "Standalone Task";
+            : taskItem!.ProjectTitle;
         TaskCount = projectItem?.TaskCount ?? 0;
         RemovedAt = localRemovedAt;
         RemovedText = $"Removed {localRemovedAt.ToString("d MMM yyyy, HH:mm", CultureInfo.InvariantCulture)}";
@@ -2496,12 +2539,29 @@ public sealed class BinRowViewModel
     public bool IsProject => Project is not null;
     public bool IsTask => Task is not null;
     public string Title => Project?.Title ?? Task!.Title;
-    public string ProjectTitle { get; }
+    public string? ProjectTitle { get; }
     public string CategoryName { get; }
     public int TaskCount { get; }
-    public string ContextText => IsProject
-        ? $"Project aggregate · {TaskCount} {(TaskCount == 1 ? "Task" : "Tasks")} · {CategoryName}"
-        : $"{ProjectTitle} · {CategoryName}";
+    public bool IsStandaloneTask => IsTask && ProjectTitle is null;
+    public bool HasCategoryOverride => IsTask && ProjectTitle is not null && Task!.ExplicitCategoryId is not null;
+    public string RelationshipText => IsProject
+        ? $"{CategoryName} · {TaskCount} {(TaskCount == 1 ? "Task" : "Tasks")}"
+        : ProjectTitle ?? $"Standalone · {CategoryName}";
+    public string CategoryOverrideText => HasCategoryOverride ? CategoryName : string.Empty;
+    public string ContextText => RelationshipText;
+    public string AccessibleName => string.Join(". ", new[]
+    {
+        $"{(IsProject ? "Project" : "Task")} {Title}",
+        IsProject
+            ? $"Category {CategoryName}. {TaskCount} {(TaskCount == 1 ? "Task" : "Tasks")}"
+            : ProjectTitle is null
+                ? $"Standalone. Category {CategoryName}"
+                : HasCategoryOverride
+                    ? $"Project {ProjectTitle}. Category override {CategoryName}"
+                    : $"Project {ProjectTitle}. Inherited Category {CategoryName}",
+        RemovedText,
+        IsRestoreBlocked ? RestoreBlockedText : string.Empty,
+    }.Where(value => !string.IsNullOrWhiteSpace(value)));
     public DateTimeOffset RemovedAt { get; }
     public string RemovedText { get; }
     public bool IsLast { get; internal set; }
@@ -2540,9 +2600,15 @@ public sealed class ArchiveSearchResultViewModel
     public ArchiveSearchResultViewModel(
         ProjectCaptureViewModel owner,
         ArchiveSearchResult result,
+        string relationshipText,
+        bool hasCategoryOverride,
+        string categoryOverrideText,
         bool isLast)
     {
         Result = result;
+        RelationshipText = relationshipText;
+        HasCategoryOverride = hasCategoryOverride;
+        CategoryOverrideText = categoryOverrideText;
         IsLast = isLast;
         OpenCommand = new(() =>
         {
@@ -2569,7 +2635,10 @@ public sealed class ArchiveSearchResultViewModel
         : $"Project · {Result.ParentProjectTitle}";
     public string DateText => $"{(Result.DateKind == ArchiveSearchDateKind.Completed ? "Completed" : "Archived")} {Result.Date.ToString("d MMM yyyy", CultureInfo.InvariantCulture)}";
     public string Excerpt => Result.Excerpt;
-    public string ContextText => string.Join(" · ", new[] { ParentProjectText, Excerpt }
+    public string RelationshipText { get; }
+    public bool HasCategoryOverride { get; }
+    public string CategoryOverrideText { get; }
+    public string ContextText => string.Join(" · ", new[] { RelationshipText, Excerpt }
         .Where(value => !string.IsNullOrWhiteSpace(value)));
     public string AutomationId => $"archive-search-{Result.RecordType.ToString().ToLowerInvariant()}-{Result.Id}";
     public string RestoreAutomationId => $"archive-search-restore-{Result.RecordType.ToString().ToLowerInvariant()}-{Result.Id}";
@@ -2579,7 +2648,9 @@ public sealed class ArchiveSearchResultViewModel
     public string AccessibleName => string.Join(". ", new[]
         {
             $"{TypeLabel} {Title}",
-            ParentProjectText,
+            RelationshipText,
+            HasCategoryOverride ? $"Category override {CategoryOverrideText}" : string.Empty,
+            StateLabel,
             DateText,
             Excerpt,
         }.Where(value => !string.IsNullOrWhiteSpace(value)));
@@ -2653,6 +2724,8 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
     private string _title = string.Empty;
     private string _categoryName = string.Empty;
     private string _categoryDisplay = string.Empty;
+    private string? _projectTitle;
+    private bool _usesInheritedCategory;
     private int _position;
     private int _count;
     private bool _isComplete;
@@ -2690,6 +2763,25 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
     public string Title => _title;
     public string CategoryName => _categoryName;
     public string CategoryDisplay => _categoryDisplay;
+    public string RelationshipText => _projectTitle ?? "Standalone";
+    public string BroadRelationshipText => _projectTitle is null
+        ? $"Standalone · {CategoryName}"
+        : RelationshipText;
+    public string CategoryGroupRelationshipText => ProjectId is null ? "Standalone" : RelationshipText;
+    public bool HasCategoryOverride => _projectTitle is not null && !_usesInheritedCategory;
+    public string CategoryOverrideText => HasCategoryOverride ? CategoryName : string.Empty;
+    public string AccessibleName => string.Join(". ", new[]
+    {
+        $"Task {Title}",
+        _projectTitle is null
+            ? $"Standalone. Category {CategoryName}"
+            : HasCategoryOverride
+                ? $"Project {_projectTitle}. Category override {CategoryName}"
+                : $"Project {_projectTitle}. Inherited Category {CategoryName}",
+        IsComplete ? "Complete" : "Incomplete",
+        IsArchived ? "Archived" : string.Empty,
+        DateAccessibleText,
+    }.Where(value => !string.IsNullOrWhiteSpace(value)));
     public string PositionText => $"{_position} of {_count}";
     public bool IsLast => _position == _count;
     public string ReorderAccessibleName => $"Reorder {Title} in Backlog";
@@ -2737,11 +2829,18 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
     public RelayCommand MoveProjectTaskToTopCommand { get; }
     public RelayCommand MoveProjectTaskToBottomCommand { get; }
 
-    public void Refresh(TaskRecord task, string categoryName, string categoryBehaviour, DateOnly today)
+    public void Refresh(
+        TaskRecord task,
+        string categoryName,
+        string? projectTitle,
+        bool usesInheritedCategory,
+        DateOnly today)
     {
         _title = task.Title;
         _categoryName = categoryName;
-        _categoryDisplay = $"{categoryName} · {categoryBehaviour}";
+        _projectTitle = projectTitle;
+        _usesInheritedCategory = usesInheritedCategory;
+        _categoryDisplay = BroadRelationshipText;
         _projectId = task.ProjectId;
         _isComplete = task.IsComplete;
         _isArchived = task.IsArchived;
@@ -2752,6 +2851,12 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
         Notify(nameof(Title));
         Notify(nameof(CategoryName));
         Notify(nameof(CategoryDisplay));
+        Notify(nameof(RelationshipText));
+        Notify(nameof(BroadRelationshipText));
+        Notify(nameof(CategoryGroupRelationshipText));
+        Notify(nameof(HasCategoryOverride));
+        Notify(nameof(CategoryOverrideText));
+        Notify(nameof(AccessibleName));
         Notify(nameof(ReorderAccessibleName));
         Notify(nameof(MoveUpAccessibleName));
         Notify(nameof(MoveDownAccessibleName));
@@ -2774,6 +2879,7 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
         Notify(nameof(MoveProjectTaskDownAccessibleName));
         Notify(nameof(MoveProjectTaskToTopAccessibleName));
         Notify(nameof(MoveProjectTaskToBottomAccessibleName));
+        Notify(nameof(AccessibleName));
     }
 
     public void SetProjectPosition(int position, int count)
@@ -2826,6 +2932,23 @@ public sealed class ProjectRowViewModel : INotifyPropertyChanged
     public string ProgressText { get; private set; } = string.Empty;
     public string AccessibleStatus => $"{Status}, {ProgressText}";
     public string CategoryName { get; private set; } = string.Empty;
+    public int TaskCount { get; private set; }
+    public string RelationshipText =>
+        $"{CategoryName} · {TaskCount} {(TaskCount == 1 ? "Task" : "Tasks")}";
+    public string StatusText => $"{Status} · {ProgressText}";
+    public string MetadataText => StatusText
+        + (string.IsNullOrEmpty(TargetText) ? string.Empty : $" · {TargetText}");
+    public string AccessibleName => string.Join(". ", new[]
+    {
+        $"Project {Title}",
+        $"Category {CategoryName}",
+        $"{TaskCount} {(TaskCount == 1 ? "Task" : "Tasks")}",
+        Status,
+        ProgressText,
+        TargetAccessibleText,
+        IsOverdue ? "Overdue" : string.Empty,
+        IsArchived ? "Archived" : string.Empty,
+    }.Where(value => !string.IsNullOrWhiteSpace(value)));
     public string TargetText { get; private set; } = string.Empty;
     public string TargetAccessibleText { get; private set; } = string.Empty;
     public bool IsOverdue { get; private set; }
@@ -2875,6 +2998,7 @@ public sealed class ProjectRowViewModel : INotifyPropertyChanged
         IsArchived = project.IsArchived;
         ProgressText = $"{summary.CompletedCount}/{summary.TaskCount} tasks";
         CategoryName = category;
+        TaskCount = summary.TaskCount;
         TargetText = WorkDatePresentation.Relative(project.TargetDate, _owner.Today);
         TargetAccessibleText = WorkDatePresentation.Accessible(project.TargetDate, "Target");
         IsOverdue = WorkDatePresentation.IsOverdue(project, summary, _owner.Today);
@@ -2894,6 +3018,11 @@ public sealed class ProjectRowViewModel : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new(nameof(ProgressText)));
         PropertyChanged?.Invoke(this, new(nameof(AccessibleStatus)));
         PropertyChanged?.Invoke(this, new(nameof(CategoryName)));
+        PropertyChanged?.Invoke(this, new(nameof(TaskCount)));
+        PropertyChanged?.Invoke(this, new(nameof(RelationshipText)));
+        PropertyChanged?.Invoke(this, new(nameof(StatusText)));
+        PropertyChanged?.Invoke(this, new(nameof(MetadataText)));
+        PropertyChanged?.Invoke(this, new(nameof(AccessibleName)));
         PropertyChanged?.Invoke(this, new(nameof(TargetText)));
         PropertyChanged?.Invoke(this, new(nameof(TargetAccessibleText)));
         PropertyChanged?.Invoke(this, new(nameof(IsOverdue)));

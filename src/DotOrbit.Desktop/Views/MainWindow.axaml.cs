@@ -36,22 +36,23 @@ public sealed partial class MainWindow : Window
     private readonly ITransientMessageScheduler _transientMessageScheduler;
     private readonly IMarkdownClipboard? _markdownClipboard;
     private readonly Action _workspaceUnavailable;
+    private readonly IApplicationThemeService _applicationThemeService;
     private long _transientMessageRevision;
 
     internal static TimeSpan TransientMessageDuration { get; } = TimeSpan.FromSeconds(5);
 
     public MainWindow()
-        : this(null, null, null, null, null)
+        : this(null, null, null, null, null, null)
     {
     }
 
     internal MainWindow(IWorkspaceSession? session)
-        : this(session, null, null, null, null)
+        : this(session, null, null, null, null, null)
     {
     }
 
     internal MainWindow(IWorkspaceSession? session, IMarkdownClipboard? markdownClipboard)
-        : this(session, markdownClipboard, null, null, null)
+        : this(session, markdownClipboard, null, null, null, null)
     {
     }
 
@@ -60,13 +61,17 @@ public sealed partial class MainWindow : Window
         IMarkdownClipboard? markdownClipboard,
         IInspectorAutosaveScheduler? autosaveScheduler,
         Action? workspaceUnavailable = null,
-        ITransientMessageScheduler? transientMessageScheduler = null)
+        ITransientMessageScheduler? transientMessageScheduler = null,
+        IApplicationThemeService? applicationThemeService = null)
     {
         _session = session;
         _markdownClipboard = markdownClipboard;
         _autosaveScheduler = autosaveScheduler ?? new DispatcherInspectorAutosaveScheduler();
         _transientMessageScheduler = transientMessageScheduler ?? new DispatcherTransientMessageScheduler();
         _workspaceUnavailable = () => HandleWorkspaceUnavailable(workspaceUnavailable);
+        _applicationThemeService = applicationThemeService
+            ?? (Application.Current as App)?.ThemeService
+            ?? new TransientApplicationThemeService(application: Application.Current);
         AvaloniaXamlLoader.Load(this);
         DataContextChanged += OnDataContextChanged;
         AddHandler(PointerPressedEvent, OnWorkPointerPressed, RoutingStrategies.Bubble, handledEventsToo: true);
@@ -174,7 +179,9 @@ public sealed partial class MainWindow : Window
 
     private void SetSessionContext()
     {
-        DataContext = new ShellViewModel(_session?.Work);
+        DataContext = new ShellViewModel(
+            _session?.Work,
+            applicationThemeService: _applicationThemeService);
     }
 
     private void OnDataContextChanged(object? sender, EventArgs e)

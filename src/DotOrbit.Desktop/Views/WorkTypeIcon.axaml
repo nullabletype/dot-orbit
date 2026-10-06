@@ -1,0 +1,32 @@
+<UserControl
+    x:Class="DotOrbit.Desktop.Views.WorkTypeIcon"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Width="{StaticResource WorkTypeIconSlotWidth}"
+    Height="{StaticResource WorkTypeIconGlyphSize}"
+    Focusable="False"
+    IsHitTestVisible="False"
+    AutomationProperties.AccessibilityView="Raw"
+    Classes="work-type-icon-slot">
+  <UserControl.RenderTransform>
+    <TranslateTransform Y="{StaticResource WorkTypeIconOpticalOffset}" />
+  </UserControl.RenderTransform>
+  <Grid>
+    <Path x:Name="TaskIcon" Classes="work-type-icon task-work-type-icon"
+        Width="{StaticResource WorkTypeIconGlyphSize}" Height="{StaticResource WorkTypeIconGlyphSize}"
+        HorizontalAlignment="Center" VerticalAlignment="Center"
+        Fill="Transparent" Stroke="{DynamicResource QuietTextBrush}"
+        StrokeLineCap="Round" StrokeJoin="Round" StrokeThickness="1.4" Stretch="Uniform"
+        AutomationProperties.AccessibilityView="Raw" />
+    <Path x:Name="ProjectIcon" Classes="work-type-icon project-work-type-icon"
+        Width="{StaticResource WorkTypeIconGlyphSize}" Height="{StaticResource WorkTypeIconGlyphSize}"
+        HorizontalAlignment="Center" VerticalAlignment="Center"
+        Fill="{DynamicResource QuietTextBrush}" Stretch="Uniform"
+        AutomationProperties.AccessibilityView="Raw" />
+    <Path x:Name="CategoryIcon" Classes="work-type-icon category-work-type-icon"
+        Width="{StaticResource WorkTypeIconGlyphSize}" Height="{StaticResource WorkTypeIconGlyphSize}"
+        HorizontalAlignment="Center" VerticalAlignment="Center"
+        Fill="{DynamicResource QuietTextBrush}" Stretch="Uniform"
+        AutomationProperties.AccessibilityView="Raw" />
+  </Grid>
+</UserControl>

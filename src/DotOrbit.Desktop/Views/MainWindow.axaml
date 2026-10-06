@@ -3,6 +3,7 @@
     x:DataType="vm:ShellViewModel"
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:desktop="using:DotOrbit.Desktop"
     xmlns:vm="using:DotOrbit.Desktop.ViewModels"
     xmlns:views="using:DotOrbit.Desktop.Views"
     Title="dot-orbit"
@@ -10,7 +11,7 @@
     Height="760"
     MinWidth="1120"
     MinHeight="600"
-    Background="{StaticResource BackgroundBrush}">
+    Background="{DynamicResource BackgroundBrush}">
   <Window.Resources>
     <DataTemplate x:Key="NavigationItemTemplate" x:DataType="vm:NavigationItemViewModel">
       <RadioButton
@@ -43,6 +44,52 @@
         </Grid>
       </RadioButton>
     </DataTemplate>
+    <DataTemplate x:Key="TaskIdentityTemplate" x:DataType="vm:TaskRowViewModel">
+      <StackPanel Spacing="3">
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+            <views:WorkTypeIcon WorkType="Task" />
+            <TextBlock Grid.Column="1" Classes="work-identity-title" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+          </Grid>
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+            <TextBlock Classes="work-identity-context" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
+                Text="{Binding BroadRelationshipText}" TextTrimming="CharacterEllipsis" />
+            <views:CategoryOverrideIndicator Grid.Column="1" Text="{Binding CategoryOverrideText}"
+                IsVisible="{Binding HasCategoryOverride}" />
+          </Grid>
+      </StackPanel>
+    </DataTemplate>
+    <DataTemplate x:Key="CategoryTaskIdentityTemplate" x:DataType="vm:TaskRowViewModel">
+      <StackPanel Spacing="3">
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+            <views:WorkTypeIcon WorkType="Task" />
+            <TextBlock Grid.Column="1" Classes="work-identity-title" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+          </Grid>
+          <TextBlock Classes="work-identity-context" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
+              Text="{Binding CategoryGroupRelationshipText}" />
+      </StackPanel>
+    </DataTemplate>
+    <DataTemplate x:Key="ProjectIdentityTemplate" x:DataType="vm:ProjectRowViewModel">
+      <StackPanel Spacing="3">
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+            <views:WorkTypeIcon WorkType="Project" />
+            <TextBlock Grid.Column="1" Classes="work-identity-title" FontSize="15" FontWeight="Bold"
+                Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+          </Grid>
+          <TextBlock Classes="work-identity-context" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
+              Text="{Binding RelationshipText}" TextTrimming="CharacterEllipsis" />
+      </StackPanel>
+    </DataTemplate>
+    <DataTemplate x:Key="CategoryIdentityTemplate" x:DataType="vm:CategoryGroupViewModel">
+      <StackPanel Spacing="3">
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+            <views:WorkTypeIcon WorkType="Category" />
+            <TextBlock Grid.Column="1" Classes="work-identity-title" FontSize="15" FontWeight="Bold"
+                Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+          </Grid>
+          <TextBlock Classes="work-identity-context" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
+              Text="{Binding Summary}" TextTrimming="CharacterEllipsis" />
+      </StackPanel>
+    </DataTemplate>
     <DataTemplate x:Key="TodayTaskRowTemplate" x:DataType="vm:TodayTaskRowViewModel">
       <Border Classes="interactive-row separated-row reorder-target task-row selectable-row"
           Classes.today-planned-row="{Binding IsPlanned}"
@@ -70,18 +117,15 @@
               AutomationProperties.AutomationId="{Binding Task.CompletionAutomationId}"
               AutomationProperties.Name="{Binding Task.CompletionAccessibleName}" />
           <Button Grid.Column="2" Classes="task-title row-title" Command="{Binding Task.SelectCommand}"
-              AutomationProperties.Name="{Binding Task.Title}" AutomationProperties.ItemStatus="{Binding Task.CategoryDisplay}">
-            <StackPanel Spacing="3">
-              <TextBlock Text="{Binding Task.Title}" />
-              <TextBlock FontSize="12" Foreground="{StaticResource QuietTextBrush}" Text="{Binding Task.CategoryDisplay}" />
-            </StackPanel>
+              AutomationProperties.Name="{Binding Task.AccessibleName}">
+            <ContentControl Content="{Binding Task}" ContentTemplate="{StaticResource TaskIdentityTemplate}" />
           </Button>
           <TextBlock Grid.Column="3" Classes="task-date" Text="{Binding Task.DateText}"
               AutomationProperties.Name="{Binding Task.DateAccessibleText}" />
           <Button Grid.Column="4" Classes="view-action" Margin="8,0" Content="{Binding MoveToOtherLaneLabel}"
               Command="{Binding MoveToOtherLaneCommand}" AutomationProperties.Name="{Binding MoveToOtherLaneAccessibleName}" />
           <TextBlock Grid.Column="5" Margin="8,0" VerticalAlignment="Center" FontSize="11"
-              Foreground="{StaticResource QuietTextBrush}" Text="{Binding PositionText}" />
+              Foreground="{DynamicResource QuietTextBrush}" Text="{Binding PositionText}" />
           <ToggleButton Grid.Column="6" Classes="today-toggle"
               IsChecked="{Binding Task.IsToday, Mode=OneWay}" Command="{Binding Task.ToggleTodayCommand}"
               AutomationProperties.AutomationId="{Binding Task.TodayAutomationId}"
@@ -99,11 +143,8 @@
               AutomationProperties.AutomationId="{Binding Task.CompletionAutomationId}"
               AutomationProperties.Name="{Binding Task.CompletionAccessibleName}" />
           <Button Grid.Column="1" Classes="task-title row-title" Command="{Binding Task.SelectCommand}"
-              AutomationProperties.Name="{Binding Task.Title}" AutomationProperties.ItemStatus="{Binding Task.CategoryDisplay}">
-            <StackPanel Spacing="3">
-              <TextBlock Text="{Binding Task.Title}" />
-              <TextBlock FontSize="12" Foreground="{StaticResource QuietTextBrush}" Text="{Binding Task.CategoryDisplay}" />
-            </StackPanel>
+              AutomationProperties.Name="{Binding Task.AccessibleName}">
+            <ContentControl Content="{Binding Task}" ContentTemplate="{StaticResource TaskIdentityTemplate}" />
           </Button>
           <TextBlock Grid.Column="2" Classes="task-date" Text="{Binding Task.DateText}"
               AutomationProperties.Name="{Binding Task.DateAccessibleText}" />
@@ -121,8 +162,8 @@
         x:Name="TopBar"
         Grid.Row="0"
         Grid.ColumnSpan="3"
-        Background="{StaticResource BackgroundBrush}"
-        BorderBrush="{StaticResource LineBrush}"
+        Background="{DynamicResource BackgroundBrush}"
+        BorderBrush="{DynamicResource LineBrush}"
         BorderThickness="0,0,0,1">
       <Grid ColumnDefinitions="228,*">
         <StackPanel
@@ -166,7 +207,7 @@
                 VerticalAlignment="Center"
                 AutomationProperties.LiveSetting="Polite"
                 FontSize="{StaticResource TypeSizeEyebrow}"
-                Foreground="{StaticResource MutedTextBrush}"
+                Foreground="{DynamicResource MutedTextBrush}"
                 MaxLines="2"
                 Text="{Binding Work.Message}"
                 TextTrimming="CharacterEllipsis"
@@ -181,8 +222,8 @@
         Grid.Column="0"
         IsEnabled="{Binding !Work.HasBlockingDialog, FallbackValue=True}"
         Padding="12,18"
-        Background="{StaticResource SidebarBrush}"
-        BorderBrush="{StaticResource LineBrush}"
+        Background="{DynamicResource SidebarBrush}"
+        BorderBrush="{DynamicResource LineBrush}"
         BorderThickness="0,0,1,0">
       <Grid RowDefinitions="Auto,*,Auto">
         <TextBlock
@@ -190,7 +231,7 @@
             Margin="12,4,12,8"
             FontSize="11"
             FontWeight="Bold"
-            Foreground="{StaticResource QuietTextBrush}"
+            Foreground="{DynamicResource QuietTextBrush}"
             LetterSpacing="1.4"
             Text="WORKSPACE" />
 
@@ -202,7 +243,7 @@
         <Border
             Grid.Row="2"
             Padding="0,12,0,0"
-            BorderBrush="{StaticResource LineSoftBrush}"
+            BorderBrush="{DynamicResource LineSoftBrush}"
             BorderThickness="0,1,0,0">
           <StackPanel Spacing="4">
             <ContentControl
@@ -243,7 +284,7 @@
           <TextBlock
               x:Name="CurrentViewSubtitleText"
               FontSize="14"
-              Foreground="{StaticResource MutedTextBrush}"
+              Foreground="{DynamicResource MutedTextBrush}"
               Text="{Binding ViewSubtitle}"
               TextWrapping="Wrap" />
         </StackPanel>
@@ -310,7 +351,7 @@
               MaxWidth="440"
               HorizontalAlignment="Center"
               FontSize="14"
-              Foreground="{StaticResource MutedTextBrush}"
+              Foreground="{DynamicResource MutedTextBrush}"
               LineHeight="21"
               Text="{Binding EmptyStateBody}"
               TextAlignment="Center"
@@ -329,7 +370,7 @@
           <Border Classes="empty-state" IsVisible="{Binding Work.HasNoTodayTasks}" Padding="32">
             <StackPanel HorizontalAlignment="Center" Spacing="8">
               <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Text="Nothing planned for today" />
-              <TextBlock MaxWidth="440" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}"
+              <TextBlock MaxWidth="440" HorizontalAlignment="Center" Foreground="{DynamicResource MutedTextBrush}"
                   Text="Use the star on any incomplete Task to add it to Planned." TextAlignment="Center" TextWrapping="Wrap" />
             </StackPanel>
           </Border>
@@ -357,11 +398,8 @@
                             Command="{Binding Task.ToggleCompletionCommand}" AutomationProperties.AutomationId="{Binding Task.CompletionAutomationId}"
                             AutomationProperties.Name="{Binding Task.CompletionAccessibleName}" />
                         <Button Grid.Column="1" Classes="task-title row-title" Command="{Binding Task.SelectCommand}"
-                            AutomationProperties.Name="{Binding Task.Title}" AutomationProperties.ItemStatus="{Binding Task.CategoryDisplay}">
-                          <StackPanel Spacing="3">
-                            <TextBlock Text="{Binding Task.Title}" />
-                            <TextBlock FontSize="12" Foreground="{StaticResource QuietTextBrush}" Text="{Binding Task.CategoryDisplay}" />
-                          </StackPanel>
+                            AutomationProperties.Name="{Binding Task.AccessibleName}">
+                          <ContentControl Content="{Binding Task}" ContentTemplate="{StaticResource TaskIdentityTemplate}" />
                         </Button>
                         <TextBlock Grid.Column="2" Classes="task-completion-date" Text="{Binding Task.CompletionDateText}" />
                       </Grid>
@@ -380,7 +418,7 @@
           <Border Classes="empty-state" IsVisible="{Binding Work.HasNoUpcoming}" Padding="44">
             <StackPanel HorizontalAlignment="Center" Spacing="8">
               <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Text="No upcoming tasks" />
-              <TextBlock MaxWidth="440" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}"
+              <TextBlock MaxWidth="440" HorizontalAlignment="Center" Foreground="{DynamicResource MutedTextBrush}"
                   Text="Overdue tasks and tasks due through the same weekday next week will appear here."
                   TextAlignment="Center" TextWrapping="Wrap" />
             </StackPanel>
@@ -412,7 +450,7 @@
               Padding="44">
             <StackPanel HorizontalAlignment="Center" Spacing="8">
               <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Text="No projects yet" />
-              <TextBlock MaxWidth="420" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}" LineHeight="21" Text="Create a project when a piece of work needs more than one task." TextAlignment="Center" TextWrapping="Wrap" />
+              <TextBlock MaxWidth="420" HorizontalAlignment="Center" Foreground="{DynamicResource MutedTextBrush}" LineHeight="21" Text="Create a project when a piece of work needs more than one task." TextAlignment="Center" TextWrapping="Wrap" />
             </StackPanel>
           </Border>
           <ItemsControl ItemsSource="{Binding Work.Projects}">
@@ -423,11 +461,11 @@
               <DataTemplate x:DataType="vm:ProjectRowViewModel">
                 <Border
                     Classes="project-row reorder-target"
-                    Background="{StaticResource PanelBrush}"
+                    Background="{DynamicResource PanelBrush}"
                     CornerRadius="10">
                   <Grid RowDefinitions="Auto,Auto">
                     <Border Classes="interactive-row expandable-header-row project-header-row selectable-row" Classes.expanded="{Binding IsExpanded}" Padding="10,8,12,8">
-                      <Grid ColumnDefinitions="30,4,30,*,Auto,Auto">
+                      <Grid ColumnDefinitions="30,4,30,*,Auto,Auto,Auto">
                         <Button
                             Classes="drag-handle project-drag-handle"
                             AutomationProperties.AutomationId="{Binding ReorderAutomationId}"
@@ -450,35 +488,27 @@
                         <Button
                             Grid.Column="3"
                             Classes="project-title row-title"
-                            AutomationProperties.Name="{Binding Title}"
+                            AutomationProperties.Name="{Binding AccessibleName}"
                             Command="{Binding SelectCommand}">
-                          <StackPanel Spacing="5">
-                            <TextBlock FontSize="15" FontWeight="Bold" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                              <StackPanel Orientation="Horizontal" Spacing="6">
-                                <Ellipse Classes="status-marker" Classes.not-started="{Binding IsNotStarted}" Classes.in-progress="{Binding IsInProgress}" Classes.complete="{Binding IsComplete}" Width="7" Height="7" VerticalAlignment="Center" />
-                                <TextBlock Classes="status-marker" Classes.not-started="{Binding IsNotStarted}" Classes.in-progress="{Binding IsInProgress}" Classes.complete="{Binding IsComplete}" FontSize="12" Text="{Binding Status}" />
-                              </StackPanel>
-                              <TextBlock FontSize="12" Foreground="{StaticResource QuietTextBrush}" Text="·" />
-                              <TextBlock FontSize="12" Foreground="{StaticResource MutedTextBrush}" Text="{Binding ProgressText}" />
-                              <TextBlock FontSize="12" Foreground="{StaticResource QuietTextBrush}" Text="·" />
-                              <StackPanel Orientation="Horizontal" Spacing="6">
-                                <Ellipse Width="7" Height="7" VerticalAlignment="Center" Fill="{StaticResource QuietTextBrush}" />
-                                <TextBlock MaxWidth="105" FontSize="12" Foreground="{StaticResource MutedTextBrush}" Text="{Binding CategoryName}" TextTrimming="CharacterEllipsis" />
-                              </StackPanel>
-                            </StackPanel>
-                          </StackPanel>
+                          <ContentControl Content="{Binding}" ContentTemplate="{StaticResource ProjectIdentityTemplate}" />
                         </Button>
-                        <StackPanel Grid.Column="4" VerticalAlignment="Center" Spacing="2">
-                          <TextBlock MaxWidth="110" FontSize="12" Foreground="{StaticResource MutedTextBrush}"
+                        <StackPanel Grid.Column="4" Margin="8,0" VerticalAlignment="Center" Spacing="3">
+                          <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Ellipse Classes="status-marker" Classes.not-started="{Binding IsNotStarted}" Classes.in-progress="{Binding IsInProgress}" Classes.complete="{Binding IsComplete}" Width="7" Height="7" VerticalAlignment="Center" />
+                            <TextBlock Classes="status-marker" Classes.not-started="{Binding IsNotStarted}" Classes.in-progress="{Binding IsInProgress}" Classes.complete="{Binding IsComplete}" FontSize="12" Text="{Binding Status}" />
+                          </StackPanel>
+                          <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}" Text="{Binding ProgressText}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="5" Margin="8,0" VerticalAlignment="Center" Spacing="2">
+                          <TextBlock MaxWidth="110" FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
                               Text="{Binding TargetText}" TextAlignment="Right" TextWrapping="Wrap"
                               AutomationProperties.Name="{Binding TargetAccessibleText}" />
-                          <TextBlock IsVisible="{Binding IsOverdue}" Foreground="{StaticResource AmberBrush}"
+                          <TextBlock IsVisible="{Binding IsOverdue}" Foreground="{DynamicResource AmberBrush}"
                               FontSize="11" FontWeight="Bold" Text="⚠ Overdue" AutomationProperties.Name="Overdue" />
                           <TextBlock IsVisible="{Binding HasCompletionDate}"
-                              FontSize="11" Foreground="{StaticResource SuccessBrush}" Text="{Binding CompletionDateText}" />
+                              FontSize="11" Foreground="{DynamicResource SuccessBrush}" Text="{Binding CompletionDateText}" />
                         </StackPanel>
-                        <Button Grid.Column="5" Classes="view-action task-row-action" Margin="8,0,0,0" Content="Archive"
+                        <Button Grid.Column="6" Classes="view-action task-row-action" Content="Archive"
                             Command="{Binding ArchiveCommand}"
                             AutomationProperties.AutomationId="{Binding ArchiveAutomationId}"
                             AutomationProperties.Name="{Binding ArchiveAccessibleName}" />
@@ -487,8 +517,8 @@
                     <Border
                         Grid.Row="1"
                         IsVisible="{Binding IsExpanded}"
-                        Background="{StaticResource PanelBrush}"
-                        BorderBrush="{StaticResource LineSoftBrush}"
+                        Background="{DynamicResource PanelBrush}"
+                        BorderBrush="{DynamicResource LineSoftBrush}"
                         BorderThickness="0,1,0,0"
                         Padding="14,7,10,10">
                       <StackPanel Spacing="0">
@@ -521,13 +551,9 @@
                                   <Button
                                       Grid.Column="2"
                                       Classes="task-title project-task-title row-title"
-                                      AutomationProperties.Name="{Binding Title}"
-                                      AutomationProperties.ItemStatus="{Binding CategoryDisplay}"
+                                      AutomationProperties.Name="{Binding AccessibleName}"
                                       Command="{Binding SelectCommand}">
-                                    <StackPanel Spacing="3">
-                                      <TextBlock FontSize="14" Text="{Binding Title}" />
-                                      <TextBlock FontSize="12" Foreground="{StaticResource QuietTextBrush}" Text="{Binding CategoryDisplay}" />
-                                    </StackPanel>
+                                    <ContentControl Content="{Binding}" ContentTemplate="{StaticResource TaskIdentityTemplate}" />
                                   </Button>
                                   <StackPanel Grid.Column="3" VerticalAlignment="Center">
                                     <TextBlock Classes="task-date" Text="{Binding DateText}"
@@ -537,7 +563,7 @@
                                   </StackPanel>
                                   <StackPanel Grid.Column="4" Grid.ColumnSpan="2" Margin="8,0,0,0" VerticalAlignment="Center"
                                       Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsArchived}">
-                                    <TextBlock VerticalAlignment="Center" FontSize="12" Foreground="{StaticResource MutedTextBrush}" Text="Archived" />
+                                    <TextBlock VerticalAlignment="Center" FontSize="12" Foreground="{DynamicResource MutedTextBrush}" Text="Archived" />
                                     <Button Classes="view-action task-row-action" Content="Restore" Command="{Binding RestoreCommand}"
                                         AutomationProperties.AutomationId="{Binding RestoreAutomationId}"
                                         AutomationProperties.Name="{Binding RestoreAccessibleName}" />
@@ -547,9 +573,9 @@
                             </DataTemplate>
                           </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                        <Border Margin="0,7,0,0" Background="{StaticResource PanelInputBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="8">
+                        <Border Margin="0,7,0,0" Background="{DynamicResource PanelInputBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="8">
                           <Grid ColumnDefinitions="30,*">
-                            <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{StaticResource AccentBrush}" FontSize="17" Text="＋" />
+                            <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource AccentBrush}" FontSize="17" Text="＋" />
                             <TextBox
                                 Grid.Column="1"
                                 Classes="quick-add"
@@ -630,16 +656,12 @@
                         Grid.Column="2"
                         Classes="task-title backlog-task-title row-title"
                         Command="{Binding SelectCommand}"
-                        AutomationProperties.Name="{Binding Title}"
-                        AutomationProperties.ItemStatus="{Binding CategoryDisplay}">
-                      <StackPanel Spacing="3">
-                        <TextBlock Text="{Binding Title}" />
-                        <TextBlock Text="{Binding CategoryDisplay}" Foreground="{StaticResource QuietTextBrush}" FontSize="12" />
-                      </StackPanel>
+                        AutomationProperties.Name="{Binding AccessibleName}">
+                      <ContentControl Content="{Binding}" ContentTemplate="{StaticResource TaskIdentityTemplate}" />
                     </Button>
                     <TextBlock Grid.Column="3" Classes="task-date" Text="{Binding DateText}"
                         AutomationProperties.Name="{Binding DateAccessibleText}" />
-                    <TextBlock Grid.Column="4" Margin="8,0" VerticalAlignment="Center" Foreground="{StaticResource QuietTextBrush}" FontSize="11" Text="{Binding PositionText}" />
+                    <TextBlock Grid.Column="4" Margin="8,0" VerticalAlignment="Center" Foreground="{DynamicResource QuietTextBrush}" FontSize="11" Text="{Binding PositionText}" />
                   </Grid>
                 </Border>
               </DataTemplate>
@@ -658,11 +680,11 @@
             </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:CategoryGroupViewModel">
-                <Border Classes="category-row reorder-target" Background="{StaticResource PanelBrush}" CornerRadius="10">
+                <Border Classes="category-row reorder-target" Background="{DynamicResource PanelBrush}" CornerRadius="10">
                   <Grid RowDefinitions="Auto,Auto">
                     <Border Classes="interactive-row expandable-header-row category-header-row selectable-row"
                         Classes.expanded="{Binding IsExpanded}" Padding="10,8,12,8">
-                      <Grid ColumnDefinitions="30,4,30,*,Auto">
+                      <Grid ColumnDefinitions="30,4,30,*">
                         <Button Classes="drag-handle category-drag-handle"
                             AutomationProperties.AutomationId="{Binding ReorderAutomationId}"
                             AutomationProperties.Name="{Binding ReorderAccessibleName}"
@@ -682,14 +704,12 @@
                         <Button Grid.Column="3" Classes="project-title row-title" Command="{Binding SelectCommand}"
                             AutomationProperties.AutomationId="{Binding SelectionAutomationId}"
                             AutomationProperties.Name="{Binding SelectionAccessibleName}">
-                          <TextBlock FontSize="15" FontWeight="Bold" Text="{Binding Name}" />
+                          <ContentControl Content="{Binding}" ContentTemplate="{StaticResource CategoryIdentityTemplate}" />
                         </Button>
-                        <TextBlock Grid.Column="4" VerticalAlignment="Center" FontSize="12"
-                            Foreground="{StaticResource MutedTextBrush}" Text="{Binding Summary}" />
                       </Grid>
                     </Border>
-                    <Border Grid.Row="1" IsVisible="{Binding IsExpanded}" Background="{StaticResource PanelBrush}"
-                        BorderBrush="{StaticResource LineSoftBrush}" BorderThickness="0,1,0,0" Padding="10">
+                    <Border Grid.Row="1" IsVisible="{Binding IsExpanded}" Background="{DynamicResource PanelBrush}"
+                        BorderBrush="{DynamicResource LineSoftBrush}" BorderThickness="0,1,0,0" Padding="10">
                       <StackPanel Spacing="10">
                         <TextBlock Classes="eyebrow" Text="PROJECTS" />
                         <ItemsControl ItemsSource="{Binding Projects}">
@@ -699,18 +719,18 @@
                                   HorizontalAlignment="Stretch" MinHeight="{StaticResource StandardRowHeight}">
                                 <Button Classes="project-title row-title" Command="{Binding Project.SelectCommand}"
                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" VerticalAlignment="Stretch" VerticalContentAlignment="Center"
-                                    AutomationProperties.Name="{Binding Project.Title}" AutomationProperties.ItemStatus="{Binding Project.AccessibleStatus}">
-                                  <Grid ColumnDefinitions="*,12,Auto">
-                                    <TextBlock Text="{Binding Project.Title}" />
+                                    AutomationProperties.Name="{Binding Project.AccessibleName}">
+                                  <Grid ColumnDefinitions="*,12,Auto" VerticalAlignment="Center">
+                                    <ContentControl Content="{Binding Project}" ContentTemplate="{StaticResource ProjectIdentityTemplate}" />
                                     <TextBlock Grid.Column="2" HorizontalAlignment="Right" TextAlignment="Right" FontSize="12"
-                                        Foreground="{StaticResource MutedTextBrush}" Text="{Binding Project.ProgressText}" />
+                                        Foreground="{DynamicResource MutedTextBrush}" Text="{Binding Project.ProgressText}" />
                                   </Grid>
                                 </Button>
                               </Border>
                             </DataTemplate>
                           </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                        <TextBlock IsVisible="{Binding !HasProjects}" Foreground="{StaticResource QuietTextBrush}" Text="No projects" />
+                        <TextBlock IsVisible="{Binding !HasProjects}" Foreground="{DynamicResource QuietTextBrush}" Text="No projects" />
                         <TextBlock Classes="eyebrow" Margin="0,6,0,0" Text="STANDALONE TASKS" />
                         <ItemsControl ItemsSource="{Binding StandaloneTasks}">
                           <ItemsControl.ItemTemplate>
@@ -726,11 +746,8 @@
                                       AutomationProperties.AutomationId="{Binding Task.TodayAutomationId}"
                                       AutomationProperties.Name="{Binding Task.TodayAccessibleName}" />
                                   <Button Grid.Column="1" Classes="task-title row-title" Command="{Binding Task.SelectCommand}"
-                                      AutomationProperties.Name="{Binding Task.Title}" AutomationProperties.ItemStatus="{Binding Task.CategoryDisplay}">
-                                    <StackPanel Spacing="3">
-                                      <TextBlock Text="{Binding Task.Title}" />
-                                      <TextBlock Text="{Binding Task.CategoryDisplay}" Foreground="{StaticResource QuietTextBrush}" FontSize="12" />
-                                    </StackPanel>
+                                      AutomationProperties.Name="{Binding Task.AccessibleName}">
+                                    <ContentControl Content="{Binding Task}" ContentTemplate="{StaticResource CategoryTaskIdentityTemplate}" />
                                   </Button>
                                   <StackPanel Grid.Column="2" VerticalAlignment="Center">
                                     <TextBlock Classes="task-date" Text="{Binding Task.DateText}"
@@ -743,7 +760,7 @@
                             </DataTemplate>
                           </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                        <TextBlock IsVisible="{Binding !HasStandaloneTasks}" Foreground="{StaticResource QuietTextBrush}" Text="No standalone tasks" />
+                        <TextBlock IsVisible="{Binding !HasStandaloneTasks}" Foreground="{DynamicResource QuietTextBrush}" Text="No standalone tasks" />
                       </StackPanel>
                     </Border>
                   </Grid>
@@ -761,7 +778,7 @@
             <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
               <StackPanel Spacing="3">
                 <TextBlock FontWeight="SemiBold" Text="Archive older completed Tasks" />
-                <TextBlock FontSize="12" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"
+                <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
                     Text="{Binding Work.BulkArchiveThresholdSummary}"
                     AutomationProperties.LiveSetting="Polite" />
               </StackPanel>
@@ -780,7 +797,7 @@
           <Border Classes="empty-state" IsVisible="{Binding Work.HasNoCompleted}" Padding="44">
             <StackPanel HorizontalAlignment="Center" Spacing="8">
               <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Text="No completed tasks yet" />
-              <TextBlock MaxWidth="420" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}"
+              <TextBlock MaxWidth="420" HorizontalAlignment="Center" Foreground="{DynamicResource MutedTextBrush}"
                   Text="Tasks you complete will appear here so they can be reviewed, archived, or reopened."
                   TextAlignment="Center" TextWrapping="Wrap" />
             </StackPanel>
@@ -806,11 +823,8 @@
                                   AutomationProperties.AutomationId="{Binding Task.CompletionAutomationId}"
                                   AutomationProperties.Name="{Binding Task.CompletionAccessibleName}" />
                               <Button Grid.Column="1" Classes="task-title row-title" Command="{Binding Task.SelectCommand}"
-                                  AutomationProperties.Name="{Binding Task.Title}" AutomationProperties.ItemStatus="{Binding Task.CategoryDisplay}">
-                                <StackPanel Spacing="3">
-                                  <TextBlock Text="{Binding Task.Title}" />
-                                  <TextBlock Text="{Binding Task.CategoryDisplay}" Foreground="{StaticResource QuietTextBrush}" FontSize="12" />
-                                </StackPanel>
+                                  AutomationProperties.Name="{Binding Task.AccessibleName}">
+                                <ContentControl Content="{Binding Task}" ContentTemplate="{StaticResource TaskIdentityTemplate}" />
                               </Button>
                               <TextBlock Grid.Column="2" Classes="task-completion-date" Text="{Binding Task.CompletionDateText}" />
                               <Button Grid.Column="3" Classes="view-action task-row-action" Margin="8,0,0,0"
@@ -847,12 +861,12 @@
           </Grid>
           <TextBlock IsVisible="{Binding Work.HasArchiveSearchQuery}"
               Text="{Binding Work.ArchiveSearchStatus}"
-              Foreground="{StaticResource MutedTextBrush}"
+              Foreground="{DynamicResource MutedTextBrush}"
               AutomationProperties.LiveSetting="Polite" />
           <Border Classes="empty-state" IsVisible="{Binding Work.ShowArchiveEmpty}" Padding="44">
             <StackPanel HorizontalAlignment="Center" Spacing="8">
               <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Text="Your archive is empty" />
-              <TextBlock MaxWidth="420" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}"
+              <TextBlock MaxWidth="420" HorizontalAlignment="Center" Foreground="{DynamicResource MutedTextBrush}"
                   Text="Projects and Tasks you archive will remain available to restore here."
                   TextAlignment="Center" TextWrapping="Wrap" />
             </StackPanel>
@@ -860,14 +874,14 @@
           <Border Classes="empty-state" IsVisible="{Binding Work.ShowArchiveSearchEmpty}" Padding="44">
             <StackPanel HorizontalAlignment="Center" Spacing="8">
               <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Text="No archived work found" />
-              <TextBlock MaxWidth="420" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}"
+              <TextBlock MaxWidth="420" HorizontalAlignment="Center" Foreground="{DynamicResource MutedTextBrush}"
                   Text="Try another whole word or prefix." TextAlignment="Center" TextWrapping="Wrap" />
             </StackPanel>
           </Border>
           <Border Classes="empty-state" IsVisible="{Binding Work.ShowArchiveSearchError}" Padding="44">
             <StackPanel HorizontalAlignment="Center" Spacing="8">
               <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Text="Archive search is unavailable" />
-              <TextBlock MaxWidth="420" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}"
+              <TextBlock MaxWidth="420" HorizontalAlignment="Center" Foreground="{DynamicResource MutedTextBrush}"
                   Text="Clear the search and try again." TextAlignment="Center" TextWrapping="Wrap" />
             </StackPanel>
           </Border>
@@ -894,18 +908,29 @@
                                   AutomationProperties.AutomationId="{Binding AutomationId}"
                                   AutomationProperties.Name="{Binding AccessibleName}">
                                 <StackPanel VerticalAlignment="Center" Spacing="3">
-                                  <TextBlock FontWeight="SemiBold" Text="{Binding Title}" />
-                                  <TextBlock FontSize="12" Foreground="{StaticResource QuietTextBrush}"
-                                      Text="{Binding ContextText}" TextTrimming="CharacterEllipsis" />
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+                                      <views:WorkTypeIcon WorkType="Task" IsVisible="{Binding IsTask}" />
+                                      <views:WorkTypeIcon WorkType="Project" IsVisible="{Binding IsProject}" />
+                                      <TextBlock Grid.Column="1" Classes="work-identity-title" FontWeight="SemiBold"
+                                          Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                                      <TextBlock Classes="work-identity-context" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
+                                          Text="{Binding RelationshipText}" TextTrimming="CharacterEllipsis" />
+                                      <views:CategoryOverrideIndicator Grid.Column="1" Text="{Binding CategoryOverrideText}"
+                                          IsVisible="{Binding HasCategoryOverride}" />
+                                    </Grid>
+                                    <TextBlock FontSize="11" Foreground="{DynamicResource MutedTextBrush}"
+                                        Text="{Binding Excerpt}" TextTrimming="CharacterEllipsis" />
                                 </StackPanel>
                               </Button>
                               <TextBlock Grid.Column="1" Classes="task-completion-date" IsVisible="{Binding IsTask}"
                                   Text="{Binding DateText}" />
                               <TextBlock Grid.Column="1" Margin="8,0" VerticalAlignment="Center" FontSize="12"
-                                  Foreground="{StaticResource QuietTextBrush}" IsVisible="{Binding IsProject}"
+                                  Foreground="{DynamicResource QuietTextBrush}" IsVisible="{Binding IsProject}"
                                   Text="{Binding DateText}" />
                               <TextBlock Grid.Column="2" Margin="8,0,0,0" VerticalAlignment="Center" FontSize="12"
-                                  Foreground="{StaticResource MutedTextBrush}" Text="{Binding StateLabel}" />
+                                  Foreground="{DynamicResource MutedTextBrush}" Text="{Binding StateLabel}" />
                               <Button Grid.Column="3" Classes="view-action task-row-action" Margin="8,0,0,0"
                                   Content="Restore" Command="{Binding RestoreCommand}"
                                   AutomationProperties.AutomationId="{Binding RestoreAutomationId}"
@@ -937,25 +962,29 @@
                               Classes.last="{Binding IsLast}"
                               MinHeight="{StaticResource StandardRowHeight}">
                             <Grid ColumnDefinitions="*,Auto,Auto,Auto">
-                              <StackPanel IsVisible="{Binding IsProject}" VerticalAlignment="Center" Spacing="3">
-                                <TextBlock FontWeight="SemiBold" Text="{Binding Project.Title}" />
-                                <TextBlock FontSize="12" Foreground="{StaticResource QuietTextBrush}" Text="{Binding Project.Summary}" />
+                              <StackPanel IsVisible="{Binding IsProject}" Spacing="3"
+                                  AutomationProperties.Name="{Binding Project.AccessibleName}">
+                                  <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+                                    <views:WorkTypeIcon WorkType="Project" />
+                                    <TextBlock Grid.Column="1" Classes="work-identity-title" FontWeight="SemiBold"
+                                        Text="{Binding Project.Title}" TextTrimming="CharacterEllipsis" />
+                                  </Grid>
+                                  <TextBlock Classes="work-identity-context" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
+                                      Text="{Binding Project.RelationshipText}" TextTrimming="CharacterEllipsis" />
+                                  <TextBlock FontSize="11" Foreground="{DynamicResource MutedTextBrush}"
+                                      Text="{Binding Project.MetadataText}" TextTrimming="CharacterEllipsis" />
                               </StackPanel>
                               <Button IsVisible="{Binding IsTask}" Classes="task-title row-title" Command="{Binding Task.SelectCommand}"
-                                  AutomationProperties.Name="{Binding Task.Title}"
-                                  AutomationProperties.ItemStatus="{Binding Task.CategoryDisplay}">
-                                <StackPanel Spacing="3">
-                                  <TextBlock Text="{Binding Task.Title}" />
-                                  <TextBlock Text="{Binding Task.CategoryDisplay}" Foreground="{StaticResource QuietTextBrush}" FontSize="12" />
-                                </StackPanel>
+                                  AutomationProperties.Name="{Binding Task.AccessibleName}">
+                                <ContentControl Content="{Binding Task}" ContentTemplate="{StaticResource TaskIdentityTemplate}" />
                               </Button>
                               <TextBlock Grid.Column="1" Classes="task-completion-date" IsVisible="{Binding IsTask}"
                                   Text="{Binding Task.CompletionDateText}" />
                               <TextBlock Grid.Column="2" Margin="8,0,0,0" VerticalAlignment="Center" FontSize="12"
-                                  Foreground="{StaticResource MutedTextBrush}"
+                                  Foreground="{DynamicResource MutedTextBrush}"
                                   Text="Archived Project" IsVisible="{Binding IsProject}" />
                               <TextBlock Grid.Column="2" Margin="8,0,0,0" VerticalAlignment="Center" FontSize="12"
-                                  Foreground="{StaticResource MutedTextBrush}"
+                                  Foreground="{DynamicResource MutedTextBrush}"
                                   Text="Archived Task" IsVisible="{Binding IsTask}" />
                               <Button Grid.Column="3" Classes="view-action task-row-action" Margin="8,0,0,0"
                                   IsVisible="{Binding IsProject}"
@@ -982,7 +1011,7 @@
       <ScrollViewer Grid.Row="2" IsVisible="{Binding ShowBin}">
         <StackPanel Margin="{StaticResource ScrollContentInset}" Spacing="10">
           <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding Work.HasBinnedWork}">
-            <TextBlock VerticalAlignment="Center" Foreground="{StaticResource MutedTextBrush}"
+            <TextBlock VerticalAlignment="Center" Foreground="{DynamicResource MutedTextBrush}"
                 Text="Restore work here, or permanently clear every item after a validated encrypted recovery point." TextWrapping="Wrap" />
             <Button x:Name="EmptyBinButton" Grid.Column="1" Classes="view-action" Content="Empty Bin"
                 Command="{Binding Work.RequestEmptyBinCommand}"
@@ -993,7 +1022,7 @@
           <Border Classes="empty-state" IsVisible="{Binding Work.HasNoBinnedWork}" Padding="44">
             <StackPanel HorizontalAlignment="Center" Spacing="8">
               <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Text="Bin is empty" />
-              <TextBlock MaxWidth="420" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}"
+              <TextBlock MaxWidth="420" HorizontalAlignment="Center" Foreground="{DynamicResource MutedTextBrush}"
                   Text="Projects and Tasks you move to Bin will remain available to restore here."
                   TextAlignment="Center" TextWrapping="Wrap" />
             </StackPanel>
@@ -1002,23 +1031,33 @@
             <ItemsControl ItemsSource="{Binding Work.Bin}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:BinRowViewModel">
-                  <Border Classes="interactive-row separated-row task-row" Classes.last="{Binding IsLast}"
-                      MinHeight="{StaticResource StandardRowHeight}">
+                  <Border Classes="interactive-row separated-row task-row bin-row" Classes.last="{Binding IsLast}"
+                      MinHeight="{StaticResource StandardRowHeight}"
+                      AutomationProperties.Name="{Binding AccessibleName}">
                     <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
                       <StackPanel VerticalAlignment="Center" Spacing="3">
-                        <TextBlock FontWeight="SemiBold" Text="{Binding Title}" />
-                        <TextBlock FontSize="12" Foreground="{StaticResource QuietTextBrush}"
-                            Text="{Binding ContextText}" />
+                          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+                            <views:WorkTypeIcon WorkType="Task" IsVisible="{Binding IsTask}" />
+                            <views:WorkTypeIcon WorkType="Project" IsVisible="{Binding IsProject}" />
+                            <TextBlock Grid.Column="1" Classes="work-identity-title" FontWeight="SemiBold"
+                                Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                          </Grid>
+                          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                            <TextBlock Classes="work-identity-context" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
+                                Text="{Binding RelationshipText}" TextTrimming="CharacterEllipsis" />
+                            <views:CategoryOverrideIndicator Grid.Column="1" Text="{Binding CategoryOverrideText}"
+                                IsVisible="{Binding HasCategoryOverride}" />
+                          </Grid>
                       </StackPanel>
                       <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="12"
-                          Foreground="{StaticResource MutedTextBrush}" Text="{Binding RemovedText}" />
+                          Foreground="{DynamicResource MutedTextBrush}" Text="{Binding RemovedText}" />
                       <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="4">
                         <Button Classes="view-action task-row-action" Content="Restore"
                             Command="{Binding RestoreCommand}" IsEnabled="{Binding CanRestore}"
                             AutomationProperties.AutomationId="{Binding RestoreAutomationId}"
                             AutomationProperties.Name="{Binding RestoreAccessibleName}"
                             AutomationProperties.HelpText="{Binding RestoreHelpText}" />
-                        <TextBlock MaxWidth="240" FontSize="11" Foreground="{StaticResource MutedTextBrush}"
+                        <TextBlock MaxWidth="240" FontSize="11" Foreground="{DynamicResource MutedTextBrush}"
                             IsVisible="{Binding IsRestoreBlocked}" Text="{Binding RestoreBlockedText}"
                             TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
                       </StackPanel>
@@ -1044,14 +1083,45 @@
           <TextBlock Classes="eyebrow" Text="WORKSPACE" />
           <TextBlock FontSize="31" FontWeight="Bold" LetterSpacing="-1.2" Text="Settings"
               AutomationProperties.Name="Current view" />
-          <TextBlock FontSize="14" Foreground="{StaticResource MutedTextBrush}"
-              Text="Manage reusable workspace data and recovery options." />
+          <TextBlock FontSize="14" Foreground="{DynamicResource MutedTextBrush}"
+              Text="Manage appearance, reusable workspace data, security, and recovery options." />
+        </StackPanel>
+
+        <StackPanel Spacing="10">
+          <StackPanel Spacing="4">
+            <TextBlock FontSize="20" FontWeight="Bold" Text="Appearance" />
+            <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
+                Text="Choose the colour theme used across dot-orbit, including the workspace unlock and recovery windows." />
+          </StackPanel>
+          <Border Classes="list-panel">
+            <Border Classes="interactive-row separated-row last">
+            <Grid Margin="6,4" ColumnDefinitions="*,180" ColumnSpacing="18">
+              <StackPanel VerticalAlignment="Center" Spacing="2">
+                <TextBlock FontWeight="SemiBold" Text="Colour theme" />
+                <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
+                    Text="Applies immediately and is remembered on this device." TextWrapping="Wrap" />
+              </StackPanel>
+              <ComboBox x:Name="SettingsThemePicker" Grid.Column="1" Classes="inspector-field"
+                  ItemsSource="{Binding Settings.ThemeOptions}"
+                  SelectedItem="{Binding Settings.SelectedTheme, Mode=TwoWay}"
+                  AutomationProperties.AutomationId="settings-theme"
+                  AutomationProperties.Name="Colour theme"
+                  AutomationProperties.ItemStatus="{Binding Settings.ThemeStatus}">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="desktop:ApplicationThemeOption">
+                    <TextBlock Text="{Binding Name}" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </Grid>
+            </Border>
+          </Border>
         </StackPanel>
 
         <StackPanel Spacing="10">
           <StackPanel Spacing="4">
             <TextBlock FontSize="20" FontWeight="Bold" Text="Participants" />
-            <TextBlock Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"
+            <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
                 Text="Reusable initials or nicknames that can be associated with Tasks." />
           </StackPanel>
           <Border x:Name="SettingsParticipantsEmpty" Classes="empty-state"
@@ -1059,7 +1129,7 @@
             <StackPanel HorizontalAlignment="Center" Spacing="8">
               <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold"
                   Text="No Participants yet" TextAlignment="Center" />
-              <TextBlock MaxWidth="440" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}"
+              <TextBlock MaxWidth="440" HorizontalAlignment="Center" Foreground="{DynamicResource MutedTextBrush}"
                   Text="Create one from a Task's Participant picker." TextAlignment="Center" TextWrapping="Wrap" />
             </StackPanel>
           </Border>
@@ -1072,7 +1142,7 @@
                       <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                         <StackPanel VerticalAlignment="Center" IsVisible="{Binding IsReadOnly}" Spacing="2">
                           <TextBlock FontWeight="SemiBold" Text="{Binding Label}" />
-                          <TextBlock FontSize="12" Foreground="{StaticResource MutedTextBrush}" Text="{Binding UsageText}" />
+                          <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}" Text="{Binding UsageText}" />
                           <TextBlock Classes="validation-message" Text="{Binding ValidationMessage}"
                               IsVisible="{Binding HasValidationError}" AutomationProperties.LiveSetting="Polite" />
                         </StackPanel>
@@ -1111,7 +1181,7 @@
         <StackPanel Spacing="10">
           <StackPanel Spacing="4">
             <TextBlock FontSize="20" FontWeight="Bold" Text="Recovery" />
-            <TextBlock Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"
+            <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
                 Text="Create and restore portable encrypted recovery points." />
           </StackPanel>
           <Border Classes="list-panel">
@@ -1119,7 +1189,7 @@
               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                 <StackPanel VerticalAlignment="Center" Spacing="2">
                   <TextBlock FontWeight="SemiBold" Text="Encrypted recovery" />
-                  <TextBlock FontSize="12" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"
+                  <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
                       Text="Choose automatic recovery storage, create a recovery point, or restore one." />
                 </StackPanel>
                 <Button x:Name="SettingsRecoveryButton" Grid.Column="1" Classes="view-action"
@@ -1132,21 +1202,21 @@
 
           <TextBlock Margin="0,12,0,0" FontSize="20" FontWeight="Bold" Text="Security" />
           <TextBlock
-              Foreground="{StaticResource MutedTextBrush}"
+              Foreground="{DynamicResource MutedTextBrush}"
               Text="Change the passphrase used to unlock the working workspace. Existing recovery points keep the passphrase that created them."
               TextWrapping="Wrap" />
           <Border
               x:Name="PassphraseChangedConfirmation"
               Padding="14,11"
-              Background="{StaticResource PanelBrush}"
-              BorderBrush="{StaticResource SuccessBrush}"
+              Background="{DynamicResource PanelBrush}"
+              BorderBrush="{DynamicResource SuccessBrush}"
               BorderThickness="1"
               CornerRadius="8"
               IsVisible="{Binding Settings.HasSecurityConfirmation}"
               AutomationProperties.LiveSetting="Polite"
               AutomationProperties.Name="Passphrase changed confirmation">
             <TextBlock
-                Foreground="{StaticResource SuccessBrush}"
+                Foreground="{DynamicResource SuccessBrush}"
                 FontWeight="SemiBold"
                 Text="{Binding Settings.SecurityConfirmation}"
                 TextWrapping="Wrap" />
@@ -1156,7 +1226,7 @@
               <StackPanel Spacing="3">
                 <TextBlock FontWeight="SemiBold" Text="Workspace passphrase" />
                 <TextBlock
-                    Foreground="{StaticResource MutedTextBrush}"
+                    Foreground="{DynamicResource MutedTextBrush}"
                     Text="The current passphrase is required and a validated recovery point is created first."
                     TextWrapping="Wrap" />
               </StackPanel>
@@ -1182,8 +1252,8 @@
         Grid.Row="1"
         Grid.Column="2"
         Padding="22"
-        Background="{StaticResource PanelBrush}"
-        BorderBrush="{StaticResource LineBrush}"
+        Background="{DynamicResource PanelBrush}"
+        BorderBrush="{DynamicResource LineBrush}"
         BorderThickness="1,0,0,0">
       <Grid RowDefinitions="Auto,*">
       <TextBlock
@@ -1193,19 +1263,19 @@
           HorizontalAlignment="Center"
           VerticalAlignment="Center"
           FontSize="14"
-          Foreground="{StaticResource QuietTextBrush}"
+          Foreground="{DynamicResource QuietTextBrush}"
           LineHeight="19"
           Text="Select a project, task, or category&#x0a;to see its details"
           TextAlignment="Center" />
       <Grid Grid.Row="0" Margin="0,0,32,12" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8"
           IsVisible="{Binding Work.HasInspector}">
-            <Border Padding="8,4" Background="{StaticResource PanelRaisedBrush}"
-                BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="12">
-              <TextBlock FontSize="11" Foreground="{StaticResource MutedTextBrush}" Text="{Binding Work.InspectorHeading}" />
+            <Border Padding="8,4" Background="{DynamicResource PanelRaisedBrush}"
+                BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="12">
+              <TextBlock FontSize="11" Foreground="{DynamicResource MutedTextBrush}" Text="{Binding Work.InspectorHeading}" />
             </Border>
             <TextBlock Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right"
                 IsVisible="{Binding Work.ShowAutosaveStatus}" Text="{Binding Work.AutosaveStatus}"
-                FontSize="11" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"
+                FontSize="11" Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
                 AutomationProperties.Name="Autosave status" AutomationProperties.LiveSetting="Polite" />
             <Button Grid.Column="2" Classes="view-action" Content="Retry"
                 IsVisible="{Binding Work.HasAutosaveError}" Command="{Binding Work.RetryAutosaveCommand}"
@@ -1213,14 +1283,20 @@
       </Grid>
       <ScrollViewer Grid.Row="1" IsVisible="{Binding Work.HasInspector}">
         <StackPanel Margin="{StaticResource InspectorScrollContentInset}" Spacing="0">
-          <TextBox
-              x:Name="DraftTitle"
-              Classes="inspector-title"
-              Classes.error="{Binding Work.HasTitleValidationError}"
-              Margin="0,9,0,0"
-              Text="{Binding Work.Title, Mode=TwoWay}"
-              AutomationProperties.Name="{Binding Work.TitleAutomationName}"
-              AutomationProperties.HelpText="{Binding Work.TitleValidationMessage}" />
+          <Grid Margin="0,9,0,0" ColumnDefinitions="Auto,*" ColumnSpacing="6">
+            <views:WorkTypeIcon WorkType="Task" IsVisible="{Binding Work.ShowTaskIdentityIcon}" />
+            <views:WorkTypeIcon WorkType="Project" IsVisible="{Binding Work.ShowProjectIdentityIcon}" />
+            <views:WorkTypeIcon WorkType="Category" IsVisible="{Binding Work.ShowCategoryIdentityIcon}" />
+            <TextBox
+                x:Name="DraftTitle"
+                Grid.Column="1"
+                Classes="inspector-title"
+                Classes.error="{Binding Work.HasTitleValidationError}"
+                Text="{Binding Work.Title, Mode=TwoWay}"
+                AutomationProperties.Name="{Binding Work.TitleAutomationName}"
+                AutomationProperties.ItemStatus="{Binding Work.InspectorIdentityAccessibleText}"
+                AutomationProperties.HelpText="{Binding Work.TitleValidationMessage}" />
+          </Grid>
           <TextBlock Classes="validation-message" Margin="7,4,0,0"
               Text="{Binding Work.TitleValidationMessage}"
               IsVisible="{Binding Work.HasTitleValidationError}" />
@@ -1230,10 +1306,10 @@
               Text="{Binding Work.ProjectSummary}"
               TextWrapping="Wrap"
               FontSize="12"
-              Foreground="{StaticResource MutedTextBrush}" />
+              Foreground="{DynamicResource MutedTextBrush}" />
 
           <StackPanel IsVisible="{Binding Work.ShowWorkInspector}">
-          <Border Margin="0,22,0,0" Padding="0,20,0,0" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0">
+          <Border Margin="0,22,0,0" Padding="0,20,0,0" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0">
             <StackPanel Spacing="9">
               <TextBlock Classes="inspector-label" Text="DESCRIPTION · MARKDOWN" />
               <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
@@ -1263,7 +1339,7 @@
             </StackPanel>
           </Border>
 
-          <Border Margin="0,22,0,0" Padding="0,20,0,0" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0">
+          <Border Margin="0,22,0,0" Padding="0,20,0,0" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0">
             <StackPanel Spacing="14">
               <StackPanel Spacing="9">
                 <TextBlock Classes="inspector-label" Text="DATE" />
@@ -1289,22 +1365,22 @@
               </StackPanel>
               <StackPanel Spacing="9">
                 <TextBlock Classes="inspector-label" Text="{Binding Work.InspectorMetaLabel}" />
-                <Border MinHeight="38" Padding="10,8" Background="{StaticResource PanelRaisedBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="8">
-                  <TextBlock VerticalAlignment="Center" FontSize="12" Foreground="{StaticResource MutedTextBrush}" Text="{Binding Work.InspectorMetaValue}" TextWrapping="Wrap" />
+                <Border MinHeight="38" Padding="10,8" Background="{DynamicResource PanelRaisedBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="8">
+                  <TextBlock VerticalAlignment="Center" FontSize="12" Foreground="{DynamicResource MutedTextBrush}" Text="{Binding Work.InspectorMetaValue}" TextWrapping="Wrap" />
                 </Border>
               </StackPanel>
             </StackPanel>
           </Border>
 
-          <Border Margin="0,12,0,0" Padding="10,8" Background="{StaticResource PanelRaisedBrush}"
-              BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="8"
+          <Border Margin="0,12,0,0" Padding="10,8" Background="{DynamicResource PanelRaisedBrush}"
+              BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="8"
               IsVisible="{Binding Work.ShowTaskCompletionDate}">
             <TextBlock Text="{Binding Work.TaskCompletionDateText}"
                 AutomationProperties.Name="{Binding Work.TaskCompletionDateAccessibleText}"
-                Foreground="{StaticResource SuccessBrush}" />
+                Foreground="{DynamicResource SuccessBrush}" />
           </Border>
 
-          <Border Margin="0,22,0,0" Padding="0,20,0,0" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0">
+          <Border Margin="0,22,0,0" Padding="0,20,0,0" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0">
             <StackPanel Spacing="9">
               <TextBlock Classes="inspector-label" Text="CATEGORY" />
               <ComboBox
@@ -1319,16 +1395,16 @@
                   </DataTemplate>
                 </ComboBox.ItemTemplate>
               </ComboBox>
-              <TextBlock Text="{Binding Work.CategoryHint}" FontSize="11" Foreground="{StaticResource QuietTextBrush}" TextWrapping="Wrap" />
+              <TextBlock Text="{Binding Work.CategoryHint}" FontSize="11" Foreground="{DynamicResource QuietTextBrush}" TextWrapping="Wrap" />
             </StackPanel>
           </Border>
 
-          <Border Margin="0,14,0,0" Padding="0,14,0,0" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0"
+          <Border Margin="0,14,0,0" Padding="0,14,0,0" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0"
               IsVisible="{Binding Work.ShowParticipants}">
             <StackPanel Spacing="9">
               <TextBlock Classes="inspector-label" Text="PARTICIPANTS" />
               <TextBlock Text="{x:Static vm:ProjectCaptureViewModel.ParticipantGuidance}" FontSize="11"
-                  Foreground="{StaticResource QuietTextBrush}" TextWrapping="Wrap"
+                  Foreground="{DynamicResource QuietTextBrush}" TextWrapping="Wrap"
                   AutomationProperties.Name="Participant guidance" />
               <ItemsControl ItemsSource="{Binding Work.SelectedParticipants}">
                 <ItemsControl.ItemTemplate>
@@ -1381,7 +1457,7 @@
             </StackPanel>
           </Border>
 
-          <Border Margin="0,14,0,0" Padding="0,14,0,0" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0"
+          <Border Margin="0,14,0,0" Padding="0,14,0,0" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0"
               IsVisible="{Binding Work.ShowTaskContext}">
             <StackPanel Spacing="9">
               <TextBlock Classes="inspector-label" Text="TASK CONTEXT" />
@@ -1399,7 +1475,7 @@
                   IsVisible="{Binding Work.ShowTaskContextAction}"
                   Command="{Binding Work.ChangeTaskContextCommand}" IsEnabled="{Binding Work.CanChangeTaskContext}"
                   AutomationProperties.Name="{Binding Work.TaskContextActionLabel}" />
-              <TextBlock FontSize="11" Foreground="{StaticResource QuietTextBrush}" TextWrapping="Wrap"
+              <TextBlock FontSize="11" Foreground="{DynamicResource QuietTextBrush}" TextWrapping="Wrap"
                   IsVisible="{Binding Work.ShowTaskContextAction}"
                   Text="Context changes are immediate actions. Unsaved inspector edits are resolved first." />
             </StackPanel>
@@ -1410,7 +1486,7 @@
               Command="{Binding Work.DeleteCategoryCommand}" IsVisible="{Binding Work.ShowCategoryDelete}"
               AutomationProperties.AutomationId="category-delete" AutomationProperties.Name="Delete category" />
 
-          <Border Margin="0,22,0,0" Padding="0,14,0,0" BorderBrush="{StaticResource LineBrush}"
+          <Border Margin="0,22,0,0" Padding="0,14,0,0" BorderBrush="{DynamicResource LineBrush}"
               BorderThickness="0,1,0,0" IsVisible="{Binding Work.ShowMoveTaskToBin}">
             <StackPanel Spacing="8">
               <Button Classes="view-action" Content="Move Task to Bin"
@@ -1418,12 +1494,12 @@
                   AutomationProperties.AutomationId="task-move-to-bin"
                   AutomationProperties.Name="Move Task to Bin"
                   AutomationProperties.HelpText="Removes this Task from workspace views. You can restore it from Bin." />
-              <TextBlock FontSize="11" Foreground="{StaticResource QuietTextBrush}" TextWrapping="Wrap"
+              <TextBlock FontSize="11" Foreground="{DynamicResource QuietTextBrush}" TextWrapping="Wrap"
                   Text="This action is immediate and recoverable from Bin. Pending valid edits are saved first." />
             </StackPanel>
           </Border>
 
-          <Border Margin="0,22,0,0" Padding="0,14,0,0" BorderBrush="{StaticResource LineBrush}"
+          <Border Margin="0,22,0,0" Padding="0,14,0,0" BorderBrush="{DynamicResource LineBrush}"
               BorderThickness="0,1,0,0" IsVisible="{Binding Work.ShowMoveProjectToBin}">
             <StackPanel Spacing="8">
               <Button Classes="view-action" Content="Move Project to Bin"
@@ -1431,7 +1507,7 @@
                   AutomationProperties.AutomationId="project-move-to-bin"
                   AutomationProperties.Name="Move Project and its Tasks to Bin"
                   AutomationProperties.HelpText="Removes this Project and all its Tasks from workspace views as one recoverable aggregate." />
-              <TextBlock FontSize="11" Foreground="{StaticResource QuietTextBrush}" TextWrapping="Wrap"
+              <TextBlock FontSize="11" Foreground="{DynamicResource QuietTextBrush}" TextWrapping="Wrap"
                   Text="This action is immediate and recoverable as one aggregate from Bin. Pending valid edits are saved first." />
             </StackPanel>
           </Border>
@@ -1459,7 +1535,7 @@
       <StackPanel Width="470" Spacing="16" AutomationProperties.LiveSetting="Assertive">
         <StackPanel Spacing="5">
           <TextBlock Text="{Binding Work.DecisionHeading}" FontSize="20" FontWeight="Bold" />
-          <TextBlock Text="{Binding Work.DecisionBody}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding Work.DecisionBody}" Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap" />
         </StackPanel>
         <StackPanel Orientation="Horizontal" Spacing="12">
           <Button x:Name="GuardSave" Classes="primary-action" Content="{Binding Work.DecisionSaveLabel}" Command="{Binding Work.SaveAndLeaveCommand}" AutomationProperties.Name="{Binding Work.DecisionSaveLabel}" />
@@ -1472,7 +1548,7 @@
       <StackPanel Width="470" Spacing="16" AutomationProperties.LiveSetting="Assertive">
         <StackPanel Spacing="5">
           <TextBlock Text="{Binding Work.CategoryDeleteHeading}" FontSize="20" FontWeight="Bold" />
-          <TextBlock Text="This Category is in use. Choose the Category that will replace it for every Project, standalone Task, and override." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+          <TextBlock Text="This Category is in use. Choose the Category that will replace it for every Project, standalone Task, and override." Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap" />
         </StackPanel>
         <ComboBox x:Name="CategoryReplacement" Classes="inspector-field"
             ItemsSource="{Binding Work.CategoryReplacementChoices}" SelectedItem="{Binding Work.CategoryReplacement, Mode=TwoWay}"
@@ -1491,7 +1567,7 @@
       <StackPanel Width="470" Spacing="16" AutomationProperties.LiveSetting="Assertive">
         <StackPanel Spacing="5">
           <TextBlock Text="{Binding Work.ArchiveConfirmationHeading}" FontSize="20" FontWeight="Bold" />
-          <TextBlock Text="{Binding Work.ArchiveConfirmationBody}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding Work.ArchiveConfirmationBody}" Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap" />
         </StackPanel>
         <StackPanel Orientation="Horizontal" Spacing="12">
           <Button x:Name="ConfirmArchiveTaskButton" Classes="primary-action" Content="Archive task"
@@ -1508,7 +1584,7 @@
       <StackPanel Width="470" Spacing="16" AutomationProperties.LiveSetting="Assertive">
         <StackPanel Spacing="5">
           <TextBlock Text="{Binding Work.BulkArchiveConfirmationHeading}" FontSize="20" FontWeight="Bold" />
-          <TextBlock Text="{Binding Work.BulkArchiveConfirmationBody}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding Work.BulkArchiveConfirmationBody}" Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap" />
         </StackPanel>
         <StackPanel Orientation="Horizontal" Spacing="12">
           <Button x:Name="ConfirmBulkTaskArchiveButton" Classes="primary-action" Content="Archive Tasks"
@@ -1526,7 +1602,7 @@
       <StackPanel Width="540" Spacing="16" AutomationProperties.LiveSetting="Assertive">
         <StackPanel Spacing="5">
           <TextBlock Text="{Binding Work.EmptyBinConfirmationHeading}" FontSize="20" FontWeight="Bold" />
-          <TextBlock Text="{Binding Work.EmptyBinConfirmationBody}" Foreground="{StaticResource MutedTextBrush}"
+          <TextBlock Text="{Binding Work.EmptyBinConfirmationBody}" Foreground="{DynamicResource MutedTextBrush}"
               TextWrapping="Wrap" />
         </StackPanel>
         <StackPanel Orientation="Horizontal" Spacing="12">
@@ -1544,7 +1620,7 @@
       <StackPanel Width="500" Spacing="16" AutomationProperties.LiveSetting="Assertive">
         <StackPanel Spacing="5">
           <TextBlock Text="Choose the Task category" FontSize="20" FontWeight="Bold" />
-          <TextBlock Text="The Task and destination Project use different Categories. Choose deliberately; dot-orbit will not recategorise the Task silently." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+          <TextBlock Text="The Task and destination Project use different Categories. Choose deliberately; dot-orbit will not recategorise the Task silently." Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap" />
         </StackPanel>
         <StackPanel Orientation="Horizontal" Spacing="12">
           <Button x:Name="PreserveTaskCategory" Classes="primary-action" Content="{Binding Work.PreserveCategoryLabel}" Command="{Binding Work.PreserveTaskCategoryCommand}" AutomationProperties.Name="{Binding Work.PreserveCategoryLabel}" />
