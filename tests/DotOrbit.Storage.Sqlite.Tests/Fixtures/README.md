@@ -2,7 +2,7 @@
 
 `portable-current-v13.dotorbit-recovery` is a synthetic encrypted workspace used to prove that the same recovery bytes reopen and restore through every supported runtime package job.
 
-- Generated on 2026-10-06 from the issue #51 schema-13 candidate with the production sample-workspace generator on macOS arm64.
+- Generated on 2026-10-06 from commit `786c2319a52f360422887fd434d7768e91c5e0ea` with the production sample-workspace generator on macOS arm64.
 - Anchor date: `2030-04-05`.
 - Public test-only passphrase: `dot-orbit sample only`.
 - SHA-256: `6141f60c4fa5f8bd23b2336b6b217adc72e227966b8626c7e994496c2f4c1852`.
