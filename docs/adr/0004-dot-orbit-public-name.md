@@ -14,4 +14,4 @@ Use `dot-orbit` as the public product and repository name. Use `DotOrbit` for .N
 ## Consequences
 
 - User-facing text, documentation, repository metadata, and future distribution listings use `dot-orbit` consistently.
-- Storage and backup extensions should use a distinctive `dotorbit`-derived stem rather than the generic `.orbit` suffix.
+- The live encrypted workspace uses the concise `.orb` extension. This is an intentional dot-orbit abbreviation rather than a claim of global uniqueness: niche third-party uses already exist, and dot-orbit does not define or register a new media type in this slice. Portable recovery files keep the distinctive `.dotorbit-recovery` suffix so a recovery point cannot be mistaken for the live workspace.

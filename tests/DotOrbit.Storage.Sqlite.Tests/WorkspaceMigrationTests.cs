@@ -957,6 +957,9 @@ public sealed class WorkspaceMigrationTests
 
         public void Copy(string sourcePath, string candidatePath) =>
             _inner.Copy(sourcePath, candidatePath);
+        public void CreateHardLink(string existingPath, string linkPath) =>
+            _inner.CreateHardLink(existingPath, linkPath);
+        public string ComputeSha256(string path) => _inner.ComputeSha256(path);
         public void Flush(string path) => _inner.Flush(path);
         public void Replace(string candidatePath, string targetPath) =>
             _inner.Replace(candidatePath, targetPath);

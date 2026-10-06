@@ -10,6 +10,7 @@ using Avalonia.VisualTree;
 using DotOrbit.Core.Workspaces;
 using DotOrbit.Desktop.ViewModels;
 using DotOrbit.Desktop.Views;
+using DotOrbit.Storage.Sqlite;
 using Xunit;
 
 namespace DotOrbit.Desktop.Tests;
@@ -23,9 +24,9 @@ public sealed class WorkspaceAccessWindowTests
 
         _ = new WorkspaceAccessWindow(
             store,
-            new StubWorkspacePathProvider("/platform-data/dot-orbit/workspace.db"));
+            new StubWorkspacePathProvider("/platform-data/dot-orbit/workspace.orb"));
 
-        Assert.Equal("/platform-data/dot-orbit/workspace.db", store.LastExistsPath);
+        Assert.Equal("/platform-data/dot-orbit/workspace.orb", store.LastExistsPath);
     }
 
     [AvaloniaFact]
@@ -147,6 +148,39 @@ public sealed class WorkspaceAccessWindowTests
         Assert.True(passphrase.IsFocused);
     }
 
+    [AvaloniaFact]
+    public void BlockedStartupIsAssertivelyAnnouncedWithNoEnabledWorkspaceActions()
+    {
+        var store = new StubWorkspaceStore(exists: true);
+        var viewModel = new WorkspaceAccessViewModel(
+            store,
+            new DefaultWorkspaceResolution(
+                DefaultWorkspaceResolutionStatus.Conflict,
+                "/private/user/workspace.orb"),
+            _ => { });
+        var window = new WorkspaceAccessWindow(viewModel);
+        window.Show();
+
+        var message = Assert.IsType<TextBlock>(
+            window.FindControl<TextBlock>("WorkspaceResolutionMessage"));
+        var passphrase = Assert.IsType<TextBox>(
+            window.FindControl<TextBox>("PassphraseTextBox"));
+        var reveal = Assert.IsType<ToggleButton>(
+            window.FindControl<ToggleButton>("PassphraseVisibilityToggle"));
+        var submit = Assert.IsType<Button>(window.FindControl<Button>("SubmitButton"));
+
+        Assert.True(message.IsVisible);
+        Assert.Equal(AutomationLiveSetting.Assertive, AutomationProperties.GetLiveSetting(message));
+        Assert.Equal("Workspace startup blocked", AutomationProperties.GetName(message));
+        Assert.DoesNotContain("/private", message.Text, StringComparison.Ordinal);
+        Assert.False(passphrase.IsVisible);
+        Assert.False(reveal.IsVisible);
+        Assert.False(submit.IsVisible);
+        Assert.False(viewModel.SubmitCommand.CanExecute(null));
+        Assert.False(viewModel.TogglePassphraseVisibilityCommand.CanExecute(null));
+        Assert.False(viewModel.RestoreMigrationRecoveryCommand.CanExecute(null));
+    }
+
     private static WorkspaceAccessWindow CreateWindow(bool exists) =>
         new(new WorkspaceAccessViewModel(
             new StubWorkspaceStore(exists),
@@ -182,5 +216,8 @@ public sealed class WorkspaceAccessWindowTests
     private sealed class StubWorkspacePathProvider(string path) : IWorkspacePathProvider
     {
         public string GetDefaultWorkspacePath() => path;
+
+        public DefaultWorkspaceResolution ResolveDefaultWorkspace() =>
+            DefaultWorkspaceResolution.Ready(path);
     }
 }

@@ -35,7 +35,9 @@ xvfb-run --auto-servernum --auth-file=artifacts/package-smoke/linux-x64/dot-orbi
 ./artifacts/package-smoke/win-x64/dot-orbit.exe --package-smoke
 ```
 
-The package smoke creates a synthetic encrypted SQLite3MC workspace in a temporary directory, closes it, reopens and validates it, restores the external portable recovery fixture when `DOTORBIT_PACKAGE_SMOKE_RECOVERY` names it, removes the temporary workspace, then exercises the real Avalonia Today-to-Archive keyboard journey and closes cleanly. Its diagnostics contain fixed phase and result metadata only.
+The package smoke creates a synthetic encrypted SQLite3MC `workspace.orb` in a temporary directory, closes it, reopens and validates it, restores the external portable recovery fixture when `DOTORBIT_PACKAGE_SMOKE_RECOVERY` names it, removes the temporary workspace, then exercises the real Avalonia Today-to-Archive keyboard journey and closes cleanly. Its diagnostics contain fixed phase and result metadata only.
+
+These packages are portable archives rather than installers or platform application bundles. They have no installation hook or package identity with which to register the `.orb` file association, so opening a workspace by double-clicking it is not part of this packaging slice. No cosmetic MIME metadata is included in the archive.
 
 Before packaging, every runtime job restores the same checked-in synthetic encrypted recovery fixture through the storage integration test. After packaging, the extracted self-contained app restores those identical external bytes again through its bundled runtime before continuing the native UI journey. This proves Windows x64, Linux x64, macOS x64, and macOS arm64 compatibility rather than only proving separate same-host databases. The fixture is not included in the release archive; its provenance, public test-only passphrase, and pinned digest are recorded beside it under `tests/DotOrbit.Storage.Sqlite.Tests/Fixtures`.
 

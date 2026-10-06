@@ -61,7 +61,7 @@ internal sealed record SampleWorkspaceOptions(string OutputPath, DateOnly Anchor
         {
             var repositoryRoot = FindRepositoryRoot(currentDirectory);
             resolvedOutput = outputPath is null
-                ? Path.Combine(repositoryRoot, "artifacts", "sample-workspace", "workspace.db")
+                ? Path.Combine(repositoryRoot, "artifacts", "sample-workspace", "workspace.orb")
                 : Path.GetFullPath(outputPath, currentDirectory);
         }
         return new(resolvedOutput, anchorDate ?? currentDate);

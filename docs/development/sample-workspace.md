@@ -8,7 +8,7 @@ From the repository root, run:
 dotnet run --project tools/DotOrbit.SampleWorkspace/DotOrbit.SampleWorkspace.csproj
 ```
 
-The default output is `artifacts/sample-workspace/workspace.db`, which is ignored by Git. Unlock it in dot-orbit with the public development phrase:
+The default output is `artifacts/sample-workspace/workspace.orb`, which is ignored by Git. Unlock it in dot-orbit with the public development phrase:
 
 ```text
 dot-orbit sample only
@@ -28,7 +28,7 @@ Use a different output file or a fixed date when repeatable date labels and scre
 
 ```sh
 dotnet run --project tools/DotOrbit.SampleWorkspace/DotOrbit.SampleWorkspace.csproj -- \
-  --output local-data/sample-workspace/workspace.db \
+  --output local-data/sample-workspace/workspace.orb \
   --anchor-date 2030-04-05
 ```
 

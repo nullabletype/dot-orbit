@@ -5,6 +5,8 @@ namespace DotOrbit.Desktop;
 internal interface IWorkspacePathProvider
 {
     string GetDefaultWorkspacePath();
+
+    DefaultWorkspaceResolution ResolveDefaultWorkspace();
 }
 
 internal sealed class SystemWorkspacePathProvider : IWorkspacePathProvider
@@ -60,11 +62,16 @@ internal sealed class SystemWorkspacePathProvider : IWorkspacePathProvider
             repositoryRoot,
             "artifacts",
             "sample-workspace",
-            "workspace.db"));
+            "workspace.orb"));
     }
 
     public string GetDefaultWorkspacePath() =>
         _workspacePath ?? WorkspacePathDefaults.GetDefaultWorkspacePath();
+
+    public DefaultWorkspaceResolution ResolveDefaultWorkspace() =>
+        _workspacePath is null
+            ? WorkspacePathDefaults.ResolveDefaultWorkspace()
+            : DefaultWorkspaceResolution.Ready(_workspacePath);
 
     private static string? FindRepositoryRoot(string currentDirectory)
     {

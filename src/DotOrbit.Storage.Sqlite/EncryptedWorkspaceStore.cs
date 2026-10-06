@@ -493,6 +493,76 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         }
     }
 
+    internal DefaultWorkspaceResolutionStatus ExecuteValidatedAdoption(
+        string workspacePath,
+        WorkspacePassphrase passphrase,
+        Func<SqliteConnection, DefaultWorkspaceResolutionStatus> transition,
+        Func<DefaultWorkspaceResolutionStatus>? afterRollback = null)
+    {
+        ArgumentNullException.ThrowIfNull(transition);
+        try
+        {
+            using var connection = OpenConnection(
+                _fileOperations.ResolvePath(workspacePath),
+                passphrase,
+                SqliteOpenMode.ReadWrite,
+                defaultTimeoutSeconds: 1);
+            using (var busyTimeout = connection.CreateCommand())
+            {
+                busyTimeout.CommandText = "PRAGMA busy_timeout = 0;";
+                busyTimeout.ExecuteNonQuery();
+            }
+            ConfigureConnection(connection);
+            using (var lockingMode = connection.CreateCommand())
+            {
+                lockingMode.CommandText = "PRAGMA locking_mode = EXCLUSIVE;";
+                if (!string.Equals(
+                        lockingMode.ExecuteScalar() as string,
+                        "exclusive",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return DefaultWorkspaceResolutionStatus.Failed;
+                }
+            }
+
+            using (var begin = connection.CreateCommand())
+            {
+                begin.CommandText = "BEGIN EXCLUSIVE;";
+                begin.ExecuteNonQuery();
+            }
+
+            var status = InspectWorkspace(connection).Status == WorkspaceInspectionStatus.Valid
+                ? transition(connection)
+                : DefaultWorkspaceResolutionStatus.Failed;
+            using var rollback = connection.CreateCommand();
+            rollback.CommandText = "ROLLBACK;";
+            rollback.ExecuteNonQuery();
+            if (status == DefaultWorkspaceResolutionStatus.Ready
+                && afterRollback is not null)
+            {
+                // EXCLUSIVE locking mode retains the database lock until this connection closes.
+                status = afterRollback();
+            }
+            return status;
+        }
+        catch (SqliteException)
+        {
+            return DefaultWorkspaceResolutionStatus.Failed;
+        }
+        catch (InvalidDataException)
+        {
+            return DefaultWorkspaceResolutionStatus.Failed;
+        }
+        catch (IOException)
+        {
+            return DefaultWorkspaceResolutionStatus.Failed;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return DefaultWorkspaceResolutionStatus.Failed;
+        }
+    }
+
     private IWorkspaceSession? ReopenSession(
         string workspacePath,
         WorkspacePassphrase passphrase)
@@ -531,7 +601,8 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
     internal static SqliteConnection OpenConnection(
         string path,
         WorkspacePassphrase passphrase,
-        SqliteOpenMode mode) =>
+        SqliteOpenMode mode,
+        int? defaultTimeoutSeconds = null) =>
         passphrase.Use(value =>
         {
             var databaseUri = new Uri(path).AbsoluteUri + "?" + CipherQuery;
@@ -543,6 +614,10 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
                 Password = value,
             };
             var connection = new SqliteConnection(builder.ConnectionString);
+            if (defaultTimeoutSeconds is { } timeout)
+            {
+                connection.DefaultTimeout = timeout;
+            }
             try
             {
                 connection.Open();

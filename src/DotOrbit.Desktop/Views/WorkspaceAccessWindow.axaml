@@ -55,6 +55,15 @@
             TextWrapping="Wrap" />
 
         <TextBlock
+            x:Name="WorkspaceResolutionMessage"
+            AutomationProperties.LiveSetting="Assertive"
+            AutomationProperties.Name="Workspace startup blocked"
+            Foreground="{DynamicResource ErrorBrush}"
+            IsVisible="{Binding IsBlocked}"
+            Text="{Binding BlockingMessage}"
+            TextWrapping="Wrap" />
+
+        <TextBlock
             IsVisible="{Binding IsCreateMode}"
             Text="First Category" />
         <TextBox
@@ -66,11 +75,15 @@
             Text="{Binding FirstCategoryName, Mode=TwoWay}"
             PlaceholderText="For example, Personal Admin" />
 
-        <TextBlock Margin="0,6,0,0" Text="Passphrase" />
+        <TextBlock
+            Margin="0,6,0,0"
+            IsVisible="{Binding IsWorkspaceAccessAvailable}"
+            Text="Passphrase" />
         <TextBox
             x:Name="PassphraseTextBox"
             AutomationProperties.HelpText="Paste or type a passphrase. Password-manager generated values are supported."
             AutomationProperties.Name="Passphrase"
+            IsVisible="{Binding IsWorkspaceAccessAvailable}"
             PasswordChar="{Binding PasswordCharacter}"
             TabIndex="1"
             Text="{Binding Passphrase, Mode=TwoWay}" />
@@ -93,6 +106,7 @@
             AutomationProperties.HelpText="Change whether the passphrase fields display their text."
             AutomationProperties.Name="{Binding PassphraseVisibilityActionName}"
             Command="{Binding TogglePassphraseVisibilityCommand}"
+            IsVisible="{Binding IsWorkspaceAccessAvailable}"
             IsChecked="{Binding IsPassphraseVisible, Mode=OneWay}"
             TabIndex="3">
           <TextBlock Text="{Binding PassphraseVisibilityActionName}" />
@@ -147,6 +161,7 @@
             HorizontalContentAlignment="Center"
             AutomationProperties.Name="{Binding SubmitActionName}"
             Command="{Binding SubmitCommand}"
+            IsVisible="{Binding IsWorkspaceAccessAvailable}"
             IsDefault="True"
             TabIndex="5">
           <TextBlock Text="{Binding SubmitActionName}" />

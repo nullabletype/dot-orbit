@@ -69,6 +69,29 @@ public sealed class EncryptedWorkspaceStoreTests
     }
 
     [Fact]
+    public void OpenAcceptsValidEncryptedContentWithAnArbitraryFileName()
+    {
+        using var fixture = new WorkspaceFixture("personal-notes.data");
+        CreateAndClose(fixture, "Home");
+
+        var result = fixture.Store.Open(fixture.Path, UnlockPassphrase(ValidPassphrase));
+        using var session = result.Session;
+
+        Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
+        Assert.NotNull(session);
+        Assert.Equal("Home", session.FirstCategoryName);
+    }
+
+    [Fact]
+    public void OpenRejectsInvalidContentWithTheOrbExtensionWithoutChangingIt()
+    {
+        using var fixture = new WorkspaceFixture("workspace.orb");
+        File.WriteAllText(fixture.Path, "not an encrypted workspace");
+
+        AssertInvalidOpenLeavesBytesUnchanged(fixture, UnlockPassphrase(ValidPassphrase));
+    }
+
+    [Fact]
     public void CreateNeverReplacesAnExistingWorkspace()
     {
         using var fixture = new WorkspaceFixture();
@@ -288,13 +311,13 @@ public sealed class EncryptedWorkspaceStoreTests
 
     private sealed class WorkspaceFixture : IDisposable
     {
-        public WorkspaceFixture()
+        public WorkspaceFixture(string fileName = "workspace.db")
         {
             Directory = System.IO.Path.Combine(
                 System.IO.Path.GetTempPath(),
                 $"dot-orbit-tests-{Guid.NewGuid():N}");
             System.IO.Directory.CreateDirectory(Directory);
-            Path = System.IO.Path.Combine(Directory, "workspace.db");
+            Path = System.IO.Path.Combine(Directory, fileName);
         }
 
         public string Directory { get; }
@@ -333,6 +356,11 @@ public sealed class EncryptedWorkspaceStoreTests
 
         public void Copy(string sourcePath, string candidatePath) =>
             _inner.Copy(sourcePath, candidatePath);
+
+        public void CreateHardLink(string existingPath, string linkPath) =>
+            _inner.CreateHardLink(existingPath, linkPath);
+
+        public string ComputeSha256(string path) => _inner.ComputeSha256(path);
 
         public void Flush(string path) => _inner.Flush(path);
 

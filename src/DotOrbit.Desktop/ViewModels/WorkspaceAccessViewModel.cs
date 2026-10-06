@@ -2,17 +2,29 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using DotOrbit.Core.Workspaces;
+using DotOrbit.Storage.Sqlite;
 
 namespace DotOrbit.Desktop.ViewModels;
 
 public sealed class WorkspaceAccessViewModel : INotifyPropertyChanged
 {
+    private const string AdoptionConflictMessage =
+        "dot-orbit found both workspace.db and workspace.orb, or conflicting companion files, in its local application-data folder. It left them unchanged. Close every dot-orbit instance and keep every file. After identifying the complete workspace file set to preserve, move the other complete set to a separate backup folder without deleting or merging files, then reopen dot-orbit.";
+
+    private const string AdoptionFailureMessage =
+        "dot-orbit could not safely finish adopting workspace.db as workspace.orb in its local application-data folder. It did not overwrite a workspace. Close dot-orbit, keep every file, check folder access, and try again.";
+
     private readonly Action<IWorkspaceSession> _workspaceOpened;
     private readonly string _workspacePath;
     private readonly IWorkspaceStore _workspaceStore;
+    private readonly RelayCommand _restoreMigrationRecoveryCommand;
+    private readonly RelayCommand _submitCommand;
+    private readonly RelayCommand _togglePassphraseVisibilityCommand;
+    private string _blockingMessage = string.Empty;
     private string _confirmation = string.Empty;
     private string _firstCategoryName = string.Empty;
     private bool _isPassphraseVisible;
+    private bool _isBlocked;
     private WorkspacePassphrase? _migrationPassphrase;
     private string? _migrationRecoveryPointPath;
     private string _passphrase = string.Empty;
@@ -22,18 +34,43 @@ public sealed class WorkspaceAccessViewModel : INotifyPropertyChanged
         IWorkspaceStore workspaceStore,
         string workspacePath,
         Action<IWorkspaceSession> workspaceOpened)
+        : this(
+            workspaceStore,
+            DefaultWorkspaceResolution.Ready(workspacePath),
+            workspaceOpened)
+    {
+    }
+
+    public WorkspaceAccessViewModel(
+        IWorkspaceStore workspaceStore,
+        DefaultWorkspaceResolution workspaceResolution,
+        Action<IWorkspaceSession> workspaceOpened)
     {
         ArgumentNullException.ThrowIfNull(workspaceStore);
-        ArgumentException.ThrowIfNullOrWhiteSpace(workspacePath);
+        ArgumentNullException.ThrowIfNull(workspaceResolution);
+        ArgumentException.ThrowIfNullOrWhiteSpace(workspaceResolution.WorkspacePath);
         ArgumentNullException.ThrowIfNull(workspaceOpened);
 
         _workspaceStore = workspaceStore;
-        _workspacePath = workspacePath;
+        _workspacePath = workspaceResolution.WorkspacePath;
         _workspaceOpened = workspaceOpened;
-        IsCreateMode = !_workspaceStore.Exists(_workspacePath);
-        SubmitCommand = new RelayCommand(Submit);
-        RestoreMigrationRecoveryCommand = new RelayCommand(RestoreMigrationRecovery);
-        TogglePassphraseVisibilityCommand = new RelayCommand(TogglePassphraseVisibility);
+        _isBlocked = workspaceResolution.Status != DefaultWorkspaceResolutionStatus.Ready;
+        _blockingMessage = workspaceResolution.Status switch
+        {
+            DefaultWorkspaceResolutionStatus.Conflict =>
+                AdoptionConflictMessage,
+            DefaultWorkspaceResolutionStatus.Failed =>
+                AdoptionFailureMessage,
+            _ => string.Empty,
+        };
+        IsCreateMode = !IsBlocked && !_workspaceStore.Exists(_workspacePath);
+        _submitCommand = new RelayCommand(Submit, () => !IsBlocked);
+        _restoreMigrationRecoveryCommand = new RelayCommand(
+            RestoreMigrationRecovery,
+            () => !IsBlocked);
+        _togglePassphraseVisibilityCommand = new RelayCommand(
+            TogglePassphraseVisibility,
+            () => !IsBlocked);
     }
 
     public event EventHandler? PassphraseFocusRequested;
@@ -42,13 +79,25 @@ public sealed class WorkspaceAccessViewModel : INotifyPropertyChanged
 
     public bool IsCreateMode { get; }
 
-    public bool IsUnlockMode => !IsCreateMode;
+    public bool IsUnlockMode => !IsBlocked && !IsCreateMode;
 
-    public string Heading => IsCreateMode ? "Create your workspace" : "Unlock your workspace";
+    public bool IsBlocked => _isBlocked;
 
-    public string Intro => IsCreateMode
-        ? "Create one encrypted local workspace and name the first Category that will organise your work."
-        : "Enter your passphrase to open the encrypted local workspace.";
+    public bool IsWorkspaceAccessAvailable => !IsBlocked;
+
+    public string BlockingMessage => _blockingMessage;
+
+    public string Heading => IsBlocked
+        ? "Workspace needs attention"
+        : IsCreateMode
+            ? "Create your workspace"
+            : "Unlock your workspace";
+
+    public string Intro => IsBlocked
+        ? "Startup stopped before dot-orbit created or opened storage."
+        : IsCreateMode
+            ? "Create one encrypted local workspace and name the first Category that will organise your work."
+            : "Enter your passphrase to open the encrypted local workspace.";
 
     public string SubmitActionName => IsCreateMode ? "Create workspace" : "Unlock workspace";
 
@@ -105,11 +154,11 @@ public sealed class WorkspaceAccessViewModel : INotifyPropertyChanged
     public bool CanRestoreMigrationRecovery =>
         _migrationPassphrase is not null && _migrationRecoveryPointPath is not null;
 
-    public ICommand RestoreMigrationRecoveryCommand { get; }
+    public ICommand RestoreMigrationRecoveryCommand => _restoreMigrationRecoveryCommand;
 
-    public ICommand SubmitCommand { get; }
+    public ICommand SubmitCommand => _submitCommand;
 
-    public ICommand TogglePassphraseVisibilityCommand { get; }
+    public ICommand TogglePassphraseVisibilityCommand => _togglePassphraseVisibilityCommand;
 
     private void Submit()
     {
@@ -191,6 +240,12 @@ public sealed class WorkspaceAccessViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(CanRestoreMigrationRecovery));
         }
 
+        if (result.Status is WorkspaceOpenStatus.AdoptionConflict or WorkspaceOpenStatus.AdoptionFailed)
+        {
+            BlockWorkspaceAccess(result.Status);
+            return;
+        }
+
         ValidationMessage = result.Status switch
         {
             WorkspaceOpenStatus.UnsupportedSchema =>
@@ -203,6 +258,24 @@ public sealed class WorkspaceAccessViewModel : INotifyPropertyChanged
         };
         Passphrase = string.Empty;
         PassphraseFocusRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void BlockWorkspaceAccess(WorkspaceOpenStatus status)
+    {
+        Passphrase = string.Empty;
+        _isBlocked = true;
+        _blockingMessage = status == WorkspaceOpenStatus.AdoptionConflict
+            ? AdoptionConflictMessage
+            : AdoptionFailureMessage;
+        OnPropertyChanged(nameof(IsBlocked));
+        OnPropertyChanged(nameof(IsWorkspaceAccessAvailable));
+        OnPropertyChanged(nameof(IsUnlockMode));
+        OnPropertyChanged(nameof(Heading));
+        OnPropertyChanged(nameof(Intro));
+        OnPropertyChanged(nameof(BlockingMessage));
+        _submitCommand.RaiseCanExecuteChanged();
+        _restoreMigrationRecoveryCommand.RaiseCanExecuteChanged();
+        _togglePassphraseVisibilityCommand.RaiseCanExecuteChanged();
     }
 
     private void RestoreMigrationRecovery()
