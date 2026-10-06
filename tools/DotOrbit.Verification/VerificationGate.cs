@@ -331,6 +331,25 @@ internal sealed class VerificationGate(
         int expectedExitCode,
         string expectedDiagnostic)
     {
+        var request = CreateSmokeRequest(
+            workingDirectory,
+            argument,
+            OperatingSystem.IsLinux());
+
+        return new VerificationPhase(
+            name,
+            request,
+            result => !result.TimedOut
+                && result.ExitCode == expectedExitCode
+                && string.Concat(result.StandardOutput, result.StandardError)
+                    .Contains(expectedDiagnostic, StringComparison.Ordinal));
+    }
+
+    internal static ProcessRequest CreateSmokeRequest(
+        string workingDirectory,
+        string argument,
+        bool isLinux)
+    {
         string[] dotnetArguments =
         [
             "run",
@@ -342,27 +361,26 @@ internal sealed class VerificationGate(
             "--",
             argument,
         ];
-        ProcessRequest request;
-        if (OperatingSystem.IsLinux())
+        if (isLinux)
         {
-            request = new ProcessRequest(
+            var authenticationFile = Path.Combine(
+                workingDirectory,
+                "src",
+                "DotOrbit.Desktop",
+                "obj",
+                "dot-orbit-xvfb.auth");
+            return new ProcessRequest(
                 "xvfb-run",
-                ["--auto-servernum", "dotnet", .. dotnetArguments],
+                ["--auto-servernum", $"--auth-file={authenticationFile}", "dotnet", .. dotnetArguments],
                 SmokeTimeout,
                 WorkingDirectory: workingDirectory);
         }
-        else
-        {
-            request = new ProcessRequest("dotnet", dotnetArguments, SmokeTimeout, WorkingDirectory: workingDirectory);
-        }
 
-        return new VerificationPhase(
-            name,
-            request,
-            result => !result.TimedOut
-                && result.ExitCode == expectedExitCode
-                && string.Concat(result.StandardOutput, result.StandardError)
-                    .Contains(expectedDiagnostic, StringComparison.Ordinal));
+        return new ProcessRequest(
+            "dotnet",
+            dotnetArguments,
+            SmokeTimeout,
+            WorkingDirectory: workingDirectory);
     }
 
     private sealed record VerificationPhase(
