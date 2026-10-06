@@ -943,7 +943,7 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
-    public void SettingsParticipantAndRecoveryControlsFollowLogicalKeyboardTabOrder()
+    public void SettingsParticipantExportAndRecoveryControlsFollowLogicalKeyboardTabOrder()
     {
         using var session = new RecoveryViewModelTests.StubWorkspaceSession(
             new RecoveryViewModelTests.StubWorkspaceRecovery());
@@ -975,6 +975,8 @@ public sealed class ProjectCaptureWindowTests
         Assert.True(rename.IsKeyboardFocusWithin);
         Tab(window);
         Assert.True(ButtonByAutomationId(window, $"settings-participant-delete-{participant.Id}").IsKeyboardFocusWithin);
+        Tab(window);
+        Assert.True(window.FindControl<Button>("SettingsPlaintextExportButton")!.IsKeyboardFocusWithin);
         Tab(window);
         Assert.True(window.FindControl<Button>("SettingsRecoveryButton")!.IsKeyboardFocusWithin);
         window.Close();

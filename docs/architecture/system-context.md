@@ -8,7 +8,7 @@ flowchart LR
     Desktop --> Core[DotOrbit.Core<br/>domain and application capabilities]
     Desktop --> Storage[DotOrbit.Storage.Sqlite<br/>production adapter]
     Desktop --> Markdown[DotOrbit.Markdown<br/>sanitised render model]
-    Desktop --> Export[Explicit plaintext export adapter]
+    Desktop --> Export[DotOrbit.Export.Json<br/>versioned plaintext export adapter]
     Storage --> Core
     Storage --> Markdown
     Export --> Core
@@ -23,7 +23,8 @@ flowchart LR
 - **`DotOrbit.Core`** contains capability-oriented domain and application slices. It depends only on the .NET base class libraries and owns the interfaces required from persistence and other I/O.
 - **`DotOrbit.Storage.Sqlite`** implements the encrypted persistence interface, migrations, search, and recovery behaviour. It depends on `DotOrbit.Core`.
 - **`DotOrbit.Markdown`** owns the single sanitised Markdown render model and plain-text projection used by preview, clipboard, and archive search.
-- **`DotOrbit.Desktop`** contains Avalonia views, view models, desktop integration, and the composition root. It references `DotOrbit.Core` and wires `DotOrbit.Storage.Sqlite` into the application.
+- **`DotOrbit.Export.Json`** maps one transactional workspace snapshot to the documented, deterministic plaintext JSON contract and atomically publishes it to the selected local file. It depends only on `DotOrbit.Core` and owns no file picker, recovery path, schedule, or database access.
+- **`DotOrbit.Desktop`** contains Avalonia views, view models, desktop integration, and the composition root. It owns destination selection, passes the selected local path to the export adapter, and wires production adapters into the application.
 - **Markdown and plaintext export adapters** are consumed at the desktop, persistence, or application edge. They may depend inward on core-owned contracts, but `DotOrbit.Core` remains BCL-only and never depends on a Markdown parser, renderer, or output adapter.
 - **Tests** align with the production projects: core unit tests, SQLite3MC integration tests using real temporary encrypted databases, and focused desktop tests plus supported-runtime verification.
 
@@ -36,7 +37,7 @@ No production module depends on the desktop presentation module. A future mobile
 - **Persistence** is a core-owned seam implemented by the SQLite3MC adapter. It stores records and every independent ordering scope atomically without exposing SQL records or query providers to callers.
 - **Encrypted store lifecycle** owns creation, opening, validation, migration, passphrase rotation, and closing while hiding cipher and key-derivation configuration from callers.
 - **Recovery** automatically creates encrypted, validated, cross-platform recovery points without a plaintext intermediate copy. Its destination is a user-selected filesystem directory that may be managed by an external sync service.
-- **Plaintext export** is a separate, explicit manual operation to a user-selected JSON file. It is unencrypted, does not use automatic-backup retention, and does not default to the configured recovery directory.
+- **Plaintext export** is a separate, explicit manual operation to a user-selected JSON file. It is unencrypted, follows the [versioned public contract](../data/plaintext-export-v1.md), does not use automatic-backup retention, and does not default to the configured recovery directory.
 - **Synchronisation** is outside the first-release system boundary. A synced backup folder does not provide live record synchronisation or conflict resolution.
 - **Interchange** is not part of the current implementation graph and is not scaffolded in advance. A future tool-neutral adapter may depend inward on core-owned application interfaces for explicitly copying a generated planning prompt or active-work snapshot and importing untrusted change proposals through validation, preview, and explicit approval. Transcript parsing, file access, and AI-provider integration remain outside the application boundary.
 - **Markdown** treats all source as untrusted and produces one sanitised render model for preview, rich clipboard output, archive-search text, and plain-text fallback. Raw HTML and automatic remote-image loading are disabled.

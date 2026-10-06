@@ -1,0 +1,127 @@
+<Window
+    x:Class="DotOrbit.Desktop.Views.PlaintextExportWindow"
+    x:DataType="vm:PlaintextExportViewModel"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:DotOrbit.Desktop.ViewModels"
+    Title="dot-orbit plaintext export"
+    Width="620"
+    Height="720"
+    MinWidth="560"
+    MinHeight="650"
+    Background="{DynamicResource BackgroundBrush}"
+    WindowStartupLocation="CenterOwner">
+  <ScrollViewer>
+    <StackPanel Margin="36" Spacing="14">
+      <TextBlock Classes="eyebrow" Text="PLAINTEXT EXPORT" />
+      <TextBlock FontSize="28" FontWeight="Bold" Text="Export workspace JSON" />
+      <TextBlock
+          Foreground="{DynamicResource MutedTextBrush}"
+          LineHeight="21"
+          Text="Create a versioned JSON document for use outside dot-orbit. Export is manual and separate from encrypted recovery."
+          TextWrapping="Wrap" />
+
+      <Border Classes="list-panel" Margin="0,8,0,0">
+        <StackPanel Spacing="6">
+          <TextBlock FontWeight="SemiBold" Text="Export scope" />
+          <TextBlock Text="{Binding CategoryScopeText}" />
+          <TextBlock Text="{Binding ParticipantScopeText}" />
+          <TextBlock Text="{Binding ProjectScopeText}" />
+          <TextBlock Text="{Binding TaskScopeText}" />
+          <TextBlock
+              Foreground="{DynamicResource MutedTextBrush}"
+              Text="Includes relationships, ordering, Today placement, and current completion values. Bin contents are excluded."
+              TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
+
+      <Border
+          x:Name="PlaintextWarning"
+          Classes="attention-panel"
+          AutomationProperties.Name="Unencrypted export warning">
+        <StackPanel Spacing="5">
+          <TextBlock FontWeight="SemiBold" Text="This export is not encrypted" />
+          <TextBlock
+              Text="Anyone who can open the selected JSON file can read its workspace content. Store and share it accordingly."
+              TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
+
+      <TextBlock Margin="0,6,0,0" FontWeight="SemiBold" Text="Destination" />
+      <TextBlock
+          Foreground="{DynamicResource MutedTextBrush}"
+          Text="Choose the output explicitly. dot-orbit never defaults plaintext export to the automatic recovery directory."
+          TextWrapping="Wrap" />
+      <Button
+          x:Name="SelectPlaintextExportDestinationButton"
+          HorizontalAlignment="Left"
+          AutomationProperties.Name="Choose plaintext export destination"
+          Click="OnSelectDestination"
+          TabIndex="0">
+        Choose destination…
+      </Button>
+      <TextBlock
+          x:Name="PlaintextExportDestinationText"
+          AutomationProperties.Name="{Binding DestinationAccessibleName}"
+          Foreground="{DynamicResource MutedTextBrush}"
+          IsVisible="{Binding HasDestination}"
+          Text="{Binding DestinationName}"
+          TextWrapping="Wrap" />
+      <Button
+          x:Name="RequestPlaintextExportButton"
+          HorizontalAlignment="Left"
+          AutomationProperties.Name="Export to selected location, confirmation required"
+          Command="{Binding RequestExportCommand}"
+          TabIndex="1">
+        Export to selected location…
+      </Button>
+
+      <Border
+          x:Name="PlaintextExportConfirmationPanel"
+          Classes="attention-panel"
+          AutomationProperties.LiveSetting="Assertive"
+          AutomationProperties.Name="Unencrypted export confirmation"
+          IsVisible="{Binding IsConfirmationVisible}">
+        <StackPanel Spacing="10">
+          <TextBlock FontWeight="SemiBold" Text="Save an unencrypted copy?" />
+          <TextBlock
+              Text="Confirm only if the selected destination is appropriate for readable workspace content."
+              TextWrapping="Wrap" />
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <Button
+                x:Name="ConfirmPlaintextExportButton"
+                AutomationProperties.Name="Confirm unencrypted workspace export"
+                Click="OnConfirmExport"
+                TabIndex="2">
+              Export unencrypted JSON
+            </Button>
+            <Button
+                x:Name="CancelPlaintextExportButton"
+                AutomationProperties.Name="Cancel plaintext export"
+                Command="{Binding CancelExportCommand}"
+                TabIndex="3">
+              Do not export
+            </Button>
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
+      <TextBlock
+          x:Name="PlaintextExportStatusMessage"
+          AutomationProperties.LiveSetting="Assertive"
+          Foreground="{DynamicResource MutedTextBrush}"
+          IsVisible="{Binding HasStatusMessage}"
+          Text="{Binding StatusMessage}"
+          TextWrapping="Wrap" />
+      <Button
+          x:Name="ClosePlaintextExportButton"
+          HorizontalAlignment="Right"
+          AutomationProperties.Name="Close plaintext export"
+          Click="OnClose"
+          IsCancel="True"
+          TabIndex="4">
+        Close
+      </Button>
+    </StackPanel>
+  </ScrollViewer>
+</Window>

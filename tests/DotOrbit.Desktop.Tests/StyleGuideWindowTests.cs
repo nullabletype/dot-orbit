@@ -21,6 +21,21 @@ namespace DotOrbit.Desktop.Tests;
 public sealed class StyleGuideWindowTests
 {
     [AvaloniaFact]
+    public void AttentionPanelUsesTheSharedSemanticRecipe()
+    {
+        var window = new StyleGuideWindow();
+        window.Show();
+        var panel = Assert.IsType<Border>(window.FindControl<Border>("ReferenceAttentionPanel"));
+
+        Assert.Contains("attention-panel", panel.Classes);
+        Assert.Equal("Reference attention panel", AutomationProperties.GetName(panel));
+        Assert.NotNull(panel.BorderBrush);
+        Assert.Equal(new Thickness(1), panel.BorderThickness);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public void WorkIdentityReferenceUsesDistinctFixedSlotDecorativeIcons()
     {
         var window = new StyleGuideWindow();

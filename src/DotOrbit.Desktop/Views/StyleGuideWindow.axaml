@@ -169,6 +169,13 @@
                 <TextBlock Foreground="{DynamicResource ErrorBrush}" Text="Error: validation requires text as well as colour" />
               </StackPanel>
             </Border>
+            <Border x:Name="ReferenceAttentionPanel" Classes="attention-panel"
+                AutomationProperties.Name="Reference attention panel">
+              <StackPanel Spacing="5">
+                <TextBlock FontWeight="SemiBold" Text="Attention needed" />
+                <TextBlock Text="Use plain language alongside the amber boundary." />
+              </StackPanel>
+            </Border>
           </StackPanel>
         </Grid>
 
