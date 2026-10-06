@@ -3,31 +3,65 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <FontFamily x:Key="AppFont">avares://Avalonia.Fonts.Inter/Assets#Inter</FontFamily>
 
-  <SolidColorBrush x:Key="BackgroundBrush">#090B10</SolidColorBrush>
-  <SolidColorBrush x:Key="SidebarBrush">#0C0F15</SolidColorBrush>
-  <SolidColorBrush x:Key="PanelBrush">#10131A</SolidColorBrush>
-  <SolidColorBrush x:Key="PanelRaisedBrush">#151923</SolidColorBrush>
-  <SolidColorBrush x:Key="PanelInputBrush">#0B0E13</SolidColorBrush>
-  <SolidColorBrush x:Key="LineBrush">#272D39</SolidColorBrush>
-  <SolidColorBrush x:Key="LineSoftBrush">#1D222C</SolidColorBrush>
-  <SolidColorBrush x:Key="ControlHoverBorderBrush">#414958</SolidColorBrush>
-  <SolidColorBrush x:Key="TextBrush">#F2F4F7</SolidColorBrush>
-  <SolidColorBrush x:Key="MutedTextBrush">#9099A9</SolidColorBrush>
-  <SolidColorBrush x:Key="QuietTextBrush">#858E9D</SolidColorBrush>
-  <SolidColorBrush x:Key="AccentBrush">#FF4FA3</SolidColorBrush>
-  <SolidColorBrush x:Key="AccentHoverBrush">#FF78B9</SolidColorBrush>
-  <SolidColorBrush x:Key="AccentPressedBrush">#C93678</SolidColorBrush>
-  <SolidColorBrush x:Key="AccentSurfaceBrush">#25131F</SolidColorBrush>
-  <SolidColorBrush x:Key="AccentContentBrush">#280014</SolidColorBrush>
-  <SolidColorBrush x:Key="SuccessBrush">#7CE7B2</SolidColorBrush>
-  <SolidColorBrush x:Key="AmberBrush">#FFCF70</SolidColorBrush>
-  <SolidColorBrush x:Key="ErrorBrush">#FF7A90</SolidColorBrush>
+  <ResourceDictionary.ThemeDictionaries>
+    <ResourceDictionary x:Key="Dark">
+      <SolidColorBrush x:Key="BackgroundBrush">#090B10</SolidColorBrush>
+      <SolidColorBrush x:Key="SidebarBrush">#0C0F15</SolidColorBrush>
+      <SolidColorBrush x:Key="PanelBrush">#10131A</SolidColorBrush>
+      <SolidColorBrush x:Key="PanelRaisedBrush">#151923</SolidColorBrush>
+      <SolidColorBrush x:Key="PanelInputBrush">#0B0E13</SolidColorBrush>
+      <SolidColorBrush x:Key="LineBrush">#272D39</SolidColorBrush>
+      <SolidColorBrush x:Key="LineSoftBrush">#1D222C</SolidColorBrush>
+      <SolidColorBrush x:Key="ControlHoverBorderBrush">#414958</SolidColorBrush>
+      <SolidColorBrush x:Key="TextBrush">#F2F4F7</SolidColorBrush>
+      <SolidColorBrush x:Key="MutedTextBrush">#9099A9</SolidColorBrush>
+      <SolidColorBrush x:Key="QuietTextBrush">#858E9D</SolidColorBrush>
+      <SolidColorBrush x:Key="AccentBrush">#FF4FA3</SolidColorBrush>
+      <SolidColorBrush x:Key="AccentHoverBrush">#FF78B9</SolidColorBrush>
+      <SolidColorBrush x:Key="AccentPressedBrush">#C93678</SolidColorBrush>
+      <SolidColorBrush x:Key="AccentSurfaceBrush">#25131F</SolidColorBrush>
+      <SolidColorBrush x:Key="AccentContentBrush">#280014</SolidColorBrush>
+      <SolidColorBrush x:Key="SuccessBrush">#7CE7B2</SolidColorBrush>
+      <SolidColorBrush x:Key="AmberBrush">#FFCF70</SolidColorBrush>
+      <SolidColorBrush x:Key="ErrorBrush">#FF7A90</SolidColorBrush>
+      <BoxShadows x:Key="InteractionFocusShadow">0 0 0 2 #FFFF4FA3</BoxShadows>
+      <BoxShadows x:Key="CheckedFocusShadow">0 0 0 2 #FFF2F4F7</BoxShadows>
+      <BoxShadows x:Key="OverlayShadow">0 14 38 0 #99000000</BoxShadows>
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="Light">
+      <SolidColorBrush x:Key="BackgroundBrush">#F7F4F6</SolidColorBrush>
+      <SolidColorBrush x:Key="SidebarBrush">#F0EBEE</SolidColorBrush>
+      <SolidColorBrush x:Key="PanelBrush">#FFFFFF</SolidColorBrush>
+      <SolidColorBrush x:Key="PanelRaisedBrush">#F4EFF2</SolidColorBrush>
+      <SolidColorBrush x:Key="PanelInputBrush">#FBF8FA</SolidColorBrush>
+      <SolidColorBrush x:Key="LineBrush">#D5CCD2</SolidColorBrush>
+      <SolidColorBrush x:Key="LineSoftBrush">#E8E1E5</SolidColorBrush>
+      <SolidColorBrush x:Key="ControlHoverBorderBrush">#A99BA4</SolidColorBrush>
+      <SolidColorBrush x:Key="TextBrush">#2B2228</SolidColorBrush>
+      <SolidColorBrush x:Key="MutedTextBrush">#675C63</SolidColorBrush>
+      <SolidColorBrush x:Key="QuietTextBrush">#746870</SolidColorBrush>
+      <SolidColorBrush x:Key="AccentBrush">#B42368</SolidColorBrush>
+      <SolidColorBrush x:Key="AccentHoverBrush">#8F194F</SolidColorBrush>
+      <SolidColorBrush x:Key="AccentPressedBrush">#74123F</SolidColorBrush>
+      <SolidColorBrush x:Key="AccentSurfaceBrush">#F9E4EE</SolidColorBrush>
+      <SolidColorBrush x:Key="AccentContentBrush">#FFFFFF</SolidColorBrush>
+      <SolidColorBrush x:Key="SuccessBrush">#24734D</SolidColorBrush>
+      <SolidColorBrush x:Key="AmberBrush">#815500</SolidColorBrush>
+      <SolidColorBrush x:Key="ErrorBrush">#B4233F</SolidColorBrush>
+      <BoxShadows x:Key="InteractionFocusShadow">0 0 0 2 #FFB42368</BoxShadows>
+      <BoxShadows x:Key="CheckedFocusShadow">0 0 0 2 #FF2B2228</BoxShadows>
+      <BoxShadows x:Key="OverlayShadow">0 14 38 0 #33000000</BoxShadows>
+    </ResourceDictionary>
+  </ResourceDictionary.ThemeDictionaries>
 
   <x:Double x:Key="TypeSizeEyebrow">12</x:Double>
   <x:Double x:Key="TypeSizeBody">14</x:Double>
   <x:Double x:Key="TypeSizeTitle">20</x:Double>
   <x:Double x:Key="ControlHitSize">30</x:Double>
   <x:Double x:Key="ControlGlyphSize">22</x:Double>
+  <x:Double x:Key="WorkTypeIconSlotWidth">14</x:Double>
+  <x:Double x:Key="WorkTypeIconGlyphSize">13</x:Double>
+  <x:Double x:Key="WorkTypeIconOpticalOffset">1</x:Double>
   <x:Double x:Key="CompactRowHeight">48</x:Double>
   <x:Double x:Key="StandardRowHeight">54</x:Double>
   <CornerRadius x:Key="PanelRadius">10</CornerRadius>
@@ -39,6 +73,5 @@
   <Thickness x:Key="InspectorScrollContentInset">0,0,32,16</Thickness>
   <Thickness x:Key="ControlBorder">1</Thickness>
   <Thickness x:Key="FocusBorder">2</Thickness>
-  <BoxShadows x:Key="InteractionFocusShadow">0 0 0 2 #FFFF4FA3</BoxShadows>
-  <BoxShadows x:Key="CheckedFocusShadow">0 0 0 2 #FFF2F4F7</BoxShadows>
+  <StreamGeometry x:Key="CategoryOverrideIconData">M5,4 L5,9 C5,11 7,12 9,12 L17,12 M13,8 L17,12 L13,16</StreamGeometry>
 </ResourceDictionary>

@@ -85,7 +85,7 @@ public sealed class ProjectCaptureViewModelTests
         var model = new ProjectCaptureViewModel(work);
 
         var row = Assert.Single(model.Bin);
-        Assert.Equal("Garden · Home", row.ContextText);
+        Assert.Equal("Garden", row.ContextText);
         Assert.False(row.CanRestore);
         Assert.True(row.IsRestoreBlocked);
         Assert.Equal("Restore the parent Project from Bin before restoring this Task.", row.RestoreBlockedText);
@@ -139,7 +139,7 @@ public sealed class ProjectCaptureViewModelTests
         var row = Assert.Single(model.Bin);
         Assert.True(row.IsProject);
         Assert.Equal("Garden", row.Title);
-        Assert.Equal("Project aggregate · 2 Tasks · Home", row.ContextText);
+        Assert.Equal("Home · 2 Tasks", row.ContextText);
         Assert.Equal("Restore Garden Project and its Tasks from Bin", row.RestoreAccessibleName);
 
         row.RestoreCommand.Execute(null);
@@ -583,7 +583,53 @@ public sealed class ProjectCaptureViewModelTests
         Assert.Equal("Peat free", task.Description);
         Assert.Equal(new DateOnly(2026, 10, 3), task.DueDate);
         Assert.Empty(Assert.Single(model.Projects).Tasks);
-        Assert.Equal("Work · standalone", Assert.Single(model.Backlog).CategoryDisplay);
+        Assert.Equal("Standalone · Work", Assert.Single(model.Backlog).CategoryDisplay);
+    }
+
+    [Fact]
+    public void WorkIdentityRowsExposeRelationshipFocusedContextAndAccessibleNames()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var inherited = work.CreateTask(project.Id, "Plant bulbs");
+        var overridden = work.CreateTask(project.Id, "Submit permit");
+        work.UpdateTask(overridden.Id, overridden.Title, "", "work", null);
+        var standalone = work.CreateStandaloneTask("File receipt", "", "work", null);
+        var model = new ProjectCaptureViewModel(work);
+
+        var inheritedRow = model.Backlog.Single(row => row.Id == inherited.Id);
+        Assert.Equal("Garden", inheritedRow.RelationshipText);
+        Assert.Equal("Garden", inheritedRow.BroadRelationshipText);
+        Assert.False(inheritedRow.HasCategoryOverride);
+        Assert.Contains("Task Plant bulbs", inheritedRow.AccessibleName, StringComparison.Ordinal);
+        Assert.Contains("Project Garden", inheritedRow.AccessibleName, StringComparison.Ordinal);
+        Assert.Contains("Inherited Category Home", inheritedRow.AccessibleName, StringComparison.Ordinal);
+
+        var overrideRow = model.Backlog.Single(row => row.Id == overridden.Id);
+        Assert.Equal("Garden", overrideRow.RelationshipText);
+        Assert.True(overrideRow.HasCategoryOverride);
+        Assert.Equal("Work", overrideRow.CategoryOverrideText);
+        Assert.Contains("Category override Work", overrideRow.AccessibleName, StringComparison.Ordinal);
+
+        var standaloneRow = model.Backlog.Single(row => row.Id == standalone.Id);
+        Assert.Equal("Standalone · Work", standaloneRow.BroadRelationshipText);
+        Assert.Equal("Standalone", standaloneRow.CategoryGroupRelationshipText);
+        Assert.Contains("Standalone. Category Work", standaloneRow.AccessibleName, StringComparison.Ordinal);
+        Assert.Equal(
+            "Standalone",
+            model.CategoryGroups.Single(group => group.Name == "Work")
+                .StandaloneTasks.Single().Task.CategoryGroupRelationshipText);
+
+        var projectRow = Assert.Single(model.Projects);
+        Assert.Equal("Home · 2 Tasks", projectRow.RelationshipText);
+        Assert.Contains("Project Garden", projectRow.AccessibleName, StringComparison.Ordinal);
+        Assert.Contains("Category Home", projectRow.AccessibleName, StringComparison.Ordinal);
+        Assert.Equal("1 Project · 0 standalone Tasks", model.CategoryGroups.Single(group => group.Name == "Home").Summary);
+        Assert.Equal("0 Projects · 1 standalone Task", model.CategoryGroups.Single(group => group.Name == "Work").Summary);
+
+        model.SelectTask(overridden.Id);
+        Assert.Equal(overrideRow.AccessibleName, model.InspectorIdentityAccessibleText);
+        Assert.True(model.ShowTaskIdentityIcon);
     }
 
     [Fact]
@@ -1277,6 +1323,10 @@ public sealed class ProjectCaptureViewModelTests
         Assert.True(model.HasInspector);
         Assert.Equal("Project details", model.InspectorHeading);
         Assert.Equal("Portfolio history", model.Title);
+        Assert.Equal("Not started · 0 of 0 Tasks · Home · No date · No completion date", model.ProjectSummary);
+        Assert.Equal("Not started · 0/0 tasks", model.InspectorMetaValue);
+        Assert.Contains("Project Portfolio history", model.InspectorIdentityAccessibleText, StringComparison.Ordinal);
+        Assert.Contains("Archived", model.InspectorIdentityAccessibleText, StringComparison.Ordinal);
 
         Assert.Equal("Restore Project Portfolio history to Projects", result.RestoreAccessibleName);
         result.RestoreCommand.Execute(null);

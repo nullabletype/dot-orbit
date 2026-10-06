@@ -2,15 +2,15 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <Style Selector="Border.list-panel">
-    <Setter Property="Background" Value="{StaticResource PanelBrush}" />
-    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+    <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
     <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />
     <Setter Property="CornerRadius" Value="{StaticResource PanelRadius}" />
     <Setter Property="Padding" Value="{StaticResource PanelInset}" />
   </Style>
   <Style Selector="Border.empty-state">
     <Setter Property="Background" Value="Transparent" />
-    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
     <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />
     <Setter Property="CornerRadius" Value="{StaticResource PanelRadius}" />
     <Setter Property="Padding" Value="44" />
@@ -25,18 +25,18 @@
     <Setter Property="Padding" Value="12,10" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="VerticalContentAlignment" Value="Top" />
-    <Setter Property="Background" Value="{StaticResource PanelInputBrush}" />
-    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+    <Setter Property="Background" Value="{DynamicResource PanelInputBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
     <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />
     <Setter Property="CornerRadius" Value="{StaticResource ControlRadius}" />
-    <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
   </Style>
   <Style Selector=":is(ContentControl).markdown-preview:pointerover">
-    <Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" />
-    <Setter Property="BorderBrush" Value="{StaticResource ControlHoverBorderBrush}" />
+    <Setter Property="Background" Value="{DynamicResource PanelRaisedBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource ControlHoverBorderBrush}" />
   </Style>
   <Style Selector=":is(ContentControl).markdown-preview:focus-visible">
-    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
     <Setter Property="BorderThickness" Value="{StaticResource FocusBorder}" />
   </Style>
 
@@ -48,7 +48,7 @@
     <Setter Property="BorderBrush" Value="Transparent" />
     <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />
     <Setter Property="CornerRadius" Value="{StaticResource CompactControlRadius}" />
-    <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" />
     <Setter Property="FontSize" Value="11" />
     <Setter Property="Template">
       <ControlTemplate>
@@ -69,12 +69,12 @@
     </Setter>
   </Style>
   <Style Selector="Button.drag-handle:pointerover">
-    <Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" />
-    <Setter Property="BorderBrush" Value="{StaticResource ControlHoverBorderBrush}" />
-    <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    <Setter Property="Background" Value="{DynamicResource PanelRaisedBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource ControlHoverBorderBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
   </Style>
   <Style Selector="Button.drag-handle:focus-visible">
-    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
     <Setter Property="BorderThickness" Value="{StaticResource FocusBorder}" />
   </Style>
 
@@ -83,7 +83,7 @@
     <Setter Property="Height" Value="{StaticResource ControlHitSize}" />
     <Setter Property="Padding" Value="0" />
     <Setter Property="Background" Value="Transparent" />
-    <Setter Property="BorderBrush" Value="{StaticResource MutedTextBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource MutedTextBrush}" />
     <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />
     <Setter Property="CornerRadius" Value="{StaticResource CompactControlRadius}" />
     <Setter Property="Foreground" Value="Transparent" />
@@ -105,28 +105,28 @@
     </Setter>
   </Style>
   <Style Selector="ToggleButton.completion-toggle:pointerover">
-    <Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" />
-    <Setter Property="BorderBrush" Value="{StaticResource TextBrush}" />
+    <Setter Property="Background" Value="{DynamicResource PanelRaisedBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TextBrush}" />
   </Style>
   <Style Selector="ToggleButton.completion-toggle:checked">
-    <Setter Property="Background" Value="{StaticResource AccentBrush}" />
-    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
-    <Setter Property="Foreground" Value="{StaticResource BackgroundBrush}" />
+    <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource BackgroundBrush}" />
   </Style>
   <Style Selector="ToggleButton.completion-toggle:checked:pointerover">
-    <Setter Property="Background" Value="{StaticResource AccentPressedBrush}" />
-    <Setter Property="BorderBrush" Value="{StaticResource AccentPressedBrush}" />
-    <Setter Property="Foreground" Value="{StaticResource BackgroundBrush}" />
+    <Setter Property="Background" Value="{DynamicResource AccentPressedBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentPressedBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource BackgroundBrush}" />
   </Style>
   <Style Selector="ToggleButton.completion-toggle:focus /template/ Border#CompletionBox,
                    ToggleButton.completion-toggle:focus-visible /template/ Border#CompletionBox">
-    <Setter Property="BoxShadow" Value="{StaticResource InteractionFocusShadow}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource InteractionFocusShadow}" />
   </Style>
   <Style Selector="ToggleButton.completion-toggle:checked:focus /template/ Border#CompletionBox,
                    ToggleButton.completion-toggle:checked:focus-visible /template/ Border#CompletionBox,
                    ToggleButton.completion-toggle:checked:pointerover:focus /template/ Border#CompletionBox,
                    ToggleButton.completion-toggle:checked:pointerover:focus-visible /template/ Border#CompletionBox">
-    <Setter Property="BoxShadow" Value="{StaticResource CheckedFocusShadow}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource CheckedFocusShadow}" />
   </Style>
 
   <Style Selector="ToggleButton.today-toggle">
@@ -137,7 +137,7 @@
     <Setter Property="BorderBrush" Value="Transparent" />
     <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />
     <Setter Property="CornerRadius" Value="{StaticResource CompactControlRadius}" />
-    <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" />
     <Setter Property="Template">
       <ControlTemplate>
         <Border
@@ -178,10 +178,10 @@
     </Setter>
   </Style>
   <Style Selector="ToggleButton.today-toggle:pointerover">
-    <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
   </Style>
   <Style Selector="ToggleButton.today-toggle:checked">
-    <Setter Property="Foreground" Value="{StaticResource AmberBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource AmberBrush}" />
   </Style>
   <Style Selector="ToggleButton.today-toggle:checked /template/ Path#TodayStarOutline">
     <Setter Property="IsVisible" Value="False" />
@@ -190,14 +190,14 @@
     <Setter Property="IsVisible" Value="True" />
   </Style>
   <Style Selector="ToggleButton.today-toggle:focus-visible">
-    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
     <Setter Property="BorderThickness" Value="{StaticResource FocusBorder}" />
   </Style>
 
   <Style Selector="Border.interactive-row"><Setter Property="Background" Value="Transparent" /></Style>
-  <Style Selector="Border.interactive-row:pointerover"><Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" /></Style>
+  <Style Selector="Border.interactive-row:pointerover"><Setter Property="Background" Value="{DynamicResource PanelRaisedBrush}" /></Style>
   <Style Selector="Border.separated-row">
-    <Setter Property="BorderBrush" Value="{StaticResource LineSoftBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LineSoftBrush}" />
     <Setter Property="BorderThickness" Value="0,0,0,1" />
   </Style>
   <Style Selector="Border.separated-row.last"><Setter Property="BorderThickness" Value="0" /></Style>
@@ -207,7 +207,7 @@
     <Setter Property="HorizontalAlignment" Value="Right" />
     <Setter Property="TextAlignment" Value="Right" />
     <Setter Property="FontSize" Value="12" />
-    <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" />
   </Style>
   <Style Selector="TextBlock.task-completion-date">
     <Setter Property="Margin" Value="8,0" />
@@ -215,29 +215,29 @@
     <Setter Property="HorizontalAlignment" Value="Right" />
     <Setter Property="TextAlignment" Value="Right" />
     <Setter Property="FontSize" Value="12" />
-    <Setter Property="Foreground" Value="{StaticResource SuccessBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}" />
   </Style>
   <Style Selector="Border.project-row">
-    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
     <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />
   </Style>
   <Style Selector="Border.category-row">
-    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
     <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />
   </Style>
   <Style Selector="Border.expandable-header-row"><Setter Property="CornerRadius" Value="9" /></Style>
   <Style Selector="Border.expandable-header-row.expanded"><Setter Property="CornerRadius" Value="9,9,0,0" /></Style>
   <Style Selector="Border.reorder-target.drag-target">
-    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
     <Setter Property="BorderThickness" Value="0,0,0,2" />
   </Style>
   <Style Selector="Border.decision-overlay">
     <Setter Property="Padding" Value="24" />
-    <Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" />
-    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+    <Setter Property="Background" Value="{DynamicResource PanelRaisedBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="CornerRadius" Value="14" />
-    <Setter Property="BoxShadow" Value="0 14 38 0 #99000000" />
+    <Setter Property="BoxShadow" Value="{DynamicResource OverlayShadow}" />
     <Setter Property="HorizontalAlignment" Value="Center" />
     <Setter Property="VerticalAlignment" Value="Center" />
   </Style>
@@ -250,7 +250,7 @@
     <Setter Property="BorderBrush" Value="Transparent" />
     <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />
     <Setter Property="CornerRadius" Value="{StaticResource CompactControlRadius}" />
-    <Setter Property="Foreground" Value="{StaticResource QuietTextBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource QuietTextBrush}" />
     <Setter Property="HorizontalContentAlignment" Value="Center" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
     <Setter Property="Template">
@@ -278,48 +278,48 @@
   <Style Selector="ToggleButton.disclosure:pointerover,
                    ToggleButton.disclosure:checked,
                    ToggleButton.disclosure:checked:pointerover">
-    <Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" />
-    <Setter Property="BorderBrush" Value="{StaticResource ControlHoverBorderBrush}" />
-    <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    <Setter Property="Background" Value="{DynamicResource PanelRaisedBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource ControlHoverBorderBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
   </Style>
   <Style Selector="ToggleButton.disclosure:focus, ToggleButton.disclosure:focus-visible,
                    ToggleButton.disclosure:checked:focus, ToggleButton.disclosure:checked:focus-visible,
                    ToggleButton.disclosure:checked:pointerover:focus, ToggleButton.disclosure:checked:pointerover:focus-visible">
-    <Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" />
-    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+    <Setter Property="Background" Value="{DynamicResource PanelRaisedBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
     <Setter Property="BorderThickness" Value="{StaticResource FocusBorder}" />
-    <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
   </Style>
 
-  <Style Selector="TextBlock.status-marker.not-started"><Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" /></Style>
-  <Style Selector="TextBlock.status-marker.in-progress"><Setter Property="Foreground" Value="{StaticResource AmberBrush}" /></Style>
-  <Style Selector="TextBlock.status-marker.complete"><Setter Property="Foreground" Value="{StaticResource SuccessBrush}" /></Style>
-  <Style Selector="Ellipse.status-marker.not-started"><Setter Property="Fill" Value="{StaticResource QuietTextBrush}" /></Style>
-  <Style Selector="Ellipse.status-marker.in-progress"><Setter Property="Fill" Value="{StaticResource AmberBrush}" /></Style>
-  <Style Selector="Ellipse.status-marker.complete"><Setter Property="Fill" Value="{StaticResource SuccessBrush}" /></Style>
+  <Style Selector="TextBlock.status-marker.not-started"><Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" /></Style>
+  <Style Selector="TextBlock.status-marker.in-progress"><Setter Property="Foreground" Value="{DynamicResource AmberBrush}" /></Style>
+  <Style Selector="TextBlock.status-marker.complete"><Setter Property="Foreground" Value="{DynamicResource SuccessBrush}" /></Style>
+  <Style Selector="Ellipse.status-marker.not-started"><Setter Property="Fill" Value="{DynamicResource QuietTextBrush}" /></Style>
+  <Style Selector="Ellipse.status-marker.in-progress"><Setter Property="Fill" Value="{DynamicResource AmberBrush}" /></Style>
+  <Style Selector="Ellipse.status-marker.complete"><Setter Property="Fill" Value="{DynamicResource SuccessBrush}" /></Style>
   <Style Selector="Border.status-badge">
     <Setter Property="Padding" Value="7,3" />
-    <Setter Property="Background" Value="{StaticResource AccentSurfaceBrush}" />
+    <Setter Property="Background" Value="{DynamicResource AccentSurfaceBrush}" />
     <Setter Property="CornerRadius" Value="{StaticResource CompactControlRadius}" />
   </Style>
   <Style Selector="Border.status-badge TextBlock">
-    <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
     <Setter Property="FontSize" Value="{StaticResource TypeSizeEyebrow}" />
     <Setter Property="FontWeight" Value="Bold" />
   </Style>
   <Style Selector="Border.transient-status">
-    <Setter Property="Background" Value="{StaticResource PanelBrush}" />
-    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+    <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
     <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />
     <Setter Property="CornerRadius" Value="{StaticResource CompactControlRadius}" />
   </Style>
   <Style Selector="TextBlock.transient-status-icon">
-    <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
     <Setter Property="FontSize" Value="{StaticResource TypeSizeEyebrow}" />
     <Setter Property="FontWeight" Value="Bold" />
   </Style>
   <Style Selector="TextBlock.validation-message">
-    <Setter Property="Foreground" Value="{StaticResource ErrorBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
     <Setter Property="FontSize" Value="{StaticResource TypeSizeEyebrow}" />
   </Style>
   <Style Selector="HyperlinkButton.markdown-link">
@@ -329,23 +329,23 @@
     <Setter Property="MinHeight" Value="0" />
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="BorderThickness" Value="0" />
-    <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
   </Style>
   <Style Selector="HyperlinkButton.markdown-link:pointerover">
-    <Setter Property="Foreground" Value="{StaticResource AccentHoverBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource AccentHoverBrush}" />
   </Style>
   <Style Selector="HyperlinkButton.markdown-link:focus-visible">
-    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
     <Setter Property="BorderThickness" Value="{StaticResource FocusBorder}" />
   </Style>
   <Style Selector="TextBox.inspector-title.error, TextBox.inspector-field.error, ComboBox.inspector-field.error, :is(CalendarDatePicker).inspector-field.error">
-    <Setter Property="BorderBrush" Value="{StaticResource ErrorBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource ErrorBrush}" />
   </Style>
   <Style Selector=":is(CalendarDatePicker).inspector-field">
     <Setter Property="Width" Value="150" />
     <Setter Property="HorizontalAlignment" Value="Left" />
-    <Setter Property="Background" Value="{StaticResource PanelInputBrush}" />
-    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+    <Setter Property="Background" Value="{DynamicResource PanelInputBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
     <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />
     <Setter Property="CornerRadius" Value="{StaticResource ControlRadius}" />
     <Setter Property="FontSize" Value="{StaticResource TypeSizeEyebrow}" />

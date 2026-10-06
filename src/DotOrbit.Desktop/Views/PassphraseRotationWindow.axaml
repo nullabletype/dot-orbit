@@ -9,14 +9,14 @@
     Height="700"
     MinWidth="500"
     MinHeight="640"
-    Background="{StaticResource BackgroundBrush}"
+    Background="{DynamicResource BackgroundBrush}"
     WindowStartupLocation="CenterOwner">
   <ScrollViewer>
     <StackPanel Margin="36" Spacing="14">
       <TextBlock Classes="eyebrow" Text="WORKSPACE SECURITY" />
       <TextBlock FontSize="28" FontWeight="Bold" Text="Change passphrase" />
       <TextBlock
-          Foreground="{StaticResource MutedTextBrush}"
+          Foreground="{DynamicResource MutedTextBrush}"
           LineHeight="21"
           Text="Prove the current passphrase, then choose the passphrase that will protect the working workspace from now on."
           TextWrapping="Wrap" />
@@ -66,8 +66,8 @@
       <Border
           Margin="0,4,0,0"
           Padding="14"
-          Background="{StaticResource PanelBrush}"
-          BorderBrush="{StaticResource LineBrush}"
+          Background="{DynamicResource PanelBrush}"
+          BorderBrush="{DynamicResource LineBrush}"
           BorderThickness="1"
           CornerRadius="8">
         <StackPanel Spacing="6">
@@ -78,7 +78,7 @@
               TextWrapping="Wrap" />
           <TextBlock
               x:Name="NoRecoveryWarning"
-              Foreground="{StaticResource MutedTextBrush}"
+              Foreground="{DynamicResource MutedTextBrush}"
               Text="There is no recovery mechanism. If you lose the new passphrase, the workspace cannot be opened. Existing recovery points keep their current passphrase."
               TextWrapping="Wrap" />
         </StackPanel>
@@ -88,7 +88,7 @@
           x:Name="ValidationMessage"
           AutomationProperties.LiveSetting="Assertive"
           AutomationProperties.Name="Passphrase rotation error"
-          Foreground="{StaticResource ErrorBrush}"
+          Foreground="{DynamicResource ErrorBrush}"
           IsVisible="{Binding HasValidationMessage}"
           Text="{Binding ValidationMessage}"
           TextWrapping="Wrap" />

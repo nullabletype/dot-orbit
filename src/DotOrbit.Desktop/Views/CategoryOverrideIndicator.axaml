@@ -1,0 +1,20 @@
+<UserControl
+    x:Class="DotOrbit.Desktop.Views.CategoryOverrideIndicator"
+    x:Name="Root"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Focusable="False"
+    IsHitTestVisible="False"
+    MaxWidth="180"
+    AutomationProperties.AccessibilityView="Raw"
+    Classes="category-override-indicator">
+  <Grid ColumnDefinitions="13,*" ColumnSpacing="4">
+    <Path Classes="category-override-icon" Width="13" Height="13" VerticalAlignment="Center"
+        Data="{StaticResource CategoryOverrideIconData}" Fill="Transparent"
+        Stroke="{DynamicResource QuietTextBrush}" StrokeLineCap="Round" StrokeJoin="Round"
+        StrokeThickness="1.6" Stretch="Uniform" AutomationProperties.AccessibilityView="Raw" />
+    <TextBlock Grid.Column="1" Classes="category-override-text" FontSize="12"
+        Foreground="{DynamicResource QuietTextBrush}" Text="{Binding Text, ElementName=Root}"
+        TextTrimming="CharacterEllipsis" AutomationProperties.AccessibilityView="Raw" />
+  </Grid>
+</UserControl>

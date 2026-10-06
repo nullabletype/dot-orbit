@@ -9,19 +9,58 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 {
     private readonly IWorkspaceWork _work;
     private readonly Action _participantsChanged;
+    private readonly IApplicationThemeService _applicationThemeService;
     private string _announcement = string.Empty;
     private string _focusAutomationId = string.Empty;
     private string _securityConfirmation = string.Empty;
 
-    public SettingsViewModel(IWorkspaceWork work, Action participantsChanged)
+    public SettingsViewModel(
+        IWorkspaceWork work,
+        Action participantsChanged,
+        IApplicationThemeService? applicationThemeService = null)
     {
         _work = work;
         _participantsChanged = participantsChanged;
+        _applicationThemeService = applicationThemeService ?? new TransientApplicationThemeService();
+        ThemeOptions =
+        [
+            new(ApplicationTheme.Dark, "Dark"),
+            new(ApplicationTheme.Light, "Light"),
+        ];
+        _selectedTheme = ThemeOptions.Single(option =>
+            option.Value == _applicationThemeService.CurrentTheme);
         Refresh();
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public ObservableCollection<ParticipantSettingViewModel> Participants { get; } = [];
+    public IReadOnlyList<ApplicationThemeOption> ThemeOptions { get; }
+    private ApplicationThemeOption _selectedTheme;
+    public ApplicationThemeOption SelectedTheme
+    {
+        get => _selectedTheme;
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            if (value == _selectedTheme)
+            {
+                return;
+            }
+
+            if (!_applicationThemeService.TrySetTheme(value.Value))
+            {
+                Announcement = "Could not save the theme preference. The previous theme is still active.";
+                Notify();
+                return;
+            }
+
+            _selectedTheme = value;
+            Notify();
+            Notify(nameof(ThemeStatus));
+            Announcement = $"{value.Name} theme selected.";
+        }
+    }
+    public string ThemeStatus => $"{SelectedTheme.Name} theme selected";
     public bool HasParticipants => Participants.Count > 0;
     public bool HasNoParticipants => !HasParticipants;
     public string Announcement

@@ -172,6 +172,9 @@ Status: working specification derived from the interactive prototype.
 - **DESK-003** Core actions are available to keyboard and assistive technology users.
 - **DESK-004** Supported releases run on serviced Windows 11 versions, current supported macOS versions covered by Avalonia, Ubuntu LTS, and current Debian stable.
 - **DESK-005** X11 is the supported Linux display path for the first release. Native Wayland and other Linux distributions are best-effort until their upstream Avalonia support is suitable for a release commitment.
+- **DESK-006** Settings offers Dark and Light colour themes. A change applies immediately across the main, unlock, recovery, and passphrase windows and is remembered on the local device without storing it in the encrypted workspace.
+- **DESK-007** Every Task, Project, and Category identity heading uses its shared decorative work-type icon in a compact fixed-width slot immediately beside the title. Interactive rows identify the work type and relationship in their accessible name so the icon is not announced twice and no action relies on icon or colour alone.
+- **DESK-008** Task secondary text starts with its Project or `Standalone`, Project secondary text contains Category and total Task count, and Category secondary text contains Project and standalone Task counts. An explicit Task Category override is reinforced by a decorative fork symbol and named as a Category override in the row's accessible text.
 
 ## Persistence and recovery
 

@@ -8,18 +8,18 @@
     Height="760"
     MinWidth="900"
     MinHeight="620"
-    Background="{StaticResource BackgroundBrush}"
+    Background="{DynamicResource BackgroundBrush}"
     AutomationProperties.Name="dot-orbit component reference">
   <ScrollViewer>
     <Grid Margin="32" ColumnDefinitions="250,24,*" RowDefinitions="Auto,*">
       <StackPanel Grid.ColumnSpan="3" Margin="0,0,0,24" Spacing="6">
         <TextBlock Classes="eyebrow" Text="LOCAL DESIGN REFERENCE" />
         <TextBlock FontSize="26" FontWeight="Bold" Text="Workbench component recipes" />
-        <TextBlock Foreground="{StaticResource MutedTextBrush}"
+        <TextBlock Foreground="{DynamicResource MutedTextBrush}"
             Text="Synthetic content only. Interact with the controls to inspect hover, pressed, focus, checked and disabled states." />
       </StackPanel>
 
-      <Border Grid.Row="1" Classes="list-panel" Background="{StaticResource SidebarBrush}">
+      <Border Grid.Row="1" Classes="list-panel" Background="{DynamicResource SidebarBrush}">
         <StackPanel Spacing="4">
           <TextBlock Classes="inspector-label" Margin="10,8" Text="NAVIGATION" />
           <RadioButton Classes="nav-item" GroupName="reference-navigation" Content="Today"
@@ -72,7 +72,7 @@
                     AutomationProperties.Name="Complete reference task" />
                 <Button Grid.Column="2" x:Name="ReferenceRowTitle" Classes="task-title row-title"
                     Content="Hover the complete row" AutomationProperties.Name="Hover the complete row" />
-                <TextBlock Grid.Column="3" Margin="8,0" Foreground="{StaticResource MutedTextBrush}" Text="2 Oct" />
+                <TextBlock Grid.Column="3" Margin="8,0" Foreground="{DynamicResource MutedTextBrush}" Text="2 Oct" />
               </Grid>
             </Border>
             <Border x:Name="ReferenceLastRow" Classes="interactive-row separated-row last reorder-target drag-target" MinHeight="{StaticResource StandardRowHeight}">
@@ -87,6 +87,46 @@
                     Tag="reference details" IsCheckedChanged="OnReferenceDisclosureStateChanged"
                     AutomationProperties.Name="Collapse reference details" />
               </Grid>
+            </Border>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="list-panel">
+          <StackPanel Spacing="0">
+            <TextBlock Classes="eyebrow" Margin="4,2,4,10" Text="WORK IDENTITIES" />
+            <Border Classes="interactive-row separated-row" MinHeight="{StaticResource StandardRowHeight}"
+                AutomationProperties.Name="Task Review planting plan. Project Garden. Category override Work">
+              <StackPanel Margin="6,0" VerticalAlignment="Center" Spacing="3">
+                  <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+                    <views:WorkTypeIcon x:Name="ReferenceTaskWorkTypeIcon" WorkType="Task" />
+                    <TextBlock Grid.Column="1" Classes="work-identity-title" Text="Review planting plan" />
+                  </Grid>
+                  <Grid ColumnDefinitions="*,*" ColumnSpacing="6">
+                    <TextBlock Classes="work-identity-context" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
+                        Text="Garden" TextTrimming="CharacterEllipsis" />
+                    <views:CategoryOverrideIndicator x:Name="ReferenceCategoryOverrideIndicator" Grid.Column="1" Text="Work" />
+                  </Grid>
+              </StackPanel>
+            </Border>
+            <Border Classes="interactive-row separated-row" MinHeight="{StaticResource StandardRowHeight}"
+                AutomationProperties.Name="Project Garden. Category Home. 4 Tasks">
+              <StackPanel Margin="6,0" VerticalAlignment="Center" Spacing="3">
+                  <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+                    <views:WorkTypeIcon x:Name="ReferenceProjectWorkTypeIcon" WorkType="Project" />
+                    <TextBlock Grid.Column="1" Classes="work-identity-title" FontWeight="SemiBold" Text="Garden" />
+                  </Grid>
+                  <TextBlock Classes="work-identity-context" FontSize="12" Foreground="{DynamicResource QuietTextBrush}" Text="Home · 4 Tasks" />
+              </StackPanel>
+            </Border>
+            <Border Classes="interactive-row separated-row last" MinHeight="{StaticResource StandardRowHeight}"
+                AutomationProperties.Name="Category Home. 2 Projects. 3 standalone Tasks">
+              <StackPanel Margin="6,0" VerticalAlignment="Center" Spacing="3">
+                  <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+                    <views:WorkTypeIcon x:Name="ReferenceCategoryWorkTypeIcon" WorkType="Category" />
+                    <TextBlock Grid.Column="1" Classes="work-identity-title" FontWeight="SemiBold" Text="Home" />
+                  </Grid>
+                  <TextBlock Classes="work-identity-context" FontSize="12" Foreground="{DynamicResource QuietTextBrush}" Text="2 Projects · 3 standalone Tasks" />
+              </StackPanel>
             </Border>
           </StackPanel>
         </Border>
@@ -115,7 +155,7 @@
             <Border Classes="empty-state" Padding="28">
               <StackPanel HorizontalAlignment="Center" Spacing="8">
                 <TextBlock FontSize="18" FontWeight="SemiBold" Text="Nothing here yet" />
-                <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="An empty state explains what happens next." />
+                <TextBlock Foreground="{DynamicResource MutedTextBrush}" Text="An empty state explains what happens next." />
                 <Button Classes="primary-action" HorizontalAlignment="Center" Content="Create item"
                     AutomationProperties.Name="Create reference item" />
               </StackPanel>
@@ -123,10 +163,10 @@
             <Border Classes="list-panel">
               <StackPanel Spacing="8">
                 <TextBlock Classes="eyebrow" Text="SEMANTIC COLOUR" />
-                <TextBlock Foreground="{StaticResource AccentBrush}" Text="Pink: interactive emphasis" />
-                <TextBlock Foreground="{StaticResource SuccessBrush}" Text="Green: completion or positive state" />
-                <TextBlock Foreground="{StaticResource AmberBrush}" Text="Amber: attention or in-progress state" />
-                <TextBlock Foreground="{StaticResource ErrorBrush}" Text="Error: validation requires text as well as colour" />
+                <TextBlock Foreground="{DynamicResource AccentBrush}" Text="Pink: interactive emphasis" />
+                <TextBlock Foreground="{DynamicResource SuccessBrush}" Text="Green: completion or positive state" />
+                <TextBlock Foreground="{DynamicResource AmberBrush}" Text="Amber: attention or in-progress state" />
+                <TextBlock Foreground="{DynamicResource ErrorBrush}" Text="Error: validation requires text as well as colour" />
               </StackPanel>
             </Border>
           </StackPanel>

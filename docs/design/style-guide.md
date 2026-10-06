@@ -1,6 +1,6 @@
 # Desktop UI style guide
 
-Status: implemented reference for the dark desktop Workbench direction.
+Status: implemented reference for the desktop Workbench direction in Dark and Light themes.
 
 This is the detailed authority for dot-orbit component anatomy, visual states, accessibility and Avalonia reuse. [`ui-specification.md`](ui-specification.md) remains the authority for product-level layout and interaction decisions; the historical HTML prototype remains exploratory evidence rather than a component specification.
 
@@ -10,7 +10,7 @@ This is the detailed authority for dot-orbit component anatomy, visual states, a
 - Pink communicates interaction: selection, focus, insertion and checked interactive controls. Green communicates completion or another positive outcome. Amber communicates attention or active progress. Error red communicates invalid input.
 - Never communicate meaning with colour or an icon alone. Pair colour with text, shape, state, an accessible name, or a visible structural change.
 - Use semantic resources and classes. A screen must not recreate hover, focus, checked, disabled, error or reorder rules locally.
-- Keep the first release desktop-first and dark-only. Light theme, mobile and responsive redesign are separate product decisions.
+- Keep the first release desktop-first. Dark is the initial theme; Settings offers Dark and Light without changing the layout or semantic hierarchy. Mobile and responsive redesign remain separate product decisions.
 
 ## Tokens
 
@@ -18,7 +18,7 @@ The implemented tokens live in `src/DotOrbit.Desktop/Styles/Tokens.axaml`. Use t
 
 | Family | Tokens | Rule |
 | --- | --- | --- |
-| Colour | `BackgroundBrush`, `SidebarBrush`, `PanelBrush`, `PanelRaisedBrush`, `PanelInputBrush` | Near-black canvas with layered charcoal surfaces. Raised is an interaction state, not decoration. |
+| Colour | `BackgroundBrush`, `SidebarBrush`, `PanelBrush`, `PanelRaisedBrush`, `PanelInputBrush` | Theme-specific canvas and layered surfaces. Raised is an interaction state, not decoration. |
 | Lines | `LineBrush`, `LineSoftBrush`, `ControlHoverBorderBrush` | Strong lines bound panels and controls; soft lines separate peer rows. |
 | Text | `TextBrush`, `MutedTextBrush`, `QuietTextBrush` | Main copy, supporting copy and metadata respectively. Do not hide necessary information through low contrast. |
 | Interaction | `AccentBrush`, `AccentHoverBrush`, `AccentPressedBrush`, `AccentSurfaceBrush`, `AccentContentBrush` | Pink family for action, selection, insertion, focus and checked interactive state. |
@@ -26,7 +26,7 @@ The implemented tokens live in `src/DotOrbit.Desktop/Styles/Tokens.axaml`. Use t
 | Type | `AppFont`, `TypeSizeEyebrow`, `TypeSizeBody`, `TypeSizeTitle` | Inter; 12px labels/metadata, 14px body, 20px inspector titles. Headings may step above these roles locally. |
 | Spacing | `PanelInset`, `NavigationContentInset`, plus 4/6/8/10/12/20/24/32/44px increments | Use 10px equal list-panel insets and a 7px gutter between the navigation indicator and content. Add spacing between groups, not after a final group. |
 | Scrolling | `ScrollContentInset`, `InspectorScrollContentInset` | Reserve a right gutter inside every canvas and inspector scroller so an overlay scrollbar remains separate from content at the 1120×600 minimum window size. Both also reserve bottom clearance after their final content. |
-| Sizing | `ControlHitSize`, `ControlGlyphSize` | Compact actions retain a 30px hit target; completion uses one centred 22px visual square. |
+| Sizing | `ControlHitSize`, `ControlGlyphSize`, `WorkTypeIconSlotWidth`, `WorkTypeIconGlyphSize`, `WorkTypeIconOpticalOffset` | Compact actions retain a 30px hit target; completion uses one centred 22px visual square; work titles use a compact 14px inline slot for a 13px glyph with a shared 1px optical baseline correction. |
 | Radius | `PanelRadius`, `ControlRadius`, `CompactControlRadius` | 10px panels, 8px fields/actions and 6px compact controls. Rows remain visually quieter than panels. |
 | Border and focus | `ControlBorder`, `FocusBorder` | 1px normal borders and a visible 2px keyboard-focus treatment. Focus must remain external to the completion glyph surface. |
 | Density | 48px attached rows; 54px Backlog/Completed rows | Retain compact desktop density while preserving the control hit targets above. |
@@ -44,10 +44,12 @@ The implemented recipes live in `src/DotOrbit.Desktop/Styles/ComponentRecipes.ax
 
 ### Rows and titles
 
+- Every user-visible Task, Project, and Category identity composes the shared `WorkTypeIcon` immediately before its title on the same line. Tasks use the dedicated outlined task-card glyph; Projects and Categories reuse their navigation geometry at a quieter size. All three use `QuietTextBrush` in both themes and apply the shared optical offset so their painted centre aligns with the visible title glyphs rather than the text line box. They remain non-interactive and stay out of the accessibility tree. The containing row supplies the meaningful accessible identity.
+- Identity secondary lines describe relationships rather than repeat the work type: attached Tasks start with their Project, standalone Tasks use `Standalone` (optionally `Standalone · Category` in broad views), Projects use `Category · N Tasks`, and Categories use `N Projects · N standalone Tasks`. A Task Category override follows the Project relationship with the decorative fork geometry and visible Category name; the row accessible name explicitly says `Category override`.
 - `interactive-row` owns full-row hover, including while the pointer is over its completion control, handle, disclosure, title, metadata or date. When that hover surface represents a selectable work item, its non-control area is also the activation target; embedded controls keep their own actions.
 - `row-title` remains transparent and borderless on hover and press. Keyboard focus retains the visible pink border.
 - `separated-row` uses a soft bottom rule only between peers. Add `last` to the final row of each independent list or Completed or Archive group. There is no trailing divider or trailing group margin.
-- Task rows use one column contract across views: optional reorder handle, completion toggle, title plus Category, a right-aligned date block, view-specific actions or position, then the Today star as the final trailing action when available. Missing controls remove their column without changing the relative order of the remaining elements. Compact text actions compose `view-action` with `task-row-action` so Archive and Restore remain explicit without enlarging the row. Completed rows use the same date block for captured completion text and omit reorder, position, and Today actions.
+- Task rows use one column contract across views: optional reorder handle, completion toggle, icon plus identity and relationship context, a right-aligned date block, view-specific actions or position, then the Today star as the final trailing action when available. Missing controls remove their column without changing the relative order of the remaining elements. Compact text actions compose `view-action` with `task-row-action` so Archive and Restore remain explicit without enlarging the row. Completed rows use the same date block for captured completion text and omit reorder, position, and Today actions.
 - Settings lists use the same `list-panel`, `interactive-row`, `separated-row`, and `last` recipe as work lists. Global reusable-data actions belong there rather than in every contextual inspector; an active inline rename uses `inspector-field` plus the ordinary primary and secondary actions.
 - Project and Category headers own hover independently of their expanded child regions and use the same disclosure and card geometry. Equal panel insets apply to Backlog, Completed, and Archive list panels. Completed and Archive use the same recent-day then calendar-week group headings and inter-group spacing.
 - A Project header places its compact Archive action after target/status metadata. Archive Project rows omit active reorder and disclosure controls, include the textual `Archived Project` state, and end with the explicit Restore action; neither colour nor placement carries the state alone.

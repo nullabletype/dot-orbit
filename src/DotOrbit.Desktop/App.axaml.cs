@@ -13,12 +13,19 @@ namespace DotOrbit.Desktop;
 
 public sealed partial class App : Application
 {
+    internal IApplicationThemeService ThemeService { get; private set; } =
+        new TransientApplicationThemeService();
+
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
     public override void OnFrameworkInitializationCompleted()
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            ThemeService = new ApplicationThemeService(
+                this,
+                JsonApplicationThemePreferenceStore.CreateDefault());
+
             if (desktop.Args?.Contains("--markdown-link-smoke", StringComparer.Ordinal) == true)
             {
                 ConfigureMarkdownLinkSmoke(desktop);
