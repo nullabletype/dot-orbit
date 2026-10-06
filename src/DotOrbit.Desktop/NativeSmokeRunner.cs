@@ -1,3 +1,4 @@
+using System.Reflection;
 using Avalonia.Automation;
 using Avalonia.Automation.Peers;
 using Avalonia.Controls;
@@ -179,15 +180,32 @@ internal static class PackagedWorkspaceSmoke
     internal const int WorkspaceFailureExitCode = 22;
 
     private const string PortableRecoveryEnvironmentVariable = "DOTORBIT_PACKAGE_SMOKE_RECOVERY";
+    private const string VersionEnvironmentVariable = "DOTORBIT_PACKAGE_SMOKE_VERSION";
     private const string SyntheticPassphrase = "dot-orbit sample only";
     private const string SyntheticCategory = "Package smoke";
     private const string PortableRecoveryCategory = "Work";
 
-    public static int Run() => Run(
-        Path.Combine(
-            Path.GetTempPath(),
-            $"dot-orbit-package-smoke-{Guid.NewGuid():N}"),
-        Environment.GetEnvironmentVariable(PortableRecoveryEnvironmentVariable));
+    public static int Run()
+    {
+        var expectedVersion = Environment.GetEnvironmentVariable(VersionEnvironmentVariable);
+        var actualVersion = typeof(Program).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+            .InformationalVersion;
+        if (!MatchesExpectedVersion(expectedVersion, actualVersion))
+        {
+            return Fail("version");
+        }
+
+        return Run(
+            Path.Combine(
+                Path.GetTempPath(),
+                $"dot-orbit-package-smoke-{Guid.NewGuid():N}"),
+            Environment.GetEnvironmentVariable(PortableRecoveryEnvironmentVariable));
+    }
+
+    internal static bool MatchesExpectedVersion(string? expectedVersion, string? actualVersion) =>
+        !string.IsNullOrWhiteSpace(expectedVersion)
+        && string.Equals(expectedVersion, actualVersion, StringComparison.Ordinal);
 
     internal static int Run(string directory) => Run(directory, null);
 

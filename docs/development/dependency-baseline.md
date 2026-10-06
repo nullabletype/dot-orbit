@@ -1,6 +1,6 @@
 # Dependency and runner baseline
 
-Checked: 2026-10-02
+Checked: 2026-10-06
 
 Review by: 2026-10-29
 
@@ -24,15 +24,16 @@ This file records the support check for the runnable desktop shell, encrypted wo
 
 ## Continuous integration
 
-- Node.js 24.21.0 is pinned for the dependency-free issue-readiness script and its built-in `node:test` suite. It is an LTS release in the supported Node.js 24 line; no npm packages or package manifest are required. Source: [Node.js 24.21.0 release archive](https://nodejs.org/en/download/archive/v24.21.0) and [Node.js release schedule](https://github.com/nodejs/Release#release-schedule).
+- Node.js 24.21.0 is pinned for the dependency-free issue-readiness and release-control scripts and their built-in `node:test` suites. The release control uses Node's built-in HTTPS and stream implementations to call GitHub's versioned REST API; it adds no CLI or npm dependency. Node 24.21.0 is an LTS release in the supported Node.js 24 line. Source: [Node.js 24.21.0 release archive](https://nodejs.org/en/download/archive/v24.21.0) and [Node.js release schedule](https://github.com/nodejs/Release#release-schedule).
 - Runner labels are explicit: `ubuntu-24.04`, `windows-2025`, and `macos-26`. These were listed as generally available by the [GitHub runner-images project](https://github.com/actions/runner-images/blob/main/README.md) on the check date.
 - Release packaging uses `macos-26` for Apple Silicon and `macos-26-intel` for Intel. The runner-images catalogue lists those as the current macOS 26 ARM64 and x64 labels respectively.
 - `actions/checkout` is pinned to the full commit SHA for v7.0.1.
 - `actions/setup-dotnet` is pinned to the full commit SHA for v6.0.0 and installs SDK 10.0.401 exactly.
 - `actions/setup-node` v7.0.0 is pinned to commit `820762786026740c76f36085b0efc47a31fe5020` and installs Node.js 24.21.0 exactly. Source: [actions/setup-node v7.0.0](https://github.com/actions/setup-node/releases/tag/v7.0.0).
-- The manual package upload uses `actions/upload-artifact` v7.0.1 pinned to commit `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`. This is the current supported Node 24 release; pull-request runs never execute the upload step.
+- Admitted `main` and version-tag packages use `actions/upload-artifact` v7.0.1 pinned to commit `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`. This is the current supported Node 24 release; pull-request and manual runs never execute the upload step. Source: [actions/upload-artifact v7.0.1](https://github.com/actions/upload-artifact/releases/tag/v7.0.1).
+- The tag-only draft job uses `actions/download-artifact` v8.0.1 pinned to commit `3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c`. This is the current supported Node 24 release and downloads only the four artifacts created in the same workflow run, with decompression disabled so the validated ZIP and tar-gzip files remain the release assets. Source: [actions/download-artifact v8.0.1](https://github.com/actions/download-artifact/releases/tag/v8.0.1).
 - CodeQL uses the current v4.38.2 action pinned to commit `2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2` and analyzes C# on pull requests, pushes to `main`, manual dispatch, and the weekly security schedule. Source: [CodeQL Action v4.38.2](https://github.com/github/codeql-action/releases/tag/v4.38.2).
-- The workflow performs locked restore, formatting verification, Release build, and tests. It uploads no artifacts.
+- The required Build workflow performs locked restore, formatting verification, Release build, and tests. It uploads no artifacts.
 - The same explicit matrix launches the real Release-built desktop application. Linux uses the `xvfb` package included in the pinned Ubuntu 24.04 runner image; macOS and Windows use their native desktop environments. The smoke runner adds no package or action dependency and uploads no artifacts.
 - The native journey locates standard Avalonia controls by their automation IDs and checks their built-in automation peers before routing keyboard input. Avalonia exposes those peers through UI Automation on Windows, NSAccessibility on macOS, and AT-SPI2 on Linux. Source: [Avalonia accessibility](https://docs.avaloniaui.net/docs/app-development/accessibility) and the [Ubuntu 24.04 runner software inventory](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md).
 
@@ -51,7 +52,7 @@ The release archives map to this set as `win-x64`, `linux-x64`, `osx-x64`, and `
 
 - The repository packager targets the pinned .NET 10 SDK and uses only supported base-class-library APIs for Zip, POSIX tar, GZip, SHA-256, and JSON. It introduces no additional package dependency or floating host tool.
 - Package restore is locked for all four explicit runtime identifiers. The final archive contains one self-contained executable plus the repository licence, third-party notices, and the generated integrity manifest.
-- Relevant pull requests assemble, inspect, extract, and run every archive on its matching architecture. Only a manual dispatch uploads the final validated archive, using the action pin recorded above.
+- Relevant pull requests and manual runs assemble, inspect, extract, and run every archive on its matching architecture without retaining artifacts. Pushes to `main` and admitted version tags retain only the final validated archives, using the action pin recorded above. A valid tag stamps its SemVer into the executable and manifest; the draft job uses the pinned Node runtime and GitHub REST API to generate notes and attach the same archives without introducing another packaging tool.
 
 ## Review trigger
 

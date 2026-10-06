@@ -37,9 +37,15 @@ Changes to the issue-readiness automation must also run its dependency-free Node
 node --test .github/scripts/issue-readiness.test.mjs
 ```
 
-The required Build workflow runs this suite on its pinned Node release before the application gate. The issue-readiness workflow also runs it before any dry-run or label transition.
+Changes to package admission, version-tag handling, artifact retention, or draft releases must also run:
 
-Self-contained Release packaging uses the checked-in command documented in `docs/development/release-packaging.md`. Signing, installers, and release publication remain separate work and are not implied by a validated archive.
+```sh
+node --test .github/scripts/release-controls.test.mjs
+```
+
+The required Build workflow runs both suites on its pinned Node release before the application gate. The issue-readiness workflow also runs its own suite before any dry-run or label transition.
+
+Self-contained Release packaging uses the checked-in command documented in `docs/development/release-packaging.md`. A valid version tag may prepare an unpublished draft with generated notes, but signing, installers, and release publication remain separate work and are not implied by a validated archive or draft.
 
 ## Desktop verification levels
 

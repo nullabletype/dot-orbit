@@ -1,6 +1,6 @@
 # Release packaging
 
-Issue #3 adds reproducible self-contained Release archives for `win-x64`, `linux-x64`, `osx-x64`, and `osx-arm64`. It does not add installers, signing, notarisation, tags, or GitHub releases.
+Issue #3 adds reproducible self-contained Release archives for `win-x64`, `linux-x64`, `osx-x64`, and `osx-arm64`. Issue #73 adds automatic archive retention for `main` and version tags, plus unpublished draft releases. Neither slice adds installers, signing, notarisation, tag creation, or automatic publication.
 
 ## Build one package
 
@@ -8,15 +8,15 @@ Run a locked restore from the repository root, then invoke the checked-in .NET p
 
 ```sh
 dotnet restore DotOrbit.slnx --locked-mode
-dotnet run --project tools/DotOrbit.Packaging/DotOrbit.Packaging.csproj --configuration Release --no-restore -- --repository-root . --runtime osx-arm64 --no-restore
+dotnet run --project tools/DotOrbit.Packaging/DotOrbit.Packaging.csproj --configuration Release --no-restore -- --repository-root . --runtime osx-arm64 --version 0.0.0-local --no-restore
 ```
 
-The packager publishes a self-contained, single-file application, fails if the publish directory contains anything except the expected app executable and optional root-level PDBs, and assembles a separate archive containing only:
+The packager requires a canonical SemVer value, passes it to the Release publish, publishes a self-contained single-file application, fails if the publish directory contains anything except the expected app executable and optional root-level PDBs, and assembles a separate archive containing only:
 
 - the runtime-specific `dot-orbit` executable;
 - `LICENSE.txt`;
 - `THIRD-PARTY-NOTICES.md` and the complete bundled .NET, Apache-2.0, Inter OFL-1.1, ANGLE, SkiaSharp, and HarfBuzzSharp licence/notice texts;
-- `package-manifest.json`, which records the runtime, Release configuration, self-contained status, size, and SHA-256 digest of every payload file.
+- `package-manifest.json`, which records the version, runtime, Release configuration, self-contained status, size, and SHA-256 digest of every payload file.
 
 Windows uses Zip; Linux and macOS use compressed tar archives so the executable bit is retained. The tool reopens the completed archive, rejects unexpected entries, extracts it to `artifacts/package-smoke/<rid>`, and verifies every manifested size and digest. Raw publish directories are never upload inputs.
 
@@ -26,16 +26,17 @@ Run the self-contained apphost directly, matching the archive's target runtime a
 
 ```sh
 # macOS
-./artifacts/package-smoke/osx-arm64/dot-orbit --package-smoke
+DOTORBIT_PACKAGE_SMOKE_VERSION=0.0.0-local ./artifacts/package-smoke/osx-arm64/dot-orbit --package-smoke
 
 # Linux/X11
-xvfb-run --auto-servernum --auth-file=artifacts/package-smoke/linux-x64/dot-orbit-xvfb.auth ./artifacts/package-smoke/linux-x64/dot-orbit --package-smoke
+DOTORBIT_PACKAGE_SMOKE_VERSION=0.0.0-local xvfb-run --auto-servernum --auth-file=artifacts/package-smoke/linux-x64/dot-orbit-xvfb.auth ./artifacts/package-smoke/linux-x64/dot-orbit --package-smoke
 
 # Windows PowerShell
+$env:DOTORBIT_PACKAGE_SMOKE_VERSION = "0.0.0-local"
 ./artifacts/package-smoke/win-x64/dot-orbit.exe --package-smoke
 ```
 
-The package smoke creates a synthetic encrypted SQLite3MC `workspace.orb` in a temporary directory, closes it, reopens and validates it, restores the external portable recovery fixture when `DOTORBIT_PACKAGE_SMOKE_RECOVERY` names it, removes the temporary workspace, then exercises the real Avalonia Today-to-Archive keyboard journey and closes cleanly. Its diagnostics contain fixed phase and result metadata only.
+The package smoke first requires `DOTORBIT_PACKAGE_SMOKE_VERSION` to equal the executable's informational version. It then creates a synthetic encrypted SQLite3MC `workspace.orb` in a temporary directory, closes it, reopens and validates it, restores the external portable recovery fixture when `DOTORBIT_PACKAGE_SMOKE_RECOVERY` names it, removes the temporary workspace, then exercises the real Avalonia Today-to-Archive keyboard journey and closes cleanly. Its diagnostics contain fixed phase and result metadata only.
 
 These packages are portable archives rather than installers or platform application bundles. They have no installation hook or package identity with which to register the `.orb` file association, so opening a workspace by double-clicking it is not part of this packaging slice. No cosmetic MIME metadata is included in the archive.
 
@@ -43,6 +44,14 @@ Before packaging, every runtime job restores the same checked-in synthetic encry
 
 ## CI and artifact boundary
 
-`.github/workflows/release-packages.yml` builds and smokes all four packages for relevant pull requests without uploading anything. Its manual `workflow_dispatch` path is the only workflow allowed to upload these already-validated archives. The uploaded file is the final archive itself, not a publish directory or a second archive containing evidence.
+`.github/workflows/release-packages.yml` builds and smokes all four packages for relevant pull requests and manual runs without uploading anything. A push to `main` uploads the four already-validated archives as seven-day workflow artifacts. A pushed `v`-prefixed SemVer 2.0 tag, including a prerelease tag, can do the same only when the tagged commit is contained in `origin/main`. GitHub's glob trigger is deliberately treated as a broad candidate filter; the tested release control validates the complete tag grammar and ancestry before the native package jobs start.
 
-Do not dispatch the upload path until the selected source commit has passed the canonical exact-SHA evidence gate and all four package jobs. Confirm that the manual run's resolved commit SHA matches that recorded evidence before treating its archives as release candidates. A branch name or a prior successful run is not sufficient evidence for a different commit.
+Every upload input is the final allowlisted archive itself, not a publish directory or a second archive containing evidence. Pull requests and feature branches therefore cannot retain package artifacts, even when their packaging matrix passes. `main` builds use a traceable `0.0.0-main.<run>+<sha>` package version; other non-release validation uses `0.0.0-ci.<run>+<sha>`. A tagged build removes the `v` prefix, disables the SDK's default source-revision suffix, and records that exact SemVer in the executable and package manifest.
+
+## Draft releases
+
+After all four native jobs for a valid tag pass, a separate job downloads exactly those four workflow artifacts and calls the GitHub Releases API with a job-scoped `contents: write` token. It verifies that the tag still resolves to the workflow commit, asks GitHub to generate the title and changelog since the previous release, and creates an unpublished draft with the four archives attached. SemVer prerelease tags produce prerelease drafts.
+
+A rerun may refresh generated notes and replace those four assets only while the release remains a draft. The automation fails if the tag resolves elsewhere, the asset set changes, or a release for the tag has already been published. It never creates a tag or publishes a release. Before a maintainer publishes a draft, the selected commit still requires the canonical exact-SHA gate and the full supported-release evidence; a successful packaging workflow alone is not release approval.
+
+PDB generation remains disabled. Portable symbols are policy-permitted, but adding them without a symbolication workflow would enlarge the distributed payload without an operator benefit. Trimming, Native AOT, ReadyToRun, and single-file compression also remain unchanged until measured size, startup, and compatibility evidence supports a separate decision.
