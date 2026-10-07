@@ -18,6 +18,8 @@ The packager requires a canonical SemVer value, passes it to the Release publish
 - `THIRD-PARTY-NOTICES.md` and the complete bundled .NET, Apache-2.0, Inter OFL-1.1, ANGLE, SkiaSharp, and HarfBuzzSharp licence/notice texts;
 - `package-manifest.json`, which records the version, runtime, Release configuration, self-contained status, size, and SHA-256 digest of every payload file.
 
+The checked-in multi-resolution `src/DotOrbit.Desktop/Assets/dot-orbit.ico` is derived from the canonical `assets/orbit-mark.svg`. Its source hash, output hash, and required 16–256 pixel frame set are recorded in `assets/orbit-mark.native-icon.json`. Packaging validates that provenance, the icon structure, and the desktop project metadata before publishing. The icon is then embedded into the application single file: it is never a loose archive entry.
+
 Windows uses Zip; Linux and macOS use compressed tar archives so the executable bit is retained. The tool reopens the completed archive, rejects unexpected entries, extracts it to `artifacts/package-smoke/<rid>`, and verifies every manifested size and digest. Raw publish directories are never upload inputs.
 
 ## Smoke the extracted package
@@ -39,6 +41,14 @@ $env:DOTORBIT_PACKAGE_SMOKE_VERSION = "0.0.0-local"
 The package smoke first requires `DOTORBIT_PACKAGE_SMOKE_VERSION` to equal the executable's informational version. It then creates a synthetic encrypted SQLite3MC `workspace.orb` in a temporary directory, closes it, reopens and validates it, restores the external portable recovery fixture when `DOTORBIT_PACKAGE_SMOKE_RECOVERY` names it, removes the temporary workspace, then exercises the real Avalonia Today-to-Archive keyboard journey and closes cleanly. Its diagnostics contain fixed phase and result metadata only.
 
 These packages are portable archives rather than installers or platform application bundles. They have no installation hook or package identity with which to register the `.orb` file association, so opening a workspace by double-clicking it is not part of this packaging slice. No cosmetic MIME metadata is included in the archive.
+
+## Native application icon behaviour
+
+- Windows embeds the multi-resolution icon in `dot-orbit.exe`; Explorer, executable properties, window chrome, the application switcher, and the taskbar can use it. Packaging also inspects the published PE resources and fails if the icon group or any required resolution is absent.
+- Linux receives the same icon as Avalonia's embedded default for every top-level window. X11 window managers can use it for window chrome, switchers, and running-application surfaces, but launcher/menu artwork and desktop-entry identity are outside this portable archive format and vary by desktop environment.
+- macOS also carries the embedded Avalonia window-icon resource, but the current bare executable has no `.app` bundle, `Info.plist`, or `.icns` artwork. Finder and Dock application artwork therefore remain host defaults until a separate bundle slice is implemented.
+
+This distinction is intentional: the Windows executable icon and Avalonia running-window icon are part of the application binary, while installer artwork, Linux launcher integration, and macOS bundle artwork remain separate packaging concerns.
 
 Before packaging, every runtime job restores the same checked-in synthetic encrypted recovery fixture through the storage integration test. After packaging, the extracted self-contained app restores those identical external bytes again through its bundled runtime before continuing the native UI journey. This proves Windows x64, Linux x64, macOS x64, and macOS arm64 compatibility rather than only proving separate same-host databases. The fixture is not included in the release archive; its provenance, public test-only passphrase, and pinned digest are recorded beside it under `tests/DotOrbit.Storage.Sqlite.Tests/Fixtures`.
 

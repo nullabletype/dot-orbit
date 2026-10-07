@@ -69,6 +69,66 @@ public sealed class PackageArchiveTests
     }
 
     [Fact]
+    public void CheckedInApplicationIconContractIsValid()
+    {
+        ApplicationIconAssets.Validate(FindRepositoryRoot());
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void ApplicationIconContractRejectsMissingProjectMetadata(
+        bool includeApplicationIcon,
+        bool includeDefaultWindowIcon)
+    {
+        using var fixture = new ApplicationIconFixture();
+        fixture.WriteProject(includeApplicationIcon, includeDefaultWindowIcon);
+
+        var exception = Assert.Throws<PackageException>(() =>
+            ApplicationIconAssets.Validate(fixture.Directory));
+
+        Assert.Equal("application-icon-contract-invalid", exception.Message);
+    }
+
+    [Fact]
+    public void ApplicationIconContractRejectsAMissingIconAsset()
+    {
+        using var fixture = new ApplicationIconFixture();
+        File.Delete(fixture.IconPath);
+
+        var exception = Assert.Throws<PackageException>(() =>
+            ApplicationIconAssets.Validate(fixture.Directory));
+
+        Assert.Equal("application-icon-contract-invalid", exception.Message);
+    }
+
+    [Fact]
+    public void ApplicationIconContractRejectsAMissingRequiredResolution()
+    {
+        using var fixture = new ApplicationIconFixture();
+        using (var stream = File.Open(fixture.IconPath, FileMode.Open, FileAccess.Write))
+        {
+            stream.Position = 6;
+            stream.WriteByte(20);
+            stream.WriteByte(20);
+        }
+
+        var exception = Assert.Throws<PackageException>(() =>
+            ApplicationIconAssets.ValidateIconFile(fixture.IconPath));
+
+        Assert.Equal("application-icon-contract-invalid", exception.Message);
+    }
+
+    [Fact]
+    public void WindowsExecutableIconValidationRejectsMissingIconResources()
+    {
+        var exception = Assert.Throws<PackageException>(() =>
+            ApplicationIconAssets.ValidateWindowsExecutable(typeof(PackageArchive).Assembly.Location));
+
+        Assert.Equal("windows-executable-icon-invalid", exception.Message);
+    }
+
+    [Fact]
     public void ValidatePublishedFilesAcceptsOnlyTheExpectedExecutable()
     {
         using var fixture = new PublishFixture("dot-orbit");
@@ -96,6 +156,7 @@ public sealed class PackageArchiveTests
     [InlineData("source.cs")]
     [InlineData("test-results.trx")]
     [InlineData("screenshot.png")]
+    [InlineData("dot-orbit.ico")]
     [InlineData("obj/cache.bin")]
     public void ValidatePublishedFilesRejectsEveryAdditionalPayload(string relativePath)
     {
@@ -156,6 +217,64 @@ public sealed class PackageArchiveTests
         var exception = Assert.Throws<PackageException>(() => fixture.Verify());
 
         Assert.Equal("manifest-invalid", exception.Message);
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "global.json")))
+        {
+            directory = directory.Parent;
+        }
+
+        return directory?.FullName
+            ?? throw new InvalidOperationException("Repository root not found.");
+    }
+
+    private sealed class ApplicationIconFixture : IDisposable
+    {
+        public ApplicationIconFixture()
+        {
+            Directory = Path.Combine(
+                Path.GetTempPath(),
+                $"dot-orbit-icon-tests-{Guid.NewGuid():N}");
+            var repositoryRoot = FindRepositoryRoot();
+            var assetDirectory = Path.Combine(Directory, "assets");
+            var desktopDirectory = Path.Combine(Directory, "src", "DotOrbit.Desktop");
+            var desktopAssetDirectory = Path.Combine(desktopDirectory, "Assets");
+            System.IO.Directory.CreateDirectory(assetDirectory);
+            System.IO.Directory.CreateDirectory(desktopAssetDirectory);
+            File.Copy(
+                Path.Combine(repositoryRoot, "assets", "orbit-mark.svg"),
+                Path.Combine(assetDirectory, "orbit-mark.svg"));
+            File.Copy(
+                Path.Combine(repositoryRoot, "assets", "orbit-mark.native-icon.json"),
+                Path.Combine(assetDirectory, "orbit-mark.native-icon.json"));
+            IconPath = Path.Combine(desktopAssetDirectory, "dot-orbit.ico");
+            File.Copy(
+                Path.Combine(repositoryRoot, "src", "DotOrbit.Desktop", "Assets", "dot-orbit.ico"),
+                IconPath);
+            WriteProject(includeApplicationIcon: true, includeDefaultWindowIcon: true);
+        }
+
+        public string Directory { get; }
+
+        public string IconPath { get; }
+
+        public void WriteProject(bool includeApplicationIcon, bool includeDefaultWindowIcon)
+        {
+            var metadata = (includeApplicationIcon
+                ? "<ApplicationIcon>Assets/dot-orbit.ico</ApplicationIcon>"
+                : string.Empty)
+                + (includeDefaultWindowIcon
+                    ? "<AvaloniaIncludeApplicationIconAsWindowIcon>true</AvaloniaIncludeApplicationIconAsWindowIcon>"
+                    : string.Empty);
+            File.WriteAllText(
+                Path.Combine(Directory, "src", "DotOrbit.Desktop", "DotOrbit.Desktop.csproj"),
+                $"<Project><PropertyGroup>{metadata}</PropertyGroup></Project>");
+        }
+
+        public void Dispose() => System.IO.Directory.Delete(Directory, recursive: true);
     }
 
     private sealed class PublishFixture : IDisposable

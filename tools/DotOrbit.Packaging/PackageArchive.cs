@@ -48,6 +48,8 @@ internal static class PackageArchive
             throw new PackageException("unsupported-runtime");
         }
 
+        ApplicationIconAssets.Validate(repositoryRoot);
+
         var projectPath = Path.Combine(
             repositoryRoot,
             "src",
@@ -80,6 +82,10 @@ internal static class PackageArchive
         var executablePath = ValidatePublishedFiles(
             publishRoot,
             runtime.ExecutableName);
+        if (string.Equals(runtimeIdentifier, "win-x64", StringComparison.Ordinal))
+        {
+            ApplicationIconAssets.ValidateWindowsExecutable(executablePath);
+        }
 
         var payloads = new Dictionary<string, string>(StringComparer.Ordinal)
         {
