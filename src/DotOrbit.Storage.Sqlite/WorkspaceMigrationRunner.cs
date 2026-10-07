@@ -271,6 +271,8 @@ internal static class WorkspaceMigrationRunner
                 9 => ApplySchemaNineToTen(connection),
                 10 => ApplySchemaTenToEleven(connection),
                 11 => ApplySchemaElevenToTwelve(connection),
+                12 => ApplySchemaTwelveToThirteen(connection),
+                13 => ApplySchemaThirteenToFourteen(connection),
                 _ => throw new InvalidDataException(),
             };
 
@@ -375,6 +377,62 @@ internal static class WorkspaceMigrationRunner
         ExecuteNonQuery(connection, SqliteWorkspaceWork.ProjectBinAggregateSchema
             + "PRAGMA user_version = 12;");
         return 12;
+    }
+
+    private static int ApplySchemaTwelveToThirteen(SqliteConnection connection)
+    {
+        ExecuteNonQuery(connection, SqliteWorkspaceWork.CategoryIdentitySchemaThirteen + """
+            INSERT INTO category_identities (category_id, colour_key)
+            SELECT id,
+                CASE ((row_number() OVER (ORDER BY position, id) - 1) % 8)
+                    WHEN 0 THEN 'orchid'
+                    WHEN 1 THEN 'violet'
+                    WHEN 2 THEN 'indigo'
+                    WHEN 3 THEN 'ocean'
+                    WHEN 4 THEN 'teal'
+                    WHEN 5 THEN 'lime'
+                    WHEN 6 THEN 'tangerine'
+                    ELSE 'rose'
+                END
+            FROM categories;
+            PRAGMA user_version = 13;
+            """);
+        return 13;
+    }
+
+    private static int ApplySchemaThirteenToFourteen(SqliteConnection connection)
+    {
+        ExecuteNonQuery(connection, """
+            ALTER TABLE category_identities RENAME TO category_identities_v13;
+            """ + SqliteWorkspaceWork.CategoryIdentitySchema + """
+            INSERT INTO category_identities (category_id, colour_key)
+            SELECT category_id, colour_key FROM category_identities_v13;
+            DROP TABLE category_identities_v13;
+            """ + SqliteWorkspaceWork.ProjectIdentitySchema + """
+            INSERT INTO project_identities (project_id, colour_key)
+            SELECT id,
+                CASE ((row_number() OVER (ORDER BY position, id) + 4) % 16)
+                    WHEN 0 THEN 'orchid'
+                    WHEN 1 THEN 'violet'
+                    WHEN 2 THEN 'indigo'
+                    WHEN 3 THEN 'ocean'
+                    WHEN 4 THEN 'teal'
+                    WHEN 5 THEN 'lime'
+                    WHEN 6 THEN 'tangerine'
+                    WHEN 7 THEN 'rose'
+                    WHEN 8 THEN 'cobalt'
+                    WHEN 9 THEN 'cyan'
+                    WHEN 10 THEN 'emerald'
+                    WHEN 11 THEN 'gold'
+                    WHEN 12 THEN 'amber'
+                    WHEN 13 THEN 'coral'
+                    WHEN 14 THEN 'magenta'
+                    ELSE 'slate'
+                END
+            FROM projects;
+            PRAGMA user_version = 14;
+            """);
+        return 14;
     }
 
     private static int ApplySchemaOneToTwo(SqliteConnection connection)

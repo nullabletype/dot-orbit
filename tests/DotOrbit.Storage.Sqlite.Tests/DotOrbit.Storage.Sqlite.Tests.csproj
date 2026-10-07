@@ -13,7 +13,7 @@
     <ProjectReference Include="../../src/DotOrbit.Storage.Sqlite/DotOrbit.Storage.Sqlite.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <None Update="Fixtures/portable-current-v12.dotorbit-recovery"
+    <None Update="Fixtures/portable-current-v13.dotorbit-recovery"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

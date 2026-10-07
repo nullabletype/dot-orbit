@@ -13,6 +13,10 @@
     MinHeight="600"
     Background="{DynamicResource BackgroundBrush}">
   <Window.Resources>
+    <ControlTheme x:Key="NamedCategoryComboBoxItemTheme" TargetType="ComboBoxItem"
+        BasedOn="{StaticResource {x:Type ComboBoxItem}}">
+      <Setter Property="AutomationProperties.Name" Value="{ReflectionBinding Name}" />
+    </ControlTheme>
     <DataTemplate x:Key="NavigationItemTemplate" x:DataType="vm:NavigationItemViewModel">
       <RadioButton
           AutomationProperties.AutomationId="{Binding AutomationId}"
@@ -45,47 +49,44 @@
       </RadioButton>
     </DataTemplate>
     <DataTemplate x:Key="TaskIdentityTemplate" x:DataType="vm:TaskRowViewModel">
-      <StackPanel Spacing="3">
+      <StackPanel Spacing="6">
           <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
             <views:WorkTypeIcon WorkType="Task" />
             <TextBlock Grid.Column="1" Classes="work-identity-title" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
           </Grid>
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-            <TextBlock Classes="work-identity-context" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
-                Text="{Binding BroadRelationshipText}" TextTrimming="CharacterEllipsis" />
-            <views:CategoryOverrideIndicator Grid.Column="1" Text="{Binding CategoryOverrideText}"
-                IsVisible="{Binding HasCategoryOverride}" />
-          </Grid>
+          <views:CategoryProjectPill HorizontalAlignment="Left"
+              CategoryName="{Binding CategoryName}" CategoryColourKey="{Binding CategoryColourKey}"
+              ProjectName="{Binding ProjectTitle}" ProjectColourKey="{Binding ProjectColourKey}"
+              HasOverride="{Binding HasCategoryOverride}" />
       </StackPanel>
     </DataTemplate>
     <DataTemplate x:Key="CategoryTaskIdentityTemplate" x:DataType="vm:TaskRowViewModel">
-      <StackPanel Spacing="3">
+      <StackPanel Spacing="6">
           <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
             <views:WorkTypeIcon WorkType="Task" />
             <TextBlock Grid.Column="1" Classes="work-identity-title" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
           </Grid>
-          <TextBlock Classes="work-identity-context" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
-              Text="{Binding CategoryGroupRelationshipText}" />
+          <views:CategoryProjectPill HorizontalAlignment="Left"
+              CategoryName="{Binding CategoryName}" CategoryColourKey="{Binding CategoryColourKey}"
+              ProjectName="{Binding ProjectTitle}" ProjectColourKey="{Binding ProjectColourKey}"
+              HasOverride="False" />
       </StackPanel>
     </DataTemplate>
     <DataTemplate x:Key="ProjectIdentityTemplate" x:DataType="vm:ProjectRowViewModel">
       <StackPanel Spacing="3">
           <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
-            <views:WorkTypeIcon WorkType="Project" />
+            <views:IdentityTypeIcon Width="14" Height="14" WorkType="Project" ColourKey="{Binding ColourKey}" />
             <TextBlock Grid.Column="1" Classes="work-identity-title" FontSize="15" FontWeight="Bold"
                 Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
           </Grid>
-          <TextBlock Classes="work-identity-context" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
-              Text="{Binding RelationshipText}" TextTrimming="CharacterEllipsis" />
+          <views:CategoryIdentityMarker Classes="category-metadata-identity" HorizontalAlignment="Left"
+              CategoryName="{Binding CategoryName}" ColourKey="{Binding CategoryColourKey}" />
       </StackPanel>
     </DataTemplate>
     <DataTemplate x:Key="CategoryIdentityTemplate" x:DataType="vm:CategoryGroupViewModel">
       <StackPanel Spacing="3">
-          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
-            <views:WorkTypeIcon WorkType="Category" />
-            <TextBlock Grid.Column="1" Classes="work-identity-title" FontSize="15" FontWeight="Bold"
-                Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
-          </Grid>
+          <views:CategoryIdentityMarker Classes="category-heading-identity"
+              CategoryName="{Binding Name}" ColourKey="{Binding ColourKey}" />
           <TextBlock Classes="work-identity-context" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
               Text="{Binding Summary}" TextTrimming="CharacterEllipsis" />
       </StackPanel>
@@ -465,7 +466,7 @@
                     CornerRadius="10">
                   <Grid RowDefinitions="Auto,Auto">
                     <Border Classes="interactive-row expandable-header-row project-header-row selectable-row" Classes.expanded="{Binding IsExpanded}" Padding="10,8,12,8">
-                      <Grid ColumnDefinitions="30,4,30,*,Auto,Auto,Auto">
+                      <Grid ColumnDefinitions="30,4,30,*,104,154,72">
                         <Button
                             Classes="drag-handle project-drag-handle"
                             AutomationProperties.AutomationId="{Binding ReorderAutomationId}"
@@ -492,23 +493,22 @@
                             Command="{Binding SelectCommand}">
                           <ContentControl Content="{Binding}" ContentTemplate="{StaticResource ProjectIdentityTemplate}" />
                         </Button>
-                        <StackPanel Grid.Column="4" Margin="8,0" VerticalAlignment="Center" Spacing="3">
-                          <StackPanel Orientation="Horizontal" Spacing="6">
-                            <Ellipse Classes="status-marker" Classes.not-started="{Binding IsNotStarted}" Classes.in-progress="{Binding IsInProgress}" Classes.complete="{Binding IsComplete}" Width="7" Height="7" VerticalAlignment="Center" />
-                            <TextBlock Classes="status-marker" Classes.not-started="{Binding IsNotStarted}" Classes.in-progress="{Binding IsInProgress}" Classes.complete="{Binding IsComplete}" FontSize="12" Text="{Binding Status}" />
-                          </StackPanel>
-                          <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}" Text="{Binding ProgressText}" />
-                        </StackPanel>
+                        <TextBlock Grid.Column="4" Margin="8,0" HorizontalAlignment="Right" VerticalAlignment="Center"
+                            Classes="project-progress" Classes.not-started="{Binding IsNotStarted}"
+                            Classes.in-progress="{Binding IsInProgress}" Classes.complete="{Binding IsComplete}"
+                            FontSize="12" Text="{Binding ProgressText}" TextAlignment="Right" />
                         <StackPanel Grid.Column="5" Margin="8,0" VerticalAlignment="Center" Spacing="2">
-                          <TextBlock MaxWidth="110" FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
+                          <TextBlock MaxWidth="110" HorizontalAlignment="Right" FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
                               Text="{Binding TargetText}" TextAlignment="Right" TextWrapping="Wrap"
                               AutomationProperties.Name="{Binding TargetAccessibleText}" />
                           <TextBlock IsVisible="{Binding IsOverdue}" Foreground="{DynamicResource AmberBrush}"
-                              FontSize="11" FontWeight="Bold" Text="⚠ Overdue" AutomationProperties.Name="Overdue" />
+                              HorizontalAlignment="Right" FontSize="11" FontWeight="Bold" Text="⚠ Overdue"
+                              TextAlignment="Right" AutomationProperties.Name="Overdue" />
                           <TextBlock IsVisible="{Binding HasCompletionDate}"
-                              FontSize="11" Foreground="{DynamicResource SuccessBrush}" Text="{Binding CompletionDateText}" />
+                              HorizontalAlignment="Right" FontSize="11" Foreground="{DynamicResource SuccessBrush}"
+                              Text="{Binding CompletionDateText}" TextAlignment="Right" />
                         </StackPanel>
-                        <Button Grid.Column="6" Classes="view-action task-row-action" Content="Archive"
+                        <Button Grid.Column="6" Margin="8,0,0,0" HorizontalAlignment="Left" Classes="view-action task-row-action" Content="Archive"
                             Command="{Binding ArchiveCommand}"
                             AutomationProperties.AutomationId="{Binding ArchiveAutomationId}"
                             AutomationProperties.Name="{Binding ArchiveAccessibleName}" />
@@ -526,7 +526,7 @@
                           <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:TaskRowViewModel">
                               <Border Classes="interactive-row separated-row reorder-target task-row selectable-row project-task-row" Classes.last="{Binding IsProjectLast}" MinHeight="{StaticResource CompactRowHeight}">
-                                <Grid VerticalAlignment="Center" ColumnDefinitions="34,34,*,Auto,34,Auto">
+                                <Grid VerticalAlignment="Center" ColumnDefinitions="34,34,*,154,72">
                                   <Button Classes="drag-handle project-task-drag-handle" AutomationProperties.AutomationId="{Binding ProjectReorderAutomationId}"
                                       AutomationProperties.Name="{Binding ProjectReorderAccessibleName}"
                                       AutomationProperties.HelpText="Drag within this Project, or activate for keyboard reorder actions.">
@@ -544,7 +544,7 @@
                                       IsEnabled="{Binding !IsArchived}"
                                       AutomationProperties.AutomationId="{Binding CompletionAutomationId}"
                                       AutomationProperties.Name="{Binding CompletionAccessibleName}" />
-                                  <ToggleButton Grid.Column="4" Classes="today-toggle" IsVisible="{Binding !IsComplete}"
+                                  <ToggleButton Grid.Column="4" HorizontalAlignment="Center" Classes="today-toggle" IsVisible="{Binding !IsComplete}"
                                       IsChecked="{Binding IsToday, Mode=OneWay}" Command="{Binding ToggleTodayCommand}"
                                       AutomationProperties.AutomationId="{Binding TodayAutomationId}"
                                       AutomationProperties.Name="{Binding TodayAccessibleName}" />
@@ -558,16 +558,16 @@
                                   <StackPanel Grid.Column="3" VerticalAlignment="Center">
                                     <TextBlock Classes="task-date" Text="{Binding DateText}"
                                         AutomationProperties.Name="{Binding DateAccessibleText}" />
-                                    <TextBlock Classes="task-completion-date" IsVisible="{Binding HasCompletionDate}"
-                                        Text="{Binding CompletionDateText}" />
+                                    <TextBlock Classes="task-state" Classes.completed="{Binding IsComplete}"
+                                        Classes.archived="{Binding IsArchived}" Classes.overdue="{Binding IsOverdue}"
+                                        IsVisible="{Binding HasProjectState}" Text="{Binding ProjectStateText}"
+                                        AutomationProperties.Name="{Binding ProjectStateAccessibleText}" />
                                   </StackPanel>
-                                  <StackPanel Grid.Column="4" Grid.ColumnSpan="2" Margin="8,0,0,0" VerticalAlignment="Center"
-                                      Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsArchived}">
-                                    <TextBlock VerticalAlignment="Center" FontSize="12" Foreground="{DynamicResource MutedTextBrush}" Text="Archived" />
-                                    <Button Classes="view-action task-row-action" Content="Restore" Command="{Binding RestoreCommand}"
+                                  <Button Grid.Column="4" Margin="8,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                      Classes="view-action task-row-action" Content="Restore" Command="{Binding RestoreCommand}"
+                                      IsVisible="{Binding IsArchived}"
                                         AutomationProperties.AutomationId="{Binding RestoreAutomationId}"
                                         AutomationProperties.Name="{Binding RestoreAccessibleName}" />
-                                  </StackPanel>
                                 </Grid>
                               </Border>
                             </DataTemplate>
@@ -604,11 +604,12 @@
               <ComboBox
                   ItemsSource="{Binding Work.BacklogCategories}"
                   SelectedItem="{Binding Work.BacklogQuickCategory, Mode=TwoWay}"
+                  ItemContainerTheme="{StaticResource NamedCategoryComboBoxItemTheme}"
                   PlaceholderText="Choose category"
                   AutomationProperties.Name="Standalone task category">
                 <ComboBox.ItemTemplate>
                   <DataTemplate x:DataType="vm:CategoryChoice">
-                    <TextBlock Text="{Binding Name}" />
+                    <views:CategoryIdentityMarker CategoryName="{Binding Name}" ColourKey="{Binding ColourKey}" />
                   </DataTemplate>
                 </ComboBox.ItemTemplate>
               </ComboBox>
@@ -723,7 +724,9 @@
                                   <Grid ColumnDefinitions="*,12,Auto" VerticalAlignment="Center">
                                     <ContentControl Content="{Binding Project}" ContentTemplate="{StaticResource ProjectIdentityTemplate}" />
                                     <TextBlock Grid.Column="2" HorizontalAlignment="Right" TextAlignment="Right" FontSize="12"
-                                        Foreground="{DynamicResource MutedTextBrush}" Text="{Binding Project.ProgressText}" />
+                                        Classes="project-progress" Classes.not-started="{Binding Project.IsNotStarted}"
+                                        Classes.in-progress="{Binding Project.IsInProgress}" Classes.complete="{Binding Project.IsComplete}"
+                                        Text="{Binding Project.ProgressText}" />
                                   </Grid>
                                 </Button>
                               </Border>
@@ -893,7 +896,7 @@
               <DataTemplate x:DataType="vm:ArchiveSearchResultGroupViewModel">
                 <StackPanel Spacing="4">
                   <TextBlock Classes="eyebrow" Margin="6,4" Text="{Binding Heading}" />
-                  <Border Classes="list-panel">
+                  <Border Classes="list-panel" Padding="0,10,10,10">
                     <ItemsControl ItemsSource="{Binding Rows}">
                       <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:ArchiveSearchResultViewModel">
@@ -908,18 +911,19 @@
                                   AutomationProperties.AutomationId="{Binding AutomationId}"
                                   AutomationProperties.Name="{Binding AccessibleName}">
                                 <StackPanel VerticalAlignment="Center" Spacing="3">
+                                  <StackPanel Spacing="6">
                                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
                                       <views:WorkTypeIcon WorkType="Task" IsVisible="{Binding IsTask}" />
-                                      <views:WorkTypeIcon WorkType="Project" IsVisible="{Binding IsProject}" />
+                                      <views:IdentityTypeIcon WorkType="Project" ColourKey="{Binding ProjectColourKey}"
+                                          IsVisible="{Binding IsProject}" />
                                       <TextBlock Grid.Column="1" Classes="work-identity-title" FontWeight="SemiBold"
                                           Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
                                     </Grid>
-                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                                      <TextBlock Classes="work-identity-context" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
-                                          Text="{Binding RelationshipText}" TextTrimming="CharacterEllipsis" />
-                                      <views:CategoryOverrideIndicator Grid.Column="1" Text="{Binding CategoryOverrideText}"
-                                          IsVisible="{Binding HasCategoryOverride}" />
-                                    </Grid>
+                                    <views:CategoryProjectPill HorizontalAlignment="Left"
+                                        CategoryName="{Binding CategoryName}" CategoryColourKey="{Binding CategoryColourKey}"
+                                        ProjectName="{Binding PillProjectTitle}" ProjectColourKey="{Binding ProjectColourKey}"
+                                        HasOverride="{Binding HasCategoryOverride}" />
+                                  </StackPanel>
                                     <TextBlock FontSize="11" Foreground="{DynamicResource MutedTextBrush}"
                                         Text="{Binding Excerpt}" TextTrimming="CharacterEllipsis" />
                                 </StackPanel>
@@ -953,7 +957,7 @@
               <DataTemplate x:DataType="vm:ArchivedWorkGroupViewModel">
                 <StackPanel Spacing="4">
                   <TextBlock Classes="eyebrow" Margin="6,4" Text="{Binding Heading}" />
-                  <Border Classes="list-panel">
+                  <Border Classes="list-panel" Padding="0,10,10,10">
                     <ItemsControl ItemsSource="{Binding Rows}">
                       <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:ArchivedWorkRowViewModel">
@@ -962,15 +966,16 @@
                               Classes.last="{Binding IsLast}"
                               MinHeight="{StaticResource StandardRowHeight}">
                             <Grid ColumnDefinitions="*,Auto,Auto,Auto">
-                              <StackPanel IsVisible="{Binding IsProject}" Spacing="3"
+                              <StackPanel IsVisible="{Binding IsProject}" Margin="6,0" Spacing="3"
                                   AutomationProperties.Name="{Binding Project.AccessibleName}">
                                   <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
-                                    <views:WorkTypeIcon WorkType="Project" />
+                                    <views:IdentityTypeIcon WorkType="Project" ColourKey="{Binding Project.ColourKey}" />
                                     <TextBlock Grid.Column="1" Classes="work-identity-title" FontWeight="SemiBold"
                                         Text="{Binding Project.Title}" TextTrimming="CharacterEllipsis" />
                                   </Grid>
-                                  <TextBlock Classes="work-identity-context" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
-                                      Text="{Binding Project.RelationshipText}" TextTrimming="CharacterEllipsis" />
+                                  <views:CategoryProjectPill HorizontalAlignment="Left"
+                                      CategoryName="{Binding Project.CategoryName}" CategoryColourKey="{Binding Project.CategoryColourKey}"
+                                      ProjectColourKey="{Binding Project.ColourKey}" />
                                   <TextBlock FontSize="11" Foreground="{DynamicResource MutedTextBrush}"
                                       Text="{Binding Project.MetadataText}" TextTrimming="CharacterEllipsis" />
                               </StackPanel>
@@ -1027,7 +1032,7 @@
                   TextAlignment="Center" TextWrapping="Wrap" />
             </StackPanel>
           </Border>
-          <Border x:Name="BinListPanel" Classes="list-panel" IsVisible="{Binding Work.HasBinnedWork}">
+          <Border x:Name="BinListPanel" Classes="list-panel" Padding="0,10,10,10" IsVisible="{Binding Work.HasBinnedWork}">
             <ItemsControl ItemsSource="{Binding Work.Bin}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:BinRowViewModel">
@@ -1035,19 +1040,18 @@
                       MinHeight="{StaticResource StandardRowHeight}"
                       AutomationProperties.Name="{Binding AccessibleName}">
                     <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
-                      <StackPanel VerticalAlignment="Center" Spacing="3">
+                      <StackPanel Margin="6,0" VerticalAlignment="Center" Spacing="6">
                           <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
                             <views:WorkTypeIcon WorkType="Task" IsVisible="{Binding IsTask}" />
-                            <views:WorkTypeIcon WorkType="Project" IsVisible="{Binding IsProject}" />
+                            <views:IdentityTypeIcon WorkType="Project" ColourKey="{Binding ProjectColourKey}"
+                                IsVisible="{Binding IsProject}" />
                             <TextBlock Grid.Column="1" Classes="work-identity-title" FontWeight="SemiBold"
                                 Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
                           </Grid>
-                          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                            <TextBlock Classes="work-identity-context" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
-                                Text="{Binding RelationshipText}" TextTrimming="CharacterEllipsis" />
-                            <views:CategoryOverrideIndicator Grid.Column="1" Text="{Binding CategoryOverrideText}"
-                                IsVisible="{Binding HasCategoryOverride}" />
-                          </Grid>
+                          <views:CategoryProjectPill HorizontalAlignment="Left"
+                              CategoryName="{Binding CategoryName}" CategoryColourKey="{Binding CategoryColourKey}"
+                              ProjectName="{Binding PillProjectTitle}" ProjectColourKey="{Binding ProjectColourKey}"
+                              HasOverride="{Binding HasCategoryOverride}" />
                       </StackPanel>
                       <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="12"
                           Foreground="{DynamicResource MutedTextBrush}" Text="{Binding RemovedText}" />
@@ -1308,8 +1312,10 @@
         <StackPanel Margin="{StaticResource InspectorScrollContentInset}" Spacing="0">
           <Grid Margin="0,9,0,0" ColumnDefinitions="Auto,*" ColumnSpacing="6">
             <views:WorkTypeIcon WorkType="Task" IsVisible="{Binding Work.ShowTaskIdentityIcon}" />
-            <views:WorkTypeIcon WorkType="Project" IsVisible="{Binding Work.ShowProjectIdentityIcon}" />
-            <views:WorkTypeIcon WorkType="Category" IsVisible="{Binding Work.ShowCategoryIdentityIcon}" />
+            <views:IdentityTypeIcon x:Name="InspectorProjectIdentityIcon" WorkType="Project"
+                ColourKey="{Binding Work.ProjectColourKey}" IsVisible="{Binding Work.ShowProjectIdentityIcon}" />
+            <views:IdentityTypeIcon x:Name="InspectorCategoryIdentityIcon" WorkType="Category"
+                ColourKey="{Binding Work.CategoryColourKey}" IsVisible="{Binding Work.ShowCategoryIdentityIcon}" />
             <TextBox
                 x:Name="DraftTitle"
                 Grid.Column="1"
@@ -1323,6 +1329,56 @@
           <TextBlock Classes="validation-message" Margin="7,4,0,0"
               Text="{Binding Work.TitleValidationMessage}"
               IsVisible="{Binding Work.HasTitleValidationError}" />
+          <Border Margin="0,22,0,0" Padding="0,20,0,0" BorderBrush="{DynamicResource LineBrush}"
+              BorderThickness="0,1,0,0" IsVisible="{Binding Work.ShowCategoryInspector}">
+            <StackPanel Spacing="10">
+              <TextBlock Classes="inspector-label" Text="COLOUR" />
+              <views:CategoryIdentityMarker HorizontalAlignment="Left" MinWidth="150"
+                  CategoryName="{Binding Work.CategoryPreviewName}"
+                  ColourKey="{Binding Work.CategoryColourKey}" />
+              <ComboBox Classes="inspector-field" ItemsSource="{Binding Work.CategoryColourChoices}"
+                  SelectedItem="{Binding Work.SelectedCategoryColour, Mode=TwoWay}"
+                  ItemContainerTheme="{StaticResource NamedCategoryComboBoxItemTheme}"
+                  AutomationProperties.AutomationId="category-colour"
+                  AutomationProperties.Name="Category colour"
+                  AutomationProperties.ItemStatus="{Binding Work.SelectedCategoryColour.Name}">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:CategoryColourChoice">
+                    <views:CategoryIdentityMarker CategoryName="{Binding Name}" ColourKey="{Binding Key}" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <TextBlock FontSize="11" Foreground="{DynamicResource QuietTextBrush}" TextWrapping="Wrap"
+                  Text="Colour identifies this Category throughout the workspace; the Category name remains the accessible identity." />
+            </StackPanel>
+          </Border>
+          <Border Margin="0,22,0,0" Padding="0,20,0,0" BorderBrush="{DynamicResource LineBrush}"
+              BorderThickness="0,1,0,0" IsVisible="{Binding Work.ShowProjectIdentityEditor}">
+            <StackPanel Spacing="10">
+              <TextBlock Classes="inspector-label" Text="COLOUR" />
+              <StackPanel HorizontalAlignment="Left" MinWidth="150" Orientation="Horizontal" Spacing="7">
+                <views:IdentityTypeIcon WorkType="Project" ColourKey="{Binding Work.ProjectColourKey}" />
+                <TextBlock VerticalAlignment="Center" Text="{Binding Work.ProjectPreviewName}" />
+              </StackPanel>
+              <ComboBox Classes="inspector-field" ItemsSource="{Binding Work.CategoryColourChoices}"
+                  SelectedItem="{Binding Work.SelectedProjectColour, Mode=TwoWay}"
+                  ItemContainerTheme="{StaticResource NamedCategoryComboBoxItemTheme}"
+                  AutomationProperties.AutomationId="project-colour"
+                  AutomationProperties.Name="Project colour"
+                  AutomationProperties.ItemStatus="{Binding Work.SelectedProjectColour.Name}">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:CategoryColourChoice">
+                    <StackPanel Orientation="Horizontal" Spacing="7">
+                      <views:IdentityTypeIcon WorkType="Project" ColourKey="{Binding Key}" />
+                      <TextBlock VerticalAlignment="Center" Text="{Binding Name}" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <TextBlock FontSize="11" Foreground="{DynamicResource QuietTextBrush}" TextWrapping="Wrap"
+                  Text="Colour identifies this Project throughout the workspace; the Project name remains the accessible identity." />
+            </StackPanel>
+          </Border>
           <TextBlock
               Margin="0,2,0,0"
               IsVisible="{Binding Work.ShowProjectSummary}"
@@ -1410,11 +1466,12 @@
                   Classes="inspector-field"
                   ItemsSource="{Binding Work.Categories}"
                   SelectedItem="{Binding Work.Category, Mode=TwoWay}"
+                  ItemContainerTheme="{StaticResource NamedCategoryComboBoxItemTheme}"
                   HorizontalAlignment="Stretch"
                   AutomationProperties.Name="Category">
                 <ComboBox.ItemTemplate>
                   <DataTemplate x:DataType="vm:CategoryChoice">
-                    <TextBlock Text="{Binding Name}" />
+                    <views:CategoryIdentityMarker CategoryName="{Binding Name}" ColourKey="{Binding ColourKey}" />
                   </DataTemplate>
                 </ComboBox.ItemTemplate>
               </ComboBox>
@@ -1575,9 +1632,12 @@
         </StackPanel>
         <ComboBox x:Name="CategoryReplacement" Classes="inspector-field"
             ItemsSource="{Binding Work.CategoryReplacementChoices}" SelectedItem="{Binding Work.CategoryReplacement, Mode=TwoWay}"
+            ItemContainerTheme="{StaticResource NamedCategoryComboBoxItemTheme}"
             AutomationProperties.Name="Replacement category">
           <ComboBox.ItemTemplate>
-            <DataTemplate x:DataType="vm:CategoryChoice"><TextBlock Text="{Binding Name}" /></DataTemplate>
+            <DataTemplate x:DataType="vm:CategoryChoice">
+              <views:CategoryIdentityMarker CategoryName="{Binding Name}" ColourKey="{Binding ColourKey}" />
+            </DataTemplate>
           </ComboBox.ItemTemplate>
         </ComboBox>
         <StackPanel Orientation="Horizontal" Spacing="12">

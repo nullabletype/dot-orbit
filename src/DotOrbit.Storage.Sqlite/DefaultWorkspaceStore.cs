@@ -99,6 +99,11 @@ public sealed class DefaultWorkspaceStore : IWorkspaceStore
         }
 
         var resolvedPath = resolution?.WorkspacePath ?? _fileOperations.ResolvePath(path);
+        if (resolution is null)
+        {
+            return _inner.Open(resolvedPath, passphrase);
+        }
+
         var resolvedDirectory = Path.GetDirectoryName(resolvedPath);
         var adoptionInProgress = resolvedDirectory is not null
             && _fileOperations.Exists(Path.Combine(

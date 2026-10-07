@@ -50,7 +50,7 @@ public sealed class NativeSmokeRunnerTests
         var recoveryFixturePath = Path.Combine(
             AppContext.BaseDirectory,
             "Fixtures",
-            "portable-current-v12.dotorbit-recovery");
+            "portable-current-v13.dotorbit-recovery");
 
         Assert.True(File.Exists(recoveryFixturePath));
 

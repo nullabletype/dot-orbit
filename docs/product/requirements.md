@@ -65,6 +65,9 @@ Status: working specification derived from the interactive prototype.
 - **CAT-013** The domain has no hidden Uncategorised value and always retains at least one Category.
 - **CAT-014** First-run setup creates the first Category before Projects or Tasks can be added.
 - **CAT-015** Within each Category, Projects appear in global Project order and standalone Tasks appear in shared Backlog order; the Categories view has no category-local item order.
+- **CAT-016** Every Category has one required named colour from the checked-in identity palette. The stable palette key is persisted, colours need not be unique, and the Category name remains canonical.
+- **CAT-017** Category colour is presentation metadata only. It does not affect membership, inheritance, ordering, completion, Today, or any other workflow behaviour.
+- **CAT-018** Existing Categories receive deterministic persisted colours during forward migration; later rename or reorder does not recalculate them.
 
 ## Ordering
 
@@ -173,8 +176,12 @@ Status: working specification derived from the interactive prototype.
 - **DESK-004** Supported releases run on serviced Windows 11 versions, current supported macOS versions covered by Avalonia, Ubuntu LTS, and current Debian stable.
 - **DESK-005** X11 is the supported Linux display path for the first release. Native Wayland and other Linux distributions are best-effort until their upstream Avalonia support is suitable for a release commitment.
 - **DESK-006** Settings offers Dark and Light colour themes. A change applies immediately across the main, unlock, recovery, and passphrase windows and is remembered on the local device without storing it in the encrypted workspace.
-- **DESK-007** Every Task, Project, and Category identity heading uses its shared decorative work-type icon in a compact fixed-width slot immediately beside the title. Interactive rows identify the work type and relationship in their accessible name so the icon is not announced twice and no action relies on icon or colour alone.
+- **DESK-007** Every Task, Project, and Category identity heading uses one shared decorative work-type icon in a compact fixed-width slot immediately beside the title. Task icons are neutral; Project and Category icons carry their persisted identity colour rather than adding a second coloured marker. Interactive rows identify the work type and relationship in their accessible name so the icon is not announced twice and no action relies on icon or colour alone.
 - **DESK-008** Task secondary text starts with its Project or `Standalone`, Project secondary text contains Category and total Task count, and Category secondary text contains Project and standalone Task counts. An explicit Task Category override is reinforced by a decorative fork symbol and named as a Category override in the row's accessible text.
+- **DESK-009** Category creation and editing offer sixteen keyboard-operable named colour choices with visible selection, focus, and live preview. Colour participates in the Category's explicit Save, Cancel, and dirty-navigation draft.
+- **DESK-010** Task rows in Today, Upcoming, Backlog, expanded Projects, Categories, Completed, Archive timeline and search, and Bin show one compact non-actionable identity pill. The effective Category appears first with its coloured Category glyph; an attached Project follows with its coloured Project glyph after an angled one-pixel internal boundary. Standalone Tasks collapse the Project segment and boundary. The existing decorative fork appears inside the Category segment only for an attached Task with an explicit Category override.
+- **DESK-011** Category headings, Category choices, and Project Category metadata use the same non-actionable colour-and-name marker without adding a focus stop. Every containing row retains the full Category name and relationship in accessible text; no meaning relies on colour or the fork alone.
+- **DESK-012** Project creation and editing offer the same sixteen keyboard-operable named colour choices with visible selection, focus, and live preview. Project colour is persisted presentation metadata, remains stable across lifecycle and ordering changes, and does not affect behaviour. Archive and Bin Project rows keep the Project identity once beside the title and collapse their secondary identity pill to Category only.
 
 ## Persistence and recovery
 

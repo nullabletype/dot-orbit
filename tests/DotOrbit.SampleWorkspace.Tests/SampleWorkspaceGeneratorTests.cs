@@ -48,6 +48,9 @@ public sealed class SampleWorkspaceGeneratorTests
             ["Work", "Home", "Health", "Learning & creative practice", "Errands", "Someday"],
             snapshot.Categories.Select(category => category.Name));
         Assert.Equal(
+            ["indigo", "teal", "lime", "violet", "tangerine", "rose"],
+            snapshot.Categories.Select(category => category.ColourKey));
+        Assert.Equal(
             ["AB", "Coach", "Garden pal", "MK", "SD", "Unused", "Zoë"],
             snapshot.Participants.Select(participant => participant.Label));
         Assert.Null(session.Recovery.AutomaticRecoveryDirectoryPath);
@@ -59,6 +62,9 @@ public sealed class SampleWorkspaceGeneratorTests
                 "Kitchen refresh", "Health reset", "Prepare quarterly household accounts and paperwork",
             ],
             snapshot.Projects.Select(project => project.Title));
+        Assert.Equal(
+            ["cyan", "coral", "gold", "cobalt", "magenta", "emerald"],
+            snapshot.Projects.Select(project => project.ColourKey));
         Assert.Equal("Not started", ProjectWorkSummary.From(snapshot, projects["Launch the dot-orbit sample workspace"].Id).Status);
         Assert.Equal("In progress", ProjectWorkSummary.From(snapshot, projects["Autumn garden"].Id).Status);
         Assert.True(projects["Autumn garden"].IsArchived);
@@ -122,6 +128,7 @@ public sealed class SampleWorkspaceGeneratorTests
         var second = secondSession.Work.Read();
 
         Assert.Equal(first.Categories.Select(item => item.Id), second.Categories.Select(item => item.Id));
+        Assert.Equal(first.Categories.Select(item => item.ColourKey), second.Categories.Select(item => item.ColourKey));
         Assert.Equal(first.Projects.Select(item => item.Id), second.Projects.Select(item => item.Id));
         Assert.Equal(first.Tasks.Select(item => item.Id), second.Tasks.Select(item => item.Id));
         Assert.Equal(first.Participants.Select(item => item.Id), second.Participants.Select(item => item.Id));
