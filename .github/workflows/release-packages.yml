@@ -115,7 +115,7 @@ jobs:
         timeout-minutes: 2
         shell: bash
         env:
-          DOTORBIT_PACKAGE_SMOKE_RECOVERY: ${{ github.workspace }}/tests/DotOrbit.Storage.Sqlite.Tests/Fixtures/portable-current-v12.dotorbit-recovery
+          DOTORBIT_PACKAGE_SMOKE_RECOVERY: ${{ github.workspace }}/tests/DotOrbit.Storage.Sqlite.Tests/Fixtures/portable-current-v13.dotorbit-recovery
           DOTORBIT_PACKAGE_SMOKE_VERSION: ${{ needs.admit-source.outputs.version }}
         run: ${{ matrix.smoke-command }}
       - name: Upload approved release package
