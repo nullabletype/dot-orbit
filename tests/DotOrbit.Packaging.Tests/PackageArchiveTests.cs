@@ -74,6 +74,32 @@ public sealed class PackageArchiveTests
         ApplicationIconAssets.Validate(FindRepositoryRoot());
     }
 
+    [Fact]
+    public void ApplicationIconContractAcceptsWindowsLineEndingsInCanonicalSource()
+    {
+        using var fixture = new ApplicationIconFixture();
+        File.WriteAllText(
+            fixture.SourcePath,
+            File.ReadAllText(fixture.SourcePath).ReplaceLineEndings("\r\n"));
+
+        ApplicationIconAssets.Validate(fixture.Directory);
+    }
+
+    [Fact]
+    public void ApplicationIconContractRejectsCanonicalSourceContentChanges()
+    {
+        using var fixture = new ApplicationIconFixture();
+        var source = File.ReadAllText(fixture.SourcePath);
+        File.WriteAllText(
+            fixture.SourcePath,
+            source.Replace("#ff4fa3", "#ff4fa4", StringComparison.Ordinal));
+
+        var exception = Assert.Throws<PackageException>(() =>
+            ApplicationIconAssets.Validate(fixture.Directory));
+
+        Assert.Equal("application-icon-contract-invalid", exception.Message);
+    }
+
     [Theory]
     [InlineData(false, true)]
     [InlineData(true, false)]
@@ -244,9 +270,10 @@ public sealed class PackageArchiveTests
             var desktopAssetDirectory = Path.Combine(desktopDirectory, "Assets");
             System.IO.Directory.CreateDirectory(assetDirectory);
             System.IO.Directory.CreateDirectory(desktopAssetDirectory);
+            SourcePath = Path.Combine(assetDirectory, "orbit-mark.svg");
             File.Copy(
                 Path.Combine(repositoryRoot, "assets", "orbit-mark.svg"),
-                Path.Combine(assetDirectory, "orbit-mark.svg"));
+                SourcePath);
             File.Copy(
                 Path.Combine(repositoryRoot, "assets", "orbit-mark.native-icon.json"),
                 Path.Combine(assetDirectory, "orbit-mark.native-icon.json"));
@@ -260,6 +287,8 @@ public sealed class PackageArchiveTests
         public string Directory { get; }
 
         public string IconPath { get; }
+
+        public string SourcePath { get; }
 
         public void WriteProject(bool includeApplicationIcon, bool includeDefaultWindowIcon)
         {
