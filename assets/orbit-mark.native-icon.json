@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "sourcePath": "assets/orbit-mark.svg",
+  "sourceSha256": "939c7dfb87303579a33749d28b227ab5be7bbfddd66ee54aaa7a46a623dd0e3f",
+  "outputPath": "src/DotOrbit.Desktop/Assets/dot-orbit.ico",
+  "outputSha256": "3704213e398e920278795d6f482e35229d3cc495cc7029405c3497357c3da1c7",
+  "sizes": [16, 20, 24, 32, 40, 48, 64, 128, 256]
+}

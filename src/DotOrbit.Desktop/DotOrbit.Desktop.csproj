@@ -2,6 +2,8 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <AssemblyName>dot-orbit</AssemblyName>
+    <ApplicationIcon>Assets/dot-orbit.ico</ApplicationIcon>
+    <AvaloniaIncludeApplicationIconAsWindowIcon>true</AvaloniaIncludeApplicationIconAsWindowIcon>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <RuntimeIdentifiers>win-x64;linux-x64;osx-x64;osx-arm64</RuntimeIdentifiers>
   </PropertyGroup>
