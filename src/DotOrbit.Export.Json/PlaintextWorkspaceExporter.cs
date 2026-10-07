@@ -29,7 +29,7 @@ public sealed class PlaintextWorkspaceExporter : IPlaintextWorkspaceExporter
         _identifiers = identifiers ?? throw new ArgumentNullException(nameof(identifiers));
 
     public const string Format = "dot-orbit-plaintext-export";
-    public const int SchemaVersion = 2;
+    public const int SchemaVersion = 3;
 
     public static byte[] CreateDocument(WorkspaceWorkSnapshot snapshot)
     {
@@ -184,6 +184,7 @@ public sealed class PlaintextWorkspaceExporter : IPlaintextWorkspaceExporter
             writer.WriteString("categoryId", project.CategoryId);
             WriteDate(writer, "targetDate", project.TargetDate);
             writer.WriteNumber("position", project.Position);
+            writer.WriteString("colourKey", project.ColourKey);
             writer.WriteBoolean("isArchived", project.IsArchived);
             WriteInstant(writer, "archiveInstant", project.ArchivedAt);
             WriteDate(writer, "archiveDate", project.ArchiveDate);

@@ -36,51 +36,58 @@ public sealed class StyleGuideWindowTests
     }
 
     [AvaloniaFact]
-    public void WorkIdentityReferenceUsesDistinctFixedSlotDecorativeIcons()
+    public void WorkIdentityReferenceUsesOneColouredIdentityIconBesideProjectAndCategoryTitles()
     {
         var window = new StyleGuideWindow();
         window.Show();
 
         var task = window.FindControl<WorkTypeIcon>("ReferenceTaskWorkTypeIcon")!;
-        var project = window.FindControl<WorkTypeIcon>("ReferenceProjectWorkTypeIcon")!;
-        var category = window.FindControl<WorkTypeIcon>("ReferenceCategoryWorkTypeIcon")!;
+        var project = window.FindControl<IdentityTypeIcon>("ReferenceProjectWorkTypeIcon")!;
+        var category = window.FindControl<IdentityTypeIcon>("ReferenceCategoryWorkTypeIcon")!;
         Assert.Equal([WorkType.Task, WorkType.Project, WorkType.Category],
             new[] { task.WorkType, project.WorkType, category.WorkType });
-        Assert.All(new[] { task, project, category }, icon =>
+        Assert.Equal("cyan", project.ColourKey);
+        Assert.Equal("teal", category.ColourKey);
+        Assert.Equal(14, task.Bounds.Width);
+        Assert.Equal(13, task.Bounds.Height);
+        Assert.Equal(12, project.Bounds.Width);
+        Assert.Equal(12, project.Bounds.Height);
+        Assert.Equal(12, category.Bounds.Width);
+        Assert.Equal(12, category.Bounds.Height);
+        Assert.All(new Control[] { task, project, category }, icon =>
         {
-            Assert.Equal(14, icon.Bounds.Width);
-            Assert.Equal(13, icon.Bounds.Height);
             Assert.False(icon.Focusable);
             Assert.False(icon.IsHitTestVisible);
             Assert.Equal(AccessibilityView.Raw, AutomationProperties.GetAccessibilityView(icon));
             Assert.Null(AutomationProperties.GetName(icon));
-            var glyph = Assert.Single(icon.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>(), path => path.IsVisible);
-            Assert.Equal(13, glyph.Bounds.Width);
-            Assert.Equal(13, glyph.Bounds.Height);
-            Assert.Equal(AccessibilityView.Raw, AutomationProperties.GetAccessibilityView(glyph));
         });
 
         var taskGlyph = task.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>().Single(path => path.IsVisible);
+        var projectGlyph = Assert.Single(project.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>(), path => path.IsVisible);
+        var categoryGlyph = Assert.Single(category.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>(), path => path.IsVisible);
         Assert.Equal(Colors.Transparent, Solid(taskGlyph.Fill).Color);
         Assert.IsAssignableFrom<ISolidColorBrush>(taskGlyph.Stroke);
         Assert.Equal(1.4, taskGlyph.StrokeThickness);
-        Assert.All(new[] { project, category }, icon =>
-        {
-            var glyph = icon.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>().Single(path => path.IsVisible);
-            Assert.Null(glyph.Stroke);
-            Assert.IsAssignableFrom<ISolidColorBrush>(glyph.Fill);
-        });
+        Assert.Null(projectGlyph.Stroke);
+        Assert.Null(categoryGlyph.Stroke);
+        Assert.IsAssignableFrom<ISolidColorBrush>(projectGlyph.Fill);
+        Assert.IsAssignableFrom<ISolidColorBrush>(categoryGlyph.Fill);
+        Assert.Contains("cyan", projectGlyph.Classes);
+        Assert.Contains("teal", categoryGlyph.Classes);
 
-        var geometries = new[] { task, project, category }
-            .Select(icon => icon.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>().Single(path => path.IsVisible).Data!.Bounds)
-            .ToArray();
+        var geometries = new[] { taskGlyph.Data!.Bounds, projectGlyph.Data!.Bounds, categoryGlyph.Data!.Bounds };
         Assert.Equal(3, geometries.Distinct().Count());
-        Assert.Same(WorkTypeIconGeometry.Task,
-            task.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>().Single(path => path.IsVisible).Data);
-        Assert.Same(WorkTypeIconGeometry.Project,
-            project.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>().Single(path => path.IsVisible).Data);
-        Assert.Same(WorkTypeIconGeometry.Category,
-            category.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>().Single(path => path.IsVisible).Data);
+        Assert.Same(WorkTypeIconGeometry.Task, taskGlyph.Data);
+        Assert.Same(WorkTypeIconGeometry.ProjectIdentity, projectGlyph.Data);
+        Assert.Same(WorkTypeIconGeometry.Category, categoryGlyph.Data);
+        var projectReference = Assert.Single(window.GetVisualDescendants().OfType<Border>(), border =>
+            AutomationProperties.GetName(border) == "Project Garden. Category Home. 4 Tasks");
+        Assert.Single(projectReference.GetVisualDescendants().OfType<IdentityTypeIcon>(), icon =>
+            icon.WorkType == WorkType.Project);
+        var categoryReference = Assert.Single(window.GetVisualDescendants().OfType<Border>(), border =>
+            AutomationProperties.GetName(border) == "Category Home. 2 Projects. 3 standalone Tasks");
+        Assert.Single(categoryReference.GetVisualDescendants().OfType<IdentityTypeIcon>(), icon =>
+            icon.WorkType == WorkType.Category);
         var navigation = new DotOrbit.Desktop.ViewModels.ShellViewModel();
         Assert.Equal(WorkTypeIconGeometry.BacklogPath,
             navigation.PrimaryNavigation.Single(item => item.Title == "Backlog").IconData);
@@ -88,30 +95,39 @@ public sealed class StyleGuideWindowTests
             navigation.PrimaryNavigation.Single(item => item.Title == "Backlog").IconData);
         Assert.Equal(WorkTypeIconGeometry.ProjectPath,
             navigation.PrimaryNavigation.Single(item => item.Title == "Projects").IconData);
+        Assert.Equal(WorkTypeIconGeometry.ProjectIdentityPath, WorkTypeIconGeometry.ProjectPath);
         Assert.Equal(WorkTypeIconGeometry.CategoryPath,
             navigation.PrimaryNavigation.Single(item => item.Title == "Categories").IconData);
-        var categoryPill = window.FindControl<CategoryPill>("ReferenceCategoryPill")!;
-        Assert.Equal(AccessibilityView.Raw, AutomationProperties.GetAccessibilityView(categoryPill));
-        Assert.False(categoryPill.Focusable);
-        Assert.False(categoryPill.IsHitTestVisible);
-        Assert.Equal("Work", categoryPill.CategoryName);
-        Assert.Equal("rose", categoryPill.ColourKey);
-        Assert.True(categoryPill.HasOverride);
-        var categoryOverride = Assert.Single(categoryPill.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>());
-        Assert.Equal(AccessibilityView.Raw, AutomationProperties.GetAccessibilityView(categoryOverride));
-        var paletteNames = new[] { "Orchid", "Violet", "Indigo", "Ocean", "Teal", "Lime", "Tangerine", "Rose" };
+        var joinedPill = window.FindControl<CategoryProjectPill>("ReferenceJoinedIdentityPill")!;
+        Assert.Equal(AccessibilityView.Raw, AutomationProperties.GetAccessibilityView(joinedPill));
+        Assert.False(joinedPill.Focusable);
+        Assert.False(joinedPill.IsHitTestVisible);
+        Assert.Equal("Work", joinedPill.CategoryName);
+        Assert.Equal("rose", joinedPill.CategoryColourKey);
+        Assert.Equal("Garden", joinedPill.ProjectName);
+        Assert.Equal("cyan", joinedPill.ProjectColourKey);
+        Assert.True(joinedPill.HasOverride);
+        var paletteNames = new[]
+        {
+            "Orchid", "Violet", "Indigo", "Ocean", "Teal", "Lime", "Tangerine", "Rose",
+            "Cobalt", "Cyan", "Emerald", "Gold", "Amber", "Coral", "Magenta", "Slate",
+        };
         var paletteMarkers = window.GetVisualDescendants().OfType<CategoryIdentityMarker>()
             .Where(marker => paletteNames.Contains(marker.CategoryName, StringComparer.Ordinal))
             .ToArray();
-        Assert.Equal(8, paletteMarkers.Length);
+        Assert.Equal(16, paletteMarkers.Length);
         Assert.All(paletteMarkers, marker =>
         {
             Assert.False(marker.Focusable);
             Assert.False(marker.IsHitTestVisible);
             Assert.Equal(AccessibilityView.Raw, AutomationProperties.GetAccessibilityView(marker));
         });
-        Assert.Equal(8, paletteMarkers.Select(marker => Solid(Assert.Single(
-            marker.GetVisualDescendants().OfType<Ellipse>()).Fill).Color).Distinct().Count());
+        Assert.Equal(16, paletteMarkers.Select(marker =>
+        {
+            var icon = Assert.Single(marker.GetVisualDescendants().OfType<IdentityTypeIcon>());
+            Assert.Equal(WorkType.Category, icon.WorkType);
+            return Solid(Assert.Single(icon.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>()).Fill).Color;
+        }).Distinct().Count());
         var identityNames = window.GetVisualDescendants().OfType<Border>()
             .Select(AutomationProperties.GetName)
             .OfType<string>()

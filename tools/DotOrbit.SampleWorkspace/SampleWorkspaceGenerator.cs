@@ -165,7 +165,8 @@ internal static class SampleWorkspaceGenerator
                 definition.Title,
                 definition.Description,
                 categoryIds[definition.CategoryKey],
-                Offset(anchorDate, definition.TargetDateOffset));
+                Offset(anchorDate, definition.TargetDateOffset),
+                definition.ColourKey);
             projectIds.Add(definition.Key, project.Id);
         }
 
@@ -309,22 +310,22 @@ internal static class SampleWorkspaceGenerator
     [
         new("launch", "Launch the dot-orbit sample workspace",
             "A representative release-shaped Project with due-date boundaries and both Today lanes.",
-            "work", 7),
+            "work", 7, "cyan"),
         new("garden", "Autumn garden",
             "Prepare the garden for winter while keeping errands distinct from work done at home.",
-            "home", -3),
+            "home", -3, "coral"),
         new("welsh", "Welsh foundations",
             "Build a small completed learning Project with Unicode examples such as café and Cymru.",
-            "learning", -1),
+            "learning", -1, "gold"),
         new("kitchen", "Kitchen refresh",
             "An intentionally empty Project proving that no Tasks still means Not started.",
-            "home", null),
+            "home", null, "cobalt"),
         new("health", "Health reset",
             "A partly complete Project targeted for today without becoming overdue.",
-            "health", 0),
+            "health", 0, "magenta"),
         new("accounts", "Prepare quarterly household accounts and paperwork",
             "A deliberately long title for truncation, ordering, and mixed-date checks.",
-            "work", 30),
+            "work", 30, "emerald"),
     ];
 
     private static readonly TaskDefinition[] Tasks =
@@ -418,7 +419,8 @@ internal static class SampleWorkspaceGenerator
         string Title,
         string Description,
         string CategoryKey,
-        int? TargetDateOffset);
+        int? TargetDateOffset,
+        string ColourKey);
     private sealed record TaskDefinition(
         string Key,
         string? ProjectKey,

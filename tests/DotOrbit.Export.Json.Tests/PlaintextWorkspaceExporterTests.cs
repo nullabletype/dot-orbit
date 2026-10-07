@@ -16,7 +16,7 @@ public sealed class PlaintextWorkspaceExporterTests : IDisposable
         "orbit-export-" + Guid.NewGuid().ToString("N"));
 
     [Fact]
-    public void ExportWritesTheDocumentedVersionTwoContractWithoutLosingRelationshipsOrState()
+    public void ExportWritesTheDocumentedVersionThreeContractWithoutLosingRelationshipsIdentityOrState()
     {
         var completedAt = new DateTimeOffset(2026, 10, 5, 9, 30, 0, TimeSpan.FromHours(1));
         var archivedAt = new DateTimeOffset(2026, 10, 6, 11, 45, 0, TimeSpan.Zero);
@@ -26,8 +26,8 @@ public sealed class PlaintextWorkspaceExporterTests : IDisposable
                 new("home", "Home", 2, "teal"),
             ],
             [
-                new("archived-project", "Old plan", "History", "work", null, 7, archivedAt, new(2026, 10, 6)),
-                new("project", "Garden", "Bulbs", "home", new(2026, 10, 12), 1),
+                new("archived-project", "Old plan", "History", "work", null, 7, archivedAt, new(2026, 10, 6), "coral"),
+                new("project", "Garden", "Bulbs", "home", new(2026, 10, 12), 1, ColourKey: "cyan"),
             ],
             [
                 new("archived-task", "archived-project", "Finished", "Done", null, null, 9, 0,
@@ -65,17 +65,19 @@ public sealed class PlaintextWorkspaceExporterTests : IDisposable
         var activeProject = Assert.Single(root.GetProperty("projects").GetProperty("active").EnumerateArray());
         Assert.Equal("project", activeProject.GetProperty("id").GetString());
         Assert.Equal(
-            ["id", "title", "description", "categoryId", "targetDate", "position", "isArchived", "archiveInstant", "archiveDate"],
+            ["id", "title", "description", "categoryId", "targetDate", "position", "colourKey", "isArchived", "archiveInstant", "archiveDate"],
             activeProject.EnumerateObject().Select(property => property.Name));
         Assert.Equal("Garden", activeProject.GetProperty("title").GetString());
         Assert.Equal("Bulbs", activeProject.GetProperty("description").GetString());
         Assert.Equal("home", activeProject.GetProperty("categoryId").GetString());
         Assert.Equal("2026-10-12", activeProject.GetProperty("targetDate").GetString());
+        Assert.Equal("cyan", activeProject.GetProperty("colourKey").GetString());
         Assert.False(activeProject.GetProperty("isArchived").GetBoolean());
         Assert.Equal(JsonValueKind.Null, activeProject.GetProperty("archiveInstant").ValueKind);
 
         var archivedProject = Assert.Single(root.GetProperty("projects").GetProperty("archived").EnumerateArray());
         Assert.True(archivedProject.GetProperty("isArchived").GetBoolean());
+        Assert.Equal("coral", archivedProject.GetProperty("colourKey").GetString());
         Assert.Equal("2026-10-06T11:45:00.0000000+00:00", archivedProject.GetProperty("archiveInstant").GetString());
         Assert.Equal("2026-10-06", archivedProject.GetProperty("archiveDate").GetString());
 
@@ -113,7 +115,8 @@ public sealed class PlaintextWorkspaceExporterTests : IDisposable
     {
         var category = new WorkspaceCategory("cat", "Café ☕", 0, "indigo");
         var otherCategory = new WorkspaceCategory("other", "Other", 1, "lime");
-        var project = new ProjectRecord("project", "Plan \"A\" 🪴", "Line one\nLine two\\end", "cat", null, 0);
+        var project = new ProjectRecord("project", "Plan \"A\" 🪴", "Line one\nLine two\\end", "cat", null, 0,
+            ColourKey: "magenta");
         var otherProject = new ProjectRecord("other-project", "Other", "", "other", null, 1);
         var task = new TaskRecord("task", "project", "日本語", "Emoji 👩🏽‍💻", null, null, 0, 0);
         var otherTask = new TaskRecord("other-task", "other-project", "Other", "", null, null, 1, 0);
@@ -140,6 +143,8 @@ public sealed class PlaintextWorkspaceExporterTests : IDisposable
             .GetProperty("title").GetString());
         Assert.Equal("Line one\nLine two\\end", document.RootElement.GetProperty("projects").GetProperty("active")[0]
             .GetProperty("description").GetString());
+        Assert.Equal("magenta", document.RootElement.GetProperty("projects").GetProperty("active")[0]
+            .GetProperty("colourKey").GetString());
         Assert.Equal("日本語", document.RootElement.GetProperty("tasks").GetProperty("active")[0]
             .GetProperty("title").GetString());
         Assert.DoesNotContain("Line one\nLine two", Encoding.UTF8.GetString(firstBytes), StringComparison.Ordinal);

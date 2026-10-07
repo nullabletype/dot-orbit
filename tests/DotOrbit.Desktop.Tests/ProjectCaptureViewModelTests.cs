@@ -329,6 +329,30 @@ public sealed class ProjectCaptureViewModelTests
     }
 
     [Fact]
+    public void ProjectColourUsesADistinctDefaultAndPersistsExplicitEdits()
+    {
+        var work = new MemoryWorkspaceWork();
+        var model = new ProjectCaptureViewModel(work);
+
+        model.NewProjectCommand.Execute(null);
+        Assert.Equal("lime", model.ProjectColourKey);
+        Assert.Equal("Project name", model.ProjectPreviewName);
+        model.Title = "Garden";
+        model.SelectedProjectColour = model.CategoryColourChoices.Single(choice => choice.Key == "coral");
+        Assert.Equal("Garden", model.ProjectPreviewName);
+        Assert.True(model.Save());
+
+        var project = Assert.Single(work.Read().Projects);
+        Assert.Equal("coral", project.ColourKey);
+        Assert.Equal("coral", model.Projects.Single().ColourKey);
+
+        model.SelectProject(project.Id);
+        model.SelectedProjectColour = model.CategoryColourChoices.Single(choice => choice.Key == "cyan");
+        Assert.Equal("cyan", work.Read().Projects.Single().ColourKey);
+        Assert.False(model.IsDirty);
+    }
+
+    [Fact]
     public void ProjectCategoryChangesFlowToInheritedTasksAndLeaveOverridesStable()
     {
         var work = new MemoryWorkspaceWork();
@@ -822,8 +846,8 @@ public sealed class ProjectCaptureViewModelTests
     public void TaskContextActionsDetachMatchAutomaticallyAndRequireAnExplicitMismatchChoice()
     {
         var work = new MemoryWorkspaceWork();
-        var homeProject = work.CreateProject("Home project", "", "home", null);
-        var workProject = work.CreateProject("Work project", "", "work", null);
+        var homeProject = work.CreateProject("Home project", "", "home", null, "cyan");
+        var workProject = work.CreateProject("Work project", "", "work", null, "coral");
         var task = work.CreateStandaloneTask("Move me", "", "home", null);
         var model = new ProjectCaptureViewModel(work);
 
@@ -833,6 +857,9 @@ public sealed class ProjectCaptureViewModelTests
         var attached = work.Read().Tasks.Single(item => item.Id == task.Id);
         Assert.Equal(homeProject.Id, attached.ProjectId);
         Assert.Null(attached.ExplicitCategoryId);
+        var attachedRow = model.Backlog.Single(item => item.Id == task.Id);
+        Assert.Equal("Home project", attachedRow.ProjectTitle);
+        Assert.Equal("cyan", attachedRow.ProjectColourKey);
         Assert.False(model.NeedsAttachmentChoice);
 
         model.TaskContextTarget = model.TaskContextChoices.Single(choice => choice.ProjectId is null);
@@ -840,6 +867,7 @@ public sealed class ProjectCaptureViewModelTests
         var detached = work.Read().Tasks.Single(item => item.Id == task.Id);
         Assert.Null(detached.ProjectId);
         Assert.Equal("home", detached.ExplicitCategoryId);
+        Assert.Null(model.Backlog.Single(item => item.Id == task.Id).ProjectTitle);
 
         model.TaskContextTarget = model.TaskContextChoices.Single(choice => choice.ProjectId == workProject.Id);
         model.ChangeTaskContextCommand.Execute(null);
@@ -858,6 +886,10 @@ public sealed class ProjectCaptureViewModelTests
         var preserved = work.Read().Tasks.Single(item => item.Id == task.Id);
         Assert.Equal(workProject.Id, preserved.ProjectId);
         Assert.Equal("home", preserved.ExplicitCategoryId);
+        var preservedRow = model.Backlog.Single(item => item.Id == task.Id);
+        Assert.Equal("Work project", preservedRow.ProjectTitle);
+        Assert.Equal("coral", preservedRow.ProjectColourKey);
+        Assert.True(preservedRow.HasCategoryOverride);
 
         model.TaskContextTarget = model.TaskContextChoices.Single(choice => choice.ProjectId is null);
         model.ChangeTaskContextCommand.Execute(null);
@@ -868,6 +900,10 @@ public sealed class ProjectCaptureViewModelTests
         var adopted = work.Read().Tasks.Single(item => item.Id == task.Id);
         Assert.Equal(workProject.Id, adopted.ProjectId);
         Assert.Null(adopted.ExplicitCategoryId);
+        var adoptedRow = model.Backlog.Single(item => item.Id == task.Id);
+        Assert.Equal("Work project", adoptedRow.ProjectTitle);
+        Assert.Equal("coral", adoptedRow.ProjectColourKey);
+        Assert.False(adoptedRow.HasCategoryOverride);
     }
 
     [Fact]
@@ -1980,10 +2016,13 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
         RewriteCategoryPositions();
         return new(id, targetPosition + 1, _categories.Count);
     }
-    public ProjectRecord CreateProject(string title, string description, string categoryId, DateOnly? targetDate)
+    public ProjectRecord CreateProject(string title, string description, string categoryId, DateOnly? targetDate,
+        string? colourKey = null)
     {
         Check();
-        var project = new ProjectRecord($"project-{_projects.Count}", title.Trim(), description, categoryId, targetDate, _projects.Count);
+        var identity = ProjectIdentity.Create(colourKey ?? IdentityColourPalette.KeyForProjectPosition(_projects.Count));
+        var project = new ProjectRecord($"project-{_projects.Count}", title.Trim(), description, categoryId, targetDate,
+            _projects.Count, ColourKey: identity.ColourKey);
         _projects.Add(project); return project;
     }
     public TaskRecord CreateTask(string projectId, string title)
@@ -2046,11 +2085,20 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
             throw;
         }
     }
-    public ProjectRecord UpdateProject(string id, string title, string description, string categoryId, DateOnly? targetDate)
+    public ProjectRecord UpdateProject(string id, string title, string description, string categoryId, DateOnly? targetDate,
+        string? colourKey = null)
     {
         Check();
         int index = _projects.FindIndex(p => p.Id == id);
-        return _projects[index] = _projects[index] with { Title = title.Trim(), Description = description, CategoryId = categoryId, TargetDate = targetDate };
+        var identity = colourKey is null ? _projects[index].ColourKey : ProjectIdentity.Create(colourKey).ColourKey;
+        return _projects[index] = _projects[index] with
+        {
+            Title = title.Trim(),
+            Description = description,
+            CategoryId = categoryId,
+            TargetDate = targetDate,
+            ColourKey = identity,
+        };
     }
     public TaskRecord UpdateTask(string id, string title, string description, string? explicitCategoryId, DateOnly? dueDate,
         ParticipantDraftChange? participantChange = null)

@@ -15,23 +15,33 @@
     <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />
     <Setter Property="CornerRadius" Value="{StaticResource PanelRadius}" />
   </Style>
-  <Style Selector="Ellipse.category-colour-marker.orchid"><Setter Property="Fill" Value="{DynamicResource CategoryOrchidBrush}" /></Style>
-  <Style Selector="Ellipse.category-colour-marker.violet"><Setter Property="Fill" Value="{DynamicResource CategoryVioletBrush}" /></Style>
-  <Style Selector="Ellipse.category-colour-marker.indigo"><Setter Property="Fill" Value="{DynamicResource CategoryIndigoBrush}" /></Style>
-  <Style Selector="Ellipse.category-colour-marker.ocean"><Setter Property="Fill" Value="{DynamicResource CategoryOceanBrush}" /></Style>
-  <Style Selector="Ellipse.category-colour-marker.teal"><Setter Property="Fill" Value="{DynamicResource CategoryTealBrush}" /></Style>
-  <Style Selector="Ellipse.category-colour-marker.lime"><Setter Property="Fill" Value="{DynamicResource CategoryLimeBrush}" /></Style>
-  <Style Selector="Ellipse.category-colour-marker.tangerine"><Setter Property="Fill" Value="{DynamicResource CategoryTangerineBrush}" /></Style>
-  <Style Selector="Ellipse.category-colour-marker.rose"><Setter Property="Fill" Value="{DynamicResource CategoryRoseBrush}" /></Style>
-  <Style Selector="Border.category-pill">
-    <Setter Property="Padding" Value="7,3" />
+  <Style Selector="Path.identity-colour-icon"><Setter Property="Fill" Value="{DynamicResource CategoryOrchidBrush}" /></Style>
+  <Style Selector="Path.identity-colour-icon.orchid"><Setter Property="Fill" Value="{DynamicResource CategoryOrchidBrush}" /></Style>
+  <Style Selector="Path.identity-colour-icon.violet"><Setter Property="Fill" Value="{DynamicResource CategoryVioletBrush}" /></Style>
+  <Style Selector="Path.identity-colour-icon.indigo"><Setter Property="Fill" Value="{DynamicResource CategoryIndigoBrush}" /></Style>
+  <Style Selector="Path.identity-colour-icon.ocean"><Setter Property="Fill" Value="{DynamicResource CategoryOceanBrush}" /></Style>
+  <Style Selector="Path.identity-colour-icon.teal"><Setter Property="Fill" Value="{DynamicResource CategoryTealBrush}" /></Style>
+  <Style Selector="Path.identity-colour-icon.lime"><Setter Property="Fill" Value="{DynamicResource CategoryLimeBrush}" /></Style>
+  <Style Selector="Path.identity-colour-icon.tangerine"><Setter Property="Fill" Value="{DynamicResource CategoryTangerineBrush}" /></Style>
+  <Style Selector="Path.identity-colour-icon.rose"><Setter Property="Fill" Value="{DynamicResource CategoryRoseBrush}" /></Style>
+  <Style Selector="Path.identity-colour-icon.cobalt"><Setter Property="Fill" Value="{DynamicResource CategoryCobaltBrush}" /></Style>
+  <Style Selector="Path.identity-colour-icon.cyan"><Setter Property="Fill" Value="{DynamicResource CategoryCyanBrush}" /></Style>
+  <Style Selector="Path.identity-colour-icon.emerald"><Setter Property="Fill" Value="{DynamicResource CategoryEmeraldBrush}" /></Style>
+  <Style Selector="Path.identity-colour-icon.gold"><Setter Property="Fill" Value="{DynamicResource CategoryGoldBrush}" /></Style>
+  <Style Selector="Path.identity-colour-icon.amber"><Setter Property="Fill" Value="{DynamicResource CategoryAmberBrush}" /></Style>
+  <Style Selector="Path.identity-colour-icon.coral"><Setter Property="Fill" Value="{DynamicResource CategoryCoralBrush}" /></Style>
+  <Style Selector="Path.identity-colour-icon.magenta"><Setter Property="Fill" Value="{DynamicResource CategoryMagentaBrush}" /></Style>
+  <Style Selector="Path.identity-colour-icon.slate"><Setter Property="Fill" Value="{DynamicResource CategorySlateBrush}" /></Style>
+  <Style Selector="Border.category-project-pill">
+    <Setter Property="Height" Value="16" />
     <Setter Property="Background" Value="{DynamicResource PanelRaisedBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
     <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />
     <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="ClipToBounds" Value="True" />
   </Style>
-  <Style Selector="Border.category-pill TextBlock.category-identity-name">
-    <Setter Property="FontSize" Value="11" />
+  <Style Selector="Border.category-project-pill TextBlock.identity-pill-name">
+    <Setter Property="FontSize" Value="12" />
     <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" />
   </Style>
   <Style Selector="UserControl.category-heading-identity TextBlock.category-identity-name">
@@ -251,6 +261,25 @@
     <Setter Property="FontSize" Value="12" />
     <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}" />
   </Style>
+  <Style Selector="TextBlock.task-state">
+    <Setter Property="Margin" Value="8,0" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="HorizontalAlignment" Value="Right" />
+    <Setter Property="TextAlignment" Value="Right" />
+    <Setter Property="FontSize" Value="12" />
+  </Style>
+  <Style Selector="TextBlock.task-state.completed">
+    <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}" />
+  </Style>
+  <Style Selector="TextBlock.task-state.archived">
+    <Setter Property="Foreground" Value="{DynamicResource ArchivedBrush}" />
+  </Style>
+  <Style Selector="TextBlock.task-state.overdue">
+    <Setter Property="Foreground" Value="{DynamicResource AmberBrush}" />
+  </Style>
+  <Style Selector="TextBlock.project-progress.not-started"><Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" /></Style>
+  <Style Selector="TextBlock.project-progress.in-progress"><Setter Property="Foreground" Value="{DynamicResource AmberBrush}" /></Style>
+  <Style Selector="TextBlock.project-progress.complete"><Setter Property="Foreground" Value="{DynamicResource SuccessBrush}" /></Style>
   <Style Selector="Border.project-row">
     <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
     <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />

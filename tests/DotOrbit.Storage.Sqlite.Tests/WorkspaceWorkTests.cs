@@ -1059,6 +1059,53 @@ public sealed class WorkspaceWorkTests : IDisposable
     }
 
     [Fact]
+    public void ProjectColourDefaultsDistinctlyAndExplicitEditsPersistAcrossReopen()
+    {
+        string projectId;
+        using (var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!)
+        {
+            var category = session.Work.Read().Categories.Single();
+            var project = session.Work.CreateProject("Garden", "", category.Id, null);
+            projectId = project.Id;
+            Assert.Equal("lime", project.ColourKey);
+            Assert.NotEqual(category.ColourKey, project.ColourKey);
+
+            var updated = session.Work.UpdateProject(project.Id, project.Title, project.Description,
+                category.Id, project.TargetDate, "coral");
+            Assert.Equal("coral", updated.ColourKey);
+            Assert.Throws<ArgumentException>(() => session.Work.UpdateProject(project.Id, project.Title,
+                project.Description, category.Id, project.TargetDate, "unknown"));
+            Assert.Equal("coral", session.Work.Read().Projects.Single().ColourKey);
+        }
+
+        using var reopened = _store.Open(WorkspacePath, _passphrase).Session!;
+        Assert.Equal("coral", reopened.Work.Read().Projects.Single(project => project.Id == projectId).ColourKey);
+    }
+
+    [Fact]
+    public void OpenRejectsCurrentSchemaWhenAProjectColourIsInvalid()
+    {
+        using (var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!)
+        {
+            var category = session.Work.Read().Categories.Single();
+            session.Work.CreateProject("Garden", "", category.Id, null);
+        }
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "PRAGMA ignore_check_constraints = ON; UPDATE project_identities SET colour_key='unknown';";
+            Assert.Equal(1, command.ExecuteNonQuery());
+        }
+        var before = File.ReadAllBytes(WorkspacePath);
+
+        var result = _store.Open(WorkspacePath, _passphrase);
+
+        Assert.Equal(WorkspaceOpenStatus.InvalidPassphraseOrStore, result.Status);
+        Assert.Null(result.Session);
+        Assert.Equal(before, File.ReadAllBytes(WorkspacePath));
+    }
+
+    [Fact]
     public void ReferencedCategoryDeletionReassignsEveryReferenceAtomicallyAndRollsBackOnFailure()
     {
         using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
@@ -1305,7 +1352,7 @@ public sealed class WorkspaceWorkTests : IDisposable
             var mutatedSchema = schema[..mutationIndex]
                 + replacement
                 + schema[(mutationIndex + original.Length)..];
-            command.CommandText = "DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; DROP TABLE today_tasks; DROP TABLE task_participants; DROP TABLE participants; DROP TABLE tasks; DROP TABLE projects;" +
+            command.CommandText = "DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; DROP TABLE today_tasks; DROP TABLE task_participants; DROP TABLE participants; DROP TABLE tasks; DROP TABLE projects;" +
                 mutatedSchema;
             command.ExecuteNonQuery();
             Assert.Equal("ok", EncryptedWorkspaceStore.ExecuteScalar<string>(connection, "PRAGMA integrity_check;"));

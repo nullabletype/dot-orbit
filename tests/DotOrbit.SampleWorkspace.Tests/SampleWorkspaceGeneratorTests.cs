@@ -62,6 +62,9 @@ public sealed class SampleWorkspaceGeneratorTests
                 "Kitchen refresh", "Health reset", "Prepare quarterly household accounts and paperwork",
             ],
             snapshot.Projects.Select(project => project.Title));
+        Assert.Equal(
+            ["cyan", "coral", "gold", "cobalt", "magenta", "emerald"],
+            snapshot.Projects.Select(project => project.ColourKey));
         Assert.Equal("Not started", ProjectWorkSummary.From(snapshot, projects["Launch the dot-orbit sample workspace"].Id).Status);
         Assert.Equal("In progress", ProjectWorkSummary.From(snapshot, projects["Autumn garden"].Id).Status);
         Assert.True(projects["Autumn garden"].IsArchived);

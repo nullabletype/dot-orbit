@@ -6,7 +6,7 @@ This document defines the language and invariants agents should use. Update it w
 
 ### Project
 
-A container for a purposeful piece of work. A Project has a title, Markdown description, category, optional target date, manually controlled position, and zero or more Tasks.
+A container for a purposeful piece of work. A Project has a title, Markdown description, category, one required named colour for local visual identification, optional target date, manually controlled position, and zero or more Tasks. The name remains the canonical Project identity; colour does not affect behaviour and need not be unique.
 
 ### Task
 

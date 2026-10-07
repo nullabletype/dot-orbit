@@ -189,8 +189,9 @@ public sealed class ProjectCaptureWindowTests
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text =>
             text.IsEffectivelyVisible
             && text.Text == "Restore the parent Project from Bin before restoring this Task.");
-        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text =>
-            text.IsEffectivelyVisible && text.Text == "Garden");
+        var identityPill = Assert.Single(binRow.GetVisualDescendants().OfType<CategoryProjectPill>());
+        Assert.Equal("Home", identityPill.CategoryName);
+        Assert.Equal("Garden", identityPill.ProjectName);
         window.Close();
     }
 
@@ -221,6 +222,10 @@ public sealed class ProjectCaptureWindowTests
 
         var restore = Assert.Single(window.GetVisualDescendants().OfType<Button>(), button =>
             AutomationProperties.GetAutomationId(button) == $"bin-restore-project-{project.Id}");
+        var binRow = restore.GetVisualAncestors().OfType<Border>().First(border => border.Classes.Contains("bin-row"));
+        var identityPill = Assert.Single(binRow.GetVisualDescendants().OfType<CategoryProjectPill>());
+        Assert.Equal("Home", identityPill.CategoryName);
+        Assert.Null(identityPill.ProjectName);
         Assert.Equal("Restore Garden Project and its Tasks from Bin", AutomationProperties.GetName(restore));
         Assert.Contains("nearest surviving former positions", AutomationProperties.GetHelpText(restore), StringComparison.Ordinal);
         Assert.True(restore.Focus());
@@ -1035,8 +1040,10 @@ public sealed class ProjectCaptureWindowTests
         var projectButton = NamedButton(window, "Garden");
         Assert.Contains("project-title", projectButton.Classes);
         AssertWorkTypeIcon(projectButton, WorkType.Project);
-        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Not started");
-        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "0/1 tasks");
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Not started");
+        var progress = Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "0/1 tasks");
+        Assert.Contains("project-progress", progress.Classes);
+        Assert.Contains("not-started", progress.Classes);
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "12 Oct 2026");
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Garden");
 
@@ -1416,7 +1423,12 @@ public sealed class ProjectCaptureWindowTests
         Assert.False(shell.Work.HasInspector);
         reorder.Flyout.Hide();
 
-        ClickTaskRowSurface(window, "project-task-row", "Order compost");
+        var selectedRow = RowForTask(window, "project-task-row", selectedTask.Id);
+        var rowPoint = selectedRow.TranslatePoint(new Point(selectedRow.Bounds.Width - 70, selectedRow.Bounds.Height / 2), window);
+        Assert.True(rowPoint.HasValue);
+        window.MouseDown(rowPoint.Value, MouseButton.Left, RawInputModifiers.LeftMouseButton);
+        window.MouseUp(rowPoint.Value, MouseButton.Left, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
 
         Assert.True(shell.Work.HasInspector);
         Assert.Equal("Order compost", shell.Work.Title);
@@ -1532,7 +1544,8 @@ public sealed class ProjectCaptureWindowTests
         var completion = ToggleByAutomationId(window, $"task-completion-{task.Id}");
         Assert.False(completion.IsEnabled);
         Assert.Equal("Plant bulbs is archived. Restore it before reopening.", AutomationProperties.GetName(completion));
-        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.IsEffectivelyVisible && text.Text == "Archived");
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text =>
+            text.IsEffectivelyVisible && text.Text == "Archived 29 Sep 2026");
         var restore = ButtonByAutomationId(window, $"task-restore-{task.Id}");
         Assert.Equal("Restore Plant bulbs to Completed", AutomationProperties.GetName(restore));
 
@@ -1608,6 +1621,11 @@ public sealed class ProjectCaptureWindowTests
         Assert.Contains("Completed 27 Sep 2026", accessibleName, StringComparison.Ordinal);
         Assert.Contains("Blue tulips near the gate", accessibleName, StringComparison.Ordinal);
         Assert.DoesNotContain("**", accessibleName, StringComparison.Ordinal);
+        var identityPill = Assert.Single(result.GetVisualDescendants().OfType<CategoryProjectPill>());
+        Assert.Equal("Home", identityPill.CategoryName);
+        Assert.Equal("Garden", identityPill.ProjectName);
+        Assert.Equal(WorkType.Category,
+            identityPill.GetVisualDescendants().OfType<IdentityTypeIcon>().First().WorkType);
 
         Activate(window, result);
 
@@ -2065,11 +2083,11 @@ public sealed class ProjectCaptureWindowTests
 
         var taskTitle = Assert.Single(child.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Plant bulbs");
         var taskMetadata = Assert.Single(child.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Garden");
-        var emptyCompletionDate = Assert.Single(child.GetVisualDescendants().OfType<TextBlock>(),
-            text => string.IsNullOrEmpty(text.Text) && text.Classes.Contains("task-completion-date"));
-        Assert.False(emptyCompletionDate.IsVisible);
-        Assert.Equal(12, emptyCompletionDate.FontSize);
-        Assert.Equal(0, emptyCompletionDate.Bounds.Height);
+        var emptyState = Assert.Single(child.GetVisualDescendants().OfType<TextBlock>(),
+            text => string.IsNullOrEmpty(text.Text) && text.Classes.Contains("task-state"));
+        Assert.False(emptyState.IsVisible);
+        Assert.Equal(12, emptyState.FontSize);
+        Assert.Equal(0, emptyState.Bounds.Height);
         var handle = ButtonByAutomationId(window, $"project-task-reorder-{task.Id}");
         var dots = Assert.Single(handle.GetVisualDescendants().OfType<Grid>(),
             grid => grid.Bounds.Width == 8 && grid.Bounds.Height == 12);
@@ -2215,10 +2233,9 @@ public sealed class ProjectCaptureWindowTests
         {
             var row = Assert.Single(window.GetVisualDescendants().OfType<Border>(),
                 border => border.Classes.Contains("backlog-row") && border.DataContext is TaskRowViewModel task && task.Title == title);
-            var relationship = Assert.Single(row.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == visibleRelationship);
-            Assert.True(relationship.IsEffectivelyVisible);
-            var pill = Assert.Single(row.GetVisualDescendants().OfType<CategoryPill>());
+            var pill = Assert.Single(row.GetVisualDescendants().OfType<CategoryProjectPill>());
             Assert.Equal(categoryName, pill.CategoryName);
+            Assert.Equal(visibleRelationship == "Standalone" ? null : visibleRelationship, pill.ProjectName);
             Assert.Equal(hasOverride, pill.HasOverride);
             Assert.True(pill.IsEffectivelyVisible);
             var taskButton = Assert.Single(row.GetVisualDescendants().OfType<Button>(),
@@ -2230,7 +2247,7 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
-    public void CategoryPillsAppearOnlyOnTheFourScopedTaskSurfaces()
+    public void JoinedIdentityPillsAppearOnEveryTaskSurfaceIncludingArchiveAndBin()
     {
         var work = new MemoryWorkspaceWork();
         var project = work.CreateProject("Garden", "", "home", null);
@@ -2254,19 +2271,10 @@ public sealed class ProjectCaptureWindowTests
         AssertScopedSurface("Backlog", standalone.Id, "Work");
         AssertScopedSurface("Categories", standalone.Id, "Work");
         AssertScopedSurface("Completed", completed.Id, "Home");
-
-        SelectView(shell, "Today");
-        Dispatcher.UIThread.RunJobs();
-        Assert.DoesNotContain(window.GetVisualDescendants().OfType<CategoryPill>(), pill => pill.IsEffectivelyVisible);
-        SelectView(shell, "Upcoming");
-        Dispatcher.UIThread.RunJobs();
-        Assert.DoesNotContain(window.GetVisualDescendants().OfType<CategoryPill>(), pill => pill.IsEffectivelyVisible);
-        SelectView(shell, "Archive");
-        Dispatcher.UIThread.RunJobs();
-        Assert.DoesNotContain(window.GetVisualDescendants().OfType<CategoryPill>(), pill => pill.IsEffectivelyVisible);
-        SelectView(shell, "Bin");
-        Dispatcher.UIThread.RunJobs();
-        Assert.DoesNotContain(window.GetVisualDescendants().OfType<CategoryPill>(), pill => pill.IsEffectivelyVisible);
+        AssertSurfacePill("Today", "Home", "Garden");
+        AssertSurfacePill("Upcoming", "Home", "Garden");
+        AssertSurfacePill("Archive", "Home", null);
+        AssertSurfacePill("Bin", "Work", null);
         window.Close();
 
         void AssertScopedSurface(string view, string taskId, string categoryName)
@@ -2279,14 +2287,458 @@ public sealed class ProjectCaptureWindowTests
                 && (candidate.DataContext is TaskRowViewModel task && task.Id == taskId
                     || candidate.DataContext is CategoryTaskRowViewModel categoryTask && categoryTask.Task.Id == taskId
                     || candidate.DataContext is CompletedTaskRowViewModel completedTask && completedTask.Task.Id == taskId));
-            var pill = Assert.Single(button.GetVisualDescendants().OfType<CategoryPill>(), candidate => candidate.IsEffectivelyVisible);
+            var pill = Assert.Single(button.GetVisualDescendants().OfType<CategoryProjectPill>(), candidate => candidate.IsEffectivelyVisible);
             Assert.Equal(categoryName, pill.CategoryName);
             Assert.Equal(AccessibilityView.Raw, AutomationProperties.GetAccessibilityView(pill));
+        }
+
+        void AssertSurfacePill(string view, string categoryName, string? projectName)
+        {
+            SelectView(shell, view);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Contains(window.GetVisualDescendants().OfType<CategoryProjectPill>(), pill =>
+                pill.IsEffectivelyVisible
+                && pill.CategoryName == categoryName
+                && pill.ProjectName == projectName);
         }
     }
 
     [AvaloniaFact]
-    public void CategoryInspectorOffersEightKeyboardReachableColoursAndLivePreview()
+    public void JoinedIdentityPillOrdersCategoryBeforeProjectAndCollapsesForStandaloneTasks()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null, "cyan");
+        var attached = work.CreateTask(project.Id, "Attached");
+        var standalone = work.CreateStandaloneTask("Standalone", "", "work", null);
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Backlog").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+
+        var attachedPill = PillFor(attached.Id);
+        Assert.Equal("Home", attachedPill.CategoryName);
+        Assert.Equal("Garden", attachedPill.ProjectName);
+        Assert.Equal("cyan", attachedPill.ProjectColourKey);
+        var attachedIcons = attachedPill.GetVisualDescendants().OfType<IdentityTypeIcon>().ToArray();
+        Assert.Equal([WorkType.Category, WorkType.Project], attachedIcons.Select(icon => icon.WorkType));
+        var categoryGlyph = Assert.Single(attachedIcons[0].GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>());
+        var projectGlyph = Assert.Single(attachedIcons[1].GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>());
+        Assert.Equal(8, categoryGlyph.Width);
+        Assert.Equal(8, categoryGlyph.Height);
+        Assert.Equal(11, projectGlyph.Width);
+        Assert.Equal(10, projectGlyph.Height);
+        Assert.Same(WorkTypeIconGeometry.ProjectIdentity, projectGlyph.Data);
+        Assert.InRange(Math.Abs(CentreInWindow(categoryGlyph, window).Y - CentreInWindow(attachedPill, window).Y), 0, 0.5);
+        Assert.InRange(Math.Abs(CentreInWindow(projectGlyph, window).Y - CentreInWindow(attachedPill, window).Y), 0, 0.5);
+        Assert.True(attachedPill.FindControl<Avalonia.Controls.Shapes.Path>("Join")!.IsEffectivelyVisible);
+
+        var standalonePill = PillFor(standalone.Id);
+        Assert.Equal("Work", standalonePill.CategoryName);
+        Assert.Null(standalonePill.ProjectName);
+        Assert.Equal(WorkType.Category, Assert.Single(standalonePill.GetVisualDescendants().OfType<IdentityTypeIcon>(),
+            icon => icon.IsEffectivelyVisible).WorkType);
+        Assert.False(standalonePill.FindControl<Avalonia.Controls.Shapes.Path>("Join")!.IsVisible);
+        window.Close();
+
+        CategoryProjectPill PillFor(string taskId)
+        {
+            var row = Assert.Single(window.GetVisualDescendants().OfType<Border>(), border =>
+                border.Classes.Contains("backlog-row") && border.DataContext is TaskRowViewModel task && task.Id == taskId);
+            return Assert.Single(row.GetVisualDescendants().OfType<CategoryProjectPill>());
+        }
+    }
+
+    [AvaloniaFact]
+    public void CategoryProjectRowUsesOneColouredProjectGlyphAndCategoryGrid()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "work", null, "cyan");
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+        SelectView(shell, "Categories");
+        Dispatcher.UIThread.RunJobs();
+
+        var row = Assert.Single(window.GetVisualDescendants().OfType<Border>(), candidate =>
+            candidate.IsEffectivelyVisible
+            && candidate.Classes.Contains("category-project-row")
+            && candidate.DataContext is CategoryProjectRowViewModel item
+            && item.Project.Id == project.Id);
+        Assert.DoesNotContain(row.GetVisualDescendants().OfType<WorkTypeIcon>(),
+            icon => icon.WorkType == WorkType.Project);
+        var projectIcon = Assert.Single(row.GetVisualDescendants().OfType<IdentityTypeIcon>(),
+            icon => icon.WorkType == WorkType.Project);
+        Assert.Equal("cyan", projectIcon.ColourKey);
+
+        var categoryMarker = Assert.Single(row.GetVisualDescendants().OfType<CategoryIdentityMarker>());
+        var categoryIcon = Assert.Single(categoryMarker.GetVisualDescendants().OfType<IdentityTypeIcon>());
+        Assert.Equal(WorkType.Category, categoryIcon.WorkType);
+        Assert.Equal(work.Read().Categories.Single(category => category.Id == "work").ColourKey,
+            categoryIcon.ColourKey);
+        Assert.Empty(categoryMarker.GetVisualDescendants().OfType<Ellipse>());
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void ProjectTaskProgressAppearsOnlyInRightAlignedMetadataAcrossProjectSurfaces()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Welsh foundations", "", "work", null, "gold");
+        foreach (var title in new[] { "Practise greetings", "Record first conversation", "Finish pronunciation review" })
+        {
+            var task = work.CreateTask(project.Id, title);
+            work.CompleteTask(task.Id);
+        }
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+
+        SelectView(shell, "Projects");
+        Dispatcher.UIThread.RunJobs();
+        var projectHeader = Assert.Single(window.GetVisualDescendants().OfType<Border>(), candidate =>
+            candidate.IsEffectivelyVisible
+            && candidate.Classes.Contains("project-header-row")
+            && candidate.DataContext is ProjectRowViewModel row
+            && row.Id == project.Id);
+        AssertSingleRightAlignedProgress(projectHeader);
+
+        SelectView(shell, "Categories");
+        Dispatcher.UIThread.RunJobs();
+        var categoryProject = Assert.Single(window.GetVisualDescendants().OfType<Border>(), candidate =>
+            candidate.IsEffectivelyVisible
+            && candidate.Classes.Contains("category-project-row")
+            && candidate.DataContext is CategoryProjectRowViewModel row
+            && row.Project.Id == project.Id);
+        AssertSingleRightAlignedProgress(categoryProject);
+        window.Close();
+
+        static void AssertSingleRightAlignedProgress(Border row)
+        {
+            var labels = row.GetVisualDescendants().OfType<TextBlock>()
+                .Where(text => text.IsEffectivelyVisible)
+                .ToArray();
+            Assert.DoesNotContain(labels, text => text.Text == "3 Tasks");
+            var progress = Assert.Single(labels, text => text.Text == "3/3 tasks");
+            Assert.Contains("project-progress", progress.Classes);
+            Assert.Contains("complete", progress.Classes);
+            Assert.Equal(Color.Parse("#7CE7B2"), Assert.IsAssignableFrom<ISolidColorBrush>(progress.Foreground).Color);
+            if (row.Classes.Contains("project-header-row"))
+                Assert.Equal(4, Grid.GetColumn(progress));
+            else
+                Assert.Equal(2, Grid.GetColumn(progress));
+        }
+    }
+
+    [AvaloniaFact]
+    public void ProjectHeaderUsesColouredProgressCountWithoutDuplicateStatusLabel()
+    {
+        var work = new MemoryWorkspaceWork();
+        var notStarted = work.CreateProject("Empty project", "", "work", null);
+        var inProgress = work.CreateProject("Underway project", "", "work", null);
+        var firstInProgressTask = work.CreateTask(inProgress.Id, "First underway task");
+        work.CreateTask(inProgress.Id, "Second underway task");
+        work.CompleteTask(firstInProgressTask.Id);
+        var complete = work.CreateProject("Finished project", "", "work", null);
+        var completeTask = work.CreateTask(complete.Id, "Finished task");
+        work.CompleteTask(completeTask.Id);
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Projects").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+
+        AssertProgress(notStarted.Id, "0/0 tasks", "not-started", "#9099A9");
+        AssertProgress(inProgress.Id, "1/2 tasks", "in-progress", "#FFCF70");
+        AssertProgress(complete.Id, "1/1 tasks", "complete", "#7CE7B2");
+        window.Close();
+
+        void AssertProgress(string projectId, string expectedText, string expectedClass, string expectedColour)
+        {
+            var header = Assert.Single(window.GetVisualDescendants().OfType<Border>(), candidate =>
+                candidate.IsEffectivelyVisible
+                && candidate.Classes.Contains("project-header-row")
+                && candidate.DataContext is ProjectRowViewModel row
+                && row.Id == projectId);
+            var progress = Assert.Single(header.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == expectedText);
+            Assert.Contains("project-progress", progress.Classes);
+            Assert.Contains(expectedClass, progress.Classes);
+            Assert.Equal(4, Grid.GetColumn(progress));
+            Assert.Equal(Color.Parse(expectedColour), Assert.IsAssignableFrom<ISolidColorBrush>(progress.Foreground).Color);
+            Assert.DoesNotContain(header.GetVisualDescendants().OfType<TextBlock>(), text =>
+                text.IsEffectivelyVisible && text.Text == ((ProjectRowViewModel)header.DataContext!).Status);
+            var title = Assert.Single(header.GetVisualDescendants().OfType<Button>(), button =>
+                button.Classes.Contains("project-title"));
+            Assert.Contains(((ProjectRowViewModel)header.DataContext!).Status,
+                AutomationProperties.GetName(title), StringComparison.Ordinal);
+        }
+    }
+
+    [AvaloniaFact]
+    public void ProjectRowsAlignLifecycleStateUnderDateBesideCompactActionLane()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", new DateOnly(2026, 9, 28));
+        var completed = work.CreateTask(project.Id, "Plant bulbs");
+        work.UpdateTask(completed.Id, completed.Title, "", null, new DateOnly(2026, 9, 27));
+        work.SetCompletion(completed.Id, new DateTimeOffset(2026, 9, 27, 12, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 27));
+        var archived = work.CreateTask(project.Id, "File receipt");
+        work.UpdateTask(archived.Id, archived.Title, "", null, new DateOnly(2026, 9, 20));
+        work.SetCompletion(archived.Id, new DateTimeOffset(2026, 9, 27, 13, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 27));
+        work.SetArchive(archived.Id, new DateTimeOffset(2026, 9, 29, 13, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 29));
+        var overdue = work.CreateTask(project.Id, "Water seedlings");
+        work.UpdateTask(overdue.Id, overdue.Title, "", null, new DateOnly(2026, 9, 28));
+        var shell = new ShellViewModel(work,
+            new FixedTimeProvider(new DateTimeOffset(2026, 9, 29, 12, 0, 0, TimeSpan.Zero)));
+        shell.PrimaryNavigation.Single(item => item.Title == "Projects").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+
+        var completedRow = Row(completed.Id);
+        var archivedRow = Row(archived.Id);
+        var overdueRow = Row(overdue.Id);
+        var completedState = Assert.Single(completedRow.GetVisualDescendants().OfType<TextBlock>(), text =>
+            text.IsEffectivelyVisible && text.Text == "Completed 27 Sep 2026");
+        var archivedState = Assert.Single(archivedRow.GetVisualDescendants().OfType<TextBlock>(), text =>
+            text.IsEffectivelyVisible && text.Text == "Archived 29 Sep 2026");
+        var overdueState = Assert.Single(overdueRow.GetVisualDescendants().OfType<TextBlock>(), text =>
+            text.IsEffectivelyVisible && text.Text == "⚠ Overdue");
+        Assert.Contains("completed", completedState.Classes);
+        Assert.Contains("archived", archivedState.Classes);
+        Assert.Contains("overdue", overdueState.Classes);
+        Assert.Equal("Overdue", AutomationProperties.GetName(overdueState));
+        Assert.Equal(Color.Parse("#7CE7B2"), Assert.IsAssignableFrom<ISolidColorBrush>(completedState.Foreground).Color);
+        Assert.Equal(Color.Parse("#C8A8FF"), Assert.IsAssignableFrom<ISolidColorBrush>(archivedState.Foreground).Color);
+        Assert.Equal(Color.Parse("#FFCF70"), Assert.IsAssignableFrom<ISolidColorBrush>(overdueState.Foreground).Color);
+
+        var completedDates = Assert.IsType<StackPanel>(completedState.Parent);
+        var archivedDates = Assert.IsType<StackPanel>(archivedState.Parent);
+        var overdueDates = Assert.IsType<StackPanel>(overdueState.Parent);
+        Assert.Equal(3, Grid.GetColumn(completedDates));
+        Assert.Equal(3, Grid.GetColumn(archivedDates));
+        Assert.Equal(3, Grid.GetColumn(overdueDates));
+        Assert.InRange(Math.Abs(
+            OriginInWindow(completedState, window).X + completedState.Bounds.Width
+            - OriginInWindow(archivedState, window).X - archivedState.Bounds.Width), 0, 1);
+        Assert.InRange(Math.Abs(
+            OriginInWindow(completedState, window).X + completedState.Bounds.Width
+            - OriginInWindow(overdueState, window).X - overdueState.Bounds.Width), 0, 1);
+        var archivedDue = Assert.Single(archivedDates.GetVisualDescendants().OfType<TextBlock>(), text =>
+            text.Classes.Contains("task-date"));
+        Assert.True(OriginInWindow(archivedState, window).Y > OriginInWindow(archivedDue, window).Y);
+        Assert.DoesNotContain(archivedRow.GetVisualDescendants().OfType<TextBlock>(), text =>
+            text.IsEffectivelyVisible && (text.Text == "Archived" || text.Text == "Completed 27 Sep 2026" || text.Text == "⚠ Overdue"));
+
+        var archivedTitle = Assert.Single(archivedRow.GetVisualDescendants().OfType<Button>(), button =>
+            button.Classes.Contains("project-task-title"));
+        Assert.Contains("Archived 29 Sep 2026", AutomationProperties.GetName(archivedTitle), StringComparison.Ordinal);
+        Assert.DoesNotContain("Completed 27 Sep 2026", AutomationProperties.GetName(archivedTitle), StringComparison.Ordinal);
+
+        var restore = ButtonByAutomationId(window, $"task-restore-{archived.Id}");
+        Assert.Equal(4, Grid.GetColumn(restore));
+        var today = ToggleByAutomationId(window, $"task-today-{overdue.Id}");
+        Assert.Equal(4, Grid.GetColumn(today));
+        var archivedGrid = Assert.IsType<Grid>(archivedDates.Parent);
+        Assert.Equal(154, archivedGrid.ColumnDefinitions[3].Width.Value);
+        Assert.Equal(72, archivedGrid.ColumnDefinitions[4].Width.Value);
+        Assert.Equal(HorizontalAlignment.Center, today.HorizontalAlignment);
+        var overdueGrid = Assert.IsType<Grid>(today.Parent);
+        var actionLaneCentre = overdueGrid.Bounds.Width - (overdueGrid.ColumnDefinitions[4].ActualWidth / 2);
+        Assert.InRange(Math.Abs((today.Bounds.X + (today.Bounds.Width / 2)) - actionLaneCentre), 0, 0.5);
+
+        var header = Assert.Single(window.GetVisualDescendants().OfType<Border>(), candidate =>
+            candidate.IsEffectivelyVisible
+            && candidate.Classes.Contains("project-header-row")
+            && candidate.DataContext is ProjectRowViewModel row
+            && row.Id == project.Id);
+        var headerDates = Assert.Single(header.GetVisualDescendants().OfType<StackPanel>(), panel => Grid.GetColumn(panel) == 5);
+        var target = Assert.Single(headerDates.GetVisualDescendants().OfType<TextBlock>(), text =>
+            text.Text == ((ProjectRowViewModel)header.DataContext!).TargetText);
+        var projectOverdue = Assert.Single(headerDates.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "⚠ Overdue");
+        Assert.True(OriginInWindow(projectOverdue, window).Y > OriginInWindow(target, window).Y);
+        Assert.InRange(Math.Abs(
+            OriginInWindow(projectOverdue, window).X + projectOverdue.Bounds.Width
+            - OriginInWindow(target, window).X - target.Bounds.Width), 0, 1);
+        var archive = ButtonByAutomationId(window, $"project-archive-{project.Id}");
+        Assert.Equal(6, Grid.GetColumn(archive));
+        var headerGrid = Assert.IsType<Grid>(headerDates.Parent);
+        Assert.Equal(72, headerGrid.ColumnDefinitions[6].Width.Value);
+        Assert.InRange(OriginInWindow(archive, window).X
+            - OriginInWindow(target, window).X - target.Bounds.Width, 15, 17);
+        window.Close();
+
+        Border Row(string taskId) => Assert.Single(window.GetVisualDescendants().OfType<Border>(), candidate =>
+            candidate.IsEffectivelyVisible
+            && candidate.Classes.Contains("project-task-row")
+            && candidate.DataContext is TaskRowViewModel task
+            && task.Id == taskId);
+    }
+
+    [AvaloniaFact]
+    public void ProjectProgressAndTaskStateDatesUseSemanticColoursInLightTheme()
+    {
+        var application = Assert.IsType<App>(Application.Current);
+        var originalTheme = application.RequestedThemeVariant;
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var completed = work.CreateTask(project.Id, "Plant bulbs");
+        work.CompleteTask(completed.Id);
+        var archived = work.CreateTask(project.Id, "File receipt");
+        work.CompleteTask(archived.Id);
+        work.ArchiveTask(archived.Id);
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Projects").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        try
+        {
+            application.RequestedThemeVariant = ThemeVariant.Light;
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+
+            var progress = Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(), text =>
+                text.IsEffectivelyVisible && text.Classes.Contains("project-progress") && text.Text == "2/2 tasks");
+            var completedState = Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(), text =>
+                text.IsEffectivelyVisible && text.Classes.Contains("task-state")
+                && text.Classes.Contains("completed") && !text.Classes.Contains("archived"));
+            var archivedState = Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(), text =>
+                text.IsEffectivelyVisible && text.Classes.Contains("task-state") && text.Classes.Contains("archived"));
+            Assert.Equal(Color.Parse("#24734D"), Assert.IsAssignableFrom<ISolidColorBrush>(progress.Foreground).Color);
+            Assert.Equal(Color.Parse("#24734D"), Assert.IsAssignableFrom<ISolidColorBrush>(completedState.Foreground).Color);
+            Assert.Equal(Color.Parse("#654A96"), Assert.IsAssignableFrom<ISolidColorBrush>(archivedState.Foreground).Color);
+        }
+        finally
+        {
+            window.Close();
+            application.RequestedThemeVariant = originalTheme;
+        }
+    }
+
+    [AvaloniaFact]
+    public void ProjectCategoryMarkerAlignsWithProjectIconAcrossProjectSurfaces()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Launch the dot-orbit sample workspace", "", "work", null, "cyan");
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+
+        SelectView(shell, "Projects");
+        Dispatcher.UIThread.RunJobs();
+        var projectHeader = Assert.Single(window.GetVisualDescendants().OfType<Border>(), candidate =>
+            candidate.IsEffectivelyVisible
+            && candidate.Classes.Contains("project-header-row")
+            && candidate.DataContext is ProjectRowViewModel row
+            && row.Id == project.Id);
+        AssertMarkerAlignment(projectHeader);
+
+        SelectView(shell, "Categories");
+        Dispatcher.UIThread.RunJobs();
+        var categoryProject = Assert.Single(window.GetVisualDescendants().OfType<Border>(), candidate =>
+            candidate.IsEffectivelyVisible
+            && candidate.Classes.Contains("category-project-row")
+            && candidate.DataContext is CategoryProjectRowViewModel row
+            && row.Project.Id == project.Id);
+        AssertMarkerAlignment(categoryProject);
+        window.Close();
+
+        void AssertMarkerAlignment(Border row)
+        {
+            var projectIcon = Assert.Single(row.GetVisualDescendants().OfType<IdentityTypeIcon>(), candidate =>
+                candidate.IsEffectivelyVisible && candidate.WorkType == WorkType.Project);
+            var category = Assert.Single(row.GetVisualDescendants().OfType<CategoryIdentityMarker>(), candidate =>
+                candidate.IsEffectivelyVisible);
+            Assert.Equal("Work", category.CategoryName);
+            Assert.InRange(Math.Abs(OriginInWindow(category, window).X - OriginInWindow(projectIcon, window).X), 0, 0.5);
+        }
+    }
+
+    [AvaloniaFact]
+    public void ArchiveAndBinTaskIdentitiesDoNotAddANestedLeftInset()
+    {
+        var work = new MemoryWorkspaceWork();
+        var archived = work.CreateStandaloneTask("Archived", "", "home", null);
+        work.CompleteTask(archived.Id);
+        work.ArchiveTask(archived.Id);
+        var binned = work.CreateStandaloneTask("Binned", "", "work", null);
+        work.MoveTaskToBin(binned.Id);
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+
+        SelectView(shell, "Archive");
+        Dispatcher.UIThread.RunJobs();
+        var archiveRow = ButtonByAutomationId(window, $"task-restore-{archived.Id}")
+            .GetVisualAncestors().OfType<Border>()
+            .First(row => row.Classes.Contains("archive-row"));
+        AssertIdentityInset(archiveRow);
+
+        shell.BinNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var binRow = ButtonByAutomationId(window, $"bin-restore-task-{binned.Id}")
+            .GetVisualAncestors().OfType<Border>()
+            .First(row => row.Classes.Contains("bin-row"));
+        AssertIdentityInset(binRow);
+        window.Close();
+
+        void AssertIdentityInset(Border row)
+        {
+            var panel = Assert.Single(row.GetVisualAncestors().OfType<Border>(), candidate =>
+                candidate.Classes.Contains("list-panel"));
+            var icon = Assert.Single(row.GetVisualDescendants().OfType<WorkTypeIcon>(), candidate =>
+                candidate.IsEffectivelyVisible && candidate.WorkType == WorkType.Task);
+            var pill = Assert.Single(row.GetVisualDescendants().OfType<CategoryProjectPill>(), candidate =>
+                candidate.IsEffectivelyVisible);
+            var panelOrigin = OriginInWindow(panel, window);
+            var iconOrigin = OriginInWindow(icon, window);
+            var pillOrigin = OriginInWindow(pill, window);
+
+            Assert.InRange(iconOrigin.X - panelOrigin.X, 0, 8);
+            Assert.InRange(Math.Abs(pillOrigin.X - iconOrigin.X), 0, 0.5);
+        }
+    }
+
+    [AvaloniaFact]
+    public void CategoryPillsUseSelectedSpacingWithoutLosingCompactTaskRowsAtMinimumWindowSize()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var attached = work.CreateTask(project.Id, "Attached");
+        var standalone = work.CreateStandaloneTask("Standalone", "", "work", null);
+        var completed = work.CreateStandaloneTask("Completed", "", "home", null);
+        work.CompleteTask(completed.Id);
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+
+        AssertPillLayout("Projects", "project-task-row", attached.Id, 51);
+        AssertPillLayout("Backlog", "backlog-row", standalone.Id, 54);
+        AssertPillLayout("Categories", "category-task-row", standalone.Id, 54);
+        AssertPillLayout("Completed", "completed-row", completed.Id, 54);
+        window.Close();
+
+        void AssertPillLayout(string view, string rowClass, string taskId, double expectedHeight)
+        {
+            SelectView(shell, view);
+            Dispatcher.UIThread.RunJobs();
+            var row = Assert.Single(window.GetVisualDescendants().OfType<Border>(), candidate =>
+                candidate.IsEffectivelyVisible
+                && candidate.Classes.Contains(rowClass)
+                && (candidate.DataContext is TaskRowViewModel task && task.Id == taskId
+                    || candidate.DataContext is CategoryTaskRowViewModel categoryTask && categoryTask.Task.Id == taskId
+                    || candidate.DataContext is CompletedTaskRowViewModel completedTask && completedTask.Task.Id == taskId));
+            var button = Assert.Single(row.GetVisualDescendants().OfType<Button>(), candidate =>
+                candidate.Classes.Contains("task-title"));
+            var pill = Assert.Single(button.GetVisualDescendants().OfType<CategoryProjectPill>());
+            var identity = Assert.IsType<StackPanel>(pill.GetVisualParent());
+            var titleLine = Assert.IsType<Grid>(identity.Children[0]);
+            var measuredGap = pill.Bounds.Y - (titleLine.Bounds.Y + titleLine.Bounds.Height);
+
+            Assert.InRange(Math.Abs(row.Bounds.Height - expectedHeight), 0, 0.5);
+            Assert.InRange(Math.Abs(measuredGap - 6), 0, 0.5);
+            Assert.True(pill.Bounds.Height < row.Bounds.Height / 2);
+        }
+    }
+
+    [AvaloniaFact]
+    public void CategoryInspectorOffersSixteenKeyboardReachableColoursAndLivePreview()
     {
         var work = new MemoryWorkspaceWork();
         var shell = new ShellViewModel(work);
@@ -2299,7 +2751,7 @@ public sealed class ProjectCaptureWindowTests
 
         var picker = Assert.IsType<ComboBox>(window.GetVisualDescendants().Single(control =>
             control is ComboBox combo && AutomationProperties.GetAutomationId(combo) == "category-colour"));
-        Assert.Equal(8, picker.ItemCount);
+        Assert.Equal(16, picker.ItemCount);
         Assert.True(picker.Focusable);
         Assert.True(picker.Focus(NavigationMethod.Tab));
         Assert.True(picker.IsKeyboardFocusWithin);
@@ -2335,7 +2787,41 @@ public sealed class ProjectCaptureWindowTests
         Dispatcher.UIThread.RunJobs();
         Assert.Contains(window.GetVisualDescendants().OfType<CategoryIdentityMarker>(), marker =>
             marker.IsEffectivelyVisible && marker.CategoryName == "Errands" && marker.ColourKey == "tangerine");
+        var headingIcon = window.FindControl<IdentityTypeIcon>("InspectorCategoryIdentityIcon")!;
+        Assert.True(headingIcon.IsEffectivelyVisible);
+        Assert.Equal(WorkType.Category, headingIcon.WorkType);
+        Assert.Equal("tangerine", headingIcon.ColourKey);
         Assert.True(shell.Work.IsDirty);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void ProjectInspectorOffersSixteenKeyboardReachableColoursAndLivePreview()
+    {
+        var work = new MemoryWorkspaceWork();
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+        SelectView(shell, "Projects");
+        Dispatcher.UIThread.RunJobs();
+        Activate(window, NamedButton(window, "New project"));
+        Dispatcher.UIThread.RunJobs();
+
+        var picker = Assert.IsType<ComboBox>(window.GetVisualDescendants().Single(control =>
+            control is ComboBox combo && AutomationProperties.GetAutomationId(combo) == "project-colour"));
+        Assert.Equal(16, picker.ItemCount);
+        Assert.True(picker.Focusable);
+        Assert.Equal("Lime", AutomationProperties.GetItemStatus(picker));
+        shell.Work!.Title = "Garden";
+        shell.Work.SelectedProjectColour = shell.Work.CategoryColourChoices.Single(choice => choice.Key == "coral");
+        Dispatcher.UIThread.RunJobs();
+
+        var headingIcon = window.FindControl<IdentityTypeIcon>("InspectorProjectIdentityIcon")!;
+        Assert.True(headingIcon.IsEffectivelyVisible);
+        Assert.Equal(WorkType.Project, headingIcon.WorkType);
+        Assert.Equal("coral", headingIcon.ColourKey);
+        Assert.False(shell.Work.IsDirty);
+        Assert.Equal("coral", work.Read().Projects.Single(project => project.Title == "Garden").ColourKey);
         window.Close();
     }
 
@@ -2358,9 +2844,7 @@ public sealed class ProjectCaptureWindowTests
         var icon = Assert.Single(button.GetVisualDescendants().OfType<WorkTypeIcon>());
         var title = Assert.Single(button.GetVisualDescendants().OfType<TextBlock>(), text =>
             text.Classes.Contains("work-identity-title"));
-        var relationship = Assert.Single(button.GetVisualDescendants().OfType<TextBlock>(), text =>
-            text.Classes.Contains("work-identity-context"));
-        var pill = Assert.Single(button.GetVisualDescendants().OfType<CategoryPill>());
+        var pill = Assert.Single(button.GetVisualDescendants().OfType<CategoryProjectPill>());
         var overrideIcon = Assert.Single(pill.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>(),
             icon => icon.Classes.Contains("category-pill-override-icon") && icon.IsEffectivelyVisible);
         var categoryText = Assert.Single(pill.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == overrideCategory.Name);
@@ -2369,11 +2853,11 @@ public sealed class ProjectCaptureWindowTests
         Assert.Equal(14, icon.Bounds.Width);
         Assert.InRange(OriginInWindow(title, window).X - (OriginInWindow(icon, window).X + icon.Bounds.Width), 5, 7);
         Assert.InRange(CentreInWindow(icon, window).Y - CentreInWindow(title, window).Y, 0.75, 1.25);
-        Assert.Equal(TextTrimming.CharacterEllipsis, relationship.TextTrimming);
         Assert.Equal(TextTrimming.CharacterEllipsis, categoryText.TextTrimming);
+        Assert.Equal(project.Title, pill.ProjectName);
         Assert.True(pill.HasOverride);
         Assert.True(overrideIcon.Bounds.Width > 0);
-        Assert.InRange(pill.Bounds.Width, 25, 240);
+        Assert.InRange(pill.Bounds.Width, 25, 360);
         Assert.True(
             OriginInWindow(button, window).X + button.Bounds.Width <= OriginInWindow(date, window).X,
             "The identity column must end before the right-aligned date column.");
@@ -2419,16 +2903,21 @@ public sealed class ProjectCaptureWindowTests
             && border.DataContext is ArchivedWorkRowViewModel item
             && item.IsProject);
         var identity = Assert.Single(row.GetVisualDescendants().OfType<StackPanel>(), panel =>
-            panel.DataContext is ArchivedWorkRowViewModel item && item.IsProject);
-        var relationship = Assert.Single(identity.GetVisualDescendants().OfType<TextBlock>(), text =>
-            text.Classes.Contains("work-identity-context"));
+            panel.DataContext is ArchivedWorkRowViewModel item && item.IsProject
+            && panel.Children.OfType<Grid>().Any(grid => grid.Children.OfType<IdentityTypeIcon>()
+                .Any(icon => icon.WorkType == WorkType.Project)));
+        var pill = Assert.Single(identity.GetVisualDescendants().OfType<CategoryProjectPill>());
+        var categoryName = Assert.Single(pill.GetVisualDescendants().OfType<TextBlock>(), text =>
+            text.Text == category.Name);
         var metadata = Assert.Single(identity.GetVisualDescendants().OfType<TextBlock>(), text =>
             text.Text == ((ArchivedWorkRowViewModel)row.DataContext!).Project!.MetadataText);
         var state = Assert.Single(row.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Archived Project");
         var restore = ButtonByAutomationId(window, $"project-restore-{project.Id}");
 
         AssertWorkTypeIcon(identity, WorkType.Project);
-        Assert.Equal(TextTrimming.CharacterEllipsis, relationship.TextTrimming);
+        Assert.Equal(category.Name, pill.CategoryName);
+        Assert.Null(pill.ProjectName);
+        Assert.Equal(TextTrimming.CharacterEllipsis, categoryName.TextTrimming);
         Assert.Equal(TextTrimming.CharacterEllipsis, metadata.TextTrimming);
         Assert.True(
             OriginInWindow(identity, window).X + identity.Bounds.Width <= OriginInWindow(state, window).X,
@@ -2645,7 +3134,7 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
-    public void ProjectStatusRetainsTextAndUsesNeutralAmberAndGreenTreatments()
+    public void ProjectProgressCountRefreshesThroughNeutralAmberAndGreenTreatments()
     {
         var work = new MemoryWorkspaceWork();
         var project = work.CreateProject("Garden", "", "home", null);
@@ -2656,13 +3145,13 @@ public sealed class ProjectCaptureWindowTests
         var window = new MainWindow { DataContext = shell };
         window.Show();
 
-        AssertStatusColour(window, "Not started", "not-started", Color.Parse("#9099A9"));
+        AssertProjectProgressColour(window, "0/2 tasks", "not-started", Color.Parse("#9099A9"));
         ToggleByAutomationId(window, $"task-completion-{first.Id}").Command!.Execute(null);
         Dispatcher.UIThread.RunJobs();
-        AssertStatusColour(window, "In progress", "in-progress", Color.Parse("#FFCF70"));
+        AssertProjectProgressColour(window, "1/2 tasks", "in-progress", Color.Parse("#FFCF70"));
         ToggleByAutomationId(window, $"task-completion-{second.Id}").Command!.Execute(null);
         Dispatcher.UIThread.RunJobs();
-        AssertStatusColour(window, "Complete", "complete", Color.Parse("#7CE7B2"));
+        AssertProjectProgressColour(window, "2/2 tasks", "complete", Color.Parse("#7CE7B2"));
         window.Close();
     }
 
@@ -3467,10 +3956,10 @@ public sealed class ProjectCaptureWindowTests
         window.Close();
     }
 
-    private static void AssertStatusColour(Window window, string status, string expectedClass, Color expectedColour)
+    private static void AssertProjectProgressColour(Window window, string progress, string expectedClass, Color expectedColour)
     {
-        var text = Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(), item => item.Text == status);
-        Assert.Contains("status-marker", text.Classes);
+        var text = Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(), item => item.Text == progress);
+        Assert.Contains("project-progress", text.Classes);
         Assert.Contains(expectedClass, text.Classes);
         Assert.Equal(expectedColour, Assert.IsAssignableFrom<ISolidColorBrush>(text.Foreground).Color);
     }
@@ -3767,8 +4256,13 @@ public sealed class ProjectCaptureWindowTests
 
     private static void AssertWorkTypeIcon(Control root, WorkType expected)
     {
-        var icon = Assert.Single(root.GetVisualDescendants().OfType<WorkTypeIcon>(), item => item.IsVisible);
-        Assert.Equal(expected, icon.WorkType);
+        var neutralIcons = root.GetVisualDescendants().OfType<WorkTypeIcon>()
+            .Where(item => item.IsEffectivelyVisible && item.WorkType == expected)
+            .Cast<Control>();
+        var colouredIcons = root.GetVisualDescendants().OfType<IdentityTypeIcon>()
+            .Where(item => item.IsEffectivelyVisible && item.WorkType == expected)
+            .Cast<Control>();
+        var icon = Assert.Single(neutralIcons.Concat(colouredIcons));
         Assert.Equal(AccessibilityView.Raw, AutomationProperties.GetAccessibilityView(icon));
         Assert.Null(AutomationProperties.GetName(icon));
     }
@@ -3781,17 +4275,24 @@ public sealed class ProjectCaptureWindowTests
     {
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(theme, window.ActualThemeVariant);
-        var icons = window.GetVisualDescendants().OfType<WorkTypeIcon>()
-            .Where(icon => icon.IsEffectivelyVisible)
-            .ToArray();
         foreach (var workType in expected)
         {
-            var matches = icons.Where(candidate => candidate.WorkType == workType).ToArray();
-            Assert.NotEmpty(matches);
-            Assert.All(matches, icon =>
+            var neutralMatches = window.GetVisualDescendants().OfType<WorkTypeIcon>()
+                .Where(icon => icon.IsEffectivelyVisible && icon.WorkType == workType)
+                .ToArray();
+            var colouredMatches = window.GetVisualDescendants().OfType<IdentityTypeIcon>()
+                .Where(icon => icon.IsEffectivelyVisible && icon.WorkType == workType)
+                .ToArray();
+            Assert.True(neutralMatches.Length + colouredMatches.Length > 0);
+            Assert.All(neutralMatches, icon =>
             {
                 var glyph = Assert.Single(icon.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>(), path => path.IsVisible);
                 Assert.Equal(quiet, Assert.IsAssignableFrom<ISolidColorBrush>(glyph.Stroke ?? glyph.Fill).Color);
+            });
+            Assert.All(colouredMatches, icon =>
+            {
+                var glyph = Assert.Single(icon.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>(), path => path.IsVisible);
+                Assert.IsAssignableFrom<ISolidColorBrush>(glyph.Fill);
             });
         }
 
@@ -3846,7 +4347,12 @@ public sealed class ProjectCaptureWindowTests
         var titleButton = Assert.Single(row.GetVisualDescendants().OfType<Button>(), button =>
             button.Classes.Contains("row-title"));
         Assert.Contains($"Task {titleText}", AutomationProperties.GetName(titleButton), StringComparison.Ordinal);
-        Assert.Single(row.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == relationshipDisplay);
+        if (!row.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text == relationshipDisplay))
+        {
+            var pill = Assert.Single(row.GetVisualDescendants().OfType<CategoryProjectPill>());
+            Assert.Equal(relationshipDisplay.StartsWith("Standalone", StringComparison.Ordinal) ? null : relationshipDisplay,
+                pill.ProjectName);
+        }
         var date = Assert.Single(row.GetVisualDescendants().OfType<TextBlock>(), text =>
             text.Classes.Contains("task-date") && text.Text == dateText);
         var today = Assert.Single(row.GetVisualDescendants().OfType<ToggleButton>(), toggle =>
@@ -3870,15 +4376,18 @@ public sealed class ProjectCaptureWindowTests
 
     private static void AssertOpticallyAlignedTitleIcon(Button identity, Window window)
     {
-        var icon = Assert.Single(identity.GetVisualDescendants().OfType<WorkTypeIcon>());
+        var expected = identity.DataContext is ProjectRowViewModel ? WorkType.Project : WorkType.Task;
+        var icon = Assert.Single(identity.GetVisualDescendants().OfType<Control>(), control =>
+            control is WorkTypeIcon neutral && neutral.WorkType == expected
+            || control is IdentityTypeIcon coloured && coloured.WorkType == expected);
         var title = Assert.Single(identity.GetVisualDescendants().OfType<TextBlock>(), text =>
             text.Classes.Contains("work-identity-title"));
         var iconY = CentreInWindow(icon, window).Y;
         var titleY = CentreInWindow(title, window).Y;
-        Assert.InRange(
-            iconY - titleY,
-            0.75,
-            1.25);
+        if (expected == WorkType.Project)
+            Assert.InRange(iconY - titleY, -0.5, 0.5);
+        else
+            Assert.InRange(iconY - titleY, 0.75, 1.25);
     }
 
     private static Point OriginInWindow(Control control, Window window)

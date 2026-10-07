@@ -15,13 +15,15 @@ public interface IWorkspaceWork
     ParticipantRecord RenameParticipant(string id, string label);
     void DeleteParticipant(string id);
     CategoryOrderChange MoveCategory(string id, int targetPosition);
-    ProjectRecord CreateProject(string title, string description, string categoryId, DateOnly? targetDate);
+    ProjectRecord CreateProject(string title, string description, string categoryId, DateOnly? targetDate,
+        string? colourKey = null);
     TaskRecord CreateTask(string projectId, string title);
     TaskRecord CreateTaskDraft(string? projectId, string title, string description, string? categoryId,
         DateOnly? dueDate, ParticipantDraftChange? participantChange = null, TodayLane? todayLane = null);
     TaskRecord CreateStandaloneTask(string title, string description, string categoryId, DateOnly? dueDate,
         ParticipantDraftChange? participantChange = null);
-    ProjectRecord UpdateProject(string id, string title, string description, string categoryId, DateOnly? targetDate);
+    ProjectRecord UpdateProject(string id, string title, string description, string categoryId, DateOnly? targetDate,
+        string? colourKey = null);
     TaskRecord UpdateTask(string id, string title, string description, string? explicitCategoryId, DateOnly? dueDate,
         ParticipantDraftChange? participantChange = null);
     TaskRecord CompleteTask(string id);
@@ -97,7 +99,8 @@ public sealed record ProjectRecord(
     DateOnly? TargetDate,
     long Position,
     DateTimeOffset? ArchivedAt = null,
-    DateOnly? ArchiveDate = null)
+    DateOnly? ArchiveDate = null,
+    string ColourKey = IdentityColourPalette.DefaultKey)
 {
     public bool IsArchived => ArchivedAt is not null && ArchiveDate is not null;
 }

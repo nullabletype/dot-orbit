@@ -51,7 +51,7 @@ The current scenario contains:
 
 - 6 Categories, including a long name and an unused Category;
 - 7 Participants, including unreferenced, single-Task, and multi-Task labels;
-- 6 Projects covering empty, not-started, in-progress, complete, overdue, undated, and long-title states;
+- 6 Projects with distinct persisted identity colours, covering empty, not-started, in-progress, complete, overdue, undated, and long-title states;
 - 33 attached and standalone Tasks with inherited and overridden Categories;
 - 21 incomplete and 12 completed Tasks, with completion dates spanning today through more than 30 days ago;
 - 6 archived Tasks spanning Today, Yesterday, two days ago, older weekly groups, and 30 days ago, with both attached and standalone examples;
@@ -66,4 +66,4 @@ Identifiers and semantic relationships are deterministic for a fixed anchor date
 
 ## Evolving the scenario
 
-Add a new state only through its released production domain API. Task and Project Archive examples and Category identity colours use their production commands; Bin and Project identity examples must wait for their implementation slices. Do not fabricate future rows through direct SQL. Keep the scenario readable, synthetic, invariant-valid, and broad enough to exercise the changed projection without turning it into a migration fixture or a replacement for focused tests.
+Add a new state only through its released production domain API. Task and Project Archive examples and Category and Project identity colours use their production commands; Bin examples must wait for their implementation slice. Do not fabricate future rows through direct SQL. Keep the scenario readable, synthetic, invariant-valid, and broad enough to exercise the changed projection without turning it into a migration fixture or a replacement for focused tests.
