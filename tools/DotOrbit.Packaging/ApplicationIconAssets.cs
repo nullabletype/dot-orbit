@@ -49,7 +49,7 @@ internal static class ApplicationIconAssets
             var iconPath = Path.Combine(repositoryRoot, manifest.OutputPath);
             if (!File.Exists(sourcePath)
                 || !File.Exists(iconPath)
-                || !HashMatches(sourcePath, manifest.SourceSha256)
+                || !NormalizedTextHashMatches(sourcePath, manifest.SourceSha256)
                 || !HashMatches(iconPath, manifest.OutputSha256))
             {
                 throw new PackageException(ContractError);
@@ -120,6 +120,33 @@ internal static class ApplicationIconAssets
             Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))),
             expected,
             StringComparison.OrdinalIgnoreCase);
+
+    private static bool NormalizedTextHashMatches(string path, string expected)
+    {
+        var bytes = File.ReadAllBytes(path);
+        var normalized = new byte[bytes.Length];
+        var writeIndex = 0;
+        for (var readIndex = 0; readIndex < bytes.Length; readIndex++)
+        {
+            if (bytes[readIndex] == '\r')
+            {
+                normalized[writeIndex++] = (byte)'\n';
+                if (readIndex + 1 < bytes.Length && bytes[readIndex + 1] == '\n')
+                {
+                    readIndex++;
+                }
+            }
+            else
+            {
+                normalized[writeIndex++] = bytes[readIndex];
+            }
+        }
+
+        return string.Equals(
+            Convert.ToHexString(SHA256.HashData(normalized.AsSpan(0, writeIndex))),
+            expected,
+            StringComparison.OrdinalIgnoreCase);
+    }
 
     private static void ValidateProjectMetadata(string projectPath)
     {
