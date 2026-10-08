@@ -96,6 +96,10 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             Work.TodayPlanned.CollectionChanged += (_, _) => UpdateCounts();
             Work.TodayInProgress.CollectionChanged += (_, _) => UpdateCounts();
             Work.CategoryGroups.CollectionChanged += (_, _) => UpdateCounts();
+            Work.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(ProjectCaptureViewModel.UpcomingCount)) UpdateCounts();
+            };
             UpdateCounts();
         }
     }

@@ -802,7 +802,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         ParticipantFocusAutomationId = SelectedParticipants.Count == 0
             ? "participant-picker"
             : SelectedParticipants[Math.Min(index, SelectedParticipants.Count - 1)].RemoveAutomationId;
-        DraftChanged();
+        DraftChanged(immediate: true);
     }
 
     public void SetBacklogActive(bool active) => _backlogActive = active;
@@ -1682,11 +1682,25 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         if (_editingTask) return SaveTask(date);
         return Attempt(() =>
         {
-            if (_creating) _editingId = _work.CreateProject(Title, Description, Category.Id!, date, ProjectColourKey).Id;
-            else _work.UpdateProject(_editingId!, Title, Description, Category.Id!, date, ProjectColourKey);
+            var wasCreating = _creating;
+            ProjectRecord? previous = null;
+            if (wasCreating)
+            {
+                _editingId = _work.CreateProject(Title, Description, Category.Id!, date, ProjectColourKey).Id;
+            }
+            else
+            {
+                previous = _snapshot.Projects.Single(project => project.Id == _editingId);
+                var updated = _work.UpdateProject(_editingId!, Title, Description, Category.Id!, date, ProjectColourKey);
+                ApplyCommittedProjectEdit(previous, updated);
+            }
             _creating = false;
             _creatingStandaloneTask = false;
-            ReloadAndKeepInspector();
+            if (wasCreating) ReloadAndKeepInspector();
+            else
+            {
+                CompleteRecordLocalSave();
+            }
         });
     }
 
@@ -1697,19 +1711,29 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         var participantChange = new ParticipantDraftChange(participantIds, newLabels);
         try
         {
-            if (_creating)
+            var wasCreating = _creating;
+            TaskRecord? previous = null;
+            if (wasCreating)
                 _editingId = _creatingTodayTask
                     ? _work.CreateTaskDraft(TaskContextTarget?.ProjectId, Title, Description, Category?.Id, date,
                         participantChange, TodayLane.Planned).Id
                     : _work.CreateStandaloneTask(Title, Description, Category!.Id!, date,
                         participantChange).Id;
             else
-                _work.UpdateTask(_editingId!, Title, Description, Category!.Id, date,
+            {
+                previous = _snapshot.Tasks.Single(task => task.Id == _editingId);
+                var updated = _work.UpdateTask(_editingId!, Title, Description, Category!.Id, date,
                     participantChange);
+                ApplyCommittedTaskEdit(previous, updated, newLabels.Length > 0);
+            }
             _creating = false;
             _creatingStandaloneTask = false;
             _creatingTodayTask = false;
-            ReloadAndKeepInspector();
+            if (wasCreating) ReloadAndKeepInspector();
+            else
+            {
+                CompleteRecordLocalSave();
+            }
             return true;
         }
         catch (ArgumentException)
@@ -1722,6 +1746,191 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             Message = "Could not save workspace changes. Your draft is retained. Try again.";
             return false;
         }
+    }
+
+    internal void ApplyCommittedTaskEdit(TaskRecord updated)
+    {
+        var previous = _snapshot.Tasks.Single(task => task.Id == updated.Id);
+        ApplyCommittedTaskEdit(previous, updated, participantRecordsChanged: false);
+    }
+
+    private void ApplyCommittedProjectEdit(ProjectRecord previous, ProjectRecord updated)
+    {
+        _snapshot = _snapshot with
+        {
+            Projects = _snapshot.Projects
+                .Select(project => project.Id == updated.Id ? updated : project)
+                .ToArray(),
+        };
+        var row = Projects.FirstOrDefault(item => item.Id == updated.Id)
+            ?? ArchivedProjects.Single(item => item.Project.Id == updated.Id).Project;
+        var relationshipPresentationChanged =
+            !string.Equals(previous.Title, updated.Title, StringComparison.Ordinal)
+            || !string.Equals(previous.CategoryId, updated.CategoryId, StringComparison.Ordinal)
+            || !string.Equals(previous.ColourKey, updated.ColourKey, StringComparison.Ordinal);
+        var projectTasks = _snapshot.Tasks
+            .Where(task => task.ProjectId == updated.Id)
+            .OrderBy(task => task.ProjectPosition)
+            .Select(task => relationshipPresentationChanged ? ToTaskRow(task) : TaskRowForProjection(task))
+            .ToArray();
+        row.Refresh(updated, ProjectWorkSummary.From(_snapshot, updated.Id), CategoryById(updated.CategoryId), projectTasks);
+        if (!string.Equals(previous.CategoryId, updated.CategoryId, StringComparison.Ordinal))
+        {
+            RefreshCategoryGroup(previous.CategoryId);
+            RefreshCategoryGroup(updated.CategoryId);
+        }
+        if (updated.IsArchived && HasArchiveSearchQuery) RefreshArchiveSearch();
+        NotifyRecordLocalProjectionState();
+    }
+
+    private void ApplyCommittedTaskEdit(TaskRecord previous, TaskRecord updated, bool participantRecordsChanged)
+    {
+        if (participantRecordsChanged)
+        {
+            _snapshot = _work.Read();
+            updated = _snapshot.Tasks.Single(task => task.Id == updated.Id);
+        }
+        else
+        {
+            _snapshot = _snapshot with
+            {
+                Tasks = _snapshot.Tasks
+                    .Select(task => task.Id == updated.Id ? updated : task)
+                    .ToArray(),
+            };
+        }
+        ToTaskRow(updated);
+        if (previous.ProjectId is null && updated.ProjectId is null
+            && !string.Equals(previous.ExplicitCategoryId, updated.ExplicitCategoryId, StringComparison.Ordinal))
+        {
+            RefreshCategoryGroup(previous.ExplicitCategoryId!);
+            RefreshCategoryGroup(updated.ExplicitCategoryId!);
+        }
+        if (previous.DueDate != updated.DueDate) RefreshUpcomingGroups();
+        if (_editingTask && string.Equals(_editingId, updated.Id, StringComparison.Ordinal))
+            SynchroniseSelectedParticipants(updated, participantRecordsChanged);
+        if (updated.IsArchived && HasArchiveSearchQuery) RefreshArchiveSearch();
+        NotifyRecordLocalProjectionState();
+    }
+
+    private void RefreshCategoryGroup(string categoryId)
+    {
+        var category = CategoryById(categoryId);
+        var categoryIndex = _snapshot.Categories
+            .Select((item, index) => (item, index))
+            .Single(pair => pair.item.Id == categoryId).index;
+        var rows = CategoryRows(category.Id);
+        CategoryGroups.Single(group => group.Id == categoryId).Refresh(
+            category,
+            rows.Projects,
+            rows.StandaloneTasks,
+            categoryIndex + 1,
+            _snapshot.Categories.Count);
+    }
+
+    private (ProjectRowViewModel[] Projects, TaskRowViewModel[] StandaloneTasks) CategoryRows(string categoryId) =>
+        (Projects
+            .Where(project => _snapshot.Projects.Single(item => item.Id == project.Id).CategoryId == categoryId)
+            .ToArray(),
+        _snapshot.Tasks
+            .Where(task => task.ProjectId is null && task.ExplicitCategoryId == categoryId && !task.IsArchived)
+            .OrderBy(task => task.SharedPosition)
+            .Select(TaskRowForProjection)
+            .ToArray());
+
+    private void SynchroniseSelectedParticipants(TaskRecord task, bool participantRecordsChanged)
+    {
+        var desired = task.Participants
+            .Select(participantId => _snapshot.Participants.Single(participant => participant.Id == participantId))
+            .ToArray();
+        for (var index = SelectedParticipants.Count - 1; index >= 0; index--)
+        {
+            var selected = SelectedParticipants[index];
+            if (selected.Id is not null && desired.Any(participant => participant.Id == selected.Id)) continue;
+            if (selected.Id is null && desired.Any(participant =>
+                    string.Equals(ParticipantLabel.ComparisonKey(participant.Label),
+                        ParticipantLabel.ComparisonKey(selected.Label), StringComparison.Ordinal))) continue;
+            SelectedParticipants.RemoveAt(index);
+        }
+        for (var index = 0; index < desired.Length; index++)
+        {
+            var participant = desired[index];
+            var current = SelectedParticipants.FirstOrDefault(item => item.Id == participant.Id)
+                ?? SelectedParticipants.FirstOrDefault(item => item.Id is null
+                    && string.Equals(ParticipantLabel.ComparisonKey(item.Label),
+                        ParticipantLabel.ComparisonKey(participant.Label), StringComparison.Ordinal));
+            if (current?.Id is null)
+            {
+                var replacement = new ParticipantDraftViewModel(this, participant.Id, participant.Label, participant.Id);
+                if (current is null) SelectedParticipants.Insert(index, replacement);
+                else SelectedParticipants[SelectedParticipants.IndexOf(current)] = replacement;
+                current = replacement;
+            }
+            else
+            {
+                current.RefreshLabel(participant.Label);
+            }
+            var currentIndex = SelectedParticipants.IndexOf(current);
+            if (currentIndex != index) SelectedParticipants.Move(currentIndex, index);
+        }
+        if (participantRecordsChanged) SynchroniseParticipantChoices();
+    }
+
+    private void SynchroniseParticipantChoices()
+    {
+        var selectedId = ParticipantToAdd?.Id;
+        var selectedNew = ParticipantToAdd?.IsNew == true;
+        var desired = _snapshot.Participants
+            .Select(participant => new ParticipantChoice(participant.Id, participant.Label))
+            .Append(ParticipantChoice.New)
+            .ToArray();
+        for (var index = AvailableParticipants.Count - 1; index >= 0; index--)
+        {
+            var current = AvailableParticipants[index];
+            if (desired.Any(choice => choice.Id == current.Id && choice.IsNew == current.IsNew)) continue;
+            AvailableParticipants.RemoveAt(index);
+        }
+        for (var index = 0; index < desired.Length; index++)
+        {
+            var choice = desired[index];
+            var current = AvailableParticipants.FirstOrDefault(item =>
+                item.Id == choice.Id && item.IsNew == choice.IsNew);
+            if (current is null)
+            {
+                AvailableParticipants.Insert(index, choice);
+            }
+            else
+            {
+                var currentIndex = AvailableParticipants.IndexOf(current);
+                if (!string.Equals(current.Label, choice.Label, StringComparison.Ordinal))
+                {
+                    AvailableParticipants[currentIndex] = choice;
+                    current = choice;
+                }
+                currentIndex = AvailableParticipants.IndexOf(current);
+                if (currentIndex != index) AvailableParticipants.Move(currentIndex, index);
+            }
+        }
+        ParticipantToAdd = selectedNew
+            ? AvailableParticipants.Single(item => item.IsNew)
+            : AvailableParticipants.FirstOrDefault(item => item.Id == selectedId && !item.IsNew);
+    }
+
+    private void CompleteRecordLocalSave()
+    {
+        _original = Fingerprint();
+        Message = string.Empty;
+        Notify(nameof(IsDirty));
+        NotifyInspectorPresentation();
+    }
+
+    private void NotifyRecordLocalProjectionState()
+    {
+        Notify(nameof(ProjectSummary));
+        Notify(nameof(InspectorMetaValue));
+        Notify(nameof(UpcomingCount));
+        Notify(nameof(HasUpcoming));
+        Notify(nameof(HasNoUpcoming));
     }
 
     private void ReloadAndKeepInspector()
@@ -1873,22 +2082,12 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         for (var categoryIndex = 0; categoryIndex < _snapshot.Categories.Count; categoryIndex++)
         {
             var category = _snapshot.Categories[categoryIndex];
-            var projectsInCategory = Projects
-                .Where(project => _snapshot.Projects.Single(item => item.Id == project.Id).CategoryId == category.Id)
-                .ToArray();
-            var categoryProjects = projectsInCategory
-                .Select((project, index) => new CategoryProjectRowViewModel(project, index == projectsInCategory.Length - 1))
-                .ToArray();
-            var standaloneTasks = _snapshot.Tasks
-                .Where(task => task.ProjectId is null && task.ExplicitCategoryId == category.Id && !task.IsArchived)
-                .OrderBy(task => task.SharedPosition)
-                .Select(ToTaskRow)
-                .ToArray();
+            var rows = CategoryRows(category.Id);
             CategoryGroups.Add(new(
                 this,
                 category,
-                categoryProjects,
-                standaloneTasks,
+                rows.Projects,
+                rows.StandaloneTasks,
                 categoryIndex + 1,
                 _snapshot.Categories.Count,
                 categoryExpansion.GetValueOrDefault(category.Id, true)));
@@ -2047,6 +2246,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         TodayLane lane)
     {
         var existing = collection.ToDictionary(row => row.Task.Id, StringComparer.Ordinal);
+        foreach (var row in collection.Where(row => desired.All(task => task.Id != row.Task.Id))) row.Detach();
         collection.Clear();
         for (var index = 0; index < desired.Length; index++)
         {
@@ -2092,11 +2292,11 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
     private void RefreshArchiveSearch()
     {
-        ArchiveSearchResults.Clear();
-        ArchiveSearchGroups.Clear();
         _archiveSearchFailed = false;
         if (!HasArchiveSearchQuery)
         {
+            ArchiveSearchResults.Clear();
+            ArchiveSearchGroups.Clear();
             ArchiveSearchStatus = string.Empty;
             NotifyArchiveSearchPresentation();
             return;
@@ -2116,44 +2316,21 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
                 var task = _snapshot.Tasks.Single(item => item.Id == result.Id);
                 return (Result: result, ArchiveDate: task.ArchiveDate!.Value, ArchivedAt: task.ArchivedAt!.Value);
             }).ToArray();
+            var existingRows = ArchiveSearchResults.ToDictionary(row => row.Key, StringComparer.Ordinal);
+            var desiredGroups = new List<(string Heading, ArchiveSearchResultViewModel[] Rows)>();
             foreach (var group in matches.GroupBy(match => DateGroupFor(match.ArchiveDate))
                          .OrderByDescending(group => group.Key.Start))
             {
                 var groupMatches = group.ToArray();
                 var rows = groupMatches.Select((match, index) =>
                 {
-                    if (match.Result.RecordType == ArchiveSearchRecordType.Project)
-                    {
-                        var project = ArchivedProjects.Single(row => row.Project.Id == match.Result.Id).Project;
-                        return new ArchiveSearchResultViewModel(
-                            this,
-                            match.Result,
-                            project.RelationshipText,
-                            project.CategoryName,
-                            project.CategoryColourKey,
-                            project.Title,
-                            project.ColourKey,
-                            false,
-                            string.Empty,
-                            index == groupMatches.Length - 1);
-                    }
-
-                    var task = _taskRows[match.Result.Id];
-                    return new ArchiveSearchResultViewModel(
-                        this,
-                        match.Result,
-                        task.BroadRelationshipText,
-                        task.CategoryName,
-                        task.CategoryColourKey,
-                        task.ProjectTitle,
-                        task.ProjectColourKey,
-                        task.HasCategoryOverride,
-                        task.CategoryOverrideText,
-                        index == groupMatches.Length - 1);
+                    existingRows.TryGetValue($"{match.Result.RecordType}:{match.Result.Id}", out var existing);
+                    return RefreshArchiveSearchRow(existing, match.Result, index == groupMatches.Length - 1);
                 }).ToArray();
-                foreach (var row in rows) ArchiveSearchResults.Add(row);
-                ArchiveSearchGroups.Add(new(group.Key.Heading, rows));
+                desiredGroups.Add((group.Key.Heading, rows));
             }
+            SynchroniseArchiveSearchResults(desiredGroups.SelectMany(group => group.Rows).ToArray());
+            SynchroniseArchiveSearchGroups(desiredGroups);
             ArchiveSearchStatus = results.Count switch
             {
                 0 => $"No archived work matches “{ArchiveSearchText.Trim()}”.",
@@ -2163,10 +2340,75 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         }
         catch (WorkspaceWorkException)
         {
+            ArchiveSearchResults.Clear();
+            ArchiveSearchGroups.Clear();
             _archiveSearchFailed = true;
             ArchiveSearchStatus = "Archive search is unavailable. Try again.";
         }
         NotifyArchiveSearchPresentation();
+    }
+
+    private ArchiveSearchResultViewModel RefreshArchiveSearchRow(
+        ArchiveSearchResultViewModel? row,
+        ArchiveSearchResult result,
+        bool isLast)
+    {
+        if (result.RecordType == ArchiveSearchRecordType.Project)
+        {
+            var project = ArchivedProjects.Single(item => item.Project.Id == result.Id).Project;
+            if (row is null)
+                return new(this, result, project.RelationshipText, project.CategoryName, project.CategoryColourKey,
+                    project.Title, project.ColourKey, false, string.Empty, isLast);
+            row.Refresh(result, project.RelationshipText, project.CategoryName, project.CategoryColourKey,
+                project.Title, project.ColourKey, false, string.Empty, isLast);
+            return row;
+        }
+
+        var task = _taskRows[result.Id];
+        if (row is null)
+            return new(this, result, task.BroadRelationshipText, task.CategoryName, task.CategoryColourKey,
+                task.ProjectTitle, task.ProjectColourKey, task.HasCategoryOverride, task.CategoryOverrideText, isLast);
+        row.Refresh(result, task.BroadRelationshipText, task.CategoryName, task.CategoryColourKey,
+            task.ProjectTitle, task.ProjectColourKey, task.HasCategoryOverride, task.CategoryOverrideText, isLast);
+        return row;
+    }
+
+    private void SynchroniseArchiveSearchResults(ArchiveSearchResultViewModel[] desired)
+    {
+        for (var index = ArchiveSearchResults.Count - 1; index >= 0; index--)
+            if (desired.All(row => row.Key != ArchiveSearchResults[index].Key)) ArchiveSearchResults.RemoveAt(index);
+        for (var index = 0; index < desired.Length; index++)
+        {
+            var current = ArchiveSearchResults.FirstOrDefault(row => row.Key == desired[index].Key);
+            if (current is null) ArchiveSearchResults.Insert(index, desired[index]);
+            else
+            {
+                var currentIndex = ArchiveSearchResults.IndexOf(current);
+                if (currentIndex != index) ArchiveSearchResults.Move(currentIndex, index);
+            }
+        }
+    }
+
+    private void SynchroniseArchiveSearchGroups(
+        List<(string Heading, ArchiveSearchResultViewModel[] Rows)> desired)
+    {
+        for (var index = ArchiveSearchGroups.Count - 1; index >= 0; index--)
+            if (desired.All(group => group.Heading != ArchiveSearchGroups[index].Heading))
+                ArchiveSearchGroups.RemoveAt(index);
+        for (var index = 0; index < desired.Count; index++)
+        {
+            var group = ArchiveSearchGroups.FirstOrDefault(item => item.Heading == desired[index].Heading);
+            if (group is null)
+            {
+                ArchiveSearchGroups.Insert(index, new(desired[index].Heading, desired[index].Rows));
+            }
+            else
+            {
+                group.Refresh(desired[index].Rows);
+                var current = ArchiveSearchGroups.IndexOf(group);
+                if (current != index) ArchiveSearchGroups.Move(current, index);
+            }
+        }
     }
 
     private void NotifyArchiveSearchPresentation()
@@ -2189,10 +2431,10 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
     private void RefreshUpcomingGroups()
     {
-        UpcomingGroups.Clear();
         var tasks = UpcomingTaskProjection.Create(_snapshot.Tasks.Where(IsTaskInActiveWork), Today);
-        var overdue = tasks.Where(task => task.DueDate < Today).Select(ToTaskRow).ToArray();
-        if (overdue.Length > 0) UpcomingGroups.Add(new("Overdue", overdue));
+        var desired = new List<(string Heading, TaskRowViewModel[] Tasks)>();
+        var overdue = tasks.Where(task => task.DueDate < Today).Select(TaskRowForProjection).ToArray();
+        if (overdue.Length > 0) desired.Add(("Overdue", overdue));
         foreach (var group in tasks.Where(task => task.DueDate >= Today).GroupBy(task => task.DueDate!.Value))
         {
             var heading = group.Key == Today
@@ -2200,9 +2442,31 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
                 : group.Key.DayNumber == Today.DayNumber + 1
                     ? "Tomorrow"
                     : group.Key.ToString("dddd, d MMMM yyyy", CultureInfo.InvariantCulture);
-            UpcomingGroups.Add(new(heading, group.Select(ToTaskRow).ToArray()));
+            desired.Add((heading, group.Select(TaskRowForProjection).ToArray()));
+        }
+        for (var index = UpcomingGroups.Count - 1; index >= 0; index--)
+            if (desired.All(group => !string.Equals(group.Heading, UpcomingGroups[index].Heading, StringComparison.Ordinal)))
+                UpcomingGroups.RemoveAt(index);
+        for (var index = 0; index < desired.Count; index++)
+        {
+            var group = UpcomingGroups.FirstOrDefault(item =>
+                string.Equals(item.Heading, desired[index].Heading, StringComparison.Ordinal));
+            if (group is null)
+            {
+                group = new(desired[index].Heading, desired[index].Tasks);
+                UpcomingGroups.Insert(index, group);
+            }
+            else
+            {
+                group.Refresh(desired[index].Tasks);
+                var current = UpcomingGroups.IndexOf(group);
+                if (current != index) UpcomingGroups.Move(current, index);
+            }
         }
     }
+
+    private TaskRowViewModel TaskRowForProjection(TaskRecord task) =>
+        _taskRows.TryGetValue(task.Id, out var row) ? row : ToTaskRow(task);
 
     private (DateOnly Start, string Heading) CompletedGroupFor(DateOnly completionDate) => DateGroupFor(completionDate);
 
@@ -2513,20 +2777,47 @@ public sealed class ParticipantDraftViewModel : INotifyPropertyChanged
     }
 }
 
-public sealed record CategoryProjectRowViewModel(ProjectRowViewModel Project, bool IsLast);
-public sealed record CategoryTaskRowViewModel(TaskRowViewModel Task, bool IsLast);
+public sealed class CategoryProjectRowViewModel : INotifyPropertyChanged
+{
+    public CategoryProjectRowViewModel(ProjectRowViewModel project, bool isLast) => Refresh(project, isLast);
+    public event PropertyChangedEventHandler? PropertyChanged;
+    public ProjectRowViewModel Project { get; private set; } = null!;
+    public bool IsLast { get; private set; }
+    public void Refresh(ProjectRowViewModel project, bool isLast)
+    {
+        Project = project;
+        IsLast = isLast;
+        PropertyChanged?.Invoke(this, new(nameof(Project)));
+        PropertyChanged?.Invoke(this, new(nameof(IsLast)));
+    }
+}
+
+public sealed class CategoryTaskRowViewModel : INotifyPropertyChanged
+{
+    public CategoryTaskRowViewModel(TaskRowViewModel task, bool isLast) => Refresh(task, isLast);
+    public event PropertyChangedEventHandler? PropertyChanged;
+    public TaskRowViewModel Task { get; private set; } = null!;
+    public bool IsLast { get; private set; }
+    public void Refresh(TaskRowViewModel task, bool isLast)
+    {
+        Task = task;
+        IsLast = isLast;
+        PropertyChanged?.Invoke(this, new(nameof(Task)));
+        PropertyChanged?.Invoke(this, new(nameof(IsLast)));
+    }
+}
 
 public sealed class CategoryGroupViewModel : INotifyPropertyChanged
 {
     private readonly ProjectCaptureViewModel _owner;
-    private readonly int _position;
-    private readonly int _count;
+    private int _position;
+    private int _count;
     private bool _isExpanded;
 
     public CategoryGroupViewModel(
         ProjectCaptureViewModel owner,
         WorkspaceCategory category,
-        IReadOnlyList<CategoryProjectRowViewModel> projects,
+        IReadOnlyList<ProjectRowViewModel> projects,
         IReadOnlyList<TaskRowViewModel> standaloneTasks,
         int position,
         int count,
@@ -2534,33 +2825,26 @@ public sealed class CategoryGroupViewModel : INotifyPropertyChanged
     {
         _owner = owner;
         Id = category.Id;
-        Name = category.Name;
-        ColourKey = category.ColourKey;
-        _position = position;
-        _count = count;
         _isExpanded = isExpanded;
-        Projects = projects;
-        StandaloneTasks = standaloneTasks
-            .Select((task, index) => new CategoryTaskRowViewModel(task, index == standaloneTasks.Count - 1))
-            .ToArray();
         SelectCommand = new(() => owner.SelectCategory(Id));
         MoveUpCommand = new(() => owner.MoveCategory(Id, _position - 2));
         MoveDownCommand = new(() => owner.MoveCategory(Id, _position));
         MoveToTopCommand = new(() => owner.MoveCategory(Id, 0));
         MoveToBottomCommand = new(() => owner.MoveCategory(Id, _count - 1));
+        Refresh(category, projects, standaloneTasks, position, count);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public string Id { get; }
-    public string Name { get; }
-    public string ColourKey { get; }
+    public string Name { get; private set; } = string.Empty;
+    public string ColourKey { get; private set; } = IdentityColourPalette.DefaultKey;
     public int ProjectCount => Projects.Count;
     public int StandaloneTaskCount => StandaloneTasks.Count;
     public bool HasProjects => ProjectCount > 0;
     public bool HasStandaloneTasks => StandaloneTaskCount > 0;
     public bool HasNoWork => !HasProjects && !HasStandaloneTasks;
-    public IReadOnlyList<CategoryProjectRowViewModel> Projects { get; }
-    public IReadOnlyList<CategoryTaskRowViewModel> StandaloneTasks { get; }
+    public ObservableCollection<CategoryProjectRowViewModel> Projects { get; } = [];
+    public ObservableCollection<CategoryTaskRowViewModel> StandaloneTasks { get; } = [];
     public string PositionText => $"{_position} of {_count}";
     public string ReorderAutomationId => $"category-reorder-{Id}";
     public string SelectionAutomationId => $"category-selection-{Id}";
@@ -2588,6 +2872,81 @@ public sealed class CategoryGroupViewModel : INotifyPropertyChanged
     public RelayCommand MoveDownCommand { get; }
     public RelayCommand MoveToTopCommand { get; }
     public RelayCommand MoveToBottomCommand { get; }
+
+    public void Refresh(
+        WorkspaceCategory category,
+        IReadOnlyList<ProjectRowViewModel> projects,
+        IReadOnlyList<TaskRowViewModel> standaloneTasks,
+        int position,
+        int count)
+    {
+        Name = category.Name;
+        ColourKey = category.ColourKey;
+        SynchroniseProjects(projects);
+        SynchroniseTasks(standaloneTasks);
+        _position = position;
+        _count = count;
+        PropertyChanged?.Invoke(this, new(nameof(Name)));
+        PropertyChanged?.Invoke(this, new(nameof(ColourKey)));
+        PropertyChanged?.Invoke(this, new(nameof(Projects)));
+        PropertyChanged?.Invoke(this, new(nameof(StandaloneTasks)));
+        PropertyChanged?.Invoke(this, new(nameof(ProjectCount)));
+        PropertyChanged?.Invoke(this, new(nameof(StandaloneTaskCount)));
+        PropertyChanged?.Invoke(this, new(nameof(HasProjects)));
+        PropertyChanged?.Invoke(this, new(nameof(HasStandaloneTasks)));
+        PropertyChanged?.Invoke(this, new(nameof(HasNoWork)));
+        PropertyChanged?.Invoke(this, new(nameof(PositionText)));
+        PropertyChanged?.Invoke(this, new(nameof(Summary)));
+        PropertyChanged?.Invoke(this, new(nameof(SelectionAccessibleName)));
+        PropertyChanged?.Invoke(this, new(nameof(ExpansionAccessibleName)));
+        PropertyChanged?.Invoke(this, new(nameof(ReorderAccessibleName)));
+        PropertyChanged?.Invoke(this, new(nameof(MoveUpAccessibleName)));
+        PropertyChanged?.Invoke(this, new(nameof(MoveDownAccessibleName)));
+        PropertyChanged?.Invoke(this, new(nameof(MoveToTopAccessibleName)));
+        PropertyChanged?.Invoke(this, new(nameof(MoveToBottomAccessibleName)));
+    }
+
+    private void SynchroniseProjects(IReadOnlyList<ProjectRowViewModel> projects)
+    {
+        for (var index = Projects.Count - 1; index >= 0; index--)
+            if (projects.All(project => project.Id != Projects[index].Project.Id)) Projects.RemoveAt(index);
+        for (var index = 0; index < projects.Count; index++)
+        {
+            var row = Projects.FirstOrDefault(item => item.Project.Id == projects[index].Id);
+            if (row is null)
+            {
+                row = new(projects[index], index == projects.Count - 1);
+                Projects.Insert(index, row);
+            }
+            else
+            {
+                row.Refresh(projects[index], index == projects.Count - 1);
+                var current = Projects.IndexOf(row);
+                if (current != index) Projects.Move(current, index);
+            }
+        }
+    }
+
+    private void SynchroniseTasks(IReadOnlyList<TaskRowViewModel> tasks)
+    {
+        for (var index = StandaloneTasks.Count - 1; index >= 0; index--)
+            if (tasks.All(task => task.Id != StandaloneTasks[index].Task.Id)) StandaloneTasks.RemoveAt(index);
+        for (var index = 0; index < tasks.Count; index++)
+        {
+            var row = StandaloneTasks.FirstOrDefault(item => item.Task.Id == tasks[index].Id);
+            if (row is null)
+            {
+                row = new(tasks[index], index == tasks.Count - 1);
+                StandaloneTasks.Insert(index, row);
+            }
+            else
+            {
+                row.Refresh(tasks[index], index == tasks.Count - 1);
+                var current = StandaloneTasks.IndexOf(row);
+                if (current != index) StandaloneTasks.Move(current, index);
+            }
+        }
+    }
 }
 
 public sealed record CompletedTaskGroupViewModel(string Heading, IReadOnlyList<TaskRowViewModel> Tasks)
@@ -2709,12 +3068,105 @@ public sealed record ArchivedWorkRowViewModel(
     public bool IsTask => Task is not null;
 }
 public sealed record ArchivedWorkGroupViewModel(string Heading, IReadOnlyList<ArchivedWorkRowViewModel> Rows);
-public sealed record ArchiveSearchResultGroupViewModel(string Heading, IReadOnlyList<ArchiveSearchResultViewModel> Rows);
+public sealed class ArchiveSearchResultGroupViewModel
+{
+    public ArchiveSearchResultGroupViewModel(string heading, IReadOnlyList<ArchiveSearchResultViewModel> rows)
+    {
+        Heading = heading;
+        Refresh(rows);
+    }
 
-public sealed class ArchiveSearchResultViewModel
+    public string Heading { get; }
+    public ObservableCollection<ArchiveSearchResultViewModel> Rows { get; } = [];
+
+    public void Refresh(IReadOnlyList<ArchiveSearchResultViewModel> rows)
+    {
+        for (var index = Rows.Count - 1; index >= 0; index--)
+            if (rows.All(row => row.Key != Rows[index].Key)) Rows.RemoveAt(index);
+        for (var index = 0; index < rows.Count; index++)
+        {
+            var current = Rows.FirstOrDefault(row => row.Key == rows[index].Key);
+            if (current is null) Rows.Insert(index, rows[index]);
+            else
+            {
+                var currentIndex = Rows.IndexOf(current);
+                if (currentIndex != index) Rows.Move(currentIndex, index);
+            }
+        }
+    }
+}
+
+public sealed class ArchiveSearchResultViewModel : INotifyPropertyChanged
 {
     public ArchiveSearchResultViewModel(
         ProjectCaptureViewModel owner,
+        ArchiveSearchResult result,
+        string relationshipText,
+        string categoryName,
+        string categoryColourKey,
+        string? projectTitle,
+        string projectColourKey,
+        bool hasCategoryOverride,
+        string categoryOverrideText,
+        bool isLast)
+    {
+        Refresh(result, relationshipText, categoryName, categoryColourKey, projectTitle,
+            projectColourKey, hasCategoryOverride, categoryOverrideText, isLast);
+        OpenCommand = new(() =>
+        {
+            if (Result.RecordType == ArchiveSearchRecordType.Project) owner.SelectProject(Result.Id);
+            else owner.SelectTask(Result.Id);
+        });
+        RestoreCommand = new(() =>
+        {
+            if (Result.RecordType == ArchiveSearchRecordType.Project) owner.RestoreProject(Result.Id);
+            else owner.RestoreTask(Result.Id);
+        });
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+    public ArchiveSearchResult Result { get; private set; } = null!;
+    public string Key => $"{Result.RecordType}:{Result.Id}";
+    public bool IsLast { get; private set; }
+    public bool IsProject => Result.RecordType == ArchiveSearchRecordType.Project;
+    public bool IsTask => Result.RecordType == ArchiveSearchRecordType.Task;
+    public string Title => Result.Title;
+    public string TypeLabel => Result.RecordType == ArchiveSearchRecordType.Project ? "Project" : "Task";
+    public string StateLabel => $"Archived {TypeLabel}";
+    public bool HasParentProject => Result.ParentProjectTitle is not null;
+    public string ParentProjectText => Result.ParentProjectTitle is null
+        ? string.Empty
+        : $"Project · {Result.ParentProjectTitle}";
+    public string DateText => $"{(Result.DateKind == ArchiveSearchDateKind.Completed ? "Completed" : "Archived")} {Result.Date.ToString("d MMM yyyy", CultureInfo.InvariantCulture)}";
+    public string Excerpt => Result.Excerpt;
+    public string RelationshipText { get; private set; } = string.Empty;
+    public string CategoryName { get; private set; } = string.Empty;
+    public string CategoryColourKey { get; private set; } = IdentityColourPalette.DefaultKey;
+    public string? ProjectTitle { get; private set; }
+    public string? PillProjectTitle => IsProject ? null : ProjectTitle;
+    public string ProjectColourKey { get; private set; } = IdentityColourPalette.KeyForProjectPosition(0);
+    public bool HasCategoryOverride { get; private set; }
+    public string CategoryOverrideText { get; private set; } = string.Empty;
+    public string ContextText => string.Join(" · ", new[] { RelationshipText, Excerpt }
+        .Where(value => !string.IsNullOrWhiteSpace(value)));
+    public string AutomationId => $"archive-search-{Result.RecordType.ToString().ToLowerInvariant()}-{Result.Id}";
+    public string RestoreAutomationId => $"archive-search-restore-{Result.RecordType.ToString().ToLowerInvariant()}-{Result.Id}";
+    public string RestoreAccessibleName => Result.RecordType == ArchiveSearchRecordType.Project
+        ? $"Restore Project {Title} to Projects"
+        : $"Restore {Title} to Completed";
+    public string AccessibleName => string.Join(". ", new[]
+        {
+            $"{TypeLabel} {Title}",
+            RelationshipText,
+            HasCategoryOverride ? $"Category override {CategoryOverrideText}" : string.Empty,
+            StateLabel,
+            DateText,
+            Excerpt,
+        }.Where(value => !string.IsNullOrWhiteSpace(value)));
+    public RelayCommand OpenCommand { get; }
+    public RelayCommand RestoreCommand { get; }
+
+    public void Refresh(
         ArchiveSearchResult result,
         string relationshipText,
         string categoryName,
@@ -2734,68 +3186,75 @@ public sealed class ArchiveSearchResultViewModel
         HasCategoryOverride = hasCategoryOverride;
         CategoryOverrideText = categoryOverrideText;
         IsLast = isLast;
-        OpenCommand = new(() =>
-        {
-            if (result.RecordType == ArchiveSearchRecordType.Project) owner.SelectProject(result.Id);
-            else owner.SelectTask(result.Id);
-        });
-        RestoreCommand = new(() =>
-        {
-            if (result.RecordType == ArchiveSearchRecordType.Project) owner.RestoreProject(result.Id);
-            else owner.RestoreTask(result.Id);
-        });
+        foreach (var property in new[]
+                 {
+                     nameof(Result), nameof(Key), nameof(IsLast), nameof(IsProject), nameof(IsTask), nameof(Title),
+                     nameof(TypeLabel), nameof(StateLabel), nameof(HasParentProject), nameof(ParentProjectText),
+                     nameof(DateText), nameof(Excerpt), nameof(RelationshipText), nameof(CategoryName),
+                     nameof(CategoryColourKey), nameof(ProjectTitle), nameof(PillProjectTitle), nameof(ProjectColourKey),
+                     nameof(HasCategoryOverride), nameof(CategoryOverrideText), nameof(ContextText), nameof(AutomationId),
+                     nameof(RestoreAutomationId), nameof(RestoreAccessibleName), nameof(AccessibleName),
+                 })
+            PropertyChanged?.Invoke(this, new(property));
+    }
+}
+
+public sealed class UpcomingTaskGroupViewModel
+{
+    public UpcomingTaskGroupViewModel(string heading, IReadOnlyList<TaskRowViewModel> tasks)
+    {
+        Heading = heading;
+        Refresh(tasks);
     }
 
-    public ArchiveSearchResult Result { get; }
-    public bool IsLast { get; }
-    public bool IsProject => Result.RecordType == ArchiveSearchRecordType.Project;
-    public bool IsTask => Result.RecordType == ArchiveSearchRecordType.Task;
-    public string Title => Result.Title;
-    public string TypeLabel => Result.RecordType == ArchiveSearchRecordType.Project ? "Project" : "Task";
-    public string StateLabel => $"Archived {TypeLabel}";
-    public bool HasParentProject => Result.ParentProjectTitle is not null;
-    public string ParentProjectText => Result.ParentProjectTitle is null
-        ? string.Empty
-        : $"Project · {Result.ParentProjectTitle}";
-    public string DateText => $"{(Result.DateKind == ArchiveSearchDateKind.Completed ? "Completed" : "Archived")} {Result.Date.ToString("d MMM yyyy", CultureInfo.InvariantCulture)}";
-    public string Excerpt => Result.Excerpt;
-    public string RelationshipText { get; }
-    public string CategoryName { get; }
-    public string CategoryColourKey { get; }
-    public string? ProjectTitle { get; }
-    public string? PillProjectTitle => IsProject ? null : ProjectTitle;
-    public string ProjectColourKey { get; }
-    public bool HasCategoryOverride { get; }
-    public string CategoryOverrideText { get; }
-    public string ContextText => string.Join(" · ", new[] { RelationshipText, Excerpt }
-        .Where(value => !string.IsNullOrWhiteSpace(value)));
-    public string AutomationId => $"archive-search-{Result.RecordType.ToString().ToLowerInvariant()}-{Result.Id}";
-    public string RestoreAutomationId => $"archive-search-restore-{Result.RecordType.ToString().ToLowerInvariant()}-{Result.Id}";
-    public string RestoreAccessibleName => Result.RecordType == ArchiveSearchRecordType.Project
-        ? $"Restore Project {Title} to Projects"
-        : $"Restore {Title} to Completed";
-    public string AccessibleName => string.Join(". ", new[]
+    public string Heading { get; }
+    public ObservableCollection<UpcomingTaskRowViewModel> Rows { get; } = [];
+    public IReadOnlyList<TaskRowViewModel> Tasks => Rows.Select(row => row.Task).ToArray();
+
+    public void Refresh(IReadOnlyList<TaskRowViewModel> tasks)
+    {
+        for (var index = Rows.Count - 1; index >= 0; index--)
+            if (tasks.All(task => task.Id != Rows[index].Task.Id)) Rows.RemoveAt(index);
+        for (var index = 0; index < tasks.Count; index++)
         {
-            $"{TypeLabel} {Title}",
-            RelationshipText,
-            HasCategoryOverride ? $"Category override {CategoryOverrideText}" : string.Empty,
-            StateLabel,
-            DateText,
-            Excerpt,
-        }.Where(value => !string.IsNullOrWhiteSpace(value)));
-    public RelayCommand OpenCommand { get; }
-    public RelayCommand RestoreCommand { get; }
+            var row = Rows.FirstOrDefault(item => item.Task.Id == tasks[index].Id);
+            if (row is null)
+            {
+                row = new(tasks[index], index == tasks.Count - 1);
+                Rows.Insert(index, row);
+            }
+            else
+            {
+                row.Refresh(tasks[index], index == tasks.Count - 1);
+                var current = Rows.IndexOf(row);
+                if (current != index) Rows.Move(current, index);
+            }
+        }
+    }
 }
 
-public sealed record UpcomingTaskGroupViewModel(string Heading, IReadOnlyList<TaskRowViewModel> Tasks)
+public sealed class UpcomingTaskRowViewModel : INotifyPropertyChanged
 {
-    public IReadOnlyList<UpcomingTaskRowViewModel> Rows { get; } = Tasks
-        .Select((task, index) => new UpcomingTaskRowViewModel(task, index == Tasks.Count - 1))
-        .ToArray();
+    public UpcomingTaskRowViewModel(TaskRowViewModel task, bool isLast)
+    {
+        Task = task;
+        IsLast = isLast;
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+    public TaskRowViewModel Task { get; private set; }
+    public bool IsLast { get; private set; }
+
+    public void Refresh(TaskRowViewModel task, bool isLast)
+    {
+        Task = task;
+        IsLast = isLast;
+        PropertyChanged?.Invoke(this, new(nameof(Task)));
+        PropertyChanged?.Invoke(this, new(nameof(IsLast)));
+    }
 }
 
-public sealed record UpcomingTaskRowViewModel(TaskRowViewModel Task, bool IsLast);
-public sealed class TodayTaskRowViewModel
+public sealed class TodayTaskRowViewModel : INotifyPropertyChanged
 {
     private readonly ProjectCaptureViewModel _owner;
     private readonly TodayLane _lane;
@@ -2806,6 +3265,7 @@ public sealed class TodayTaskRowViewModel
     {
         _owner = owner;
         Task = task;
+        Task.PropertyChanged += OnTaskPropertyChanged;
         _lane = lane;
         MoveUpCommand = new(() => owner.MoveTodayTask(task.Id, _position - 1));
         MoveDownCommand = new(() => owner.MoveTodayTask(task.Id, _position + 1));
@@ -2814,6 +3274,7 @@ public sealed class TodayTaskRowViewModel
         MoveToOtherLaneCommand = new(() => owner.MoveToOtherTodayLane(task.Id));
     }
 
+    public event PropertyChangedEventHandler? PropertyChanged;
     public TaskRowViewModel Task { get; private set; }
     public bool IsLast => _position == _count - 1;
     public string PositionText => $"{_position + 1} of {_count}";
@@ -2841,9 +3302,38 @@ public sealed class TodayTaskRowViewModel
 
     public void Refresh(TaskRowViewModel task, int position, int count)
     {
+        if (!ReferenceEquals(Task, task))
+        {
+            Task.PropertyChanged -= OnTaskPropertyChanged;
+            task.PropertyChanged += OnTaskPropertyChanged;
+        }
         Task = task;
         _position = position;
         _count = count;
+        NotifyTaskPresentation();
+    }
+
+    internal void Detach() => Task.PropertyChanged -= OnTaskPropertyChanged;
+
+    private void OnTaskPropertyChanged(object? sender, PropertyChangedEventArgs eventArgs)
+    {
+        _ = sender;
+        _ = eventArgs;
+        NotifyTaskPresentation();
+    }
+
+    private void NotifyTaskPresentation()
+    {
+        PropertyChanged?.Invoke(this, new(nameof(Task)));
+        PropertyChanged?.Invoke(this, new(nameof(IsLast)));
+        PropertyChanged?.Invoke(this, new(nameof(PositionText)));
+        PropertyChanged?.Invoke(this, new(nameof(ReorderAccessibleName)));
+        PropertyChanged?.Invoke(this, new(nameof(MoveUpAccessibleName)));
+        PropertyChanged?.Invoke(this, new(nameof(MoveDownAccessibleName)));
+        PropertyChanged?.Invoke(this, new(nameof(MoveToTopAccessibleName)));
+        PropertyChanged?.Invoke(this, new(nameof(MoveToBottomAccessibleName)));
+        PropertyChanged?.Invoke(this, new(nameof(MoveToOtherLaneLabel)));
+        PropertyChanged?.Invoke(this, new(nameof(MoveToOtherLaneAccessibleName)));
     }
 }
 
@@ -3163,8 +3653,15 @@ public sealed class ProjectRowViewModel : INotifyPropertyChanged
         TargetAccessibleText = WorkDatePresentation.Accessible(project.TargetDate, "Target");
         IsOverdue = WorkDatePresentation.IsOverdue(project, summary, _owner.Today);
         CompletionDateText = summary.CompletionDate is { } completionDate ? $"Completed {completionDate:d MMM yyyy}" : string.Empty;
-        Tasks.Clear();
-        foreach (var task in tasks) Tasks.Add(task);
+        var desiredTasks = tasks.ToArray();
+        for (var index = Tasks.Count - 1; index >= 0; index--)
+            if (!desiredTasks.Contains(Tasks[index])) Tasks.RemoveAt(index);
+        for (var index = 0; index < desiredTasks.Length; index++)
+        {
+            var current = Tasks.IndexOf(desiredTasks[index]);
+            if (current < 0) Tasks.Insert(index, desiredTasks[index]);
+            else if (current != index) Tasks.Move(current, index);
+        }
         for (var index = 0; index < Tasks.Count; index++) Tasks[index].SetProjectPosition(index + 1, Tasks.Count);
         Summary = $"{summary.Status} · {summary.CompletedCount} of {summary.TaskCount} Tasks · {category.Name}"
             + (string.IsNullOrEmpty(TargetText) ? string.Empty : $" · {TargetText}");

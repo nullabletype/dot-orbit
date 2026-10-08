@@ -246,6 +246,263 @@ public sealed class ProjectCaptureViewModelTests
     }
 
     [Fact]
+    public void RecordLocalTaskAutosaveUpdatesRowsWithoutResettingUnrelatedProjections()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var task = work.CreateTask(project.Id, "Dig");
+        var unrelatedProject = work.CreateProject("Office", "", "work", null);
+        var unrelatedTask = work.CreateTask(unrelatedProject.Id, "File");
+        work.SetTaskTodayLane(task.Id, TodayLane.Planned);
+        var model = new ProjectCaptureViewModel(work);
+        var projectRow = model.Projects.Single(row => row.Id == project.Id);
+        var taskRow = model.Backlog.Single(row => row.Id == task.Id);
+        var unrelatedProjectRow = model.Projects.Single(row => row.Id == unrelatedProject.Id);
+        var unrelatedTaskRow = model.Backlog.Single(row => row.Id == unrelatedTask.Id);
+        var homeGroup = model.CategoryGroups.Single(group => group.Id == "home");
+        var todayRow = Assert.Single(model.TodayPlanned);
+        var todayNotifications = new List<string?>();
+        todayRow.PropertyChanged += (_, args) => todayNotifications.Add(args.PropertyName);
+        homeGroup.IsExpanded = false;
+        var projectsChanged = 0;
+        var backlogChanged = 0;
+        var categoryGroupsChanged = 0;
+        var todayChanged = 0;
+        model.Projects.CollectionChanged += (_, _) => projectsChanged++;
+        model.Backlog.CollectionChanged += (_, _) => backlogChanged++;
+        model.CategoryGroups.CollectionChanged += (_, _) => categoryGroupsChanged++;
+        model.TodayPlanned.CollectionChanged += (_, _) => todayChanged++;
+        var readsBefore = work.ReadCount;
+        var taskBinReadsBefore = work.TaskBinReadCount;
+        var projectBinReadsBefore = work.ProjectBinReadCount;
+
+        model.SelectTask(task.Id);
+        model.Title = "Dig deeply";
+        model.Description = "Keep the edit local.";
+        Assert.True(model.RunScheduledAutosave());
+
+        Assert.Same(projectRow, model.Projects.Single(row => row.Id == project.Id));
+        Assert.Same(taskRow, model.Backlog.Single(row => row.Id == task.Id));
+        Assert.Same(todayRow, model.TodayPlanned.Single());
+        Assert.Same(taskRow, todayRow.Task);
+        Assert.Equal("Dig deeply", taskRow.Title);
+        Assert.Equal("Reorder Dig deeply in Planned", todayRow.ReorderAccessibleName);
+        Assert.Contains(nameof(TodayTaskRowViewModel.ReorderAccessibleName), todayNotifications);
+        Assert.Same(unrelatedProjectRow, model.Projects.Single(row => row.Id == unrelatedProject.Id));
+        Assert.Same(unrelatedTaskRow, model.Backlog.Single(row => row.Id == unrelatedTask.Id));
+        Assert.Same(homeGroup, model.CategoryGroups.Single(group => group.Id == "home"));
+        Assert.False(homeGroup.IsExpanded);
+        Assert.Equal(0, projectsChanged);
+        Assert.Equal(0, backlogChanged);
+        Assert.Equal(0, categoryGroupsChanged);
+        Assert.Equal(0, todayChanged);
+        Assert.Equal(readsBefore, work.ReadCount);
+        Assert.Equal(taskBinReadsBefore, work.TaskBinReadCount);
+        Assert.Equal(projectBinReadsBefore, work.ProjectBinReadCount);
+    }
+
+    [Fact]
+    public void ProjectCategoryTitleAndColourEditsPreserveRowsGroupsAndDisclosure()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var inherited = work.CreateTask(project.Id, "Inherited");
+        var overridden = work.CreateTask(project.Id, "Override");
+        work.UpdateTask(overridden.Id, overridden.Title, "", "work", null);
+        var unrelated = work.CreateProject("Office", "", "work", null);
+        var model = new ProjectCaptureViewModel(work);
+        var projectRow = model.Projects.Single(row => row.Id == project.Id);
+        var inheritedRow = model.Backlog.Single(row => row.Id == inherited.Id);
+        var overriddenRow = model.Backlog.Single(row => row.Id == overridden.Id);
+        var unrelatedRow = model.Projects.Single(row => row.Id == unrelated.Id);
+        var homeGroup = model.CategoryGroups.Single(group => group.Id == "home");
+        var workGroup = model.CategoryGroups.Single(group => group.Id == "work");
+        var unrelatedCategoryWrapper = workGroup.Projects.Single(row => row.Project.Id == unrelated.Id);
+        homeGroup.IsExpanded = false;
+        workGroup.IsExpanded = false;
+        var projectsChanged = 0;
+        var projectTasksChanged = 0;
+        var categoryGroupsChanged = 0;
+        model.Projects.CollectionChanged += (_, _) => projectsChanged++;
+        projectRow.Tasks.CollectionChanged += (_, _) => projectTasksChanged++;
+        model.CategoryGroups.CollectionChanged += (_, _) => categoryGroupsChanged++;
+
+        model.SelectProject(project.Id);
+        model.Category = model.Categories.Single(category => category.Id == "work");
+        model.ProjectColourKey = "ocean";
+        model.Title = "Kitchen garden";
+        Assert.True(model.RunScheduledAutosave());
+
+        Assert.Same(projectRow, model.Projects.Single(row => row.Id == project.Id));
+        Assert.Same(unrelatedRow, model.Projects.Single(row => row.Id == unrelated.Id));
+        Assert.Same(inheritedRow, projectRow.Tasks.Single(row => row.Id == inherited.Id));
+        Assert.Same(overriddenRow, projectRow.Tasks.Single(row => row.Id == overridden.Id));
+        Assert.Equal("Kitchen garden", projectRow.Title);
+        Assert.Equal("Work", inheritedRow.CategoryName);
+        Assert.False(inheritedRow.HasCategoryOverride);
+        Assert.Equal("Work", overriddenRow.CategoryName);
+        Assert.True(overriddenRow.HasCategoryOverride);
+        Assert.Equal("ocean", inheritedRow.ProjectColourKey);
+        Assert.Same(homeGroup, model.CategoryGroups.Single(group => group.Id == "home"));
+        Assert.Same(workGroup, model.CategoryGroups.Single(group => group.Id == "work"));
+        Assert.False(homeGroup.IsExpanded);
+        Assert.False(workGroup.IsExpanded);
+        Assert.DoesNotContain(homeGroup.Projects, row => row.Project.Id == project.Id);
+        Assert.Contains(workGroup.Projects, row => ReferenceEquals(row.Project, projectRow));
+        Assert.Same(unrelatedCategoryWrapper,
+            workGroup.Projects.Single(row => row.Project.Id == unrelated.Id));
+        Assert.Equal(0, projectsChanged);
+        Assert.Equal(0, projectTasksChanged);
+        Assert.Equal(0, categoryGroupsChanged);
+    }
+
+    [Fact]
+    public void StandaloneCategoryAndDueDateEditsTouchOnlyAffectedStableGroups()
+    {
+        var work = new MemoryWorkspaceWork();
+        var edited = work.CreateStandaloneTask("Edited", "", "home", new DateOnly(2026, 10, 5));
+        var other = work.CreateStandaloneTask("Other", "", "work", new DateOnly(2026, 10, 6));
+        var time = new FixedTimeProvider(new DateTimeOffset(2026, 10, 4, 12, 0, 0, TimeSpan.Zero));
+        var shell = new ShellViewModel(work, time);
+        var model = shell.Work!;
+        var taskRow = model.Backlog.Single(row => row.Id == edited.Id);
+        var otherRow = model.Backlog.Single(row => row.Id == other.Id);
+        var homeGroup = model.CategoryGroups.Single(group => group.Id == "home");
+        var workGroup = model.CategoryGroups.Single(group => group.Id == "work");
+        var unrelatedCategoryWrapper = workGroup.StandaloneTasks.Single(row => row.Task.Id == other.Id);
+        var unaffectedUpcoming = model.UpcomingGroups.Single(group => group.Heading == "Tuesday, 6 October 2026");
+        var unaffectedUpcomingRow = Assert.Single(unaffectedUpcoming.Rows);
+        homeGroup.IsExpanded = false;
+        workGroup.IsExpanded = false;
+        var backlogChanged = 0;
+        var categoryGroupsChanged = 0;
+        model.Backlog.CollectionChanged += (_, _) => backlogChanged++;
+        model.CategoryGroups.CollectionChanged += (_, _) => categoryGroupsChanged++;
+
+        model.SelectTask(edited.Id);
+        model.Category = model.Categories.Single(category => category.Id == "work");
+        model.Date = "2026-10-06";
+        Assert.True(model.RunScheduledAutosave());
+
+        Assert.Same(taskRow, model.Backlog.Single(row => row.Id == edited.Id));
+        Assert.Same(otherRow, model.Backlog.Single(row => row.Id == other.Id));
+        Assert.Same(homeGroup, model.CategoryGroups.Single(group => group.Id == "home"));
+        Assert.Same(workGroup, model.CategoryGroups.Single(group => group.Id == "work"));
+        Assert.False(homeGroup.IsExpanded);
+        Assert.False(workGroup.IsExpanded);
+        Assert.DoesNotContain(homeGroup.StandaloneTasks, row => row.Task.Id == edited.Id);
+        Assert.Contains(workGroup.StandaloneTasks, row => ReferenceEquals(row.Task, taskRow));
+        Assert.Same(unrelatedCategoryWrapper,
+            workGroup.StandaloneTasks.Single(row => row.Task.Id == other.Id));
+        Assert.Same(unaffectedUpcoming,
+            model.UpcomingGroups.Single(group => group.Heading == "Tuesday, 6 October 2026"));
+        Assert.Same(unaffectedUpcomingRow,
+            model.UpcomingGroups.Single(group => group.Heading == "Tuesday, 6 October 2026")
+                .Rows.Single(row => row.Task.Id == other.Id));
+        Assert.Equal([other.Id, edited.Id],
+            unaffectedUpcoming.Rows.Select(row => row.Task.Id));
+        Assert.Equal("2", shell.PrimaryNavigation.Single(item => item.Title == "Upcoming").CountText);
+        Assert.Equal(0, backlogChanged);
+        Assert.Equal(0, categoryGroupsChanged);
+    }
+
+    [Fact]
+    public void ParticipantRemovalSavesImmediatelyWithoutResettingWorkProjections()
+    {
+        var work = new MemoryWorkspaceWork();
+        var participant = work.CreateParticipant("SD");
+        var task = work.CreateStandaloneTask("Call", "", "home", null,
+            new ParticipantDraftChange([participant.Id], []));
+        var model = new ProjectCaptureViewModel(work);
+        var taskRow = model.Backlog.Single(row => row.Id == task.Id);
+        var backlogChanged = 0;
+        var categoryGroupsChanged = 0;
+        model.Backlog.CollectionChanged += (_, _) => backlogChanged++;
+        model.CategoryGroups.CollectionChanged += (_, _) => categoryGroupsChanged++;
+        model.SelectTask(task.Id);
+        var selected = Assert.Single(model.SelectedParticipants);
+        var writesBefore = work.WriteCount;
+
+        selected.RemoveCommand.Execute(null);
+
+        Assert.Equal(writesBefore + 1, work.WriteCount);
+        Assert.Empty(work.Read().Tasks.Single().Participants);
+        Assert.False(model.IsDirty);
+        Assert.Same(taskRow, model.Backlog.Single());
+        Assert.Equal(0, backlogChanged);
+        Assert.Equal(0, categoryGroupsChanged);
+    }
+
+    [Fact]
+    public void NewParticipantCommitReconcilesPersistedIdentityWithoutResettingChoices()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Call", "", "home", null);
+        var existing = work.CreateParticipant("SD");
+        var model = new ProjectCaptureViewModel(work);
+        model.SelectTask(task.Id);
+        var existingChoice = model.AvailableParticipants.Single(choice => choice.Id == existing.Id);
+        var choiceActions = new List<System.Collections.Specialized.NotifyCollectionChangedAction>();
+        model.AvailableParticipants.CollectionChanged += (_, args) => choiceActions.Add(args.Action);
+
+        model.ParticipantToAdd = model.AvailableParticipants.Single(choice => choice.IsNew);
+        model.NewParticipantLabel = "AB";
+        model.AddNewParticipantCommand.Execute(null);
+
+        var savedParticipant = work.Read().Participants.Single(participant => participant.Label == "AB");
+        var selected = Assert.Single(model.SelectedParticipants);
+        Assert.Equal(savedParticipant.Id, selected.Id);
+        Assert.Equal("AB", selected.Label);
+        Assert.Same(existingChoice,
+            model.AvailableParticipants.Single(choice => choice.Id == existing.Id));
+        Assert.Contains(model.AvailableParticipants, choice => choice.Id == savedParticipant.Id);
+        Assert.DoesNotContain(System.Collections.Specialized.NotifyCollectionChangedAction.Reset, choiceActions);
+        Assert.Equal("participant-picker", model.ParticipantFocusAutomationId);
+        Assert.False(model.IsDirty);
+    }
+
+    [Fact]
+    public void ArchivedTaskEditReconcilesActiveSearchWithoutReloadingUnrelatedProjections()
+    {
+        var work = new MemoryWorkspaceWork();
+        var edited = work.CreateStandaloneTask("Tulips", "", "home", null);
+        var unrelated = work.CreateStandaloneTask("Tulip notes", "", "home", null);
+        work.SetCompletion(edited.Id, new DateTimeOffset(2026, 9, 29, 10, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 29));
+        work.SetCompletion(unrelated.Id, new DateTimeOffset(2026, 9, 29, 9, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 29));
+        work.ArchiveTask(edited.Id);
+        work.ArchiveTask(unrelated.Id);
+        var model = new ProjectCaptureViewModel(work);
+        model.ArchiveSearchText = "tul";
+        var group = Assert.Single(model.ArchiveSearchGroups);
+        var unrelatedResult = model.ArchiveSearchResults.Single(row => row.Result.Id == unrelated.Id);
+        var archivedTaskRow = model.Archived.Single(row => row.Task.Id == edited.Id).Task;
+        var archivedChanged = 0;
+        var archiveGroupsChanged = 0;
+        var categoryGroupsChanged = 0;
+        model.Archived.CollectionChanged += (_, _) => archivedChanged++;
+        model.ArchiveGroups.CollectionChanged += (_, _) => archiveGroupsChanged++;
+        model.CategoryGroups.CollectionChanged += (_, _) => categoryGroupsChanged++;
+        var readsBefore = work.ReadCount;
+        var taskBinReadsBefore = work.TaskBinReadCount;
+        var projectBinReadsBefore = work.ProjectBinReadCount;
+
+        model.SelectTask(edited.Id);
+        model.Title = "Roses";
+        Assert.True(model.RunScheduledAutosave());
+
+        Assert.Equal("Roses", archivedTaskRow.Title);
+        Assert.Single(model.ArchiveSearchResults);
+        Assert.Same(unrelatedResult, Assert.Single(model.ArchiveSearchResults));
+        Assert.Same(group, Assert.Single(model.ArchiveSearchGroups));
+        Assert.Equal(0, archivedChanged);
+        Assert.Equal(0, archiveGroupsChanged);
+        Assert.Equal(0, categoryGroupsChanged);
+        Assert.Equal(readsBefore, work.ReadCount);
+        Assert.Equal(taskBinReadsBefore, work.TaskBinReadCount);
+        Assert.Equal(projectBinReadsBefore, work.ProjectBinReadCount);
+    }
+
+    [Fact]
     public void FirstValidAutosaveCreatesWorkAndNewParticipantAtomically()
     {
         var work = new MemoryWorkspaceWork();
@@ -1869,23 +2126,37 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
     public DateOnly CurrentDate { get; set; } = new(2026, 9, 29);
     public Action? BeforeBulkArchive { get; set; }
     public int WriteCount { get; private set; }
-    public WorkspaceWorkSnapshot Read() => new(_categories.OrderBy(category => category.Position)
-        .ToArray(), _projects.Where(project => !_binnedProjectIds.Contains(project.Id))
-        .OrderBy(project => project.Position).ToArray(), _tasks.Where(task => _bin.All(item => item.Task.Id != task.Id)
-            && (task.ProjectId is null || !_binnedProjectIds.Contains(task.ProjectId)))
-        .OrderBy(t => t.SharedPosition).ToArray(), _participants.ToArray());
-    public IReadOnlyList<TaskBinRecord> ReadTaskBin() => _bin
-        .Where(item => !_aggregateTaskIds.Contains(item.Task.Id))
-        .Select(item => item.Task.ProjectId is { } projectId && _binnedProjectIds.Contains(projectId)
-            ? item with
-            {
-                CanRestore = false,
-                RestoreBlockedReason = "Restore the parent Project from Bin before restoring this Task.",
-            }
-            : item)
-        .OrderByDescending(item => item.RemovedAt).ToArray();
-    public IReadOnlyList<ProjectBinRecord> ReadProjectBin() => _projectBin
-        .OrderByDescending(item => item.RemovedAt).ToArray();
+    public int ReadCount { get; private set; }
+    public int TaskBinReadCount { get; private set; }
+    public int ProjectBinReadCount { get; private set; }
+    public WorkspaceWorkSnapshot Read()
+    {
+        ReadCount++;
+        return new(_categories.OrderBy(category => category.Position)
+            .ToArray(), _projects.Where(project => !_binnedProjectIds.Contains(project.Id))
+            .OrderBy(project => project.Position).ToArray(), _tasks.Where(task => _bin.All(item => item.Task.Id != task.Id)
+                && (task.ProjectId is null || !_binnedProjectIds.Contains(task.ProjectId)))
+            .OrderBy(t => t.SharedPosition).ToArray(), _participants.ToArray());
+    }
+    public IReadOnlyList<TaskBinRecord> ReadTaskBin()
+    {
+        TaskBinReadCount++;
+        return _bin
+            .Where(item => !_aggregateTaskIds.Contains(item.Task.Id))
+            .Select(item => item.Task.ProjectId is { } projectId && _binnedProjectIds.Contains(projectId)
+                ? item with
+                {
+                    CanRestore = false,
+                    RestoreBlockedReason = "Restore the parent Project from Bin before restoring this Task.",
+                }
+                : item)
+            .OrderByDescending(item => item.RemovedAt).ToArray();
+    }
+    public IReadOnlyList<ProjectBinRecord> ReadProjectBin()
+    {
+        ProjectBinReadCount++;
+        return _projectBin.OrderByDescending(item => item.RemovedAt).ToArray();
+    }
     public EmptyBinPreview PreviewEmptyBin() => new(
         _projectBin.Select(item => item.Project.Id).OrderBy(id => id, StringComparer.Ordinal).ToArray(),
         _bin.Select(item => item.Task.Id).OrderBy(id => id, StringComparer.Ordinal).ToArray());

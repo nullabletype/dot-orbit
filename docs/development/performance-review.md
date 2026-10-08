@@ -1,6 +1,6 @@
 # Performance review baseline
 
-Status: issue #86 investigation, measured 2026-10-08.
+Status: issue #86 investigation and issue #87 incremental-projection follow-up, measured 2026-10-08.
 
 ## Scope and reported symptom
 
@@ -67,6 +67,22 @@ A 100-interaction stress run at 1,000 Tasks reproduced the long tail:
 - Task title save: 168.2 ms median, 193.4 ms p95, 204.4 ms maximum and 18.6 MB median allocation per interaction;
 - 100 full reloads coincided with 224 generation-0 and 56 generation-1 collections;
 - 100 title saves coincided with 223 generation-0 and 53 generation-1 collections.
+
+## Incremental projection follow-up
+
+Issue #87 replaces the post-write full reload for existing Project and Task field edits with a committed-record apply path. Ordinary title, description, Category, date, colour and existing-Participant association edits consume the authoritative record returned by the mutation and do not reread the workspace or either Bin. Creating a new Participant still performs one workspace read because the current mutation result does not return the newly created Participant records; that narrower result contract remains part of the storage work tracked by #90.
+
+Project, Task, Category-group, Upcoming-group, Today-wrapper and Archive-search identities are reconciled by key. A Category or due-date edit updates only the affected groups, while title and description edits leave projection collections unchanged. Active Archive search also reconciles record-local edits without falling back to a full desktop reload. This preserves inspector focus, row selection, disclosure state and accessible names while updating derived Category, date and navigation-count presentation.
+
+A pre-publication local Release comparison on the same Apple M4 host, 1,000-Task shape and 100 warm interactions produced:
+
+| Operation | p50 | p95 | maximum | Median allocation |
+| --- | ---: | ---: | ---: | ---: |
+| Incremental Task projection apply | 0.069 ms | 0.111 ms | 0.532 ms | 18,536 bytes |
+| Complete Task title save | 23.969 ms | 25.672 ms | 27.867 ms | 2,558,472 bytes |
+| Retained full reload observation | 134.160 ms | 152.952 ms | 718.111 ms | 13,563,648 bytes |
+
+The harness now gates incremental projection apply at 50 ms p95, complete title save at 100 ms p95 and 200 ms maximum, and title-save allocation below 4 MB median. It continues to report the full reload as an observation because the following cross-projection operations intentionally retain it: initial/external refresh; creation and quick add; Category creation, deletion and reorder; Project, shared-Task and Project-Task reorder; completion and reopen; Today membership, lane, reorder and clear; archive, restore and bulk archive; Bin operations; Task attachment/context changes; and local-date/time-zone rollover. These transitions change membership or ordering across multiple projections and are outside #87's record-local edit boundary.
 
 A local 10-second macOS CPU sample was also taken during an earlier synthetic 100-interaction diagnostic run. It confirmed that the measured work and collections occur on the application/UI thread and reported a 1.9 GB physical footprint at the sampled point. Managed stack symbols were incomplete, so method attribution comes from the one-variable harness measurements and source inspection rather than guessed profiler frames. The raw sample stayed local and is not a repository or GitHub artifact.
 
