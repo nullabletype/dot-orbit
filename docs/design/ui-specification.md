@@ -18,7 +18,7 @@ Canvas and Ledger remain useful comparison directions in the prototype. They are
 - Dark uses a near-black background with layered charcoal surfaces; Light uses warm near-white surfaces with the same hierarchy and density.
 - Hot pink is the primary interactive accent.
 - Green is reserved for completion, progress, and positive state hints.
-- Category colours provide local identification without becoming global status colours.
+- Category and Project colours come from a sixteen-key checked-in identity palette and provide local identification without becoming global status colours. The original eight keys remain stable for existing workspaces; Project defaults use an offset sequence to reduce immediate Category/Project clashes. Names remain canonical and visible; colours never encode status or behaviour.
 - Rounded corners are restrained in Workbench, softer in Canvas, and nearly square in Ledger.
 - Main copy should remain readable at normal desktop distance; metadata is visually quieter but not hidden.
 
@@ -60,13 +60,14 @@ Bin is a secondary utility item at the bottom of the sidebar, visually separated
 
 Current list surfaces compose the same semantic row states rather than defining surface-specific hover, completion, disclosure or reorder treatments. The authoritative row rules, component anatomy, semantic class names, state matrix and regression expectations are in the [desktop UI style guide](style-guide.md#rows-and-titles).
 
-Every Task, Project, and Category heading in Today, Upcoming, Backlog, Projects, Categories, Completed, Archive timeline and search, Bin, and the inspector places a small shared work-type icon immediately beside the title. Tasks use a dedicated task-card glyph, while Projects and Categories reuse their corresponding sidebar glyphs. Task context begins with the Project name or `Standalone`; broad standalone rows may append Category, while Category-group rows do not repeat it. Project context contains Category and total Task count. Category context contains Project and standalone Task counts. A Task that diverges from its Project Category shows the override Category after a small fork symbol and exposes `Category override` in the row accessible name. Existing dates, progress, archive/removal state, blocked restore guidance, and actions remain in their dedicated positions.
+Every Task, Project, and Category heading in Today, Upcoming, Backlog, Projects, Categories, Completed, Archive timeline and search, Bin, and the inspector places one small shared work-type icon immediately beside the title. Tasks use a neutral task-card glyph, Projects use their coloured stacked work cards, and Categories use their coloured grid; Project and Category rows do not repeat a second identity marker on the secondary line. Project secondary context shows only the Category grid and name because Task progress already occupies the right-aligned metadata position. Category headings retain Project and standalone Task counts. Every Task row uses one compact non-actionable identity pill: Category first, then an angled one-pixel boundary, then Project. The Category and Project glyphs carry their respective colours; standalone Tasks collapse the Project segment and boundary. The pill stays aligned with the Task glyph edge and sits 6px below the title line. Archive and Bin Project rows keep Project identity beside the title and collapse the secondary pill to Category only. An attached Task that diverges from its Project Category retains the decorative fork in the Category segment and exposes `Category override` in the row accessible name. Existing dates, progress, archive/removal state, blocked restore guidance, and actions remain in their dedicated positions.
 
 ## Inspector
 
 - Opens on row selection and keeps list context visible.
 - Project and Task title, date, Category, Participant associations, and Markdown changes save automatically. Text changes use a 600 ms inactivity delay; discrete changes save immediately. A persistent status beside the inspector heading reports saving, saved, or failed and exposes Retry without requiring scrolling.
 - Navigating away, closing, or starting an immediate row action flushes pending valid Project or Task changes first. Invalid or failed changes remain in the inspector and block leaving until corrected, retried, or explicitly discarded. Category editing retains explicit Save and Cancel actions.
+- Category editing includes a keyboard-operable named-colour selector and live marker-and-name preview. The colour is part of the same explicit draft and dirty-navigation decision as the Category name.
 - New Project and Task actions open a transient inspector without permanent Create or Cancel buttons. The first valid automatic save creates the item; blank or incomplete drafts can be left without adding a partial record.
 - New Task defaults reflect its launch surface and remain visible and editable: a Project supplies attachment and inherited Category; a Category supplies a standalone Category; Today supplies Today membership and Planned while allowing optional Project selection; Backlog and global creation default to standalone and require a Category.
 - Each Project includes an inline Quick add task field. Enter or Tab on a non-empty title creates an attached title-only Task and focuses a fresh field; Tab on an empty field exits normally, and Escape clears unsubmitted text. Created rows can be selected for full inspector editing.
@@ -82,10 +83,12 @@ Every Task, Project, and Category heading in Today, Upcoming, Backlog, Projects,
 
 ## Project status presentation
 
-- Not started: neutral dot.
+- Project rows omit a separate status word; their accessible name still announces the textual status.
+- Not started: neutral completed/total Task count.
 - An empty Project is Not started and shows 0 of 0 Tasks with no completion date.
-- In progress: amber dot with completed/total Task count.
-- Complete: green status and the derived final completion date.
+- In progress: amber completed/total Task count.
+- Complete: green completed/total Task count and the derived final completion date.
+- Expanded Project Task rows align the due date and exactly one current state in one fixed column: `Archived <date>` supersedes `Completed <date>`, which supersedes amber `⚠ Overdue`. Restore and Today remain in a compact adjacent action column. Project headers use the same date-then-state rhythm for completion or overdue.
 
 ## Responsive boundary
 

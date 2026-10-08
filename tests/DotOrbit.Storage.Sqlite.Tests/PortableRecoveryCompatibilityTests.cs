@@ -7,9 +7,9 @@ namespace DotOrbit.Storage.Sqlite.Tests;
 
 public sealed class PortableRecoveryCompatibilityTests
 {
-    private const string FixtureFileName = "portable-current-v12.dotorbit-recovery";
+    private const string FixtureFileName = "portable-current-v13.dotorbit-recovery";
     private const string FixturePassphrase = "dot-orbit sample only";
-    private const string FixtureSha256 = "d02eecfec5a6e756dfc2529ce9b42ec2c723847e7b8eb6442f90f63d1e581d07";
+    private const string FixtureSha256 = "6141f60c4fa5f8bd23b2336b6b217adc72e227966b8626c7e994496c2f4c1852";
 
     [Fact]
     public void CheckedInRecoveryFixtureRestoresOnEverySupportedRuntime()

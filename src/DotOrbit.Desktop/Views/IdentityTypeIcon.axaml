@@ -1,0 +1,13 @@
+<UserControl
+    x:Class="DotOrbit.Desktop.Views.IdentityTypeIcon"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Width="12"
+    Height="12"
+    Focusable="False"
+    IsHitTestVisible="False"
+    AutomationProperties.AccessibilityView="Raw">
+  <Path x:Name="Icon" Classes="identity-colour-icon"
+      HorizontalAlignment="Center" VerticalAlignment="Center"
+      Stretch="Uniform" AutomationProperties.AccessibilityView="Raw" />
+</UserControl>

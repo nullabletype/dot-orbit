@@ -112,6 +112,17 @@ test("release workflow retains the bounded upload and draft permissions", () => 
     /one-write-permission/u);
 });
 
+test("release workflow package smoke references a checked-in recovery fixture", () => {
+  const workflow = fs.readFileSync(
+    path.join(repositoryRoot, ".github/workflows/release-packages.yml"),
+    "utf8");
+  const recoveryFixture = workflow.match(
+    /DOTORBIT_PACKAGE_SMOKE_RECOVERY: \$\{\{ github\.workspace \}\}\/([^\s]+)/u);
+
+  assert.ok(recoveryFixture);
+  assert.equal(fs.existsSync(path.join(repositoryRoot, recoveryFixture[1])), true);
+});
+
 test("new releases are created as drafts with generated notes and allowlisted assets", async t => {
   const fixture = createAssetFixture(t);
   const calls = [];

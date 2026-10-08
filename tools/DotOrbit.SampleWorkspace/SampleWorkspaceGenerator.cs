@@ -145,9 +145,11 @@ internal static class SampleWorkspaceGenerator
         {
             ["work"] = work.Read().Categories.Single().Id,
         };
+        var firstCategory = work.Read().Categories.Single();
+        work.UpdateCategory(firstCategory.Id, firstCategory.Name, Categories[0].ColourKey);
         foreach (var definition in Categories.Skip(1))
         {
-            categoryIds.Add(definition.Key, work.CreateCategory(definition.Name).Id);
+            categoryIds.Add(definition.Key, work.CreateCategory(definition.Name, definition.ColourKey).Id);
         }
 
         var participantIds = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -163,7 +165,8 @@ internal static class SampleWorkspaceGenerator
                 definition.Title,
                 definition.Description,
                 categoryIds[definition.CategoryKey],
-                Offset(anchorDate, definition.TargetDateOffset));
+                Offset(anchorDate, definition.TargetDateOffset),
+                definition.ColourKey);
             projectIds.Add(definition.Key, project.Id);
         }
 
@@ -284,12 +287,12 @@ internal static class SampleWorkspaceGenerator
 
     private static readonly CategoryDefinition[] Categories =
     [
-        new("work", "Work"),
-        new("home", "Home"),
-        new("health", "Health"),
-        new("learning", "Learning & creative practice"),
-        new("errands", "Errands"),
-        new("someday", "Someday"),
+        new("work", "Work", "indigo"),
+        new("home", "Home", "teal"),
+        new("health", "Health", "lime"),
+        new("learning", "Learning & creative practice", "violet"),
+        new("errands", "Errands", "tangerine"),
+        new("someday", "Someday", "rose"),
     ];
 
     private static readonly ParticipantDefinition[] Participants =
@@ -307,22 +310,22 @@ internal static class SampleWorkspaceGenerator
     [
         new("launch", "Launch the dot-orbit sample workspace",
             "A representative release-shaped Project with due-date boundaries and both Today lanes.",
-            "work", 7),
+            "work", 7, "cyan"),
         new("garden", "Autumn garden",
             "Prepare the garden for winter while keeping errands distinct from work done at home.",
-            "home", -3),
+            "home", -3, "coral"),
         new("welsh", "Welsh foundations",
             "Build a small completed learning Project with Unicode examples such as café and Cymru.",
-            "learning", -1),
+            "learning", -1, "gold"),
         new("kitchen", "Kitchen refresh",
             "An intentionally empty Project proving that no Tasks still means Not started.",
-            "home", null),
+            "home", null, "cobalt"),
         new("health", "Health reset",
             "A partly complete Project targeted for today without becoming overdue.",
-            "health", 0),
+            "health", 0, "magenta"),
         new("accounts", "Prepare quarterly household accounts and paperwork",
             "A deliberately long title for truncation, ordering, and mixed-date checks.",
-            "work", 30),
+            "work", 30, "emerald"),
     ];
 
     private static readonly TaskDefinition[] Tasks =
@@ -407,7 +410,7 @@ internal static class SampleWorkspaceGenerator
         new(key, null, null, title, description, categoryKey, dueDateOffset, todayLane,
             completionDateOffset, participantKeys);
 
-    private sealed record CategoryDefinition(string Key, string Name);
+    private sealed record CategoryDefinition(string Key, string Name, string ColourKey);
     private sealed record ParticipantDefinition(string Key, string Label);
     private sealed record ArchivedTaskDefinition(string TaskKey, int ArchiveDateOffset);
     private sealed record ArchivedProjectDefinition(string ProjectKey, int ArchiveDateOffset);
@@ -416,7 +419,8 @@ internal static class SampleWorkspaceGenerator
         string Title,
         string Description,
         string CategoryKey,
-        int? TargetDateOffset);
+        int? TargetDateOffset,
+        string ColourKey);
     private sealed record TaskDefinition(
         string Key,
         string? ProjectKey,

@@ -281,12 +281,75 @@ public sealed class ProjectCaptureViewModelTests
         var model = new ProjectCaptureViewModel(work);
         model.SelectCategory("home");
         model.Title = "House";
+        model.SelectedCategoryColour = model.CategoryColourChoices.Single(choice => choice.Key == "teal");
 
         Assert.True(model.ShowExplicitInspectorActions);
         Assert.False(model.ShowAutosaveStatus);
+        Assert.True(model.IsDirty);
         Assert.Equal("Home", work.Read().Categories.Single(item => item.Id == "home").Name);
+        Assert.Equal("orchid", work.Read().Categories.Single(item => item.Id == "home").ColourKey);
         model.Cancel();
         Assert.Equal("Home", model.Title);
+        Assert.Equal("orchid", model.CategoryColourKey);
+        Assert.False(model.IsDirty);
+    }
+
+    [Fact]
+    public void CategoryColourUsesVisibleDefaultSavesExplicitlyAndRefreshesEveryReference()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        work.CreateTask(project.Id, "Inherited");
+        var overridden = work.CreateTask(project.Id, "Override");
+        work.UpdateTask(overridden.Id, overridden.Title, "", "home", null);
+        work.CreateStandaloneTask("Standalone", "", "home", null);
+        var model = new ProjectCaptureViewModel(work);
+
+        model.NewCategoryCommand.Execute(null);
+        Assert.Equal("indigo", model.CategoryColourKey);
+        Assert.Equal("Category name", model.CategoryPreviewName);
+        model.Title = "Errands";
+        model.SelectedCategoryColour = model.CategoryColourChoices.Single(choice => choice.Key == "tangerine");
+        Assert.Equal("Errands", model.CategoryPreviewName);
+        Assert.True(model.Save());
+        Assert.Equal("tangerine", work.Read().Categories.Single(category => category.Name == "Errands").ColourKey);
+
+        model.SelectCategory("home");
+        model.Title = "House";
+        model.SelectedCategoryColour = model.CategoryColourChoices.Single(choice => choice.Key == "ocean");
+        Assert.True(model.Save());
+
+        Assert.All(model.Backlog.Where(task => task.CategoryName == "House"), task =>
+        {
+            Assert.Equal("ocean", task.CategoryColourKey);
+            Assert.Contains("Category", task.AccessibleName, StringComparison.Ordinal);
+        });
+        Assert.Equal("ocean", model.Projects.Single(row => row.Id == project.Id).CategoryColourKey);
+        Assert.Equal("ocean", model.CategoryGroups.Single(group => group.Id == "home").ColourKey);
+    }
+
+    [Fact]
+    public void ProjectColourUsesADistinctDefaultAndPersistsExplicitEdits()
+    {
+        var work = new MemoryWorkspaceWork();
+        var model = new ProjectCaptureViewModel(work);
+
+        model.NewProjectCommand.Execute(null);
+        Assert.Equal("lime", model.ProjectColourKey);
+        Assert.Equal("Project name", model.ProjectPreviewName);
+        model.Title = "Garden";
+        model.SelectedProjectColour = model.CategoryColourChoices.Single(choice => choice.Key == "coral");
+        Assert.Equal("Garden", model.ProjectPreviewName);
+        Assert.True(model.Save());
+
+        var project = Assert.Single(work.Read().Projects);
+        Assert.Equal("coral", project.ColourKey);
+        Assert.Equal("coral", model.Projects.Single().ColourKey);
+
+        model.SelectProject(project.Id);
+        model.SelectedProjectColour = model.CategoryColourChoices.Single(choice => choice.Key == "cyan");
+        Assert.Equal("cyan", work.Read().Projects.Single().ColourKey);
+        Assert.False(model.IsDirty);
     }
 
     [Fact]
@@ -783,8 +846,8 @@ public sealed class ProjectCaptureViewModelTests
     public void TaskContextActionsDetachMatchAutomaticallyAndRequireAnExplicitMismatchChoice()
     {
         var work = new MemoryWorkspaceWork();
-        var homeProject = work.CreateProject("Home project", "", "home", null);
-        var workProject = work.CreateProject("Work project", "", "work", null);
+        var homeProject = work.CreateProject("Home project", "", "home", null, "cyan");
+        var workProject = work.CreateProject("Work project", "", "work", null, "coral");
         var task = work.CreateStandaloneTask("Move me", "", "home", null);
         var model = new ProjectCaptureViewModel(work);
 
@@ -794,6 +857,9 @@ public sealed class ProjectCaptureViewModelTests
         var attached = work.Read().Tasks.Single(item => item.Id == task.Id);
         Assert.Equal(homeProject.Id, attached.ProjectId);
         Assert.Null(attached.ExplicitCategoryId);
+        var attachedRow = model.Backlog.Single(item => item.Id == task.Id);
+        Assert.Equal("Home project", attachedRow.ProjectTitle);
+        Assert.Equal("cyan", attachedRow.ProjectColourKey);
         Assert.False(model.NeedsAttachmentChoice);
 
         model.TaskContextTarget = model.TaskContextChoices.Single(choice => choice.ProjectId is null);
@@ -801,6 +867,7 @@ public sealed class ProjectCaptureViewModelTests
         var detached = work.Read().Tasks.Single(item => item.Id == task.Id);
         Assert.Null(detached.ProjectId);
         Assert.Equal("home", detached.ExplicitCategoryId);
+        Assert.Null(model.Backlog.Single(item => item.Id == task.Id).ProjectTitle);
 
         model.TaskContextTarget = model.TaskContextChoices.Single(choice => choice.ProjectId == workProject.Id);
         model.ChangeTaskContextCommand.Execute(null);
@@ -819,6 +886,10 @@ public sealed class ProjectCaptureViewModelTests
         var preserved = work.Read().Tasks.Single(item => item.Id == task.Id);
         Assert.Equal(workProject.Id, preserved.ProjectId);
         Assert.Equal("home", preserved.ExplicitCategoryId);
+        var preservedRow = model.Backlog.Single(item => item.Id == task.Id);
+        Assert.Equal("Work project", preservedRow.ProjectTitle);
+        Assert.Equal("coral", preservedRow.ProjectColourKey);
+        Assert.True(preservedRow.HasCategoryOverride);
 
         model.TaskContextTarget = model.TaskContextChoices.Single(choice => choice.ProjectId is null);
         model.ChangeTaskContextCommand.Execute(null);
@@ -829,6 +900,10 @@ public sealed class ProjectCaptureViewModelTests
         var adopted = work.Read().Tasks.Single(item => item.Id == task.Id);
         Assert.Equal(workProject.Id, adopted.ProjectId);
         Assert.Null(adopted.ExplicitCategoryId);
+        var adoptedRow = model.Backlog.Single(item => item.Id == task.Id);
+        Assert.Equal("Work project", adoptedRow.ProjectTitle);
+        Assert.Equal("coral", adoptedRow.ProjectColourKey);
+        Assert.False(adoptedRow.HasCategoryOverride);
     }
 
     [Fact]
@@ -1781,7 +1856,7 @@ internal sealed class FixedTimeProvider(DateTimeOffset utcNow, TimeZoneInfo? loc
 
 internal sealed class MemoryWorkspaceWork : IWorkspaceWork
 {
-    private readonly List<WorkspaceCategory> _categories = [new("home", "Home", 0), new("work", "Work", 1)];
+    private readonly List<WorkspaceCategory> _categories = [new("home", "Home", 0, "orchid"), new("work", "Work", 1, "violet")];
     private readonly List<ProjectRecord> _projects = [];
     private readonly HashSet<string> _binnedProjectIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> _aggregateTaskIds = new(StringComparer.Ordinal);
@@ -1888,13 +1963,14 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
         if (_tasks.Any(task => task.Participants.Contains(id))) throw new InvalidOperationException();
         _participants.RemoveAll(item => item.Id == id);
     }
-    public WorkspaceCategory CreateCategory(string name)
+    public WorkspaceCategory CreateCategory(string name, string? colourKey = null)
     {
         Check();
         name = name.Trim();
         if (string.IsNullOrWhiteSpace(name) || _categories.Any(category => string.Equals(category.Name, name, StringComparison.OrdinalIgnoreCase)))
             throw new ArgumentException("Category name unavailable.", nameof(name));
-        var category = new WorkspaceCategory($"category-{_categories.Count}", name, _categories.Count);
+        var identity = CategoryIdentity.Create(colourKey ?? IdentityColourPalette.KeyForPosition(_categories.Count));
+        var category = new WorkspaceCategory($"category-{_categories.Count}", name, _categories.Count, identity.ColourKey);
         _categories.Add(category);
         return category;
     }
@@ -1906,6 +1982,13 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
             throw new ArgumentException("Category name unavailable.", nameof(name));
         var index = _categories.FindIndex(category => category.Id == id);
         return _categories[index] = _categories[index] with { Name = name };
+    }
+    public WorkspaceCategory UpdateCategory(string id, string name, string colourKey)
+    {
+        var identity = CategoryIdentity.Create(colourKey);
+        var renamed = RenameCategory(id, name);
+        var index = _categories.FindIndex(category => category.Id == id);
+        return _categories[index] = renamed with { ColourKey = identity.ColourKey };
     }
     public void DeleteCategory(string id, string? replacementCategoryId = null)
     {
@@ -1933,10 +2016,13 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
         RewriteCategoryPositions();
         return new(id, targetPosition + 1, _categories.Count);
     }
-    public ProjectRecord CreateProject(string title, string description, string categoryId, DateOnly? targetDate)
+    public ProjectRecord CreateProject(string title, string description, string categoryId, DateOnly? targetDate,
+        string? colourKey = null)
     {
         Check();
-        var project = new ProjectRecord($"project-{_projects.Count}", title.Trim(), description, categoryId, targetDate, _projects.Count);
+        var identity = ProjectIdentity.Create(colourKey ?? IdentityColourPalette.KeyForProjectPosition(_projects.Count));
+        var project = new ProjectRecord($"project-{_projects.Count}", title.Trim(), description, categoryId, targetDate,
+            _projects.Count, ColourKey: identity.ColourKey);
         _projects.Add(project); return project;
     }
     public TaskRecord CreateTask(string projectId, string title)
@@ -1999,11 +2085,20 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
             throw;
         }
     }
-    public ProjectRecord UpdateProject(string id, string title, string description, string categoryId, DateOnly? targetDate)
+    public ProjectRecord UpdateProject(string id, string title, string description, string categoryId, DateOnly? targetDate,
+        string? colourKey = null)
     {
         Check();
         int index = _projects.FindIndex(p => p.Id == id);
-        return _projects[index] = _projects[index] with { Title = title.Trim(), Description = description, CategoryId = categoryId, TargetDate = targetDate };
+        var identity = colourKey is null ? _projects[index].ColourKey : ProjectIdentity.Create(colourKey).ColourKey;
+        return _projects[index] = _projects[index] with
+        {
+            Title = title.Trim(),
+            Description = description,
+            CategoryId = categoryId,
+            TargetDate = targetDate,
+            ColourKey = identity,
+        };
     }
     public TaskRecord UpdateTask(string id, string title, string description, string? explicitCategoryId, DateOnly? dueDate,
         ParticipantDraftChange? participantChange = null)

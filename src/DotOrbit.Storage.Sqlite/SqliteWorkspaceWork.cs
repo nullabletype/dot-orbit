@@ -196,13 +196,44 @@ internal sealed class SqliteWorkspaceWork(
         );
         """;
 
+    internal const string CategoryIdentitySchemaThirteen = """
+        CREATE TABLE category_identities (
+            category_id TEXT NOT NULL PRIMARY KEY REFERENCES categories(id) ON DELETE CASCADE,
+            colour_key TEXT NOT NULL CHECK(colour_key IN ('orchid','violet','indigo','ocean','teal','lime','tangerine','rose'))
+        );
+        """;
+
+    internal const string CategoryIdentitySchema = """
+        CREATE TABLE category_identities (
+            category_id TEXT NOT NULL PRIMARY KEY REFERENCES categories(id) ON DELETE CASCADE,
+            colour_key TEXT NOT NULL CHECK(colour_key IN ('orchid','violet','indigo','ocean','teal','lime','tangerine','rose','cobalt','cyan','emerald','gold','amber','coral','magenta','slate'))
+        );
+        """;
+
+    internal const string ProjectIdentitySchema = """
+        CREATE TABLE project_identities (
+            project_id TEXT NOT NULL PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+            colour_key TEXT NOT NULL CHECK(colour_key IN ('orchid','violet','indigo','ocean','teal','lime','tangerine','rose','cobalt','cyan','emerald','gold','amber','coral','magenta','slate'))
+        );
+        """;
+
     internal const string SchemaEleven = ProjectSchema + TaskSchema + ParticipantSchema + TaskParticipantSchema
         + TodayTaskSchema + TaskArchiveSchema + ProjectArchiveSchema + ArchiveSearchSchema
         + TaskBinSchema + ProjectBinSchema + "PRAGMA user_version = 11;";
 
-    internal const string Schema = ProjectSchema + TaskSchema + ParticipantSchema + TaskParticipantSchema
+    internal const string SchemaTwelve = ProjectSchema + TaskSchema + ParticipantSchema + TaskParticipantSchema
         + TodayTaskSchema + TaskArchiveSchema + ProjectArchiveSchema + ArchiveSearchSchema
         + TaskBinSchema + ProjectBinSchema + ProjectBinAggregateSchema + "PRAGMA user_version = 12;";
+
+    internal const string SchemaThirteen = ProjectSchema + TaskSchema + ParticipantSchema + TaskParticipantSchema
+        + TodayTaskSchema + TaskArchiveSchema + ProjectArchiveSchema + ArchiveSearchSchema
+        + TaskBinSchema + ProjectBinSchema + ProjectBinAggregateSchema + CategoryIdentitySchemaThirteen
+        + "PRAGMA user_version = 13;";
+
+    internal const string Schema = ProjectSchema + TaskSchema + ParticipantSchema + TaskParticipantSchema
+        + TodayTaskSchema + TaskArchiveSchema + ProjectArchiveSchema + ArchiveSearchSchema
+        + TaskBinSchema + ProjectBinSchema + ProjectBinAggregateSchema + CategoryIdentitySchema
+        + ProjectIdentitySchema + "PRAGMA user_version = 14;";
 
     internal static void ValidateShape(SqliteConnection connection, SqliteTransaction? transaction, string? schema = null)
     {
@@ -221,6 +252,8 @@ internal sealed class SqliteWorkspaceWork(
             || string.Equals(schema, SchemaNine, StringComparison.Ordinal)
             || string.Equals(schema, SchemaTen, StringComparison.Ordinal)
             || string.Equals(schema, SchemaEleven, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaTwelve, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaThirteen, StringComparison.Ordinal)
             || string.Equals(schema, Schema, StringComparison.Ordinal);
         if (hasParticipants)
         {
@@ -232,6 +265,8 @@ internal sealed class SqliteWorkspaceWork(
             || string.Equals(schema, SchemaNine, StringComparison.Ordinal)
             || string.Equals(schema, SchemaTen, StringComparison.Ordinal)
             || string.Equals(schema, SchemaEleven, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaTwelve, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaThirteen, StringComparison.Ordinal)
             || string.Equals(schema, Schema, StringComparison.Ordinal);
         if (hasToday)
             ValidateTableDefinition(command, "today_tasks", definitions[4]);
@@ -239,31 +274,46 @@ internal sealed class SqliteWorkspaceWork(
             || string.Equals(schema, SchemaNine, StringComparison.Ordinal)
             || string.Equals(schema, SchemaTen, StringComparison.Ordinal)
             || string.Equals(schema, SchemaEleven, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaTwelve, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaThirteen, StringComparison.Ordinal)
             || string.Equals(schema, Schema, StringComparison.Ordinal);
         if (hasTaskArchive)
             ValidateTableDefinition(command, "task_archives", definitions[5]);
         var hasProjectArchive = string.Equals(schema, SchemaNine, StringComparison.Ordinal)
             || string.Equals(schema, SchemaTen, StringComparison.Ordinal)
             || string.Equals(schema, SchemaEleven, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaTwelve, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaThirteen, StringComparison.Ordinal)
             || string.Equals(schema, Schema, StringComparison.Ordinal);
         if (hasProjectArchive)
             ValidateTableDefinition(command, "project_archives", definitions[6]);
         if (string.Equals(schema, SchemaTen, StringComparison.Ordinal)
             || string.Equals(schema, SchemaEleven, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaTwelve, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaThirteen, StringComparison.Ordinal)
             || string.Equals(schema, Schema, StringComparison.Ordinal))
             ValidateTableDefinition(command, "archive_search", definitions[7]);
         if (string.Equals(schema, SchemaEleven, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaTwelve, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaThirteen, StringComparison.Ordinal)
             || string.Equals(schema, Schema, StringComparison.Ordinal))
         {
             ValidateTableDefinition(command, "task_bins", definitions[8]);
             ValidateTableDefinition(command, "task_bin_order_anchors", definitions[9]);
             ValidateTableDefinition(command, "project_bins", definitions[10]);
         }
-        if (string.Equals(schema, Schema, StringComparison.Ordinal))
+        if (string.Equals(schema, SchemaTwelve, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaThirteen, StringComparison.Ordinal)
+            || string.Equals(schema, Schema, StringComparison.Ordinal))
         {
             ValidateTableDefinition(command, "project_bin_tasks", definitions[11]);
             ValidateTableDefinition(command, "project_bin_order_anchors", definitions[12]);
         }
+        if (string.Equals(schema, SchemaThirteen, StringComparison.Ordinal)
+            || string.Equals(schema, Schema, StringComparison.Ordinal))
+            ValidateTableDefinition(command, "category_identities", definitions[13]);
+        if (string.Equals(schema, Schema, StringComparison.Ordinal))
+            ValidateTableDefinition(command, "project_identities", definitions[14]);
         command.Parameters.Clear();
         command.CommandText = "PRAGMA foreign_key_check;";
         using (var foreignKeys = command.ExecuteReader())
@@ -362,6 +412,8 @@ internal sealed class SqliteWorkspaceWork(
             if ((long)command.ExecuteScalar()! != 0) throw new InvalidDataException();
         }
         if (string.Equals(schema, SchemaEleven, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaTwelve, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaThirteen, StringComparison.Ordinal)
             || string.Equals(schema, Schema, StringComparison.Ordinal))
         {
             command.CommandText = "SELECT removed_instant FROM task_bins UNION ALL SELECT removed_instant FROM project_bins;";
@@ -374,6 +426,51 @@ internal sealed class SqliteWorkspaceWork(
             }
             command.CommandText = "SELECT COUNT(*) FROM today_tasks WHERE task_id IN (SELECT task_id FROM task_bins);";
             if ((long)command.ExecuteScalar()! != 0) throw new InvalidDataException();
+        }
+        if (string.Equals(schema, SchemaThirteen, StringComparison.Ordinal)
+            || string.Equals(schema, Schema, StringComparison.Ordinal))
+        {
+            command.CommandText = """
+                SELECT ci.colour_key
+                FROM categories c
+                LEFT JOIN category_identities ci ON ci.category_id = c.id
+                ORDER BY c.position, c.id;
+                """;
+            using var identities = command.ExecuteReader();
+            while (identities.Read())
+            {
+                if (identities.IsDBNull(0)) throw new InvalidDataException();
+                try
+                {
+                    _ = CategoryIdentity.Create(identities.GetString(0));
+                }
+                catch (ArgumentException exception)
+                {
+                    throw new InvalidDataException("The workspace contains invalid Category identity metadata.", exception);
+                }
+            }
+        }
+        if (string.Equals(schema, Schema, StringComparison.Ordinal))
+        {
+            command.CommandText = """
+                SELECT pi.colour_key
+                FROM projects p
+                LEFT JOIN project_identities pi ON pi.project_id = p.id
+                ORDER BY p.position, p.id;
+                """;
+            using var identities = command.ExecuteReader();
+            while (identities.Read())
+            {
+                if (identities.IsDBNull(0)) throw new InvalidDataException();
+                try
+                {
+                    _ = ProjectIdentity.Create(identities.GetString(0));
+                }
+                catch (ArgumentException exception)
+                {
+                    throw new InvalidDataException("The workspace contains invalid Project identity metadata.", exception);
+                }
+            }
         }
     }
 
@@ -510,7 +607,7 @@ internal sealed class SqliteWorkspaceWork(
         }));
     }
 
-    public WorkspaceCategory CreateCategory(string name)
+    public WorkspaceCategory CreateCategory(string name, string? colourKey = null)
     {
         name = NormalizeCategoryName(name);
         WorkspaceCategory? result = null;
@@ -519,10 +616,14 @@ internal sealed class SqliteWorkspaceWork(
             EnsureCategoryNameAvailable(connection, transaction, name);
             var position = EncryptedWorkspaceStore.ExecuteScalar<long>(connection,
                 "SELECT COALESCE(MAX(position), -1) + 1 FROM categories;", transaction);
-            result = new WorkspaceCategory(store.GetIdentifier(), name, position);
+            var identity = CategoryIdentity.Create(colourKey ?? IdentityColourPalette.KeyForPosition(position));
+            result = new WorkspaceCategory(store.GetIdentifier(), name, position, identity.ColourKey);
             Execute(connection, transaction,
                 "INSERT INTO categories (id,name,position) VALUES ($id,$name,$position);",
                 ("$id", result.Id), ("$name", result.Name), ("$position", result.Position));
+            Execute(connection, transaction,
+                "INSERT INTO category_identities (category_id,colour_key) VALUES ($id,$colour);",
+                ("$id", result.Id), ("$colour", result.ColourKey));
         }));
         return result!;
     }
@@ -537,6 +638,25 @@ internal sealed class SqliteWorkspaceWork(
             EnsureCategoryNameAvailable(connection, transaction, name, id);
             Execute(connection, transaction, "UPDATE categories SET name=$name WHERE id=$id;",
                 ("$id", id), ("$name", name));
+            result = ReadSnapshot(connection, transaction).Categories.Single(category => category.Id == id);
+        }));
+        return result!;
+    }
+
+    public WorkspaceCategory UpdateCategory(string id, string name, string colourKey)
+    {
+        name = NormalizeCategoryName(name);
+        var identity = CategoryIdentity.Create(colourKey);
+        WorkspaceCategory? result = null;
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            Require(connection, transaction, "categories", id);
+            EnsureCategoryNameAvailable(connection, transaction, name, id);
+            Execute(connection, transaction, "UPDATE categories SET name=$name WHERE id=$id;",
+                ("$id", id), ("$name", name));
+            Execute(connection, transaction,
+                "UPDATE category_identities SET colour_key=$colour WHERE category_id=$id;",
+                ("$id", id), ("$colour", identity.ColourKey));
             result = ReadSnapshot(connection, transaction).Categories.Single(category => category.Id == id);
         }));
         return result!;
@@ -638,7 +758,12 @@ internal sealed class SqliteWorkspaceWork(
         return result!;
     }
 
-    public ProjectRecord CreateProject(string title, string description, string categoryId, DateOnly? targetDate)
+    public ProjectRecord CreateProject(
+        string title,
+        string description,
+        string categoryId,
+        DateOnly? targetDate,
+        string? colourKey = null)
     {
         title = WorkTitle.Normalize(title);
         ArgumentNullException.ThrowIfNull(description);
@@ -648,11 +773,16 @@ internal sealed class SqliteWorkspaceWork(
             Require(connection, transaction, "categories", categoryId);
             var position = EncryptedWorkspaceStore.ExecuteScalar<long>(connection,
                 "SELECT COALESCE(MAX(position), -1) + 1 FROM projects;", transaction);
-            result = new ProjectRecord(store.GetIdentifier(), title, description, categoryId, targetDate, position);
+            var identity = ProjectIdentity.Create(colourKey ?? IdentityColourPalette.KeyForProjectPosition(position));
+            result = new ProjectRecord(store.GetIdentifier(), title, description, categoryId, targetDate, position,
+                ColourKey: identity.ColourKey);
             Execute(connection, transaction,
                 "INSERT INTO projects VALUES ($id, $title, $description, $category, $date, $position);",
                 ("$id", result.Id), ("$title", title), ("$description", description),
                 ("$category", categoryId), ("$date", Date(targetDate)), ("$position", position));
+            Execute(connection, transaction,
+                "INSERT INTO project_identities (project_id,colour_key) VALUES ($id,$colour);",
+                ("$id", result.Id), ("$colour", identity.ColourKey));
         }));
         return result!;
     }
@@ -736,10 +866,17 @@ internal sealed class SqliteWorkspaceWork(
         return result!;
     }
 
-    public ProjectRecord UpdateProject(string id, string title, string description, string categoryId, DateOnly? targetDate)
+    public ProjectRecord UpdateProject(
+        string id,
+        string title,
+        string description,
+        string categoryId,
+        DateOnly? targetDate,
+        string? colourKey = null)
     {
         title = WorkTitle.Normalize(title);
         ArgumentNullException.ThrowIfNull(description);
+        var identity = colourKey is null ? null : ProjectIdentity.Create(colourKey);
         ProjectRecord? result = null;
         Guard(() => transactions.Execute((connection, transaction) =>
         {
@@ -748,6 +885,10 @@ internal sealed class SqliteWorkspaceWork(
             Execute(connection, transaction,
                 "UPDATE projects SET title=$title, description=$description, category_id=$category, target_date=$date WHERE id=$id;",
                 ("$id", id), ("$title", title), ("$description", description), ("$category", categoryId), ("$date", Date(targetDate)));
+            if (identity is not null)
+                Execute(connection, transaction,
+                    "UPDATE project_identities SET colour_key=$colour WHERE project_id=$id;",
+                    ("$id", id), ("$colour", identity.ColourKey));
             result = ReadSnapshot(connection, transaction).Projects.Single(project => project.Id == id);
         }));
         return result!;
@@ -1216,6 +1357,8 @@ internal sealed class SqliteWorkspaceWork(
     {
         var hasTaskBins = SchemaObjectExists(connection, transaction, "table", "task_bins");
         var hasProjectBins = SchemaObjectExists(connection, transaction, "table", "project_bins");
+        var hasCategoryIdentities = SchemaObjectExists(connection, transaction, "table", "category_identities");
+        var hasProjectIdentities = SchemaObjectExists(connection, transaction, "table", "project_identities");
         var categories = new List<WorkspaceCategory>();
         var projects = new List<ProjectRecord>();
         var tasks = new List<TaskRecord>();
@@ -1226,18 +1369,36 @@ internal sealed class SqliteWorkspaceWork(
         var archiveByProject = new Dictionary<string, (DateTimeOffset Instant, DateOnly Date)>(StringComparer.Ordinal);
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "SELECT id,name,position FROM categories ORDER BY position,id;";
+        command.CommandText = hasCategoryIdentities
+            ? """
+                SELECT c.id,c.name,c.position,ci.colour_key
+                FROM categories c
+                JOIN category_identities ci ON ci.category_id = c.id
+                ORDER BY c.position,c.id;
+                """
+            : "SELECT id,name,position FROM categories ORDER BY position,id;";
         using (var reader = command.ExecuteReader())
-            while (reader.Read()) categories.Add(new(reader.GetString(0), reader.GetString(1), reader.GetInt64(2)));
+            while (reader.Read())
+            {
+                var position = reader.GetInt64(2);
+                categories.Add(new(
+                    reader.GetString(0),
+                    reader.GetString(1),
+                    position,
+                    hasCategoryIdentities ? reader.GetString(3) : IdentityColourPalette.KeyForPosition(position)));
+            }
         command.CommandText = "SELECT project_id,archived_instant,archive_date FROM project_archives;";
         using (var reader = command.ExecuteReader())
             while (reader.Read()) archiveByProject.Add(reader.GetString(0), (ReadInstant(reader, 1)!.Value, ReadDate(reader, 2)!.Value));
-        command.CommandText = hasProjectBins ? """
-            SELECT id,title,description,category_id,target_date,position
-            FROM projects
-            WHERE id NOT IN (SELECT project_id FROM project_bins)
-            ORDER BY position,id;
-            """ : "SELECT id,title,description,category_id,target_date,position FROM projects ORDER BY position,id;";
+        var activeProjectFilter = hasProjectBins
+            ? " WHERE p.id NOT IN (SELECT project_id FROM project_bins)"
+            : string.Empty;
+        command.CommandText = hasProjectIdentities
+            ? "SELECT p.id,p.title,p.description,p.category_id,p.target_date,p.position,pi.colour_key"
+                + " FROM projects p JOIN project_identities pi ON pi.project_id=p.id"
+                + activeProjectFilter + " ORDER BY p.position,p.id;"
+            : "SELECT p.id,p.title,p.description,p.category_id,p.target_date,p.position FROM projects p"
+                + activeProjectFilter + " ORDER BY p.position,p.id;";
         using (var reader = command.ExecuteReader())
             while (reader.Read())
             {
@@ -1245,7 +1406,8 @@ internal sealed class SqliteWorkspaceWork(
                 var hasArchive = archiveByProject.TryGetValue(projectId, out var archive);
                 projects.Add(new(projectId, reader.GetString(1), reader.GetString(2), reader.GetString(3),
                     ReadDate(reader, 4), reader.GetInt64(5),
-                    hasArchive ? archive.Instant : null, hasArchive ? archive.Date : null));
+                    hasArchive ? archive.Instant : null, hasArchive ? archive.Date : null,
+                    hasProjectIdentities ? reader.GetString(6) : IdentityColourPalette.KeyForProjectPosition(reader.GetInt64(5))));
             }
         command.CommandText = "SELECT id,label FROM participants ORDER BY label COLLATE NOCASE,id;";
         using (var reader = command.ExecuteReader())
@@ -1469,10 +1631,11 @@ internal sealed class SqliteWorkspaceWork(
         command.Transaction = transaction;
         command.CommandText = """
             SELECT p.title,p.description,p.category_id,p.target_date,p.position,
-                   pa.archived_instant,pa.archive_date,c.name,
+                   pa.archived_instant,pa.archive_date,c.name,pi.colour_key,
                    (SELECT COUNT(*) FROM tasks t WHERE t.project_id=p.id)
             FROM projects p
             JOIN categories c ON c.id=p.category_id
+            JOIN project_identities pi ON pi.project_id=p.id
             LEFT JOIN project_archives pa ON pa.project_id=p.id
             WHERE p.id=$id;
             """;
@@ -1480,8 +1643,8 @@ internal sealed class SqliteWorkspaceWork(
         using var reader = command.ExecuteReader();
         if (!reader.Read()) throw new InvalidDataException();
         var project = new ProjectRecord(id, reader.GetString(0), reader.GetString(1), reader.GetString(2),
-            ReadDate(reader, 3), reader.GetInt64(4), ReadInstant(reader, 5), ReadDate(reader, 6));
-        return new(project, removedAt, reader.GetString(7), reader.GetInt32(8));
+            ReadDate(reader, 3), reader.GetInt64(4), ReadInstant(reader, 5), ReadDate(reader, 6), reader.GetString(8));
+        return new(project, removedAt, reader.GetString(7), reader.GetInt32(9));
     }
 
     private static EmptyBinPreview ReadEmptyBinPreview(

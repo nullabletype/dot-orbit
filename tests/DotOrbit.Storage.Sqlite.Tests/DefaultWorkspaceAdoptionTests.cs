@@ -47,6 +47,29 @@ public sealed class DefaultWorkspaceAdoptionTests
     }
 
     [Fact]
+    public void ExternalOrbOpenReturnsSuccessfulInnerResultWithoutAdoptionVerification()
+    {
+        using var fixture = new AdoptionFixture();
+        var externalDirectory = Path.Combine(fixture.DirectoryPath, "sample");
+        Directory.CreateDirectory(externalDirectory);
+        var externalPath = Path.Combine(externalDirectory, "workspace.orb");
+        var inner = new SuccessfulOpenStore();
+        var store = new DefaultWorkspaceStore(
+            inner,
+            new WorkspaceFileOperations(),
+            new FixedIdentifierGenerator(),
+            fixture.DirectoryPath);
+
+        var result = store.Open(externalPath, UnlockPassphrase(ValidPassphrase));
+        using var session = result.Session;
+
+        Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
+        Assert.NotNull(session);
+        Assert.Equal(1, inner.OpenCallCount);
+        Assert.Equal(externalPath, inner.LastOpenPath);
+    }
+
+    [Fact]
     public void LegacyWorkspaceIsOnlyClassifiedBeforeUnlock()
     {
         using var fixture = new AdoptionFixture();
