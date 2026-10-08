@@ -11,9 +11,11 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 {
     private readonly IWorkspaceWork _work;
     private readonly TimeProvider _timeProvider;
+    private readonly IInspectorSaveWriter _inspectorSaveWriter;
     private readonly Dictionary<string, TaskRowViewModel> _taskRows = new(StringComparer.Ordinal);
     private WorkspaceWorkSnapshot _snapshot = new([], [], []);
     private Action? _pendingNavigation;
+    private TaskCompletionSource<bool>? _pendingDeferredActionCompletion;
     private string? _editingId;
     private bool _editingTask;
     private bool _editingCategory;
@@ -66,7 +68,18 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private string _participantFocusAutomationId = string.Empty;
     private int _participantDraftSequence;
     private long _autosaveRevision;
-    private bool _autosaveInProgress;
+    private long _inspectorGeneration;
+    private Task<bool>? _backgroundSave;
+    private Task _backgroundSaveObservation = Task.CompletedTask;
+    private Task<bool>? _activeFlush;
+    private bool _saveRequestedWhileInProgress;
+    private bool _immediateSaveRequestedWhileInProgress;
+    private long? _expiredTextSaveRevisionWhileInProgress;
+    private bool _creationNeedsReload;
+    private WorkspaceReloadData? _pendingCreationReload;
+    private long _lastSavedRevision;
+    private InspectorDraftFingerprint _persistedFingerprint =
+        new(string.Empty, string.Empty, string.Empty, null, string.Empty, string.Empty, string.Empty);
     private string _autosaveStatus = "Changes save automatically.";
     private bool _hasAutosaveError;
     private string _todayAnnouncement = string.Empty;
@@ -82,9 +95,18 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public static TimeSpan AutosaveDelay { get; } = TimeSpan.FromMilliseconds(600);
 
     public ProjectCaptureViewModel(IWorkspaceWork work, TimeProvider? timeProvider = null)
+        : this(work, timeProvider, new InlineInspectorSaveWriter(new WorkspaceInspectorSaveOperation(work)))
+    {
+    }
+
+    internal ProjectCaptureViewModel(
+        IWorkspaceWork work,
+        TimeProvider? timeProvider,
+        IInspectorSaveWriter inspectorSaveWriter)
     {
         _work = work;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _inspectorSaveWriter = inspectorSaveWriter;
         NewProjectCommand = new(() => Navigate(BeginProject));
         NewTaskCommand = new(() => Navigate(BeginStandaloneTask));
         NewTodayTaskCommand = new(() => Navigate(BeginTodayTask));
@@ -127,11 +149,13 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         EditMarkdownCommand = new(() => IsEditingMarkdown = true);
         SaveCommand = new(() => Save());
         CancelCommand = new(Cancel);
-        SaveAndLeaveCommand = new(() => { if (Save()) Leave(); });
+        SaveAndLeaveCommand = new(() => _ = SaveAndLeaveAsync());
         DiscardAndLeaveCommand = new(() => { Cancel(); Leave(); });
         StayCommand = new(() =>
         {
             _pendingNavigation = null;
+            _pendingDeferredActionCompletion?.TrySetResult(false);
+            _pendingDeferredActionCompletion = null;
             _pendingNavigationClosesInspector = true;
             Notify(nameof(NeedsDecision));
             Notify(nameof(HasBlockingDialog));
@@ -269,6 +293,9 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public bool HasBlockingDialog => NeedsDecision || NeedsCategoryReplacement || NeedsAttachmentChoice
         || NeedsArchiveConfirmation || NeedsBulkTaskArchiveConfirmation || NeedsEmptyBinConfirmation;
     public bool IsDirty => HasInspector && _original != Fingerprint();
+    private bool RequiresPersistence => HasInspector && !_editingCategory
+        && _persistedFingerprint != CurrentFingerprint();
+    private bool HasPendingPersistence => _backgroundSave is { IsCompleted: false } || RequiresPersistence;
     public bool ShowExplicitInspectorActions => HasInspector && _editingCategory;
     public bool ShowAutosaveStatus => HasInspector && !_editingCategory;
     public string AutosaveStatus
@@ -655,9 +682,21 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         Notify(nameof(IsDirty));
         if (!HasInspector || _editingCategory) return;
         _autosaveRevision++;
+        if (!immediate && _backgroundSave is { IsCompleted: false })
+        {
+            _saveRequestedWhileInProgress = false;
+            _immediateSaveRequestedWhileInProgress = false;
+            _expiredTextSaveRevisionWhileInProgress = null;
+        }
         HasAutosaveError = false;
-        AutosaveStatus = IsDirty ? (immediate ? "Saving…" : "Saving soon…") : "Saved";
-        if (immediate) RunScheduledAutosave();
+        AutosaveStatus = HasPendingPersistence
+            ? immediate || _backgroundSave is { IsCompleted: false } ? "Saving…" : "Saving soon…"
+            : "Saved";
+        if (immediate)
+        {
+            _immediateSaveRequestedWhileInProgress = _backgroundSave is { IsCompleted: false };
+            RunScheduledAutosave();
+        }
         else AutosaveRequested?.Invoke(this, new(_autosaveRevision));
     }
 
@@ -665,32 +704,84 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     {
         if (!HasInspector || _editingCategory) return true;
         if (!force && scheduledRevision is not null && scheduledRevision != _autosaveRevision) return true;
-        if (!IsDirty)
+        if (_backgroundSave is { IsCompleted: false })
+        {
+            _saveRequestedWhileInProgress = true;
+            if (!force && scheduledRevision is not null)
+                _expiredTextSaveRevisionWhileInProgress = scheduledRevision;
+            return true;
+        }
+        if (!RequiresPersistence && !(force && _creating))
         {
             AutosaveStatus = _creating ? "Start typing to create." : "Saved";
             return true;
         }
-        if (_autosaveInProgress) return false;
-        var revision = _autosaveRevision;
-        _autosaveInProgress = true;
-        AutosaveStatus = "Saving…";
-        var saved = SaveWork();
-        _autosaveInProgress = false;
-        if (saved)
+        _saveRequestedWhileInProgress = false;
+        _immediateSaveRequestedWhileInProgress = false;
+        _expiredTextSaveRevisionWhileInProgress = null;
+        var save = SaveOneRevisionAsync();
+        _backgroundSave = save;
+        if (save.IsCompleted)
         {
-            HasAutosaveError = false;
-            AutosaveStatus = "Saved";
+            _backgroundSave = null;
+            return save.GetAwaiter().GetResult();
         }
-        else
-        {
-            HasAutosaveError = true;
-            AutosaveStatus = string.IsNullOrEmpty(Message) ? "Could not save. Retry." : Message;
-        }
-        if (revision != _autosaveRevision && IsDirty) AutosaveRequested?.Invoke(this, new(_autosaveRevision));
-        return saved;
+        _backgroundSaveObservation = ObserveBackgroundSaveAsync(save);
+        return true;
     }
 
-    public bool FlushPendingAutosave() => _editingCategory || !IsDirty || RunScheduledAutosave(force: true);
+    public bool FlushPendingAutosave()
+    {
+        var flush = FlushPendingAutosaveAsync();
+        return flush.IsCompletedSuccessfully && flush.Result;
+    }
+
+    public Task<bool> FlushPendingAutosaveAsync()
+    {
+        if (_activeFlush is { IsCompleted: false } active) return active;
+        var flush = FlushPendingAutosaveCoreAsync();
+        _activeFlush = flush;
+        if (flush.IsCompleted) _activeFlush = null;
+        else _ = ClearCompletedFlushAsync(flush);
+        return flush;
+    }
+
+    private async Task ClearCompletedFlushAsync(Task<bool> flush)
+    {
+        await flush;
+        if (ReferenceEquals(_activeFlush, flush)) _activeFlush = null;
+    }
+
+    private async Task<bool> FlushPendingAutosaveCoreAsync()
+    {
+        if (_editingCategory) return !IsDirty;
+        while (HasPendingPersistence)
+        {
+            if (_backgroundSave is { } background)
+            {
+                var backgroundSaved = await background;
+                if (ReferenceEquals(_backgroundSave, background)) _backgroundSave = null;
+                if (!backgroundSaved && background.IsCompleted && HasAutosaveError
+                    && !_saveRequestedWhileInProgress) return false;
+                if (!RequiresPersistence) return true;
+            }
+
+            _saveRequestedWhileInProgress = false;
+            _immediateSaveRequestedWhileInProgress = false;
+            if (!await SaveOneRevisionAsync()) return false;
+        }
+        return true;
+    }
+
+    internal long AutosaveRevision => _autosaveRevision;
+
+    internal Task WaitForBackgroundSaveObservationAsync() => _backgroundSaveObservation;
+
+    internal async Task<bool> WaitForAutosaveRevisionAsync(long revision)
+    {
+        if (_lastSavedRevision >= revision) return true;
+        return await FlushPendingAutosaveAsync() && _lastSavedRevision >= revision;
+    }
 
     public void CommitCalendarDate(DateTime? selectedDate)
     {
@@ -709,11 +800,14 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         RunScheduledAutosave(force: true);
     }
 
-    public void Navigate(Action destination)
+    public void Navigate(Action destination) => _ = NavigateAsync(destination);
+
+    internal async Task NavigateAsync(Action destination)
     {
         ArgumentNullException.ThrowIfNull(destination);
         if (NeedsDecision) return;
-        if (IsDirty && (_editingCategory || !FlushPendingAutosave()))
+        if ((_editingCategory ? IsDirty : HasPendingPersistence)
+            && (_editingCategory || !await FlushPendingAutosaveAsync()))
         {
             _pendingNavigation = destination;
             _pendingNavigationClosesInspector = true;
@@ -831,17 +925,17 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
     public bool QuickAdd(string projectId, string title)
     {
-        if (IsDirty && _editingCategory)
-        {
-            _pendingNavigation = () => QuickAdd(projectId, title);
-            _pendingNavigationClosesInspector = false;
-            Notify(nameof(NeedsDecision));
-            Notify(nameof(HasBlockingDialog));
-            return false;
-        }
-        if (IsDirty && !_editingCategory && !FlushPendingAutosave()) return false;
-        if (string.IsNullOrWhiteSpace(title)) return false;
-        return Attempt(() => { _work.CreateTask(projectId, title); Reload(); Message = "Task created."; });
+        var submission = QuickAddAsync(projectId, title);
+        if (submission.IsCompleted) return submission.GetAwaiter().GetResult();
+        _ = submission;
+        return true;
+    }
+
+    internal Task<bool> QuickAddAsync(string projectId, string title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return Task.FromResult(false);
+        return RunAfterDraftFlushAsync(() =>
+            Attempt(() => { _work.CreateTask(projectId, title); Reload(); Message = "Task created."; }));
     }
 
     public void BeginBacklogEntrySession()
@@ -858,19 +952,31 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
     public bool SubmitBacklogQuickAdd()
     {
-        if (IsDirty && (_editingCategory || !FlushPendingAutosave())) return false;
-        if (string.IsNullOrWhiteSpace(BacklogQuickTitle)) return false;
+        var submission = SubmitBacklogQuickAddAsync();
+        if (submission.IsCompleted) return submission.GetAwaiter().GetResult();
+        _ = submission;
+        return true;
+    }
+
+    internal Task<bool> SubmitBacklogQuickAddAsync()
+    {
+        if (string.IsNullOrWhiteSpace(BacklogQuickTitle)) return Task.FromResult(false);
         if (BacklogQuickCategory?.Id is null)
         {
             Message = "Choose a category before creating a standalone Task.";
-            return false;
+            return Task.FromResult(false);
         }
 
         var title = BacklogQuickTitle;
-        if (!Attempt(() => { _work.CreateStandaloneTask(title, string.Empty, BacklogQuickCategory.Id, null); Reload(); Message = "Task created."; }))
-            return false;
-        BacklogQuickTitle = string.Empty;
-        return true;
+        var categoryId = BacklogQuickCategory.Id;
+        return RunAfterDraftFlushAsync(() =>
+        {
+            if (!Attempt(() => { _work.CreateStandaloneTask(title, string.Empty, categoryId, null); Reload(); Message = "Task created."; }))
+                return false;
+            if (string.Equals(BacklogQuickTitle, title, StringComparison.Ordinal))
+                BacklogQuickTitle = string.Empty;
+            return true;
+        });
     }
 
     internal void RequestDeleteCategory(string id)
@@ -1307,18 +1413,48 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         Notify(nameof(HasBlockingDialog));
     }
 
-    private void ResolveDraftBeforeAction(Action action)
+    private void ResolveDraftBeforeAction(Action action, bool closesInspector = false) =>
+        _ = ResolveDraftBeforeActionAsync(action, closesInspector);
+
+    private bool RunAfterDraftFlush(Func<bool> action)
+    {
+        var execution = RunAfterDraftFlushAsync(action);
+        if (execution.IsCompleted) return execution.GetAwaiter().GetResult();
+        _ = execution;
+        return true;
+    }
+
+    private async Task<bool> RunAfterDraftFlushAsync(Func<bool> action)
+    {
+        if (NeedsDecision) return false;
+        if ((_editingCategory ? IsDirty : HasPendingPersistence)
+            && (_editingCategory || !await FlushPendingAutosaveAsync()))
+        {
+            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _pendingDeferredActionCompletion = completion;
+            _pendingNavigation = () => completion.TrySetResult(action());
+            _pendingNavigationClosesInspector = false;
+            Notify(nameof(NeedsDecision));
+            Notify(nameof(HasBlockingDialog));
+            return await completion.Task;
+        }
+        return action();
+    }
+
+    private async Task ResolveDraftBeforeActionAsync(Action action, bool closesInspector)
     {
         if (NeedsDecision) return;
-        if (IsDirty && (_editingCategory || !FlushPendingAutosave()))
+        if ((_editingCategory ? IsDirty : HasPendingPersistence)
+            && (_editingCategory || !await FlushPendingAutosaveAsync()))
         {
             _pendingNavigation = action;
-            _pendingNavigationClosesInspector = false;
+            _pendingNavigationClosesInspector = closesInspector;
             Notify(nameof(NeedsDecision));
             Notify(nameof(HasBlockingDialog));
             return;
         }
 
+        if (closesInspector) CloseInspector();
         action();
     }
 
@@ -1585,6 +1721,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             ParticipantAnnouncement = string.Empty;
             RefreshParticipantChoices();
             _original = Fingerprint();
+            _persistedFingerprint = CurrentFingerprint();
             Notify(nameof(Title));
             Notify(nameof(Description));
             Notify(nameof(RenderedDescription));
@@ -1636,7 +1773,13 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
     private void ResetAutosavePresentation()
     {
+        _inspectorGeneration++;
         _autosaveRevision++;
+        _saveRequestedWhileInProgress = false;
+        _immediateSaveRequestedWhileInProgress = false;
+        _expiredTextSaveRevisionWhileInProgress = null;
+        _creationNeedsReload = false;
+        _pendingCreationReload = null;
         HasAutosaveError = false;
         AutosaveStatus = _editingCategory ? string.Empty : _creating ? "Start typing to create." : "Saved";
     }
@@ -1653,11 +1796,140 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     {
         if (!HasInspector) return true;
         if (_editingCategory) return SaveCategory();
-        return SaveWork();
+        return RunScheduledAutosave(force: true);
     }
 
-    private bool SaveWork()
+    private async Task SaveAndLeaveAsync()
     {
+        if (_editingCategory)
+        {
+            if (SaveCategory()) Leave();
+            return;
+        }
+        if (await FlushPendingAutosaveAsync()) Leave();
+    }
+
+    private async Task ObserveBackgroundSaveAsync(Task<bool> save)
+    {
+        await save;
+        if (ReferenceEquals(_backgroundSave, save)) _backgroundSave = null;
+        if (_activeFlush is { IsCompleted: false }) return;
+        if (!RequiresPersistence)
+        {
+            HasAutosaveError = false;
+            AutosaveStatus = "Saved";
+            return;
+        }
+        if (_immediateSaveRequestedWhileInProgress)
+        {
+            _immediateSaveRequestedWhileInProgress = false;
+            RunScheduledAutosave();
+        }
+        else if (_saveRequestedWhileInProgress)
+        {
+            _saveRequestedWhileInProgress = false;
+            var expiredRevision = _expiredTextSaveRevisionWhileInProgress;
+            _expiredTextSaveRevisionWhileInProgress = null;
+            if (expiredRevision == _autosaveRevision) RunScheduledAutosave();
+            else AutosaveRequested?.Invoke(this, new(_autosaveRevision));
+        }
+    }
+
+    private async Task<bool> SaveOneRevisionAsync()
+    {
+        if (!TryBuildSaveRequest(out var request))
+        {
+            HasAutosaveError = true;
+            AutosaveStatus = string.IsNullOrEmpty(Message) ? "Could not save. Retry." : Message;
+            return false;
+        }
+        AutosaveStatus = "Saving…";
+        InspectorSaveResult result;
+        try
+        {
+            result = await _inspectorSaveWriter.SubmitAsync(request);
+        }
+        catch (ObjectDisposedException)
+        {
+            return false;
+        }
+        var sameInspector = request.InspectorGeneration == _inspectorGeneration;
+        if (result.Outcome == InspectorSaveOutcome.Superseded || !sameInspector) return true;
+        if (result.Outcome != InspectorSaveOutcome.Saved)
+        {
+            if (request.Revision != _autosaveRevision) return true;
+            Message = result.Outcome == InspectorSaveOutcome.Invalid && request.Kind == InspectorSaveKind.Task
+                ? "Check the Participant labels and selections. No changes were made."
+                : "Could not save workspace changes. Your draft is retained. Try again.";
+            HasAutosaveError = true;
+            AutosaveStatus = Message;
+            return false;
+        }
+
+        if (result.Snapshot is { } committedSnapshot && request.NewParticipantLabels.Count > 0)
+            ReconcileCommittedParticipantIdentities(request, committedSnapshot);
+
+        _persistedFingerprint = CommittedFingerprint(result);
+        _lastSavedRevision = Math.Max(_lastSavedRevision, request.Revision);
+
+        if (request.IsCreating)
+        {
+            _editingId = result.Project?.Id ?? result.Task?.Id;
+            _creating = false;
+            _creationNeedsReload = request.Revision != _autosaveRevision;
+            _pendingCreationReload = _creationNeedsReload ? result.Reload : null;
+        }
+
+        if (request.Revision != _autosaveRevision && RequiresPersistence)
+        {
+            AutosaveStatus = "Saving…";
+            return true;
+        }
+
+        ApplyCurrentSaveResult(result);
+        _lastSavedRevision = Math.Max(_lastSavedRevision, _autosaveRevision);
+        HasAutosaveError = false;
+        AutosaveStatus = "Saved";
+        return true;
+    }
+
+    private static InspectorDraftFingerprint CommittedFingerprint(InspectorSaveResult result)
+    {
+        if (result.Task is not { } task || result.Request.NewParticipantLabels.Count == 0)
+            return result.Request.Fingerprint;
+        return result.Request.Fingerprint with
+        {
+            Participants = string.Join('\u001f', task.Participants.Select(id => $"id:{id}")),
+        };
+    }
+
+    private void ReconcileCommittedParticipantIdentities(
+        InspectorSaveRequest request,
+        WorkspaceWorkSnapshot committedSnapshot)
+    {
+        _snapshot = _snapshot with { ParticipantRecords = committedSnapshot.Participants };
+        foreach (var label in request.NewParticipantLabels)
+        {
+            var selected = SelectedParticipants.FirstOrDefault(item => item.Id is null
+                && string.Equals(
+                    ParticipantLabel.ComparisonKey(item.Label),
+                    ParticipantLabel.ComparisonKey(label),
+                    StringComparison.Ordinal));
+            if (selected is null) continue;
+            var participant = committedSnapshot.Participants.Single(item => string.Equals(
+                ParticipantLabel.ComparisonKey(item.Label),
+                ParticipantLabel.ComparisonKey(label),
+                StringComparison.Ordinal));
+            var index = SelectedParticipants.IndexOf(selected);
+            SelectedParticipants[index] = new(this, participant.Id, participant.Label, participant.Id);
+        }
+        SynchroniseParticipantChoices();
+        Notify(nameof(IsDirty));
+    }
+
+    private bool TryBuildSaveRequest(out InspectorSaveRequest request)
+    {
+        request = null!;
         if (string.IsNullOrWhiteSpace(Title))
         {
             _workTitleValidationMessage = "Enter a title.";
@@ -1679,79 +1951,55 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         }
         DateValidationMessage = string.Empty;
         if (Category is null || ((!_editingTask || IsStandaloneTaskDraft) && Category.Id is null)) { Message = "Choose a category."; return false; }
-        if (_editingTask) return SaveTask(date);
-        return Attempt(() =>
-        {
-            var wasCreating = _creating;
-            ProjectRecord? previous = null;
-            if (wasCreating)
-            {
-                _editingId = _work.CreateProject(Title, Description, Category.Id!, date, ProjectColourKey).Id;
-            }
-            else
-            {
-                previous = _snapshot.Projects.Single(project => project.Id == _editingId);
-                var updated = _work.UpdateProject(_editingId!, Title, Description, Category.Id!, date, ProjectColourKey);
-                ApplyCommittedProjectEdit(previous, updated);
-            }
-            _creating = false;
-            _creatingStandaloneTask = false;
-            if (wasCreating) ReloadAndKeepInspector();
-            else
-            {
-                CompleteRecordLocalSave();
-            }
-        });
-    }
-
-    private bool SaveTask(DateOnly? date)
-    {
         var participantIds = SelectedParticipants.Where(item => item.Id is not null).Select(item => item.Id!).ToArray();
         var newLabels = SelectedParticipants.Where(item => item.Id is null).Select(item => item.Label).ToArray();
-        var participantChange = new ParticipantDraftChange(participantIds, newLabels);
-        try
+        request = new(
+            _inspectorGeneration,
+            _autosaveRevision,
+            _editingTask ? InspectorSaveKind.Task : InspectorSaveKind.Project,
+            _creating,
+            _creationNeedsReload,
+            _editingId,
+            Title,
+            Description,
+            date,
+            Category.Id,
+            ProjectColourKey,
+            _editingTask ? TaskContextTarget?.ProjectId : null,
+            _creatingTodayTask ? TodayLane.Planned : null,
+            participantIds,
+            newLabels,
+            CurrentFingerprint());
+        return true;
+    }
+
+    private void ApplyCurrentSaveResult(InspectorSaveResult result)
+    {
+        if (result.Reload is { } reload)
         {
-            var wasCreating = _creating;
-            TaskRecord? previous = null;
-            if (wasCreating)
-                _editingId = _creatingTodayTask
-                    ? _work.CreateTaskDraft(TaskContextTarget?.ProjectId, Title, Description, Category?.Id, date,
-                        participantChange, TodayLane.Planned).Id
-                    : _work.CreateStandaloneTask(Title, Description, Category!.Id!, date,
-                        participantChange).Id;
-            else
-            {
-                previous = _snapshot.Tasks.Single(task => task.Id == _editingId);
-                var updated = _work.UpdateTask(_editingId!, Title, Description, Category!.Id, date,
-                    participantChange);
-                ApplyCommittedTaskEdit(previous, updated, newLabels.Length > 0);
-            }
-            _creating = false;
-            _creatingStandaloneTask = false;
-            _creatingTodayTask = false;
-            if (wasCreating) ReloadAndKeepInspector();
-            else
-            {
-                CompleteRecordLocalSave();
-            }
-            return true;
+            ReloadAndKeepInspector(reload);
         }
-        catch (ArgumentException)
+        else if (result.Project is { } project)
         {
-            Message = "Check the Participant labels and selections. No changes were made.";
-            return false;
+            var previous = _snapshot.Projects.Single(item => item.Id == project.Id);
+            ApplyCommittedProjectEdit(previous, project);
         }
-        catch (WorkspaceWorkException)
+        else if (result.Task is { } task)
         {
-            Message = "Could not save workspace changes. Your draft is retained. Try again.";
-            return false;
+            var previous = _snapshot.Tasks.Single(item => item.Id == task.Id);
+            ApplyCommittedTaskEdit(previous, task, result.Snapshot);
         }
+        _creationNeedsReload = false;
+        _pendingCreationReload = null;
+        _creatingStandaloneTask = false;
+        _creatingTodayTask = false;
+        CompleteRecordLocalSave();
     }
 
     internal void ApplyCommittedTaskEdit(TaskRecord updated)
     {
         var previous = _snapshot.Tasks.Single(task => task.Id == updated.Id);
-        ApplyCommittedTaskEdit(previous, updated, participantRecordsChanged: false);
+        ApplyCommittedTaskEdit(previous, updated, committedSnapshot: null);
     }
 
     private void ApplyCommittedProjectEdit(ProjectRecord previous, ProjectRecord updated)
@@ -1783,11 +2031,11 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         NotifyRecordLocalProjectionState();
     }
 
-    private void ApplyCommittedTaskEdit(TaskRecord previous, TaskRecord updated, bool participantRecordsChanged)
+    private void ApplyCommittedTaskEdit(TaskRecord previous, TaskRecord updated, WorkspaceWorkSnapshot? committedSnapshot)
     {
-        if (participantRecordsChanged)
+        if (committedSnapshot is not null)
         {
-            _snapshot = _work.Read();
+            _snapshot = committedSnapshot;
             updated = _snapshot.Tasks.Single(task => task.Id == updated.Id);
         }
         else
@@ -1808,7 +2056,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         }
         if (previous.DueDate != updated.DueDate) RefreshUpcomingGroups();
         if (_editingTask && string.Equals(_editingId, updated.Id, StringComparison.Ordinal))
-            SynchroniseSelectedParticipants(updated, participantRecordsChanged);
+            SynchroniseSelectedParticipants(updated, committedSnapshot is not null);
         if (updated.IsArchived && HasArchiveSearchQuery) RefreshArchiveSearch();
         NotifyRecordLocalProjectionState();
     }
@@ -1919,6 +2167,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private void CompleteRecordLocalSave()
     {
         _original = Fingerprint();
+        _persistedFingerprint = CurrentFingerprint();
         Message = string.Empty;
         Notify(nameof(IsDirty));
         NotifyInspectorPresentation();
@@ -1933,9 +2182,9 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         Notify(nameof(HasNoUpcoming));
     }
 
-    private void ReloadAndKeepInspector()
+    private void ReloadAndKeepInspector(WorkspaceReloadData reload)
     {
-        Reload();
+        Reload(reload);
         if (_editingTask && _editingId is not null)
         {
             var task = _snapshot.Tasks.Single(item => item.Id == _editingId);
@@ -1949,6 +2198,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             RefreshTaskContextChoices(task);
         }
         _original = Fingerprint();
+        _persistedFingerprint = CurrentFingerprint();
         Message = string.Empty;
         Notify(nameof(IsDirty));
         NotifyInspectorPresentation();
@@ -2000,6 +2250,12 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
     public void Cancel()
     {
+        if (_pendingCreationReload is { } creationReload)
+        {
+            Reload(creationReload);
+            _pendingCreationReload = null;
+            _creationNeedsReload = false;
+        }
         if (_creating || _editingId is null) CloseInspector();
         else if (_editingCategory) LoadCategory(_editingId);
         else if (_editingTask) LoadTask(_editingId);
@@ -2025,6 +2281,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     {
         var destination = _pendingNavigation;
         _pendingNavigation = null;
+        _pendingDeferredActionCompletion = null;
         var closesInspector = _pendingNavigationClosesInspector;
         _pendingNavigationClosesInspector = true;
         Notify(nameof(NeedsDecision));
@@ -2035,15 +2292,23 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private (string Title, string Description, string Date, string? CategoryId, string CategoryColourKey, string ProjectColourKey, string Participants) Fingerprint() =>
         (Title, Description, Date, Category?.Id, CategoryColourKey, ProjectColourKey,
             string.Join('\u001f', SelectedParticipants.Select(item => item.Id is null ? $"new:{item.Label}" : $"id:{item.Id}")));
+    private InspectorDraftFingerprint CurrentFingerprint()
+    {
+        var fingerprint = Fingerprint();
+        return new(fingerprint.Title, fingerprint.Description, fingerprint.Date, fingerprint.CategoryId,
+            fingerprint.CategoryColourKey, fingerprint.ProjectColourKey, fingerprint.Participants);
+    }
     private WorkspaceCategory CategoryById(string id) => _snapshot.Categories.Single(category => category.Id == id);
     private string CategoryName(string id) => CategoryById(id).Name;
     private string EffectiveCategoryId(TaskRecord task) => task.ExplicitCategoryId
         ?? _snapshot.Projects.Single(project => project.Id == task.ProjectId).CategoryId;
-    private void Reload()
+    private void Reload() => Reload(new(_work.Read(), _work.ReadTaskBin(), _work.ReadProjectBin()));
+
+    private void Reload(WorkspaceReloadData reload)
     {
-        _snapshot = _work.Read();
-        var taskBin = _work.ReadTaskBin();
-        var projectBin = _work.ReadProjectBin();
+        _snapshot = reload.Snapshot;
+        var taskBin = reload.TaskBin;
+        var projectBin = reload.ProjectBin;
         RefreshParticipantChoices();
         RefreshBacklogCategories();
         foreach (var removedId in _taskRows.Keys.Except(_snapshot.Tasks.Select(task => task.Id), StringComparer.Ordinal).ToArray())
@@ -2493,7 +2758,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
     private bool MoveTask(string taskId, int targetPosition)
     {
-        if (IsDirty && (_editingCategory || !FlushPendingAutosave())) return false;
+        if (HasPendingPersistence || (_editingCategory && IsDirty))
+            return RunAfterDraftFlush(() => MoveTask(taskId, targetPosition));
         var currentPosition = Backlog.IndexOf(Backlog.Single(task => task.Id == taskId));
         if (currentPosition < 0 || Backlog.Count == 0) return false;
         targetPosition = Math.Clamp(targetPosition, 0, Backlog.Count - 1);
@@ -2512,15 +2778,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     {
         var task = _snapshot.Tasks.Single(item => item.Id == taskId);
         Action action = () => ApplyTodayLane(taskId, task.TodayLane is null ? TodayLane.Planned : null);
-        if (IsDirty && (_editingCategory || !FlushPendingAutosave()))
-        {
-            _pendingNavigation = action;
-            _pendingNavigationClosesInspector = false;
-            Notify(nameof(NeedsDecision));
-            Notify(nameof(HasBlockingDialog));
-            return;
-        }
-        action();
+        ResolveDraftBeforeAction(action);
     }
 
     private void ApplyTodayLane(string taskId, TodayLane? lane)
@@ -2568,8 +2826,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         var laneRows = task.TodayLane == TodayLane.Planned ? TodayPlanned : TodayInProgress;
         if (laneRows.Count == 0) return false;
         targetPosition = Math.Clamp(targetPosition, 0, laneRows.Count - 1);
-        var moved = false;
-        Action action = () => moved = Attempt(() =>
+        return RunAfterDraftFlush(() => Attempt(() =>
         {
             var change = _work.MoveTaskInTodayLane(taskId, targetPosition);
             Reload();
@@ -2578,9 +2835,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             TodayAnnouncement = $"Moved {title} to position {change.Position} of {change.Count} in {laneName}.";
             TodayFocusAutomationId = $"today-reorder-{taskId}";
             Message = TodayAnnouncement;
-        }, "Could not reorder the Today lane.");
-        ResolveDraftBeforeAction(action);
-        return moved;
+        }, "Could not reorder the Today lane."));
     }
 
     private void ClearToday()
@@ -2619,24 +2874,9 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             || (!task.IsComplete && _upcomingActive)
             || (task.IsComplete && _completedActive)
             || (task.IsComplete && _todayActive && task.CompletionDate == Today);
-        if (IsDirty && _editingCategory)
-        {
-            _pendingNavigation = action;
-            _pendingNavigationClosesInspector = removesDraftFromCurrentView && _editingTask && _editingId == taskId;
-            Notify(nameof(NeedsDecision));
-            Notify(nameof(HasBlockingDialog));
-            return;
-        }
-        if (IsDirty && !FlushPendingAutosave())
-        {
-            _pendingNavigation = action;
-            _pendingNavigationClosesInspector = removesDraftFromCurrentView && _editingTask && _editingId == taskId;
-            Notify(nameof(NeedsDecision));
-            Notify(nameof(HasBlockingDialog));
-            return;
-        }
-        if (removesDraftFromCurrentView && _editingTask && _editingId == taskId) CloseInspector();
-        action();
+        ResolveDraftBeforeAction(
+            action,
+            removesDraftFromCurrentView && _editingTask && _editingId == taskId);
     }
 
     private void ApplyCompletion(string taskId, bool complete)
@@ -2686,7 +2926,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
     internal bool MoveProject(string projectId, int targetPosition)
     {
-        if (IsDirty && (_editingCategory || !FlushPendingAutosave())) return false;
+        if (HasPendingPersistence || (_editingCategory && IsDirty))
+            return RunAfterDraftFlush(() => MoveProject(projectId, targetPosition));
         if (Projects.Count == 0) return false;
         targetPosition = Math.Clamp(targetPosition, 0, Projects.Count - 1);
         if (!Attempt(() =>
@@ -2703,7 +2944,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
     internal bool MoveCategory(string categoryId, int targetPosition)
     {
-        if (IsDirty && (_editingCategory || !FlushPendingAutosave())) return false;
+        if (HasPendingPersistence || (_editingCategory && IsDirty))
+            return RunAfterDraftFlush(() => MoveCategory(categoryId, targetPosition));
         if (CategoryGroups.Count == 0) return false;
         targetPosition = Math.Clamp(targetPosition, 0, CategoryGroups.Count - 1);
         if (!Attempt(() =>
@@ -2720,7 +2962,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
     internal bool MoveProjectTask(string projectId, string taskId, int targetPosition)
     {
-        if (IsDirty && (_editingCategory || !FlushPendingAutosave())) return false;
+        if (HasPendingPersistence || (_editingCategory && IsDirty))
+            return RunAfterDraftFlush(() => MoveProjectTask(projectId, taskId, targetPosition));
         var count = Projects.Single(project => project.Id == projectId).Tasks.Count;
         if (count == 0) return false;
         targetPosition = Math.Clamp(targetPosition, 0, count - 1);
@@ -3638,7 +3881,25 @@ public sealed class ProjectRowViewModel : INotifyPropertyChanged
     public RelayCommand ArchiveCommand { get; }
     public RelayCommand RestoreCommand { get; }
     public ObservableCollection<TaskRowViewModel> Tasks { get; } = [];
-    public bool Submit() { if (!_owner.QuickAdd(Id, QuickTitle)) return false; QuickTitle = string.Empty; return true; }
+    public bool Submit()
+    {
+        var submittedTitle = QuickTitle;
+        var submission = _owner.QuickAddAsync(Id, submittedTitle);
+        if (submission.IsCompleted)
+        {
+            if (!submission.GetAwaiter().GetResult()) return false;
+            if (string.Equals(QuickTitle, submittedTitle, StringComparison.Ordinal)) QuickTitle = string.Empty;
+            return true;
+        }
+        _ = CompleteSubmissionAsync(submission, submittedTitle);
+        return true;
+    }
+
+    private async Task CompleteSubmissionAsync(Task<bool> submission, string submittedTitle)
+    {
+        if (await submission && string.Equals(QuickTitle, submittedTitle, StringComparison.Ordinal))
+            QuickTitle = string.Empty;
+    }
     public void Refresh(ProjectRecord project, ProjectWorkSummary summary, WorkspaceCategory category, IEnumerable<TaskRowViewModel> tasks)
     {
         Title = project.Title;

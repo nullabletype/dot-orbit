@@ -75,6 +75,60 @@ public sealed class PerformanceReviewRunnerTests
     }
 
     [Fact]
+    public void TitleSaveAllocationGateUsesWholeStableBoundary()
+    {
+        var action = PerformanceOperationResult.Create(
+            "task-title-save-action",
+            [1, 1, 1],
+            [1_000, 1_000, 1_000],
+            50);
+        var withinBudget = PerformanceOperationResult.Create(
+            "task-title-save-stable",
+            [25, 30, 35],
+            [3_000_000, 3_500_000, 3_900_000],
+            100);
+        var writerAllocationExceeded = PerformanceOperationResult.Create(
+            "task-title-save-stable",
+            [25, 30, 35],
+            [4_100_000, 4_500_000, 5_000_000],
+            100);
+
+        Assert.True(PerformanceReviewRunner.TitleSaveStableConstraintsPassed(withinBudget, 100));
+        Assert.False(PerformanceReviewRunner.TitleSaveStableConstraintsPassed(writerAllocationExceeded, 100));
+        Assert.False(PerformanceReviewRunner.ReviewConstraintsPassed([action, writerAllocationExceeded], 100));
+    }
+
+    [Theory]
+    [InlineData(200, true)]
+    [InlineData(201, false)]
+    public void TitleSaveStableMaximumUsesTwiceTheBudgetAsAnInclusiveBoundary(
+        double maximumMilliseconds,
+        bool expected)
+    {
+        var stable = PerformanceOperationResult.Create(
+            "task-title-save-stable",
+            [25, 30, maximumMilliseconds],
+            [1_000, 1_000, 1_000],
+            100);
+
+        Assert.Equal(expected, PerformanceReviewRunner.TitleSaveStableConstraintsPassed(stable, 100));
+    }
+
+    [Theory]
+    [InlineData(3_999_999, true)]
+    [InlineData(4_000_000, false)]
+    public void TitleSaveStableAllocationBudgetIsStrict(long allocatedBytes, bool expected)
+    {
+        var stable = PerformanceOperationResult.Create(
+            "task-title-save-stable",
+            [25, 30, 35],
+            [allocatedBytes, allocatedBytes, allocatedBytes],
+            100);
+
+        Assert.Equal(expected, PerformanceReviewRunner.TitleSaveStableConstraintsPassed(stable, 100));
+    }
+
+    [Fact]
     public void WorkspaceUsesARepeatableSyntheticShapeAndDeletesItsFiles()
     {
         string directory;

@@ -21,7 +21,9 @@ public sealed partial class MainWindow : Window
     private enum DragScope { None, TodayPlanned, TodayInProgress, Backlog, Projects, ProjectTasks, Categories }
 
     private IWorkspaceSession? _session;
+    private IInspectorSaveWriter? _inspectorSaveWriter;
     private bool _closingApproved;
+    private bool _closeCompletionStarted;
     private DragScope _dragScope;
     private string? _draggedId;
     private string? _draggedProjectId;
@@ -38,6 +40,7 @@ public sealed partial class MainWindow : Window
     private readonly Action _workspaceUnavailable;
     private readonly IApplicationThemeService _applicationThemeService;
     private readonly TimeProvider _timeProvider;
+    private readonly Func<IWorkspaceWork, IInspectorSaveWriter> _inspectorSaveWriterFactory;
     private long _transientMessageRevision;
 
     internal static TimeSpan TransientMessageDuration { get; } = TimeSpan.FromSeconds(5);
@@ -64,7 +67,8 @@ public sealed partial class MainWindow : Window
         Action? workspaceUnavailable = null,
         ITransientMessageScheduler? transientMessageScheduler = null,
         IApplicationThemeService? applicationThemeService = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        Func<IWorkspaceWork, IInspectorSaveWriter>? inspectorSaveWriterFactory = null)
     {
         _session = session;
         _markdownClipboard = markdownClipboard;
@@ -75,6 +79,8 @@ public sealed partial class MainWindow : Window
             ?? (Application.Current as App)?.ThemeService
             ?? new TransientApplicationThemeService(application: Application.Current);
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _inspectorSaveWriterFactory = inspectorSaveWriterFactory
+            ?? (work => new SerializedInspectorSaveWriter(work));
         AvaloniaXamlLoader.Load(this);
         DataContextChanged += OnDataContextChanged;
         AddHandler(PointerPressedEvent, OnWorkPointerPressed, RoutingStrategies.Bubble, handledEventsToo: true);
@@ -191,8 +197,15 @@ public sealed partial class MainWindow : Window
         Close();
     }
 
-    private void ReplaceSession(IWorkspaceSession session)
+    private void ReplaceSession(IWorkspaceSession session) => _ = ReplaceSessionAsync(session);
+
+    internal async Task ReplaceSessionAsync(IWorkspaceSession session)
     {
+        if (_inspectorSaveWriter is not null)
+        {
+            await _inspectorSaveWriter.DisposeAsync();
+            _inspectorSaveWriter = null;
+        }
         _session?.Dispose();
         _session = session;
         SetSessionContext();
@@ -200,10 +213,12 @@ public sealed partial class MainWindow : Window
 
     private void SetSessionContext()
     {
+        _inspectorSaveWriter = _session is null ? null : _inspectorSaveWriterFactory(_session.Work);
         DataContext = new ShellViewModel(
             _session?.Work,
             _timeProvider,
-            applicationThemeService: _applicationThemeService);
+            applicationThemeService: _applicationThemeService,
+            inspectorSaveWriter: _inspectorSaveWriter);
     }
 
     private void OnDataContextChanged(object? sender, EventArgs e)
@@ -404,11 +419,29 @@ public sealed partial class MainWindow : Window
         else action();
     }
 
-    private void OnClosing(object? sender, WindowClosingEventArgs e)
+    private async void OnClosing(object? sender, WindowClosingEventArgs e)
     {
-        if (_closingApproved || DataContext is not ShellViewModel { Work.IsDirty: true }) return;
+        if (_closingApproved) return;
         e.Cancel = true;
-        Navigate(() => { _closingApproved = true; Close(); });
+        if (DataContext is ShellViewModel { Work: { } work })
+        {
+            await work.NavigateAsync(() => _ = CompleteCloseAsync());
+            return;
+        }
+        await CompleteCloseAsync();
+    }
+
+    private async Task CompleteCloseAsync()
+    {
+        if (_closeCompletionStarted) return;
+        _closeCompletionStarted = true;
+        if (_inspectorSaveWriter is not null)
+        {
+            await _inspectorSaveWriter.DisposeAsync();
+            _inspectorSaveWriter = null;
+        }
+        _closingApproved = true;
+        Close();
     }
 
     private void OnFocusInspector(object? sender, RoutedEventArgs e) => Dispatcher.UIThread.Post(() =>
@@ -728,6 +761,11 @@ public sealed partial class MainWindow : Window
         {
             _subscribedWork.PropertyChanged -= OnWorkChanged;
             _subscribedWork.AutosaveRequested -= OnAutosaveRequested;
+        }
+        if (_inspectorSaveWriter is not null)
+        {
+            _inspectorSaveWriter.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            _inspectorSaveWriter = null;
         }
         _session?.Dispose();
         _session = null;

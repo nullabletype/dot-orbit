@@ -108,6 +108,10 @@ The full rebuild creates new grouping and wrapper objects, replaces collections 
 
 Warm Task selection and view switching stayed below 32 ms p95 at 1,000 Tasks. The observed regression is therefore tied to mutation plus refresh, not navigation state changes alone. Non-virtualised `ItemsControl` surfaces remain a scaling concern for startup and large visible lists, but they were not the main repeated write stall in this investigation.
 
+## Asynchronous-writer measurement contract
+
+Issue #88 separates Task-title save measurement into two intentionally different boundaries. The `task-title-save-action` sample ends after the immutable revision has been admitted to the single-writer path, so it measures synchronous UI-thread work and has a 50 ms p95 budget; its allocation value remains current-thread allocation for that bounded UI action. The corresponding `task-title-save-stable` sample awaits that exact revision's committed result before awaiting Avalonia application idle; it therefore cannot report a false green while encrypted persistence is still running. Stable allocation uses process-wide total allocated bytes across that whole boundary so writer-thread allocations are included, and the 4 MB median gate is applied to this value. Stable latency retains its 100 ms p95 and 200 ms maximum constraints. The cold observation uses the same boundaries but remains non-gating.
+
 ## Responsiveness targets
 
 Microsoft classifies a button's first response as a fast interaction with 100 ms ideal and 200 ms maximum, and recommends Release measurements on representative hardware. Apple likewise treats more than 100 ms of synchronous main-thread work for a discrete interaction as a noticeable hang. These platform targets support the following dot-orbit acceptance thresholds:

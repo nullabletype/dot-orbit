@@ -8,6 +8,423 @@ namespace DotOrbit.Desktop.Tests;
 public sealed class ProjectCaptureViewModelTests
 {
     [Fact]
+    public async Task RevertingToTheBaselineWhileAWriteIsHeldPersistsTheCorrectiveRevisionBeforeNavigation()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("A", "", "home", null);
+        var writer = new ControlledInspectorSaveWriter(work);
+        var model = new ProjectCaptureViewModel(work, null, writer);
+        model.SelectProject(project.Id);
+        model.Title = "B";
+        Assert.True(model.RunScheduledAutosave());
+        await writer.WaitForSubmissionCountAsync(1);
+
+        model.Title = "A";
+        var navigated = false;
+        var navigation = model.NavigateAsync(() => navigated = true);
+        Assert.False(navigation.IsCompleted);
+        writer.CompleteNext();
+        await writer.WaitForSubmissionCountAsync(2);
+        Assert.Equal("A", writer.Submissions[1].Title);
+        Assert.False(navigated);
+
+        writer.CompleteNext();
+        await navigation;
+        Assert.True(navigated);
+        Assert.Equal("A", work.Read().Projects.Single().Title);
+    }
+
+    [Fact]
+    public async Task WaitForAutosaveRevisionDoesNotCompleteUntilThatHeldRevisionCommits()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Original", "", "home", null);
+        var writer = new ControlledInspectorSaveWriter(work);
+        var model = new ProjectCaptureViewModel(work, null, writer);
+        model.SelectProject(project.Id);
+        model.Title = "Held";
+        var revision = model.AutosaveRevision;
+        Assert.True(model.RunScheduledAutosave());
+        await writer.WaitForSubmissionCountAsync(1);
+
+        var wait = model.WaitForAutosaveRevisionAsync(revision);
+        Assert.False(wait.IsCompleted);
+        writer.CompleteNext();
+
+        Assert.True(await wait);
+        Assert.Equal("Held", work.Read().Projects.Single().Title);
+    }
+
+    [Fact]
+    public async Task ProjectQuickAddClearsOnlyAfterFlushAndCreateSucceedAndStayRetainsFailure()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Project", "", "home", null);
+        var writer = new ControlledInspectorSaveWriter(work);
+        var model = new ProjectCaptureViewModel(work, null, writer);
+        var row = model.Projects.Single();
+        model.SelectProject(project.Id);
+        model.Title = "Updated";
+        Assert.True(model.RunScheduledAutosave());
+        await writer.WaitForSubmissionCountAsync(1);
+        row.QuickTitle = "Created after flush";
+        var created = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        model.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(ProjectCaptureViewModel.Message)
+                && model.Message == "Task created.") created.TrySetResult();
+        };
+
+        Assert.True(row.Submit());
+        Assert.Equal("Created after flush", row.QuickTitle);
+        Assert.Empty(work.Read().Tasks);
+        row.QuickTitle = "Next draft";
+        writer.CompleteNext();
+        await created.Task;
+        Assert.Equal("Created after flush", Assert.Single(work.Read().Tasks).Title);
+        Assert.Equal("Next draft", row.QuickTitle);
+
+        model.Title = "Failed flush";
+        Assert.True(model.RunScheduledAutosave());
+        await writer.WaitForSubmissionCountAsync(2);
+        row.QuickTitle = "Retained";
+        var decision = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        model.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(ProjectCaptureViewModel.NeedsDecision) && model.NeedsDecision)
+                decision.TrySetResult();
+        };
+        Assert.True(row.Submit());
+        writer.FailNext();
+        await decision.Task;
+        Assert.Equal("Retained", row.QuickTitle);
+
+        model.StayCommand.Execute(null);
+        Assert.Equal("Retained", row.QuickTitle);
+        Assert.Single(work.Read().Tasks);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ProjectQuickAddClearsAfterFailedFlushIsResolvedAndCreationSucceeds(bool retrySave)
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Project", "", "home", null);
+        var writer = new ControlledInspectorSaveWriter(work);
+        var model = new ProjectCaptureViewModel(work, null, writer);
+        var row = model.Projects.Single();
+        model.SelectProject(project.Id);
+        model.Title = "Changed";
+        Assert.True(model.RunScheduledAutosave());
+        await writer.WaitForSubmissionCountAsync(1);
+        row.QuickTitle = "Created after decision";
+        var cleared = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        row.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(ProjectRowViewModel.QuickTitle)
+                && string.IsNullOrEmpty(row.QuickTitle)) cleared.TrySetResult();
+        };
+        var decision = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        model.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(ProjectCaptureViewModel.NeedsDecision) && model.NeedsDecision)
+                decision.TrySetResult();
+        };
+
+        Assert.True(row.Submit());
+        writer.FailNext();
+        await decision.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        if (retrySave)
+        {
+            model.SaveAndLeaveCommand.Execute(null);
+            await writer.WaitForSubmissionCountAsync(2);
+            writer.CompleteNext();
+        }
+        else
+        {
+            model.DiscardAndLeaveCommand.Execute(null);
+        }
+
+        await cleared.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Equal("Created after decision", Assert.Single(work.Read().Tasks).Title);
+        Assert.Empty(row.QuickTitle);
+        Assert.Equal(retrySave ? "Changed" : "Project", model.Title);
+        Assert.False(model.IsDirty);
+    }
+
+    [Fact]
+    public async Task BacklogQuickAddPreservesNewerTypingWhileSubmittedTitleAwaitsFlush()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Project", "", "home", null);
+        var writer = new ControlledInspectorSaveWriter(work);
+        var model = new ProjectCaptureViewModel(work, null, writer);
+        model.SelectProject(project.Id);
+        model.Title = "Updated";
+        Assert.True(model.RunScheduledAutosave());
+        await writer.WaitForSubmissionCountAsync(1);
+        model.BacklogQuickCategory = model.BacklogCategories.Single(category => category.Id == "home");
+        model.BacklogQuickTitle = "First";
+
+        var submission = model.SubmitBacklogQuickAddAsync();
+        Assert.False(submission.IsCompleted);
+        model.BacklogQuickTitle = "Second";
+        writer.CompleteNext();
+
+        Assert.True(await submission);
+        Assert.Equal("First", Assert.Single(work.Read().Tasks).Title);
+        Assert.Equal("Second", model.BacklogQuickTitle);
+    }
+
+    [Fact]
+    public async Task ExpiredTextCoalescingTimerSubmitsLatestRevisionImmediatelyAfterHeldWrite()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Original", "", "home", null);
+        var writer = new ControlledInspectorSaveWriter(work);
+        var model = new ProjectCaptureViewModel(work, null, writer);
+        model.SelectProject(project.Id);
+        model.Title = "First";
+        Assert.True(model.RunScheduledAutosave());
+        await writer.WaitForSubmissionCountAsync(1);
+        model.Title = "Latest";
+        var latestRevision = model.AutosaveRevision;
+
+        Assert.True(model.RunScheduledAutosave(latestRevision));
+        writer.CompleteNext();
+
+        await writer.WaitForSubmissionCountAsync(2);
+        Assert.Equal(latestRevision, writer.Submissions[1].Revision);
+        Assert.Equal("Latest", writer.Submissions[1].Title);
+        writer.CompleteNext();
+        Assert.True(await model.WaitForAutosaveRevisionAsync(latestRevision));
+    }
+
+    [Fact]
+    public async Task EditAfterExpiredTimerReceivesItsOwnFullCoalescingInterval()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Original", "", "home", null);
+        var writer = new ControlledInspectorSaveWriter(work);
+        var model = new ProjectCaptureViewModel(work, null, writer);
+        model.SelectProject(project.Id);
+        model.Title = "First";
+        Assert.True(model.RunScheduledAutosave());
+        await writer.WaitForSubmissionCountAsync(1);
+        model.Title = "Expired timer revision";
+        Assert.True(model.RunScheduledAutosave(model.AutosaveRevision));
+        model.Title = "Latest needs its own timer";
+        var latestRevision = model.AutosaveRevision;
+        var firstSaveObserved = model.WaitForBackgroundSaveObservationAsync();
+
+        writer.CompleteNext();
+        await firstSaveObserved;
+
+        Assert.Single(writer.Submissions);
+        Assert.True(model.RunScheduledAutosave(latestRevision));
+        await writer.WaitForSubmissionCountAsync(2);
+        Assert.Equal("Latest needs its own timer", writer.Submissions[1].Title);
+        writer.CompleteNext();
+        Assert.True(await model.WaitForAutosaveRevisionAsync(latestRevision));
+    }
+
+
+    [Fact]
+    public async Task LatestRevisionAloneUpdatesProjectionAndSavedStatusAfterControlledCompletions()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Original", "", "home", null);
+        var writer = new ControlledInspectorSaveWriter(work);
+        var model = new ProjectCaptureViewModel(work, null, writer);
+        model.SelectProject(project.Id);
+
+        model.Title = "First";
+        Assert.True(model.RunScheduledAutosave());
+        await writer.WaitForSubmissionCountAsync(1);
+        model.Title = "Latest";
+        var flush = model.FlushPendingAutosaveAsync();
+
+        writer.CompleteNext();
+        await writer.WaitForSubmissionCountAsync(2);
+        Assert.Equal("Original", model.Projects.Single().Title);
+        Assert.Equal("Saving…", model.AutosaveStatus);
+        Assert.False(model.HasAutosaveError);
+
+        writer.CompleteNext();
+        Assert.True(await flush);
+        Assert.Equal("Latest", model.Projects.Single().Title);
+        Assert.Equal("Saved", model.AutosaveStatus);
+        Assert.False(model.IsDirty);
+    }
+
+    [Fact]
+    public async Task StaleFailureIsIgnoredAndRetryTargetsOnlyTheLatestRevision()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Original", "", "home", null);
+        var writer = new ControlledInspectorSaveWriter(work);
+        var model = new ProjectCaptureViewModel(work, null, writer);
+        model.SelectProject(project.Id);
+
+        model.Title = "First";
+        Assert.True(model.RunScheduledAutosave());
+        await writer.WaitForSubmissionCountAsync(1);
+        model.Title = "Latest";
+        var flush = model.FlushPendingAutosaveAsync();
+        writer.FailNext();
+
+        await writer.WaitForSubmissionCountAsync(2);
+        Assert.False(model.HasAutosaveError);
+        writer.FailNext();
+        Assert.False(await flush);
+        Assert.True(model.HasAutosaveError);
+
+        model.RetryAutosaveCommand.Execute(null);
+        await writer.WaitForSubmissionCountAsync(3);
+        Assert.Equal("Latest", writer.Submissions[2].Title);
+        writer.CompleteNext();
+        Assert.True(await model.FlushPendingAutosaveAsync());
+        Assert.Equal("Latest", work.Read().Projects.Single().Title);
+        Assert.False(model.HasAutosaveError);
+    }
+
+    [Fact]
+    public async Task EditingWhileCreationIsInFlightCreatesOnceThenUpdatesTheCreatedIdentity()
+    {
+        var work = new MemoryWorkspaceWork();
+        var writer = new ControlledInspectorSaveWriter(work);
+        var model = new ProjectCaptureViewModel(work, null, writer);
+        model.NewProjectCommand.Execute(null);
+        model.Title = "First";
+
+        Assert.True(model.RunScheduledAutosave());
+        await writer.WaitForSubmissionCountAsync(1);
+        model.Title = "Latest";
+        var flush = model.FlushPendingAutosaveAsync();
+        writer.CompleteNext();
+
+        await writer.WaitForSubmissionCountAsync(2);
+        Assert.True(writer.Submissions[0].IsCreating);
+        Assert.False(writer.Submissions[1].IsCreating);
+        Assert.NotNull(writer.Submissions[1].Id);
+        writer.CompleteNext();
+
+        Assert.True(await flush);
+        var saved = Assert.Single(work.Read().Projects);
+        Assert.Equal("Latest", saved.Title);
+        Assert.Equal(saved.Id, writer.Submissions[1].Id);
+    }
+
+    [Fact]
+    public async Task DiscardAfterSupersedingCreationUpdateFailsUsesCommittedCreationSnapshot()
+    {
+        var work = new MemoryWorkspaceWork();
+        var writer = new ControlledInspectorSaveWriter(work);
+        var model = new ProjectCaptureViewModel(work, null, writer);
+        model.NewProjectCommand.Execute(null);
+        model.Title = "Committed";
+        Assert.True(model.RunScheduledAutosave());
+        await writer.WaitForSubmissionCountAsync(1);
+        model.Title = "Failed update";
+        var flush = model.FlushPendingAutosaveAsync();
+        writer.CompleteNext();
+        await writer.WaitForSubmissionCountAsync(2);
+        writer.FailNext();
+        Assert.False(await flush);
+
+        model.Cancel();
+
+        Assert.Equal("Committed", model.Title);
+        Assert.Equal("Committed", Assert.Single(model.Projects).Title);
+        Assert.False(model.IsDirty);
+    }
+
+    [Fact]
+    public async Task NavigationWaitsForTheLatestRevisionBeforeLeaving()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Original", "", "home", null);
+        var writer = new ControlledInspectorSaveWriter(work);
+        var model = new ProjectCaptureViewModel(work, null, writer);
+        model.SelectProject(project.Id);
+        model.Title = "First";
+        Assert.True(model.RunScheduledAutosave());
+        await writer.WaitForSubmissionCountAsync(1);
+        model.Title = "Latest";
+        var left = false;
+
+        var navigation = model.NavigateAsync(() => left = true);
+        writer.CompleteNext();
+        await writer.WaitForSubmissionCountAsync(2);
+        Assert.False(left);
+
+        writer.CompleteNext();
+        await navigation;
+        Assert.True(left);
+        Assert.False(model.HasInspector);
+        Assert.Equal("Latest", work.Read().Projects.Single().Title);
+    }
+
+    [Fact]
+    public async Task ImmediateRowActionWaitsForTheLatestRevision()
+    {
+        var work = new MemoryWorkspaceWork();
+        var edited = work.CreateStandaloneTask("Edited", "", "home", null);
+        var changed = work.CreateStandaloneTask("Changed", "", "home", null);
+        var writer = new ControlledInspectorSaveWriter(work);
+        var model = new ProjectCaptureViewModel(work, null, writer);
+        model.SelectTask(edited.Id);
+        model.Title = "First";
+        Assert.True(model.RunScheduledAutosave());
+        await writer.WaitForSubmissionCountAsync(1);
+        model.Title = "Latest";
+        var actionCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        model.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(ProjectCaptureViewModel.TodayAnnouncement)
+                && !string.IsNullOrEmpty(model.TodayAnnouncement)) actionCompleted.TrySetResult();
+        };
+
+        model.ToggleToday(changed.Id);
+        writer.CompleteNext();
+        await writer.WaitForSubmissionCountAsync(2);
+        Assert.Null(work.Read().Tasks.Single(task => task.Id == changed.Id).TodayLane);
+
+        writer.CompleteNext();
+        await actionCompleted.Task;
+        Assert.Equal(TodayLane.Planned, work.Read().Tasks.Single(task => task.Id == changed.Id).TodayLane);
+        Assert.Equal("Latest", work.Read().Tasks.Single(task => task.Id == edited.Id).Title);
+    }
+
+    [Fact]
+    public async Task SupersedingEditReusesParticipantCreatedByInFlightRevision()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Original", "", "home", null);
+        var writer = new ControlledInspectorSaveWriter(work);
+        var model = new ProjectCaptureViewModel(work, null, writer);
+        model.SelectTask(task.Id);
+        model.ParticipantToAdd = ParticipantChoice.New;
+        model.NewParticipantLabel = "AB";
+        model.AddNewParticipantCommand.Execute(null);
+        await writer.WaitForSubmissionCountAsync(1);
+        model.Title = "Latest";
+        var flush = model.FlushPendingAutosaveAsync();
+
+        writer.CompleteNext();
+        await writer.WaitForSubmissionCountAsync(2);
+        var participant = Assert.Single(work.Read().Participants);
+        Assert.Empty(writer.Submissions[1].NewParticipantLabels);
+        Assert.Equal([participant.Id], writer.Submissions[1].ParticipantIds);
+        writer.CompleteNext();
+
+        Assert.True(await flush);
+        Assert.Single(work.Read().Participants);
+        Assert.Equal("Latest", work.Read().Tasks.Single().Title);
+    }
+
+    [Fact]
     public void MoveToBinFlushesPendingTaskEditsClosesInspectorAndExcludesEveryProjection()
     {
         var work = new MemoryWorkspaceWork();
@@ -794,7 +1211,9 @@ public sealed class ProjectCaptureViewModelTests
         model.Date = "2026-02-30";
         Assert.False(model.RunScheduledAutosave());
         Assert.True(model.HasDateValidationError);
+        Assert.True(model.HasAutosaveError);
         Assert.Equal("Enter a valid date as YYYY-MM-DD, or leave it empty.", model.DateValidationMessage);
+        Assert.Equal(model.DateValidationMessage, model.AutosaveStatus);
         Assert.Equal("New garden", Assert.Single(work.Read().Projects).Title);
         model.Date = "2026-10-12";
         Assert.False(model.HasDateValidationError);
@@ -2109,6 +2528,77 @@ internal sealed class FixedTimeProvider(DateTimeOffset utcNow, TimeZoneInfo? loc
         _utcNow = value;
         if (zone is not null) _localTimeZone = zone;
     }
+}
+
+internal sealed class ControlledInspectorSaveWriter(IWorkspaceWork work) : IInspectorSaveWriter
+{
+    private readonly object _gate = new();
+    private readonly Queue<(InspectorSaveRequest Request, TaskCompletionSource<InspectorSaveResult> Completion)> _pending = [];
+    private readonly WorkspaceInspectorSaveOperation _operation = new(work);
+    private TaskCompletionSource _submissionChanged = NewSignal();
+
+    public List<InspectorSaveRequest> Submissions { get; } = [];
+
+    public Task<InspectorSaveResult> SubmitAsync(InspectorSaveRequest request)
+    {
+        lock (_gate)
+        {
+            var completion = new TaskCompletionSource<InspectorSaveResult>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            Submissions.Add(request);
+            _pending.Enqueue((request, completion));
+            _submissionChanged.TrySetResult();
+            _submissionChanged = NewSignal();
+            return completion.Task;
+        }
+    }
+
+    public async Task WaitForSubmissionCountAsync(int count)
+    {
+        while (true)
+        {
+            Task wait;
+            lock (_gate)
+            {
+                if (Submissions.Count >= count) return;
+                wait = _submissionChanged.Task;
+            }
+            await wait.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    public void CompleteNext()
+    {
+        var pending = Next();
+        pending.Completion.SetResult(_operation.Execute(pending.Request));
+    }
+
+    public void FailNext()
+    {
+        var pending = Next();
+        pending.Completion.SetResult(InspectorSaveResult.Failed(pending.Request));
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        lock (_gate)
+        {
+            while (_pending.Count > 0)
+            {
+                var pending = _pending.Dequeue();
+                pending.Completion.TrySetResult(InspectorSaveResult.Superseded(pending.Request));
+            }
+        }
+        return ValueTask.CompletedTask;
+    }
+
+    private (InspectorSaveRequest Request, TaskCompletionSource<InspectorSaveResult> Completion) Next()
+    {
+        lock (_gate) return _pending.Dequeue();
+    }
+
+    private static TaskCompletionSource NewSignal() =>
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
 }
 
 internal sealed class MemoryWorkspaceWork : IWorkspaceWork
