@@ -4,7 +4,7 @@ Status: issue #86 investigation, measured 2026-10-08.
 
 ## Scope and reported symptom
 
-In a follow-up to issue #86, the user reported a 0.5–1.0 second delay on Windows after every write or content-change operation. The affected app version, Windows version, hardware and workspace size are not available, so that exact environment has not yet been reproduced. This review uses synthetic, non-sensitive workspaces to establish a repeatable local baseline and isolate the write path without changing domain behaviour, encryption, data integrity or accessibility.
+In a follow-up to issue #86, the user reported a 0.5–1.0 second delay on Windows after every write or content-change operation. The affected app version, Windows version, hardware and workspace size are not available, so that exact environment cannot be reconstructed. A hosted Windows 2025 run with synthetic data reproduced the same class and magnitude of repeated write stall. This review establishes a repeatable baseline and isolates the write path without changing domain behaviour, encryption, data integrity or accessibility.
 
 This is a measurement report, not an optimisation. Follow-up changes must retain the automatic-save, revision ordering, navigation flush, failure, retry and discard requirements in `EDIT-001` through `EDIT-003`.
 
@@ -29,6 +29,7 @@ The harness creates a temporary encrypted SQLite3MC workspace through the produc
 
 - Product baseline: `a120fadeae0b63048a9d370b4ac8298875789d2d` (`origin/main` at the start of the investigation).
 - Exact measurement commits: `4e477bb01ef39df6969715fa7dcf7438fcae1e11` for the 20-interaction scaling runs and `bcd503ecaeb61186134f34aead93476230948fbe` for the 100-interaction stress run (same product behaviour; the latter makes the cold observation non-gating).
+- Hosted cross-platform measurement: pull-request merge commit `c7ca88d6a24249594cb325e350e3a615822c6a01`, run `37847387193`, on the shared `windows-2025` and `macos-26` runners. The temporary measurement step was removed after its aggregate console evidence was recorded; it uploaded no artifacts.
 - Build: Release, locked dependencies.
 - Host: Mac mini (Apple M4, 10 cores, 16 GB), macOS 27.0.1 arm64.
 - Runtime: .NET 10.0.12; SDK 10.0.401.
@@ -46,6 +47,17 @@ All times are milliseconds. The table reports p95 direct-command-to-Avalonia-app
 | 1,000 | 27.1 | 36.5 | 25.3 | 159.9 | 191.5 | 993.2 |
 
 The single cold title-save observation rose with workspace size: command-to-idle was 114.3 ms at 33 Tasks, 347.4 ms at 250 Tasks and 942.0 ms at 1,000 Tasks. Because this includes first-use UI work and is one observation per process, it is diagnostic rather than a percentile or gate.
+
+### Hosted Windows and macOS evidence
+
+The shared runners are not controlled performance hardware, so these distributions support diagnosis but are not regression thresholds. Both used 1,000 Tasks and 20 warm repetitions against the same tested tree.
+
+| Runner | Storage update p50 / p95 | Full reload p50 / p95 / max | Task title save p50 / p95 / max | Cold title save to idle |
+| --- | ---: | ---: | ---: | ---: |
+| `macos-26` | 46.9 / 54.5 | 423.9 / 532.4 / 2,114.4 | 485.4 / 575.0 / 596.0 | 2,650.0 |
+| `windows-2025` | 81.7 / 157.6 | 209.0 / 275.1 / 1,697.3 | 558.7 / 2,335.2 / 2,934.4 | 1,646.4 |
+
+The Windows median title save of 559 ms reproduces the user's reported 0.5–1.0 second pause on synthetic data, while its multi-second p95 shows a severe long tail. The direct Windows storage update alone exceeds the 100 ms interaction target at p95, and the full reload independently contributes a material UI-thread stall. This evidence justifies both incremental UI application and a serialized asynchronous writer; doing only one leaves the other synchronous pause in place.
 
 At 1,000 Tasks, each empty Task-Bin and Project-Bin read independently cost 15.3 ms and 18.2 ms p95. A refresh performs both reads in addition to the workspace snapshot read.
 
@@ -70,7 +82,7 @@ This is the dominant measured macOS path: at 1,000 Tasks, the complete reload wa
 
 The persistence coordinator opens and configures a new SQLite3MC connection for every read and write with pooling disabled. A Task update reads the full snapshot before and after its row update, every committed mutation rebuilds the complete archive search index from another full snapshot, and the desktop refresh then performs three separate reads/connections.
 
-On the measured Mac, direct update was about 25 ms p95, while the three post-write reads contributed roughly 15–18 ms p95 each before the remaining reload work. The complete reload therefore dominates the direct update, but these measurements do not isolate encryption cost from query/materialisation cost. Repeated open/key-derivation remains a Windows hypothesis until the harness runs on the reporter's class of Windows environment or the pull-request matrix.
+On the local Mac, direct update was about 25 ms p95, while the three post-write reads contributed roughly 15–18 ms p95 each before the remaining reload work. Hosted Windows increased direct update to 157.6 ms p95 and Bin reads to roughly 23 ms p95, but these measurements do not isolate connection/key-derivation cost from mutation queries, filesystem behavior, host contention or security scanning. Repeated open/key-derivation is therefore a stronger Windows hypothesis, not a demonstrated cause.
 
 ### Allocation and GC amplify the long tail
 
@@ -95,9 +107,9 @@ Sources: [Plan and measure Windows app performance](https://learn.microsoft.com/
 ## Ordered remediation
 
 1. [#87](https://github.com/nullabletype/dot-orbit/issues/87) makes record-local post-write updates incremental so one committed edit does not read and reconstruct every view. It preserves row identity, selection, focus, announcements and derived values, addressing the largest measured complete path and allocation source.
-2. Rerun the committed harness, including Windows, after #87. [#88](https://github.com/nullabletype/dot-orbit/issues/88) introduces one asynchronous, serialized, revision-aware writer only if synchronous persistence still blocks the UI materially. Editing remains responsive while Saving/Saved/Failed stays visible; stale completions are ignored and navigation, close and immediate actions asynchronously flush the latest valid revision.
+2. [#88](https://github.com/nullabletype/dot-orbit/issues/88) introduces one asynchronous, serialized, revision-aware writer after #87 defines the bounded completion update. Hosted Windows already shows direct synchronous storage at 157.6 ms p95, so persistence must leave the UI thread even after the reload is made incremental. Editing remains responsive while Saving/Saved/Failed stays visible; stale completions are ignored and navigation, close and immediate actions asynchronously flush the latest valid revision.
 3. Investigate the remaining storage trace without presupposing an order between [#89](https://github.com/nullabletype/dot-orbit/issues/89) and [#90](https://github.com/nullabletype/dot-orbit/issues/90). #89 tests safe unlocked-connection reuse if Windows evidence shows repeated connection setup is material. #90 replaces record-local full-snapshot result reads with targeted reads and makes archive-index maintenance change-aware and atomic; it can proceed independently if those operations remain material.
 
 Each issue runs the same committed harness on Windows 2025 and Ubuntu 24.04 as well as macOS and records evidence against its exact commit. After the fixes establish stable distributions, the final issue calibrates a cross-platform regression gate. No traces, screenshots, logs or test results may be uploaded as GitHub artifacts.
 
-Only #87 is unconditionally evidence-led by this review. Async saving is the likely second step, but it should be revalidated after the full reload is removed: moving the current monolithic path off-thread would retain its allocations and require revision, flush, cancellation and failure semantics. Connection reuse and targeted storage/index work remain separate hypotheses until residual cross-platform traces justify their risk.
+#87 and #88 are both evidence-led, in that order: moving persistence off-thread alone would leave the full UI reload blocking, while incremental UI updates alone would leave the Windows storage call blocking. Connection reuse and targeted storage/index work remain separate hypotheses until residual traces after those two changes justify their risk.
