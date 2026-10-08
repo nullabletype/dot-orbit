@@ -1098,6 +1098,9 @@ public sealed class ProjectCaptureWindowTests
         Assert.NotNull(NamedButton(window, "Garden"));
         Assert.Equal("1", shell.PrimaryNavigation.Single(n => n.Title == "Projects").CountText);
 
+        var projectRow = Assert.Single(shell.Work.Projects);
+        var categoryGroup = shell.Work.CategoryGroups.Single(group => group.Id == "home");
+        categoryGroup.IsExpanded = false;
         Activate(window, NamedButton(window, "Garden"));
         Assert.False(title.IsFocused);
         Assert.True(title.Focus());
@@ -1108,6 +1111,11 @@ public sealed class ProjectCaptureWindowTests
         Dispatcher.UIThread.RunJobs();
         Assert.Equal("Renamed garden", Assert.Single(work.Read().Projects).Title);
         Assert.Equal("Renamed garden", Assert.Single(shell.Work.Projects).Title);
+        Assert.True(title.IsFocused);
+        Assert.Equal("Projects", shell.ViewTitle);
+        Assert.Same(projectRow, Assert.Single(shell.Work.Projects));
+        Assert.Same(categoryGroup, shell.Work.CategoryGroups.Single(group => group.Id == categoryGroup.Id));
+        Assert.False(categoryGroup.IsExpanded);
 
         title.Focus();
         title.SelectAll();

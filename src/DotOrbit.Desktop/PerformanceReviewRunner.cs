@@ -299,11 +299,28 @@ internal static class PerformanceReviewRunner
                     task.DueDate,
                     new ParticipantDraftChange(task.Participants, []));
             }));
-        results.AddRange(await MeasureWithIdleAsync(
+        var observations = new List<PerformanceOperationResult>();
+        observations.AddRange(await MeasureWithIdleAsync(
             "full-reload",
             scenario.Iterations,
             scenario.BudgetMilliseconds,
             _ => work.RefreshFromStore()));
+        results.Add(MeasureSyncWithSetup(
+            "incremental-task-projection",
+            scenario.Iterations,
+            Math.Min(scenario.BudgetMilliseconds, 50),
+            iteration =>
+            {
+                var task = activeTasks[1];
+                return store.UpdateTask(
+                    task.Id,
+                    $"Synthetic projection update {iteration % 2}",
+                    task.Description,
+                    task.ExplicitCategoryId,
+                    task.DueDate,
+                    new ParticipantDraftChange(task.Participants, []));
+            },
+            work.ApplyCommittedTaskEdit));
         work.SelectTask(activeTasks[0].Id);
         await IdleAsync();
         results.AddRange(await MeasureWithIdleAsync(
@@ -317,7 +334,18 @@ internal static class PerformanceReviewRunner
             }));
 
         foreach (var result in results) WriteResult(result);
-        var passed = results.All(result => result.P95Milliseconds <= scenario.BudgetMilliseconds);
+        foreach (var observation in observations) WriteResult(observation, observedOnly: true);
+        var titleSaveAction = results.Single(result => result.Operation == "task-title-save-action");
+        var titleSaveStable = results.Single(result => result.Operation == "task-title-save-stable");
+        var titleSaveAllocationPassed = titleSaveAction.P50AllocatedBytes < 4_000_000;
+        var titleSaveMaximumPassed = titleSaveStable.MaximumMilliseconds <= scenario.BudgetMilliseconds * 2;
+        Console.WriteLine(
+            $"performance-review: constraint=task-title-save allocation_budget_bytes=4000000 "
+            + $"maximum_budget_ms={scenario.BudgetMilliseconds * 2} "
+            + $"result={(titleSaveAllocationPassed && titleSaveMaximumPassed ? "passed" : "failed")}");
+        var passed = results.All(result => result.P95Milliseconds <= result.BudgetMilliseconds)
+            && titleSaveAllocationPassed
+            && titleSaveMaximumPassed;
         Console.WriteLine(
             $"performance-review: result={(passed ? "passed" : "failed")} code={(passed ? 0 : BudgetExceededExitCode)}");
         return passed ? 0 : BudgetExceededExitCode;
@@ -380,27 +408,42 @@ internal static class PerformanceReviewRunner
         string operation,
         int iterations,
         int budgetMilliseconds,
-        Action<int> action)
+        Action<int> action) =>
+        MeasureSyncWithSetup(operation, iterations, budgetMilliseconds, iteration => iteration, action);
+
+    private static PerformanceOperationResult MeasureSyncWithSetup<T>(
+        string operation,
+        int iterations,
+        int budgetMilliseconds,
+        Func<int, T> setup,
+        Action<T> action)
     {
         var elapsed = new double[iterations];
         var allocations = new long[iterations];
-        var gen0Before = GC.CollectionCount(0);
-        var gen1Before = GC.CollectionCount(1);
-        var gen2Before = GC.CollectionCount(2);
+        var gen0Collections = 0;
+        var gen1Collections = 0;
+        var gen2Collections = 0;
         for (var iteration = 0; iteration < iterations; iteration++)
         {
+            var input = setup(iteration);
+            var gen0Before = GC.CollectionCount(0);
+            var gen1Before = GC.CollectionCount(1);
+            var gen2Before = GC.CollectionCount(2);
             var allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
             var started = Stopwatch.GetTimestamp();
-            action(iteration);
+            action(input);
             elapsed[iteration] = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
             allocations[iteration] = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+            gen0Collections += GC.CollectionCount(0) - gen0Before;
+            gen1Collections += GC.CollectionCount(1) - gen1Before;
+            gen2Collections += GC.CollectionCount(2) - gen2Before;
         }
 
         return PerformanceOperationResult.Create(operation, elapsed, allocations, budgetMilliseconds) with
         {
-            Gen0Collections = GC.CollectionCount(0) - gen0Before,
-            Gen1Collections = GC.CollectionCount(1) - gen1Before,
-            Gen2Collections = GC.CollectionCount(2) - gen2Before,
+            Gen0Collections = gen0Collections,
+            Gen1Collections = gen1Collections,
+            Gen2Collections = gen2Collections,
         };
     }
 
