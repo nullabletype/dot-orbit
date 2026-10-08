@@ -4,6 +4,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using System.Diagnostics;
 using DotOrbit.Core.Workspaces;
 using DotOrbit.Desktop.ViewModels;
 using DotOrbit.Desktop.Views;
@@ -36,6 +37,14 @@ public sealed partial class App : Application
             }
             else
             {
+                var performanceScenario = PerformanceReviewScenario.FromArguments(desktop.Args);
+                if (performanceScenario.IsEnabled)
+                {
+                    ConfigurePerformanceReview(desktop, performanceScenario);
+                    base.OnFrameworkInitializationCompleted();
+                    return;
+                }
+
                 var smokeScenario = NativeSmokeScenario.FromArguments(desktop.Args);
                 if (smokeScenario.IsEnabled)
                 {
@@ -66,6 +75,68 @@ public sealed partial class App : Application
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    private static void ConfigurePerformanceReview(
+        IClassicDesktopStyleApplicationLifetime desktop,
+        PerformanceReviewScenario scenario)
+    {
+        desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        if (!scenario.IsValid)
+        {
+            Console.Error.WriteLine(
+                $"performance-review: result=failed code={PerformanceReviewRunner.InvalidArgumentsExitCode} reason=invalid-arguments");
+            desktop.Shutdown(PerformanceReviewRunner.InvalidArgumentsExitCode);
+            return;
+        }
+
+        PerformanceReviewWorkspace? workspace = null;
+        try
+        {
+            workspace = PerformanceReviewWorkspace.Create(scenario.TaskCount);
+            var started = Stopwatch.GetTimestamp();
+            var mainWindow = new MainWindow(
+                workspace.Session,
+                null,
+                null,
+                applicationThemeService: null,
+                timeProvider: workspace.TimeProvider)
+            {
+                Width = 1440,
+                Height = 900,
+            };
+            var ownedWorkspace = workspace;
+            workspace = null;
+            mainWindow.Closed += (_, _) => ownedWorkspace.Dispose();
+            mainWindow.Opened += async (_, _) =>
+            {
+                var exitCode = PerformanceReviewRunner.RunnerFailureExitCode;
+                try
+                {
+                    var startupDuration = Stopwatch.GetElapsedTime(started);
+                    exitCode = await PerformanceReviewRunner.RunAsync(
+                        mainWindow,
+                        ownedWorkspace.Session.Work,
+                        scenario,
+                        startupDuration);
+                }
+                catch (Exception)
+                {
+                    Console.Error.WriteLine(
+                        $"performance-review: result=failed code={PerformanceReviewRunner.RunnerFailureExitCode} reason=runner-failed");
+                }
+
+                desktop.Shutdown(exitCode);
+            };
+            desktop.MainWindow = mainWindow;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or WorkspaceWorkException)
+        {
+            workspace?.Dispose();
+            Console.Error.WriteLine(
+                $"performance-review: result=failed code={PerformanceReviewRunner.SetupFailureExitCode} reason=setup-failed");
+            desktop.Shutdown(PerformanceReviewRunner.SetupFailureExitCode);
+        }
     }
 
     private static void ConfigureMarkdownLinkSmoke(IClassicDesktopStyleApplicationLifetime desktop)

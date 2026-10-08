@@ -37,6 +37,7 @@ public sealed partial class MainWindow : Window
     private readonly IMarkdownClipboard? _markdownClipboard;
     private readonly Action _workspaceUnavailable;
     private readonly IApplicationThemeService _applicationThemeService;
+    private readonly TimeProvider _timeProvider;
     private long _transientMessageRevision;
 
     internal static TimeSpan TransientMessageDuration { get; } = TimeSpan.FromSeconds(5);
@@ -62,7 +63,8 @@ public sealed partial class MainWindow : Window
         IInspectorAutosaveScheduler? autosaveScheduler,
         Action? workspaceUnavailable = null,
         ITransientMessageScheduler? transientMessageScheduler = null,
-        IApplicationThemeService? applicationThemeService = null)
+        IApplicationThemeService? applicationThemeService = null,
+        TimeProvider? timeProvider = null)
     {
         _session = session;
         _markdownClipboard = markdownClipboard;
@@ -72,6 +74,7 @@ public sealed partial class MainWindow : Window
         _applicationThemeService = applicationThemeService
             ?? (Application.Current as App)?.ThemeService
             ?? new TransientApplicationThemeService(application: Application.Current);
+        _timeProvider = timeProvider ?? TimeProvider.System;
         AvaloniaXamlLoader.Load(this);
         DataContextChanged += OnDataContextChanged;
         AddHandler(PointerPressedEvent, OnWorkPointerPressed, RoutingStrategies.Bubble, handledEventsToo: true);
@@ -199,6 +202,7 @@ public sealed partial class MainWindow : Window
     {
         DataContext = new ShellViewModel(
             _session?.Work,
+            _timeProvider,
             applicationThemeService: _applicationThemeService);
     }
 

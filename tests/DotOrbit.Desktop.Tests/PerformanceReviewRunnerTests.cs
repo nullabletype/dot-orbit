@@ -1,0 +1,114 @@
+using DotOrbit.Desktop;
+using Xunit;
+
+namespace DotOrbit.Desktop.Tests;
+
+public sealed class PerformanceReviewRunnerTests
+{
+    [Fact]
+    public void UnrelatedArgumentsDoNotEnableTheReview()
+    {
+        var scenario = PerformanceReviewScenario.FromArguments(["--native-smoke"]);
+
+        Assert.False(scenario.IsEnabled);
+        Assert.True(scenario.IsValid);
+    }
+
+    [Fact]
+    public void ReviewArgumentsDefaultToABoundedRepresentativeScenario()
+    {
+        var scenario = PerformanceReviewScenario.FromArguments(["--performance-review"]);
+
+        Assert.True(scenario.IsEnabled);
+        Assert.True(scenario.IsValid);
+        Assert.Equal(250, scenario.TaskCount);
+        Assert.Equal(20, scenario.Iterations);
+        Assert.Equal(100, scenario.BudgetMilliseconds);
+    }
+
+    [Fact]
+    public void ReviewArgumentsAcceptExplicitBoundedValues()
+    {
+        var scenario = PerformanceReviewScenario.FromArguments(
+            [
+                "--performance-review",
+                "--performance-tasks=1000",
+                "--performance-iterations=30",
+                "--performance-budget-ms=75",
+            ]);
+
+        Assert.True(scenario.IsEnabled);
+        Assert.True(scenario.IsValid);
+        Assert.Equal(1000, scenario.TaskCount);
+        Assert.Equal(30, scenario.Iterations);
+        Assert.Equal(75, scenario.BudgetMilliseconds);
+    }
+
+    [Theory]
+    [InlineData("--performance-tasks=1")]
+    [InlineData("--performance-tasks=5001")]
+    [InlineData("--performance-iterations=4")]
+    [InlineData("--performance-budget-ms=0")]
+    [InlineData("--performance-tasks=not-a-number")]
+    public void ReviewArgumentsRejectInvalidOrUnboundedValues(string argument)
+    {
+        var scenario = PerformanceReviewScenario.FromArguments(["--performance-review", argument]);
+
+        Assert.True(scenario.IsEnabled);
+        Assert.False(scenario.IsValid);
+    }
+
+    [Fact]
+    public void MeasurementSummaryUsesNearestRankPercentiles()
+    {
+        var result = PerformanceOperationResult.Create(
+            "task-title-save",
+            Enumerable.Range(1, 20).Select(value => (double)value).Reverse().ToArray(),
+            Enumerable.Range(1, 20).Select(value => (long)value * 100).Reverse().ToArray(),
+            100);
+
+        Assert.Equal(20, result.Iterations);
+        Assert.Equal(10, result.P50Milliseconds);
+        Assert.Equal(19, result.P95Milliseconds);
+        Assert.Equal(20, result.MaximumMilliseconds);
+        Assert.Equal(1000, result.P50AllocatedBytes);
+    }
+
+    [Fact]
+    public void WorkspaceUsesARepeatableSyntheticShapeAndDeletesItsFiles()
+    {
+        string directory;
+        using (var workspace = PerformanceReviewWorkspace.Create(25))
+        {
+            directory = workspace.DirectoryPath;
+            var snapshot = workspace.Session.Work.Read();
+
+            Assert.True(Directory.Exists(directory));
+            Assert.Equal(8, snapshot.Categories.Count);
+            Assert.Equal(8, snapshot.Participants.Count);
+            Assert.Single(snapshot.Projects);
+            Assert.Equal(25, snapshot.Tasks.Count);
+            Assert.Single(snapshot.Tasks, task => task.IsArchived);
+            Assert.Equal(
+                new DateTimeOffset(2026, 10, 8, 12, 0, 0, TimeSpan.Zero),
+                workspace.TimeProvider.GetUtcNow());
+            Assert.Equal(TimeZoneInfo.Utc, workspace.TimeProvider.LocalTimeZone);
+        }
+
+        Assert.False(Directory.Exists(directory));
+    }
+
+    [Theory]
+    [InlineData(
+        "1.0.0+A120FADEAE0B63048A9D370B4AC8298875789D2D",
+        "a120fadeae0b63048a9d370b4ac8298875789d2d")]
+    [InlineData("1.0.0", "unrecorded")]
+    [InlineData("1.0.0+not-a-commit", "unrecorded")]
+    [InlineData(null, "unrecorded")]
+    public void CommitIsDerivedFromTheAssemblyInformationalVersion(
+        string? informationalVersion,
+        string expected)
+    {
+        Assert.Equal(expected, PerformanceReviewBuild.Commit(informationalVersion));
+    }
+}
