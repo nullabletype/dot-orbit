@@ -28,7 +28,7 @@ The harness creates a temporary encrypted SQLite3MC workspace through the produc
 ## Baseline environment
 
 - Product baseline: `a120fadeae0b63048a9d370b4ac8298875789d2d` (`origin/main` at the start of the investigation).
-- Exact measurement commit: `4e477bb01ef39df6969715fa7dcf7438fcae1e11` (same product behaviour plus the issue #86 measurement mode, deterministic clock and tests).
+- Exact measurement commits: `4e477bb01ef39df6969715fa7dcf7438fcae1e11` for the 20-interaction scaling runs and `bcd503ecaeb61186134f34aead93476230948fbe` for the 100-interaction stress run (same product behaviour; the latter makes the cold observation non-gating).
 - Build: Release, locked dependencies.
 - Host: Mac mini (Apple M4, 10 cores, 16 GB), macOS 27.0.1 arm64.
 - Runtime: .NET 10.0.12; SDK 10.0.401.
@@ -51,12 +51,12 @@ At 1,000 Tasks, each empty Task-Bin and Project-Bin read independently cost 15.3
 
 A 100-interaction stress run at 1,000 Tasks reproduced the long tail:
 
-- projection refresh: 146.9 ms median, 202.2 ms p95, 750.9 ms maximum and 15.8 MB median allocation per interaction;
-- Task title save: 164.1 ms median, 189.0 ms p95, 378.4 ms maximum and 18.7 MB median allocation per interaction;
-- 100 projection refreshes caused 229 generation-0 and 59 generation-1 collections;
-- 100 title saves caused 225 generation-0, 53 generation-1 and 1 generation-2 collections.
+- full reload: 141.6 ms median, 149.5 ms p95, 534.4 ms maximum and 16.0 MB median allocation per interaction;
+- Task title save: 168.2 ms median, 193.4 ms p95, 204.4 ms maximum and 18.6 MB median allocation per interaction;
+- 100 full reloads coincided with 224 generation-0 and 56 generation-1 collections;
+- 100 title saves coincided with 223 generation-0 and 53 generation-1 collections.
 
-A local 10-second macOS CPU sample was taken during the synthetic 100-interaction run. It confirmed that the measured work and collections occur on the application/UI thread and reported a 1.9 GB physical footprint at the sampled point. Managed stack symbols were incomplete, so method attribution comes from the one-variable harness measurements and source inspection rather than guessed profiler frames. The raw sample stayed local and is not a repository or GitHub artifact.
+A local 10-second macOS CPU sample was also taken during an earlier synthetic 100-interaction diagnostic run. It confirmed that the measured work and collections occur on the application/UI thread and reported a 1.9 GB physical footprint at the sampled point. Managed stack symbols were incomplete, so method attribution comes from the one-variable harness measurements and source inspection rather than guessed profiler frames. The raw sample stayed local and is not a repository or GitHub artifact.
 
 ## Confirmed contributors
 
