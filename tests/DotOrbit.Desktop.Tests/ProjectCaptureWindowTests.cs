@@ -1138,7 +1138,7 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
-    public void ProjectInspectorAutosavesCreationEditingAndFailedNavigationThroughBindings()
+    public async Task ProjectInspectorAutosavesCreationEditingAndFailedNavigationThroughBindings()
     {
         using var session = new RecoveryViewModelTests.StubWorkspaceSession(new RecoveryViewModelTests.StubWorkspaceRecovery());
         var work = Assert.IsType<MemoryWorkspaceWork>(session.Work);
@@ -1158,7 +1158,9 @@ public sealed class ProjectCaptureWindowTests
         Activate(window, NamedButton(window, "Open Projects"));
         Activate(window, NamedButton(window, "New project"));
         window.KeyTextInput("Garden");
+        var creationRevision = shell.Work.AutosaveRevision;
         Assert.True(shell.Work.RunScheduledAutosave());
+        Assert.True(await shell.Work.WaitForAutosaveRevisionAsync(creationRevision));
         Dispatcher.UIThread.RunJobs();
         Assert.Equal("Garden", Assert.Single(work.Read().Projects).Title);
         Assert.Equal("Garden", Assert.Single(shell.Work.Projects).Title);
@@ -1174,7 +1176,9 @@ public sealed class ProjectCaptureWindowTests
         title.SelectAll();
         window.KeyTextInput("Renamed garden");
         Assert.Equal("Garden", Assert.Single(work.Read().Projects).Title);
+        var renameRevision = shell.Work.AutosaveRevision;
         Assert.True(shell.Work.RunScheduledAutosave());
+        Assert.True(await shell.Work.WaitForAutosaveRevisionAsync(renameRevision));
         Dispatcher.UIThread.RunJobs();
         Assert.Equal("Renamed garden", Assert.Single(work.Read().Projects).Title);
         Assert.Equal("Renamed garden", Assert.Single(shell.Work.Projects).Title);
