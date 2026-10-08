@@ -220,8 +220,7 @@ internal static class PerformanceReviewRunner
 
         work.SelectTask(activeTasks[0].Id);
         await IdleAsync();
-        var results = new List<PerformanceOperationResult>();
-        results.AddRange(await MeasureWithIdleAsync(
+        var coldSaveResults = await MeasureWithIdleAsync(
             "task-title-save-cold",
             1,
             scenario.BudgetMilliseconds,
@@ -229,7 +228,8 @@ internal static class PerformanceReviewRunner
             {
                 work.Title = "Synthetic cold title save";
                 if (!work.FlushPendingAutosave()) throw new InvalidOperationException();
-            }));
+            });
+        foreach (var result in coldSaveResults) WriteResult(result, observedOnly: true);
 
         for (var warmup = 0; warmup < 3; warmup++)
         {
@@ -242,6 +242,7 @@ internal static class PerformanceReviewRunner
             await IdleAsync();
         }
 
+        var results = new List<PerformanceOperationResult>();
         results.AddRange(await MeasureWithIdleAsync(
             "task-select",
             scenario.Iterations,
@@ -406,7 +407,9 @@ internal static class PerformanceReviewRunner
     private static Task IdleAsync() =>
         Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle).GetTask();
 
-    private static void WriteResult(PerformanceOperationResult result)
+    private static void WriteResult(
+        PerformanceOperationResult result,
+        bool observedOnly = false)
     {
         Console.WriteLine(
             $"performance-review: operation={result.Operation} iterations={result.Iterations} "
@@ -414,7 +417,7 @@ internal static class PerformanceReviewRunner
             + $"max_ms={Format(result.MaximumMilliseconds)} alloc_p50_bytes={result.P50AllocatedBytes} "
             + $"gen0={result.Gen0Collections} gen1={result.Gen1Collections} gen2={result.Gen2Collections} "
             + $"budget_ms={result.BudgetMilliseconds} "
-            + $"result={(result.P95Milliseconds <= result.BudgetMilliseconds ? "passed" : "failed")}");
+            + $"result={(observedOnly ? "observed" : result.P95Milliseconds <= result.BudgetMilliseconds ? "passed" : "failed")}");
     }
 
     private static string Configuration()

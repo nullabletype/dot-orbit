@@ -21,13 +21,14 @@ dotnet src/DotOrbit.Desktop/bin/Release/net10.0/dot-orbit.dll \
   --performance-budget-ms=100
 ```
 
-The native executable can be used instead of `dotnet <dll>` on packaged or hosted runners. Linux requires the same Xvfb setup as the native smoke journey. Exit code `26` means at least one measured p95 exceeded the requested budget; it is the expected baseline result at 1,000 Tasks.
+The native executable can be used instead of `dotnet <dll>` on packaged or hosted runners. Linux requires the same Xvfb setup as the native smoke journey. Exit code `26` means at least one warm measured p95 exceeded the requested budget; it is the expected baseline result at 1,000 Tasks. The single cold save and startup observations are reported but do not determine the exit code because one sample is not a stable percentile.
 
 The harness creates a temporary encrypted SQLite3MC workspace through the production persistence API, opens the real Avalonia main window, measures one cold inspector save, warms each interaction and records aggregate timings and allocation/GC counts. It uses a fixed UTC clock so projection membership is repeatable. It never reads a user workspace. Output contains only commit, configuration, OS/runtime, synthetic record counts and aggregate measurements; deletion of the temporary encrypted workspace is best-effort on exit.
 
 ## Baseline environment
 
-- Product baseline: `a120fadeae0b63048a9d370b4ac8298875789d2d` (`origin/main` at the start of the investigation). Commit-bound harness evidence is recorded on the pull request after the measurement code is committed.
+- Product baseline: `a120fadeae0b63048a9d370b4ac8298875789d2d` (`origin/main` at the start of the investigation).
+- Exact measurement commit: `4e477bb01ef39df6969715fa7dcf7438fcae1e11` (same product behaviour plus the issue #86 measurement mode, deterministic clock and tests).
 - Build: Release, locked dependencies.
 - Host: Mac mini (Apple M4, 10 cores, 16 GB), macOS 27.0.1 arm64.
 - Runtime: .NET 10.0.12; SDK 10.0.401.
@@ -40,9 +41,11 @@ All times are milliseconds. The table reports p95 direct-command-to-Avalonia-app
 
 | Synthetic Tasks | View switch | Snapshot read | Storage update | Projection refresh | Task title save | Window construction-to-open |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 33 | 2.0 | 14.7 | not isolated | 77.3 | 82.4 | 392.0 |
-| 250 | 6.9 | 14.6 | 22.7 | 81.6 | 93.5 | 515.9 |
-| 1,000 | 31.8 | 31.4 | 25.1 | 162.4 | 183.9 | 1,035.4 |
+| 33 | 1.7 | 15.3 | 20.1 | 72.4 | 85.1 | 410.3 |
+| 250 | 6.9 | 15.4 | 21.1 | 95.0 | 95.4 | 555.1 |
+| 1,000 | 27.1 | 36.5 | 25.3 | 159.9 | 191.5 | 993.2 |
+
+The single cold title-save observation rose with workspace size: command-to-idle was 114.3 ms at 33 Tasks, 347.4 ms at 250 Tasks and 942.0 ms at 1,000 Tasks. Because this includes first-use UI work and is one observation per process, it is diagnostic rather than a percentile or gate.
 
 At 1,000 Tasks, each empty Task-Bin and Project-Bin read independently cost 15.3 ms and 18.2 ms p95. A refresh performs both reads in addition to the workspace snapshot read.
 
@@ -61,7 +64,7 @@ A local 10-second macOS CPU sample was taken during the synthetic 100-interactio
 
 Project and Task saves call `ReloadAndKeepInspector`, and `Reload` synchronously reads the workspace, Task Bin and Project Bin before rebuilding or resynchronising every desktop projection. It clears Projects, archived Projects, Category groups, Today groups, Completed groups, Archive groups, Bin rows and participant/category choices, even when one Task title changed. The rebuild also contains repeated linear `Single`, `Contains` and per-Project Task scans.
 
-This is the dominant measured macOS path: at 1,000 Tasks, the complete reload was 141.1 ms median while a direct storage update was 25.1 ms p95. The reload includes its storage reads as well as rebuilding desktop projections, so the measurement does not attribute all of that time to collection work. It allocated about 16.0 MB per interaction and accounted for most observed collections. Action and stable timings differed by less than 1 ms at the median before Avalonia application idle; presented-frame timing remains unmeasured.
+This is the dominant measured macOS path: at 1,000 Tasks, the complete reload was 145.9 ms median while a direct storage update was 25.3 ms p95. The reload includes its storage reads as well as rebuilding desktop projections, so the measurement does not attribute all of that time to collection work. It allocated about 16.0 MB per interaction and accounted for most observed collections. Action and stable timings differed by less than 1 ms at the median before Avalonia application idle; presented-frame timing remains unmeasured.
 
 ### Repeated encrypted connection setup and full reads
 
