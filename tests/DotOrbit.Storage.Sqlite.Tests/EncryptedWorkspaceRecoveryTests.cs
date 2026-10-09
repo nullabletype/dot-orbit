@@ -280,6 +280,41 @@ public sealed class EncryptedWorkspaceRecoveryTests
     }
 
     [Fact]
+    public void RecoverySetRotationDiscardsThePreviousSetsScheduledDeadline()
+    {
+        var time = new ManualTimeProvider(
+            new DateTimeOffset(2026, 9, 27, 10, 0, 0, TimeSpan.Zero));
+        using var fixture = new RecoveryFixture(timeProvider: time);
+        var original = fixture.CreateWorkspace("Initial");
+        var concrete = Assert.IsType<EncryptedWorkspaceStore.WorkspaceSession>(original);
+        original.Recovery.ConfigureAutomaticRecoveryDirectory(fixture.RecoveryDirectory);
+        ChangeFirstCategory(concrete.Transactions, "First");
+        ChangeFirstCategory(concrete.Transactions, "Pending");
+        var oldPoint = Assert.Single(GetAutomaticRecoveryFiles(fixture.RecoveryDirectory));
+        original.Dispose();
+        var enumerationCalls = fixture.FileOperations.EnumerationCalls;
+        fixture.FileOperations.FailingEnumerationCalls.UnionWith(
+            [enumerationCalls + 1, enumerationCalls + 3]);
+        // Unlock generation reconciliation fails, but pending scheduling succeeds.
+        using var reopened = fixture.OpenWorkspace();
+        Assert.Equal(enumerationCalls + 2, fixture.FileOperations.EnumerationCalls);
+        var resumed = Assert.IsType<EncryptedWorkspaceStore.WorkspaceSession>(reopened);
+
+        // The retry fails, so a fresh recovery set must get its first point now.
+        Assert.Equal(AutomaticRecoveryAttempt.Created,
+            ChangeFirstCategory(resumed.Transactions, "New set"));
+
+        var points = GetAutomaticRecoveryFiles(fixture.RecoveryDirectory);
+        Assert.Equal(2, points.Length);
+        Assert.True(File.Exists(oldPoint));
+        var newPoint = Assert.Single(points, point => point != oldPoint);
+        Assert.True(OpensWithCategory(fixture.Store, newPoint, "New set"));
+        enumerationCalls = fixture.FileOperations.EnumerationCalls;
+        time.Advance(TimeSpan.FromHours(1));
+        Assert.Equal(enumerationCalls, fixture.FileOperations.EnumerationCalls);
+    }
+
+    [Fact]
     public void AutomaticRecoveryDirectoryPersistsAcrossWorkspaceSessions()
     {
         using var fixture = new RecoveryFixture();
@@ -1465,6 +1500,8 @@ public sealed class EncryptedWorkspaceRecoveryTests
 
         public int EnumerationCalls { get; private set; }
 
+        public HashSet<int> FailingEnumerationCalls { get; } = [];
+
         public string ResolvePath(string path) => _inner.ResolvePath(path);
 
         public bool Exists(string path) => _inner.Exists(path);
@@ -1568,7 +1605,7 @@ public sealed class EncryptedWorkspaceRecoveryTests
         public IReadOnlyList<string> EnumerateFiles(string directoryPath, string searchPattern)
         {
             EnumerationCalls++;
-            return Failure == FailurePoint.Enumeration
+            return Failure == FailurePoint.Enumeration || FailingEnumerationCalls.Contains(EnumerationCalls)
                 ? throw new IOException("Injected recovery-directory enumeration failure.")
                 : _inner.EnumerateFiles(directoryPath, searchPattern);
         }

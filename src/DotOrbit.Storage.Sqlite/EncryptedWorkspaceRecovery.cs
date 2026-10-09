@@ -161,6 +161,8 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
             {
                 if (!TryReconcileChangeGenerationWithRecoveryPoints())
                 {
+                    InvalidateSchedule();
+                    _recoveryDeadlineElapsed = false;
                     _recoverySetIdentifier = HashIdentifier(_store.GetIdentifier());
                     _changeGeneration = 0;
                 }
