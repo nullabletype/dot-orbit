@@ -473,6 +473,8 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
             }
 
             _recoveryDeadlineElapsed = false;
+            _nextReconciliationUtc = (newest.CreatedAtUtc > now ? now : newest.CreatedAtUtc)
+                + AutomaticRecoveryCadence;
             return AutomaticRecoveryAttempt.Ignored;
         }
 

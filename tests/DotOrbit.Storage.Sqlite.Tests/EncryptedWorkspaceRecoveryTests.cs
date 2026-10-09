@@ -683,9 +683,18 @@ public sealed class EncryptedWorkspaceRecoveryTests
             recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed));
         session.Dispose();
         using var reopened = fixture.OpenWorkspace();
-        time.Advance(TimeSpan.FromHours(2));
+        var concrete = Assert.IsType<EncryptedWorkspaceStore.WorkspaceSession>(reopened);
+        var enumerationCalls = fixture.FileOperations.EnumerationCalls;
+
+        Assert.Equal(
+            AutomaticRecoveryAttempt.Scheduled,
+            ChangeFirstCategory(concrete.Transactions, "Warm"));
+        Assert.Equal(enumerationCalls, fixture.FileOperations.EnumerationCalls);
+        time.Advance(TimeSpan.FromHours(1) - TimeSpan.FromSeconds(1));
 
         Assert.Single(GetAutomaticRecoveryFiles(fixture.RecoveryDirectory));
+        time.Advance(TimeSpan.FromSeconds(1));
+        Assert.Equal(2, GetAutomaticRecoveryFiles(fixture.RecoveryDirectory).Length);
         Assert.Equal(
             Path.GetFullPath(fixture.RecoveryDirectory),
             reopened.Recovery.AutomaticRecoveryDirectoryPath);
