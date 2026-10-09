@@ -56,3 +56,21 @@ jobs:
           --
           --evidence
           --expected-sha "${{ github.sha }}"
+      - name: Record issue 89 connection-reuse calibration
+        continue-on-error: true
+        shell: bash
+        run: |
+          dotnet build src/DotOrbit.Desktop/DotOrbit.Desktop.csproj --configuration Release -p:RestoreLockedMode=true
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run --auto-servernum dotnet src/DotOrbit.Desktop/bin/Release/net10.0/dot-orbit.dll \
+              --performance-review \
+              --performance-tasks=1000 \
+              --performance-iterations=100 \
+              --performance-budget-ms=100
+          else
+            dotnet src/DotOrbit.Desktop/bin/Release/net10.0/dot-orbit.dll \
+              --performance-review \
+              --performance-tasks=1000 \
+              --performance-iterations=100 \
+              --performance-budget-ms=100
+          fi
