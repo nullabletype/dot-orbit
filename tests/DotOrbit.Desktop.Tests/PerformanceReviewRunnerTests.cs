@@ -1,4 +1,5 @@
 using DotOrbit.Desktop;
+using DotOrbit.Core.Workspaces;
 using Xunit;
 
 namespace DotOrbit.Desktop.Tests;
@@ -24,6 +25,7 @@ public sealed class PerformanceReviewRunnerTests
         Assert.Equal(250, scenario.TaskCount);
         Assert.Equal(20, scenario.Iterations);
         Assert.Equal(100, scenario.BudgetMilliseconds);
+        Assert.Equal(0, scenario.RecoveryPointCount);
     }
 
     [Fact]
@@ -35,6 +37,7 @@ public sealed class PerformanceReviewRunnerTests
                 "--performance-tasks=1000",
                 "--performance-iterations=30",
                 "--performance-budget-ms=75",
+                "--performance-recovery-points=16",
             ]);
 
         Assert.True(scenario.IsEnabled);
@@ -42,9 +45,13 @@ public sealed class PerformanceReviewRunnerTests
         Assert.Equal(1000, scenario.TaskCount);
         Assert.Equal(30, scenario.Iterations);
         Assert.Equal(75, scenario.BudgetMilliseconds);
+        Assert.Equal(16, scenario.RecoveryPointCount);
     }
 
     [Theory]
+    [InlineData("--performance-recovery-points=-1")]
+    [InlineData("--performance-recovery-points=17")]
+    [InlineData("--performance-recovery-points=invalid")]
     [InlineData("--performance-tasks=1")]
     [InlineData("--performance-tasks=5001")]
     [InlineData("--performance-iterations=4")]
@@ -56,6 +63,33 @@ public sealed class PerformanceReviewRunnerTests
 
         Assert.True(scenario.IsEnabled);
         Assert.False(scenario.IsValid);
+    }
+
+    [Fact]
+    public void ReviewArgumentsRejectDuplicateRecoveryPointCounts()
+    {
+        var scenario = PerformanceReviewScenario.FromArguments(
+            ["--performance-review", "--performance-recovery-points=1", "--performance-recovery-points=16"]);
+
+        Assert.False(scenario.IsValid);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(16)]
+    public void WorkspaceSeedsRealAutomaticPointsAndReopensWithTheirConfiguration(int pointCount)
+    {
+        using var workspace = PerformanceReviewWorkspace.Create(2, pointCount);
+        var directory = workspace.Session.Recovery.AutomaticRecoveryDirectoryPath;
+        Assert.NotNull(directory);
+        Assert.Equal(pointCount, Directory.GetFiles(directory, "*.dotorbit-recovery").Length);
+        Assert.Equal(new DateTimeOffset(2026, 10, 8, 12, 0, 0, TimeSpan.Zero), workspace.TimeProvider.GetUtcNow());
+        var task = workspace.Session.Work.Read().Tasks[0];
+
+        workspace.Session.Work.SetTaskTodayLane(task.Id, TodayLane.Planned);
+
+        // Setup ended at the last successful point, so the warm mutation is pre-deadline.
+        Assert.Equal(pointCount, Directory.GetFiles(directory, "*.dotorbit-recovery").Length);
     }
 
     [Fact]
