@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Text;
 using DotOrbit.Core.Workspaces;
 using DotOrbit.Storage.Sqlite;
@@ -242,7 +241,7 @@ public sealed class PassphraseRotationTests
 
         foreach (var path in Directory.GetFiles(fixture.DirectoryPath, "*", SearchOption.AllDirectories))
         {
-            var contents = Encoding.UTF8.GetString(File.ReadAllBytes(path));
+            var contents = Encoding.UTF8.GetString(TestFile.ReadAllBytesWithSharedAccess(path));
             Assert.DoesNotContain(CurrentPassphrase, contents, StringComparison.Ordinal);
             Assert.DoesNotContain(NewPassphrase, contents, StringComparison.Ordinal);
         }
@@ -285,7 +284,7 @@ public sealed class PassphraseRotationTests
         Assert.IsType<WorkspacePassphrase>(WorkspacePassphrase.ForUnlock(value));
 
     private static string Hash(string path) =>
-        Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
+        TestFile.ComputeSha256WithSharedAccess(path);
 
     private sealed class WorkspaceFixture : IDisposable
     {

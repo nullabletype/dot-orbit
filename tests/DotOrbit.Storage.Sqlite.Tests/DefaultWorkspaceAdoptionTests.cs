@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Text.Json;
 using DotOrbit.Core.Workspaces;
 using DotOrbit.Storage.Sqlite;
@@ -873,7 +872,7 @@ public sealed class DefaultWorkspaceAdoptionTests
         Assert.IsType<CategoryName>(CategoryName.Create(value).CategoryName);
 
     private static string Hash(string path) =>
-        Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
+        TestFile.ComputeSha256WithSharedAccess(path);
 
     private sealed class AdoptionFixture : IDisposable
     {

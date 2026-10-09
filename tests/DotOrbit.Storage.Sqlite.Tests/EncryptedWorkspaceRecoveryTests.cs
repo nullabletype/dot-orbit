@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using DotOrbit.Core.Workspaces;
@@ -1303,7 +1302,7 @@ public sealed class EncryptedWorkspaceRecoveryTests
         Assert.IsType<WorkspacePassphrase>(WorkspacePassphrase.ForUnlock(value));
 
     private static string Hash(string path) =>
-        Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
+        TestFile.ComputeSha256WithSharedAccess(path);
 
     private static string[] GetFiles(string directory) =>
         System.IO.Directory.Exists(directory)

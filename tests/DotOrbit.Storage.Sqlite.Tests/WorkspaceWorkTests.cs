@@ -113,7 +113,10 @@ public sealed class WorkspaceWorkTests : IDisposable
         Assert.Equal(snapshot.Categories[0].Id, edited.ExplicitCategoryId);
         reopened.Work.UpdateTask(edited.Id, edited.Title, edited.Description, null, null);
         Assert.Null(reopened.Work.Read().Tasks.Single(t => t.Id == edited.Id).ExplicitCategoryId);
-        Assert.DoesNotContain("markdown", Encoding.UTF8.GetString(File.ReadAllBytes(WorkspacePath)), StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "markdown",
+            Encoding.UTF8.GetString(TestFile.ReadAllBytesWithSharedAccess(WorkspacePath)),
+            StringComparison.Ordinal);
     }
 
     [Fact]
