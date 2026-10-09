@@ -19,6 +19,63 @@ namespace DotOrbit.Desktop.Tests;
 public sealed class MainWindowTests
 {
     [AvaloniaFact]
+    public async Task ClosingWaitsForCommittedInspectorSaveBeforeDisposingSession()
+    {
+        var session = new DisposalTrackingWorkspaceSession();
+        var project = session.Work.CreateProject("Original", "", "home", null);
+        BlockingInspectorSaveWriter? writer = null;
+        var window = new MainWindow(
+            session,
+            null,
+            null,
+            timeProvider: null,
+            inspectorSaveWriterFactory: work => writer = new BlockingInspectorSaveWriter(work));
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.Work!.SelectProject(project.Id);
+        shell.Work.Title = "Committed before close";
+        Assert.True(shell.Work.RunScheduledAutosave());
+        await writer!.Submitted;
+
+        window.Close();
+
+        Assert.False(session.IsDisposed);
+        writer.Complete();
+        await session.Disposed;
+        Assert.Equal("Committed before close", session.Work.Read().Projects.Single().Title);
+    }
+
+    [AvaloniaFact]
+    public async Task SessionReplacementDrainsWriterBeforeDisposingOldSession()
+    {
+        var session = new DisposalTrackingWorkspaceSession();
+        var replacement = new DisposalTrackingWorkspaceSession();
+        var replacementProject = replacement.Work.CreateProject("Replacement", "", "home", null);
+        var drainingWriter = new BlockingDisposeInspectorSaveWriter(session.Work);
+        var window = new MainWindow(
+            session,
+            null,
+            null,
+            timeProvider: null,
+            inspectorSaveWriterFactory: work => ReferenceEquals(work, session.Work)
+                ? drainingWriter
+                : new InlineInspectorSaveWriter(new WorkspaceInspectorSaveOperation(work)));
+        window.Show();
+
+        var replace = window.ReplaceSessionAsync(replacement);
+        await drainingWriter.DisposeStarted;
+        Assert.False(session.IsDisposed);
+
+        drainingWriter.ReleaseDispose();
+        await replace;
+        Assert.True(session.IsDisposed);
+        Assert.Equal(
+            replacementProject.Id,
+            Assert.Single(Assert.IsType<ShellViewModel>(window.DataContext).Work!.Projects).Id);
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public void WorkspaceUnavailableShowsReplacementAndClosesTheShell()
     {
         var replacementShown = 0;
@@ -29,6 +86,72 @@ public sealed class MainWindowTests
 
         Assert.Equal(1, replacementShown);
         Assert.False(window.IsVisible);
+    }
+
+    private sealed class DisposalTrackingWorkspaceSession : IWorkspaceSession
+    {
+        private readonly TaskCompletionSource _disposed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public IWorkspaceWork Work { get; } = new MemoryWorkspaceWork();
+        public int SchemaVersion => 1;
+        public string FirstCategoryName => "Home";
+        public IWorkspaceRecovery Recovery { get; } = new RecoveryViewModelTests.StubWorkspaceRecovery();
+        public bool IsDisposed { get; private set; }
+        public Task Disposed => _disposed.Task;
+
+        public PassphraseRotationResult RotatePassphrase(
+            WorkspacePassphrase currentPassphrase,
+            WorkspacePassphrase newPassphrase) => PassphraseRotationResult.Failed();
+
+        public void Dispose()
+        {
+            IsDisposed = true;
+            _disposed.TrySetResult();
+        }
+    }
+
+    private sealed class BlockingInspectorSaveWriter(IWorkspaceWork work) : IInspectorSaveWriter
+    {
+        private readonly WorkspaceInspectorSaveOperation _operation = new(work);
+        private readonly TaskCompletionSource _submitted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<InspectorSaveResult> _completion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private InspectorSaveRequest? _request;
+
+        public Task Submitted => _submitted.Task;
+
+        public Task<InspectorSaveResult> SubmitAsync(InspectorSaveRequest request)
+        {
+            _request = request;
+            _submitted.TrySetResult();
+            return _completion.Task;
+        }
+
+        public void Complete() => _completion.TrySetResult(_operation.Execute(_request!));
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class BlockingDisposeInspectorSaveWriter(IWorkspaceWork work) : IInspectorSaveWriter
+    {
+        private readonly WorkspaceInspectorSaveOperation _operation = new(work);
+        private readonly TaskCompletionSource _disposeStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _releaseDispose =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task DisposeStarted => _disposeStarted.Task;
+
+        public Task<InspectorSaveResult> SubmitAsync(InspectorSaveRequest request) =>
+            Task.FromResult(_operation.Execute(request));
+
+        public async ValueTask DisposeAsync()
+        {
+            _disposeStarted.TrySetResult();
+            await _releaseDispose.Task;
+        }
+
+        public void ReleaseDispose() => _releaseDispose.TrySetResult();
     }
 
     [AvaloniaFact]

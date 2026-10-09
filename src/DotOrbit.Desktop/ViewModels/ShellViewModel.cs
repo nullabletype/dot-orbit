@@ -12,9 +12,22 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         IWorkspaceWork? work = null,
         TimeProvider? timeProvider = null,
         IApplicationThemeService? applicationThemeService = null)
+        : this(work, timeProvider, applicationThemeService, null)
+    {
+    }
+
+    internal ShellViewModel(
+        IWorkspaceWork? work,
+        TimeProvider? timeProvider,
+        IApplicationThemeService? applicationThemeService,
+        IInspectorSaveWriter? inspectorSaveWriter = null)
     {
         applicationThemeService ??= new TransientApplicationThemeService();
-        Work = work is null ? null : new ProjectCaptureViewModel(work, timeProvider);
+        Work = work is null
+            ? null
+            : inspectorSaveWriter is null
+                ? new ProjectCaptureViewModel(work, timeProvider)
+                : new ProjectCaptureViewModel(work, timeProvider, inspectorSaveWriter);
         Settings = work is null
             ? null
             : new SettingsViewModel(

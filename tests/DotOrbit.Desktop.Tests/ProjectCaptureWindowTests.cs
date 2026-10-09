@@ -17,6 +17,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using System.ComponentModel;
 using DotOrbit.Core.Workspaces;
 using DotOrbit.Desktop.ViewModels;
 using DotOrbit.Desktop.Views;
@@ -26,6 +27,72 @@ namespace DotOrbit.Desktop.Tests;
 
 public sealed class ProjectCaptureWindowTests
 {
+    [AvaloniaFact]
+    public async Task HeldWriterKeepsTitleFocusedAndEditableAndAnnouncesSaveSuccessAndRetry()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Original", "", "home", null);
+        var writer = new ControlledWindowSaveWriter(work);
+        var shell = new ShellViewModel(work, null, null, writer);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+        shell.Work!.SelectProject(project.Id);
+        Dispatcher.UIThread.RunJobs();
+        var title = Assert.IsType<TextBox>(window.FindControl<TextBox>("DraftTitle"));
+        var status = Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(), text =>
+            AutomationProperties.GetName(text) == "Autosave status");
+        var retry = Assert.Single(window.GetVisualDescendants().OfType<Button>(), button =>
+            AutomationProperties.GetName(button) == "Retry automatic save");
+        Assert.Equal(AutomationLiveSetting.Polite, AutomationProperties.GetLiveSetting(status));
+        Assert.True(title.Focus());
+        title.Text = "Held";
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(shell.Work.RunScheduledAutosave());
+        await writer.WaitForSubmissionCountAsync(1);
+        Assert.Equal("Saving…", status.Text);
+        Assert.True(title.IsFocused);
+
+        title.Text = "Latest while saving";
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("Latest while saving", shell.Work.Title);
+        Assert.True(title.IsFocused);
+        var flush = shell.Work.FlushPendingAutosaveAsync();
+        Assert.False(flush.IsCompleted);
+        writer.CompleteNext();
+        await writer.WaitForSubmissionCountAsync(2);
+        Assert.Equal("Latest while saving", title.Text);
+        Assert.True(title.IsFocused);
+        writer.CompleteNext();
+        Assert.True(await flush);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("Saved", status.Text);
+        Assert.False(retry.IsEffectivelyVisible);
+
+        title.Text = "Failure retained";
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(shell.Work.RunScheduledAutosave());
+        await writer.WaitForSubmissionCountAsync(3);
+        var failedFlush = shell.Work.FlushPendingAutosaveAsync();
+        writer.FailNext();
+        Assert.False(await failedFlush);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("Failure retained", title.Text);
+        Assert.True(title.IsFocused);
+        Assert.True(retry.IsEffectivelyVisible);
+        Assert.Equal(shell.Work.Message, status.Text);
+        Assert.Equal(AutomationLiveSetting.Polite, AutomationProperties.GetLiveSetting(status));
+
+        shell.Work.RetryAutosaveCommand.Execute(null);
+        await writer.WaitForSubmissionCountAsync(4);
+        var retryRevision = shell.Work.AutosaveRevision;
+        var retryWait = shell.Work.WaitForAutosaveRevisionAsync(retryRevision);
+        writer.CompleteNext();
+        Assert.True(await retryWait);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("Saved", status.Text);
+        window.Close();
+    }
+
     [AvaloniaFact]
     public void RepresentativeProductionRowsRenderWithMappedIconsInDarkAndLightThemes()
     {
@@ -1071,7 +1138,7 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
-    public void ProjectInspectorAutosavesCreationEditingAndFailedNavigationThroughBindings()
+    public async Task ProjectInspectorAutosavesCreationEditingAndFailedNavigationThroughBindings()
     {
         using var session = new RecoveryViewModelTests.StubWorkspaceSession(new RecoveryViewModelTests.StubWorkspaceRecovery());
         var work = Assert.IsType<MemoryWorkspaceWork>(session.Work);
@@ -1091,7 +1158,9 @@ public sealed class ProjectCaptureWindowTests
         Activate(window, NamedButton(window, "Open Projects"));
         Activate(window, NamedButton(window, "New project"));
         window.KeyTextInput("Garden");
+        var creationRevision = shell.Work.AutosaveRevision;
         Assert.True(shell.Work.RunScheduledAutosave());
+        Assert.True(await shell.Work.WaitForAutosaveRevisionAsync(creationRevision));
         Dispatcher.UIThread.RunJobs();
         Assert.Equal("Garden", Assert.Single(work.Read().Projects).Title);
         Assert.Equal("Garden", Assert.Single(shell.Work.Projects).Title);
@@ -1107,7 +1176,9 @@ public sealed class ProjectCaptureWindowTests
         title.SelectAll();
         window.KeyTextInput("Renamed garden");
         Assert.Equal("Garden", Assert.Single(work.Read().Projects).Title);
+        var renameRevision = shell.Work.AutosaveRevision;
         Assert.True(shell.Work.RunScheduledAutosave());
+        Assert.True(await shell.Work.WaitForAutosaveRevisionAsync(renameRevision));
         Dispatcher.UIThread.RunJobs();
         Assert.Equal("Renamed garden", Assert.Single(work.Read().Projects).Title);
         Assert.Equal("Renamed garden", Assert.Single(shell.Work.Projects).Title);
@@ -1121,9 +1192,15 @@ public sealed class ProjectCaptureWindowTests
         title.SelectAll();
         window.KeyTextInput("Unsaved edit");
         work.FailWrites = true;
+        var firstDecision = DecisionRequested(shell.Work);
         Activate(window, NamedButton(window, "Open Backlog"));
+        await firstDecision;
+        Dispatcher.UIThread.RunJobs();
         Assert.True(shell.Work.NeedsDecision);
+        var retryFailure = AutosaveFailureObserved(shell.Work);
         Activate(window, NamedButton(window, "Retry and leave"));
+        await retryFailure;
+        Dispatcher.UIThread.RunJobs();
         Assert.True(shell.Work.NeedsDecision);
         Assert.True(shell.Work.HasAutosaveError);
         var retry = NamedButton(window, "Retry automatic save");
@@ -1138,14 +1215,17 @@ public sealed class ProjectCaptureWindowTests
         Assert.True(title.IsFocused);
         Assert.Equal("Unsaved edit", title.Text);
         work.FailWrites = false;
+        var backlogShown = ViewShown(shell, "Backlog");
         Activate(window, NamedButton(window, "Open Backlog"));
+        await backlogShown;
+        Dispatcher.UIThread.RunJobs();
         Assert.Equal("Backlog", shell.ViewTitle);
         Assert.Equal("Unsaved edit", Assert.Single(work.Read().Projects).Title);
         window.Close();
     }
 
     [AvaloniaFact]
-    public void FailedAutosaveNavigationRetainsCheckedViewUntilDecision()
+    public async Task FailedAutosaveNavigationRetainsCheckedViewUntilDecision()
     {
         using var session = new RecoveryViewModelTests.StubWorkspaceSession(new RecoveryViewModelTests.StubWorkspaceRecovery());
         var window = new MainWindow(session);
@@ -1158,7 +1238,9 @@ public sealed class ProjectCaptureWindowTests
         var today = radios.Single(r => AutomationProperties.GetAutomationId(r) == "navigation-today");
         var projects = radios.Single(r => AutomationProperties.GetAutomationId(r) == "navigation-projects");
         projects.Focus();
+        var firstDecision = DecisionRequested(shell.Work);
         window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        await firstDecision;
         Dispatcher.UIThread.RunJobs();
         Assert.True(shell.Work.NeedsDecision);
         Assert.True(today.IsChecked);
@@ -1166,7 +1248,10 @@ public sealed class ProjectCaptureWindowTests
         shell.Work.StayCommand.Execute(null);
         Assert.True(today.IsChecked);
         projects.Focus();
+        var secondDecision = DecisionRequested(shell.Work);
         window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        await secondDecision;
+        Dispatcher.UIThread.RunJobs();
         shell.Work.DiscardAndLeaveCommand.Execute(null);
         Assert.True(projects.IsChecked);
         Assert.False(today.IsChecked);
@@ -1174,7 +1259,7 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
-    public void DirtyDecisionDoesNotHighlightDisabledRowTitles()
+    public async Task DirtyDecisionDoesNotHighlightDisabledRowTitles()
     {
         var work = new MemoryWorkspaceWork();
         var first = work.CreateStandaloneTask("First task", "", "home", null);
@@ -1187,7 +1272,10 @@ public sealed class ProjectCaptureWindowTests
         shell.Work.Title = "Unsaved first task";
         work.FailWrites = true;
 
+        var decision = DecisionRequested(shell.Work);
         Activate(window, NamedButton(window, "Second task"));
+        await decision;
+        Dispatcher.UIThread.RunJobs();
 
         Assert.True(shell.Work.NeedsDecision);
         var disabledRowTitle = NamedButton(window, "Second task");
@@ -1244,7 +1332,7 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
-    public void ClosingDirtyCreationRequiresDecisionAndStayPreservesDraft()
+    public async Task ClosingDirtyCreationRequiresDecisionAndStayPreservesDraft()
     {
         using var session = new RecoveryViewModelTests.StubWorkspaceSession(new RecoveryViewModelTests.StubWorkspaceRecovery());
         var window = new MainWindow(session);
@@ -1253,7 +1341,9 @@ public sealed class ProjectCaptureWindowTests
         shell.Work!.NewProjectCommand.Execute(null);
         shell.Work.Title = "Unsaved";
         Assert.IsType<MemoryWorkspaceWork>(session.Work).FailWrites = true;
+        var firstDecision = DecisionRequested(shell.Work);
         window.Close();
+        await firstDecision;
         Dispatcher.UIThread.RunJobs();
         Assert.True(window.IsVisible);
         Assert.True(shell.Work.NeedsDecision);
@@ -1261,9 +1351,54 @@ public sealed class ProjectCaptureWindowTests
         shell.Work.StayCommand.Execute(null);
         Assert.Equal("Unsaved", shell.Work.Title);
         Assert.True(window.IsVisible);
+        var secondDecision = DecisionRequested(shell.Work);
         window.Close();
+        await secondDecision;
         shell.Work.DiscardAndLeaveCommand.Execute(null);
         Assert.False(window.IsVisible);
+    }
+
+    private static Task DecisionRequested(ProjectCaptureViewModel work)
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        PropertyChangedEventHandler? changed = null;
+        changed = (_, args) =>
+        {
+            if (args.PropertyName != nameof(ProjectCaptureViewModel.NeedsDecision) || !work.NeedsDecision) return;
+            work.PropertyChanged -= changed;
+            completion.TrySetResult();
+        };
+        work.PropertyChanged += changed;
+        return completion.Task;
+    }
+
+    private static Task AutosaveFailureObserved(ProjectCaptureViewModel work)
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        PropertyChangedEventHandler? changed = null;
+        changed = (_, args) =>
+        {
+            if (args.PropertyName != nameof(ProjectCaptureViewModel.HasAutosaveError) || !work.HasAutosaveError) return;
+            work.PropertyChanged -= changed;
+            completion.TrySetResult();
+        };
+        work.PropertyChanged += changed;
+        return completion.Task;
+    }
+
+    private static Task ViewShown(ShellViewModel shell, string title)
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        PropertyChangedEventHandler? changed = null;
+        changed = (_, args) =>
+        {
+            if (args.PropertyName != nameof(ShellViewModel.ViewTitle)
+                || !string.Equals(shell.ViewTitle, title, StringComparison.Ordinal)) return;
+            shell.PropertyChanged -= changed;
+            completion.TrySetResult();
+        };
+        shell.PropertyChanged += changed;
+        return completion.Task;
     }
 
     [AvaloniaFact]
@@ -4440,5 +4575,59 @@ public sealed class ProjectCaptureWindowTests
     }
 
     private sealed record ScheduledAutosave(long Revision, Action<long> Callback);
+
+    private sealed class ControlledWindowSaveWriter(IWorkspaceWork work) : IInspectorSaveWriter
+    {
+        private readonly WorkspaceInspectorSaveOperation _operation = new(work);
+        private readonly object _gate = new();
+        private readonly List<(InspectorSaveRequest Request, TaskCompletionSource<InspectorSaveResult> Completion)> _pending = [];
+        private TaskCompletionSource _submissionChanged = NewSignal();
+
+        public Task<InspectorSaveResult> SubmitAsync(InspectorSaveRequest request)
+        {
+            lock (_gate)
+            {
+                var completion = new TaskCompletionSource<InspectorSaveResult>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                _pending.Add((request, completion));
+                _submissionChanged.TrySetResult();
+                _submissionChanged = NewSignal();
+                return completion.Task;
+            }
+        }
+
+        public async Task WaitForSubmissionCountAsync(int count)
+        {
+            while (true)
+            {
+                Task changed;
+                lock (_gate)
+                {
+                    if (_pending.Count >= count) return;
+                    changed = _submissionChanged.Task;
+                }
+                await changed;
+            }
+        }
+
+        public void CompleteNext()
+        {
+            (InspectorSaveRequest Request, TaskCompletionSource<InspectorSaveResult> Completion) pending;
+            lock (_gate) pending = _pending.First(item => !item.Completion.Task.IsCompleted);
+            pending.Completion.TrySetResult(_operation.Execute(pending.Request));
+        }
+
+        public void FailNext()
+        {
+            (InspectorSaveRequest Request, TaskCompletionSource<InspectorSaveResult> Completion) pending;
+            lock (_gate) pending = _pending.First(item => !item.Completion.Task.IsCompleted);
+            pending.Completion.TrySetResult(InspectorSaveResult.Failed(pending.Request));
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        private static TaskCompletionSource NewSignal() =>
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
 
 }

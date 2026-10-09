@@ -220,6 +220,7 @@ internal static class PerformanceReviewRunner
 
         work.SelectTask(activeTasks[0].Id);
         await IdleAsync();
+        Task<bool>? pendingStableSave = null;
         var coldSaveResults = await MeasureWithIdleAsync(
             "task-title-save-cold",
             1,
@@ -227,8 +228,15 @@ internal static class PerformanceReviewRunner
             _ =>
             {
                 work.Title = "Synthetic cold title save";
-                if (!work.FlushPendingAutosave()) throw new InvalidOperationException();
-            });
+                var revision = work.AutosaveRevision;
+                if (!work.RunScheduledAutosave(force: true)) throw new InvalidOperationException();
+                pendingStableSave = work.WaitForAutosaveRevisionAsync(revision);
+            },
+            async () =>
+            {
+                if (pendingStableSave is null || !await pendingStableSave) throw new InvalidOperationException();
+            },
+            actionBudgetMilliseconds: 50);
         foreach (var result in coldSaveResults) WriteResult(result, observedOnly: true);
 
         for (var warmup = 0; warmup < 3; warmup++)
@@ -238,7 +246,9 @@ internal static class PerformanceReviewRunner
                 .SelectCommand.Execute(null);
             work.SelectTask(activeTasks[0].Id);
             work.Title = $"Synthetic warm-up title {warmup % 2}";
-            if (!work.FlushPendingAutosave()) throw new InvalidOperationException();
+            var revision = work.AutosaveRevision;
+            if (!work.RunScheduledAutosave(force: true)
+                || !await work.WaitForAutosaveRevisionAsync(revision)) throw new InvalidOperationException();
             await IdleAsync();
         }
 
@@ -330,32 +340,53 @@ internal static class PerformanceReviewRunner
             iteration =>
             {
                 work.Title = $"Synthetic task 00001 revision {iteration % 2}";
-                if (!work.FlushPendingAutosave()) throw new InvalidOperationException();
-            }));
+                var revision = work.AutosaveRevision;
+                if (!work.RunScheduledAutosave(force: true)) throw new InvalidOperationException();
+                pendingStableSave = work.WaitForAutosaveRevisionAsync(revision);
+            },
+            async () =>
+            {
+                if (pendingStableSave is null || !await pendingStableSave) throw new InvalidOperationException();
+            },
+            actionBudgetMilliseconds: 50));
 
         foreach (var result in results) WriteResult(result);
         foreach (var observation in observations) WriteResult(observation, observedOnly: true);
-        var titleSaveAction = results.Single(result => result.Operation == "task-title-save-action");
         var titleSaveStable = results.Single(result => result.Operation == "task-title-save-stable");
-        var titleSaveAllocationPassed = titleSaveAction.P50AllocatedBytes < 4_000_000;
+        var titleSaveAllocationPassed = titleSaveStable.P50AllocatedBytes < 4_000_000;
         var titleSaveMaximumPassed = titleSaveStable.MaximumMilliseconds <= scenario.BudgetMilliseconds * 2;
         Console.WriteLine(
             $"performance-review: constraint=task-title-save allocation_budget_bytes=4000000 "
             + $"maximum_budget_ms={scenario.BudgetMilliseconds * 2} "
             + $"result={(titleSaveAllocationPassed && titleSaveMaximumPassed ? "passed" : "failed")}");
-        var passed = results.All(result => result.P95Milliseconds <= result.BudgetMilliseconds)
-            && titleSaveAllocationPassed
-            && titleSaveMaximumPassed;
+        var passed = ReviewConstraintsPassed(results, scenario.BudgetMilliseconds);
         Console.WriteLine(
             $"performance-review: result={(passed ? "passed" : "failed")} code={(passed ? 0 : BudgetExceededExitCode)}");
         return passed ? 0 : BudgetExceededExitCode;
+    }
+
+    internal static bool TitleSaveStableConstraintsPassed(
+        PerformanceOperationResult stable,
+        int budgetMilliseconds) =>
+        stable.P50AllocatedBytes < 4_000_000
+        && stable.MaximumMilliseconds <= budgetMilliseconds * 2;
+
+    internal static bool ReviewConstraintsPassed(
+        IReadOnlyCollection<PerformanceOperationResult> results,
+        int budgetMilliseconds)
+    {
+        var titleSaveStable = results.Single(result => result.Operation == "task-title-save-stable");
+        return results.All(result => result.P95Milliseconds <= result.BudgetMilliseconds)
+            && TitleSaveStableConstraintsPassed(titleSaveStable, budgetMilliseconds);
     }
 
     private static async Task<IReadOnlyList<PerformanceOperationResult>> MeasureWithIdleAsync(
         string operation,
         int iterations,
         int budgetMilliseconds,
-        Action<int> action)
+        Action<int> action,
+        Func<Task>? waitForStable = null,
+        int? actionBudgetMilliseconds = null)
     {
         var actionElapsed = new double[iterations];
         var actionAllocations = new long[iterations];
@@ -367,13 +398,15 @@ internal static class PerformanceReviewRunner
         for (var iteration = 0; iteration < iterations; iteration++)
         {
             var allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+            var totalAllocatedBefore = GC.GetTotalAllocatedBytes(precise: false);
             var started = Stopwatch.GetTimestamp();
             action(iteration);
             actionElapsed[iteration] = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
             actionAllocations[iteration] = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+            if (waitForStable is not null) await waitForStable();
             await IdleAsync();
             stableElapsed[iteration] = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
-            stableAllocations[iteration] = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+            stableAllocations[iteration] = GC.GetTotalAllocatedBytes(precise: false) - totalAllocatedBefore;
         }
 
         var gen0Collections = GC.CollectionCount(0) - gen0Before;
@@ -385,7 +418,7 @@ internal static class PerformanceReviewRunner
                 $"{operation}-action",
                 actionElapsed,
                 actionAllocations,
-                budgetMilliseconds) with
+                actionBudgetMilliseconds ?? budgetMilliseconds) with
             {
                 Gen0Collections = gen0Collections,
                 Gen1Collections = gen1Collections,
