@@ -30,6 +30,10 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
     private DateTimeOffset? _pendingChangeUtc;
     private long? _pendingChangeGeneration;
     private ITimer? _scheduledRecovery;
+    // Scheduling only: never evidence that a generation is covered or a file is valid.
+    private DateTimeOffset? _nextReconciliationUtc;
+    private bool _recoveryDeadlineElapsed;
+    private long _scheduleGeneration;
     private readonly EncryptedWorkspaceStore _store;
     private readonly TimeProvider _timeProvider;
     private readonly string _workspacePath;
@@ -101,8 +105,11 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
                     return RecoveryDirectoryConfigurationResult.Failed();
                 }
 
+                InvalidateSchedule();
+                _recoveryDeadlineElapsed = false;
                 _automaticRecoveryDirectoryPath = resolvedPath;
                 _recoverySetIdentifier = recoverySetIdentifier;
+                _generationReconciliationRequired = !TryReconcileChangeGenerationWithRecoveryPoints();
                 if (_pendingChangeUtc is not null)
                 {
                     ScheduleOrCreateAutomaticRecovery();
@@ -178,7 +185,7 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
                     : CreateAutomaticRecoveryPoint();
             }
 
-            return ScheduleOrCreateAutomaticRecovery();
+            return ScheduleOrCreateAutomaticRecovery(useScheduledDeadline: true);
         }
     }
 
@@ -395,13 +402,14 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
         lock (_gate)
         {
             _closed = true;
-            _scheduledRecovery?.Dispose();
-            _scheduledRecovery = null;
+            InvalidateSchedule();
             _passphrase = null;
         }
     }
 
-    private AutomaticRecoveryAttempt ScheduleOrCreateAutomaticRecovery()
+    private AutomaticRecoveryAttempt ScheduleOrCreateAutomaticRecovery(
+        bool useScheduledDeadline = false,
+        bool deadlineElapsed = false)
     {
         if (_automaticRecoveryDirectoryPath is null)
         {
@@ -409,6 +417,23 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
         }
 
         var now = _timeProvider.GetUtcNow();
+        deadlineElapsed |= _recoveryDeadlineElapsed;
+        if (!deadlineElapsed && useScheduledDeadline && _nextReconciliationUtc is { } scheduledDeadline)
+        {
+            // A rollback can shorten the deadline, but later commits never extend it.
+            scheduledDeadline = scheduledDeadline > now + AutomaticRecoveryCadence
+                ? now + AutomaticRecoveryCadence
+                : scheduledDeadline;
+            if (now < scheduledDeadline)
+            {
+                return ScheduleRecovery(scheduledDeadline, now);
+            }
+
+            deadlineElapsed = true;
+        }
+
+        _recoveryDeadlineElapsed = deadlineElapsed;
+        InvalidateSchedule();
         List<AutomaticRecoveryPoint> validatedPoints;
         try
         {
@@ -445,29 +470,51 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
                 _pendingChangeGeneration = null;
             }
 
+            _recoveryDeadlineElapsed = false;
             return AutomaticRecoveryAttempt.Ignored;
         }
 
         var dueAtUtc = newest.CreatedAtUtc > now
             ? (_pendingChangeUtc ?? now) + AutomaticRecoveryCadence
             : newest.CreatedAtUtc + AutomaticRecoveryCadence;
-        if (now >= dueAtUtc)
+        if (deadlineElapsed || now >= dueAtUtc)
         {
             return CreateAutomaticRecoveryPoint();
         }
 
-        var dueIn = dueAtUtc - now;
-        _scheduledRecovery?.Dispose();
-        _scheduledRecovery = _timeProvider.CreateTimer(
-            static state => ((EncryptedWorkspaceRecovery)state!).ProcessPendingAutomaticRecovery(),
-            this,
-            dueIn,
+        return ScheduleRecovery(dueAtUtc, now);
+    }
+
+    private AutomaticRecoveryAttempt ScheduleRecovery(DateTimeOffset dueAtUtc, DateTimeOffset now)
+    {
+        _nextReconciliationUtc = dueAtUtc;
+        // Keep an already-running relative timer: clock changes and repeated commits
+        // must not restart its wait and postpone an outstanding recovery obligation.
+        _scheduledRecovery ??= _timeProvider.CreateTimer(
+            static state =>
+            {
+                var scheduled = (ScheduledAutomaticRecovery)state!;
+                scheduled.Recovery.ProcessPendingAutomaticRecovery(scheduled.Generation);
+            },
+            new ScheduledAutomaticRecovery(this, _scheduleGeneration),
+            dueAtUtc - now,
             Timeout.InfiniteTimeSpan);
         return AutomaticRecoveryAttempt.Scheduled;
     }
 
+    private void InvalidateSchedule()
+    {
+        _scheduleGeneration++;
+        _nextReconciliationUtc = null;
+        _scheduledRecovery?.Dispose();
+        _scheduledRecovery = null;
+    }
+
     private AutomaticRecoveryAttempt CreateAutomaticRecoveryPoint()
     {
+        // Failed due work is retried on the next commit, even after clock rollback.
+        _recoveryDeadlineElapsed = true;
+        InvalidateSchedule();
         var directoryPath = _automaticRecoveryDirectoryPath;
         if (directoryPath is null)
         {
@@ -500,14 +547,22 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
             _pendingChangeUtc = null;
             _pendingChangeGeneration = null;
         }
+        _recoveryDeadlineElapsed = false;
+        _nextReconciliationUtc = _timeProvider.GetUtcNow() + AutomaticRecoveryCadence;
         PruneAutomaticRecoveryPoints(directoryPath, GetPassphrase());
         return AutomaticRecoveryAttempt.Created;
     }
 
-    private void ProcessPendingAutomaticRecovery()
+    private void ProcessPendingAutomaticRecovery(long? scheduleGeneration = null)
     {
         lock (_gate)
         {
+            // Dispose cannot withdraw a callback that is already queued behind the gate.
+            if (scheduleGeneration is { } generation && generation != _scheduleGeneration)
+            {
+                return;
+            }
+
             _scheduledRecovery?.Dispose();
             _scheduledRecovery = null;
             if (_closed || _pendingChangeUtc is null)
@@ -515,7 +570,7 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
                 return;
             }
 
-            ScheduleOrCreateAutomaticRecovery();
+            ScheduleOrCreateAutomaticRecovery(deadlineElapsed: scheduleGeneration is not null);
         }
     }
 
@@ -658,6 +713,9 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
                 _changeGeneration = Math.Max(
                     _changeGeneration,
                     validatedPoints.Max(point => point.ChangeGeneration));
+                var now = _timeProvider.GetUtcNow();
+                var newest = validatedPoints.Max(point => point.CreatedAtUtc);
+                _nextReconciliationUtc = (newest > now ? now : newest) + AutomaticRecoveryCadence;
             }
 
             return true;
@@ -853,6 +911,8 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
         Invalid,
         UnsupportedSchema,
     }
+
+    private sealed record ScheduledAutomaticRecovery(EncryptedWorkspaceRecovery Recovery, long Generation);
 
     private sealed record RecoveryStateDocument(
         int Version,
