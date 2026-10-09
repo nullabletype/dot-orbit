@@ -1,5 +1,6 @@
 using System.Globalization;
 using DotOrbit.Core.Workspaces;
+using DotOrbit.Core.Diagnostics;
 using Microsoft.Data.Sqlite;
 
 namespace DotOrbit.Storage.Sqlite;
@@ -614,6 +615,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         int? defaultTimeoutSeconds = null) =>
         passphrase.Use(value =>
         {
+            using var timing = PerformanceTrace.Measure(PerformanceStage.ConnectionOpen);
             var databaseUri = new Uri(path).AbsoluteUri + "?" + CipherQuery;
             var builder = new SqliteConnectionStringBuilder
             {
@@ -641,6 +643,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
 
     internal static void ConfigureConnection(SqliteConnection connection)
     {
+        using var timing = PerformanceTrace.Measure(PerformanceStage.ConnectionConfigure);
         using var command = connection.CreateCommand();
         command.CommandText = "PRAGMA temp_store = MEMORY; PRAGMA memory_security = 1; PRAGMA foreign_keys = ON;";
         command.ExecuteNonQuery();

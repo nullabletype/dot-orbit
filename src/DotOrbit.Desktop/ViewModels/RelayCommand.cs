@@ -1,4 +1,5 @@
 using System.Windows.Input;
+using DotOrbit.Core.Diagnostics;
 
 namespace DotOrbit.Desktop.ViewModels;
 
@@ -12,6 +13,7 @@ public sealed class RelayCommand(Action execute, Func<bool>? canExecute = null) 
     {
         if (CanExecute(parameter))
         {
+            using var timing = PerformanceTrace.Measure(PerformanceStage.Command);
             execute();
         }
     }

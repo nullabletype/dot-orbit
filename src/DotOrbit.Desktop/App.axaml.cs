@@ -23,6 +23,9 @@ public sealed partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            Program.TraceSession?.StartUiProbe(
+                action => Dispatcher.UIThread.Post(action, DispatcherPriority.Background),
+                Environment.CurrentManagedThreadId);
             ThemeService = new ApplicationThemeService(
                 this,
                 JsonApplicationThemePreferenceStore.CreateDefault());

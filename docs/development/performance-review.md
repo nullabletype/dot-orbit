@@ -133,3 +133,21 @@ Sources: [Plan and measure Windows app performance](https://learn.microsoft.com/
 Each issue runs the same committed harness on Windows 2025 and Ubuntu 24.04 as well as macOS and records evidence against its exact commit. After the fixes establish stable distributions, the final issue calibrates a cross-platform regression gate. No traces, screenshots, logs or test results may be uploaded as GitHub artifacts.
 
 #87 and #88 are both evidence-led, in that order: moving persistence off-thread alone would leave the full UI reload blocking, while incremental UI updates alone would leave the Windows storage call blocking. Connection reuse and targeted storage/index work remain separate hypotheses until residual traces after those two changes justify their risk.
+
+## Opt-in Windows timing recording
+
+A diagnostic Release build can record the ordinary workspace UI with `--performance-trace`. Use the normal workspace, reproduce the slow actions for one or two minutes, then close the application normally. No SDK, debugger, profiler, or administrator access is required. The flag adds measurements only; it does not enable the experimental connection-reuse optimisation.
+
+For Windows, extract the self-contained `win-x64` package into a writable folder and place `tools/Start-Performance-Recording.cmd` beside `dot-orbit.exe`. Close the other dot-orbit instance, then double-click the launcher. It explicitly selects the normal default workspace. The launcher is supplied separately and is not added to the validated application archive. Alternatively run:
+
+```powershell
+.\dot-orbit.exe --performance-trace --default-workspace
+```
+
+Closing the app writes `dot-orbit-performance-<random>.json` beside the executable. Return only that JSON file through the conversation. There is no automatic upload. The recorded fields are a fixed schema version, build/runtime/OS version and architecture, processor count, UI thread ID, monotonic relative timings, numeric span/parent IDs, managed thread IDs, and fixed operation/stage names. The recorder cannot accept task titles, descriptions, entity IDs, passwords, encryption keys, database values, SQL, paths, command arguments, or exception text as payloads. Unknown operation names become `Other`.
+
+Measurements remain in memory during use, capped at 30,000 completed spans; excess samples are counted and dropped. The JSON output has a 16 MiB limit. A crash or forced termination can leave an empty file, so close normally. If the extracted folder is not writable, recording is unavailable and the app still runs. An ordinary launch without the flag performs no diagnostic file I/O.
+
+Storage spans distinguish lock wait, encrypted connection open/configuration, transaction start, mutation/query work, archive-index maintenance, commit and automatic recovery. UI spans distinguish command execution, the complete refresh (including reads), and projection application. A background probe posts at most one UI callback at a time and measures dispatcher delay; it never builds a probe backlog while the UI is blocked. Command and dispatcher timings are not pointer-to-presented-frame measurements. Short trace overhead and Windows hardware/filesystem/rendering differences must be considered when comparing hosts. A Linux reproduction is not Windows acceptance evidence.
+
+No trace, log, screenshot, or test output belongs in GitHub artifact storage. Only the validated Release application package is eligible for the existing artifact workflow.
