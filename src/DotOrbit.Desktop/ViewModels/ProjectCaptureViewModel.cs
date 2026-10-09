@@ -1,3 +1,4 @@
+using DotOrbit.Core.Diagnostics;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
@@ -2302,10 +2303,15 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private string CategoryName(string id) => CategoryById(id).Name;
     private string EffectiveCategoryId(TaskRecord task) => task.ExplicitCategoryId
         ?? _snapshot.Projects.Single(project => project.Id == task.ProjectId).CategoryId;
-    private void Reload() => Reload(new(_work.Read(), _work.ReadTaskBin(), _work.ReadProjectBin()));
+    private void Reload()
+    {
+        using var timing = PerformanceTrace.Measure(PerformanceStage.Refresh);
+        Reload(new(_work.Read(), _work.ReadTaskBin(), _work.ReadProjectBin()));
+    }
 
     private void Reload(WorkspaceReloadData reload)
     {
+        using var timing = PerformanceTrace.Measure(PerformanceStage.ProjectionApply);
         _snapshot = reload.Snapshot;
         var taskBin = reload.TaskBin;
         var projectBin = reload.ProjectBin;

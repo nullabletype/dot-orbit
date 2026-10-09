@@ -1,4 +1,6 @@
 using DotOrbit.Core.Workspaces;
+using DotOrbit.Core.Diagnostics;
+using System.Runtime.CompilerServices;
 using Microsoft.Data.Sqlite;
 
 namespace DotOrbit.Storage.Sqlite;
@@ -29,12 +31,15 @@ internal sealed class WorkspaceTransactionCoordinator
     }
 
     internal AutomaticRecoveryAttempt Execute(
-        Action<SqliteConnection, SqliteTransaction> change)
+        Action<SqliteConnection, SqliteTransaction> change,
+        [CallerMemberName] string operation = "")
     {
         ArgumentNullException.ThrowIfNull(change);
-
+        using var timing = PerformanceTrace.Measure(PerformanceStage.StorageWrite, operation);
+        var wait = PerformanceTrace.Measure(PerformanceStage.GateWait, operation);
         lock (_gate)
         {
+            wait.Dispose();
             var passphrase = _passphrase
                 ?? throw new ObjectDisposedException(nameof(IWorkspaceSession));
             using var connection = EncryptedWorkspaceStore.OpenConnection(
@@ -42,24 +47,35 @@ internal sealed class WorkspaceTransactionCoordinator
                 passphrase,
                 SqliteOpenMode.ReadWrite);
             EncryptedWorkspaceStore.ConfigureConnection(connection);
-            using var transaction = connection.BeginTransaction();
-            change(connection, transaction);
-            _synchroniseDerivedStorage(connection, transaction);
-            transaction.Commit();
-            return _recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed);
+            using var transaction = BeginTransaction(connection);
+            using (PerformanceTrace.Measure(PerformanceStage.Mutation, operation))
+                change(connection, transaction);
+            using (PerformanceTrace.Measure(PerformanceStage.DerivedStorage, operation))
+                _synchroniseDerivedStorage(connection, transaction);
+            using (PerformanceTrace.Measure(PerformanceStage.Commit, operation))
+                transaction.Commit();
+            using (PerformanceTrace.Measure(PerformanceStage.Recovery, operation))
+                return _recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed);
         }
     }
 
-    internal T Read<T>(Func<SqliteConnection, SqliteTransaction, T> read)
+    internal T Read<T>(Func<SqliteConnection, SqliteTransaction, T> read,
+        [CallerMemberName] string operation = "")
     {
+        using var timing = PerformanceTrace.Measure(PerformanceStage.StorageRead, operation);
+        var wait = PerformanceTrace.Measure(PerformanceStage.GateWait, operation);
         lock (_gate)
         {
+            wait.Dispose();
             var passphrase = _passphrase ?? throw new ObjectDisposedException(nameof(IWorkspaceSession));
             using var connection = EncryptedWorkspaceStore.OpenConnection(_workspacePath, passphrase, SqliteOpenMode.ReadOnly);
             EncryptedWorkspaceStore.ConfigureConnection(connection);
-            using var transaction = connection.BeginTransaction();
-            var result = read(connection, transaction);
-            transaction.Commit();
+            using var transaction = BeginTransaction(connection);
+            T result;
+            using (PerformanceTrace.Measure(PerformanceStage.Query, operation))
+                result = read(connection, transaction);
+            using (PerformanceTrace.Measure(PerformanceStage.Commit, operation))
+                transaction.Commit();
             return result;
         }
     }
@@ -129,6 +145,12 @@ internal sealed class WorkspaceTransactionCoordinator
             _recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed);
             return new(EmptyBinStatus.Emptied, confirmedPreview);
         }
+    }
+
+    private static SqliteTransaction BeginTransaction(SqliteConnection connection)
+    {
+        using var timing = PerformanceTrace.Measure(PerformanceStage.TransactionBegin);
+        return connection.BeginTransaction();
     }
 
     private static void EnterExclusiveLock(SqliteConnection connection)

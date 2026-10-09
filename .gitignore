@@ -53,6 +53,7 @@ coverage.*
 *.coveragexml
 *.trx
 *.testlog
+dot-orbit-performance-*.json
 *.dmp
 *.stackdump
 
