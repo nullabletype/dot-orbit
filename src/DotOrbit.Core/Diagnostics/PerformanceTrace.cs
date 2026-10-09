@@ -107,10 +107,10 @@ public static class PerformanceTrace
         return new PerformanceScope(state);
     }
 
-    internal static void Complete(PerformanceScopeState state)
+    internal static void Complete(PerformanceScopeState state, bool capture = true)
     {
         if (ReferenceEquals(Current.Value, state)) Current.Value = state.Previous;
-        state.Recording.Complete(state);
+        state.Recording.Complete(state, capture);
     }
 
     internal static void Stop(PerformanceRecording active) =>
@@ -130,6 +130,12 @@ public readonly struct PerformanceScope : IDisposable
     public void Dispose()
     {
         if (state is not null) PerformanceTrace.Complete(state);
+    }
+
+    /// <summary>Restores this execution context without recording an unfinished measurement.</summary>
+    public void Cancel()
+    {
+        if (state is not null) PerformanceTrace.Complete(state, capture: false);
     }
 }
 
@@ -174,13 +180,13 @@ public sealed class PerformanceRecording : IDisposable
         }
     }
 
-    internal void Complete(PerformanceScopeState state)
+    internal void Complete(PerformanceScopeState state, bool capture)
     {
         lock (gate)
         {
             if (state.Completed) return;
             state.Completed = true;
-            if (disposed) return;
+            if (disposed || !capture) return;
             if (samples.Count == maximumSamples)
             {
                 droppedSamples++;

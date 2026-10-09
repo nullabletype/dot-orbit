@@ -110,6 +110,54 @@ public sealed class PerformanceTraceTests
         Assert.Throws<InvalidOperationException>(() => PerformanceTrace.Start());
     }
 
+    [Fact]
+    public void CancelledCopiesDoNotRecordOrConsumeCapacityAndRestoreParent()
+    {
+        var clock = new ManualClock();
+        using var recording = PerformanceTrace.Start(clock, maximumSamples: 2);
+        using (PerformanceTrace.Measure(PerformanceStage.Command))
+        {
+            var pending = PerformanceTrace.Measure(PerformanceStage.DispatchDelay);
+            var copy = pending;
+            clock.Advance(10);
+            copy.Cancel();
+            pending.Dispose();
+            copy.Cancel();
+            using (PerformanceTrace.Measure(PerformanceStage.StorageRead))
+                clock.Advance(5);
+        }
+
+        var samples = recording.Snapshot();
+        Assert.Equal(2, samples.Count);
+        var parent = Assert.Single(samples, sample => sample.Stage == PerformanceStage.Command);
+        var child = Assert.Single(samples, sample => sample.Stage == PerformanceStage.StorageRead);
+        Assert.Equal(parent.Id, child.ParentId);
+        Assert.Equal(10, child.StartMilliseconds);
+        Assert.Equal(5, child.DurationMilliseconds);
+        Assert.Equal(0, recording.DroppedSamples);
+        default(PerformanceScope).Cancel();
+    }
+
+    [Fact]
+    public async Task CancellationAfterCompletionInAnotherContextRestoresCallingContext()
+    {
+        using var recording = PerformanceTrace.Start();
+        using (PerformanceTrace.Measure(PerformanceStage.Command))
+        {
+            var pending = PerformanceTrace.Measure(PerformanceStage.DispatchDelay);
+            await Task.Run(pending.Dispose, TestContext.Current.CancellationToken);
+            pending.Cancel();
+            using (PerformanceTrace.Measure(PerformanceStage.StorageRead)) { }
+        }
+
+        var samples = recording.Snapshot();
+        var parent = Assert.Single(samples, sample => sample.Stage == PerformanceStage.Command);
+        Assert.Single(samples, sample => sample.Stage == PerformanceStage.DispatchDelay);
+        var sibling = Assert.Single(samples, sample => sample.Stage == PerformanceStage.StorageRead);
+        Assert.Equal(parent.Id, sibling.ParentId);
+        Assert.Equal(3, samples.Count);
+    }
+
     private sealed class ManualClock : TimeProvider
     {
         private long timestamp;
