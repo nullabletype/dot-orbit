@@ -17,6 +17,9 @@ internal readonly record struct PerformanceReviewScenario(
     int Iterations,
     int BudgetMilliseconds)
 {
+    public int RecoveryPointCount { get; init; }
+
+    private const string RecoveryPointsPrefix = "--performance-recovery-points=";
     private const string ReviewArgument = "--performance-review";
     private const string TaskCountPrefix = "--performance-tasks=";
     private const string IterationsPrefix = "--performance-iterations=";
@@ -30,7 +33,11 @@ internal readonly record struct PerformanceReviewScenario(
         var taskCount = ParseSingle(arguments, TaskCountPrefix, 250, 2, 5_000, out var tasksValid);
         var iterations = ParseSingle(arguments, IterationsPrefix, 20, 5, 100, out var iterationsValid);
         var budget = ParseSingle(arguments, BudgetPrefix, 100, 1, 5_000, out var budgetValid);
-        return new(true, tasksValid && iterationsValid && budgetValid, taskCount, iterations, budget);
+        var recoveryPoints = ParseSingle(arguments, RecoveryPointsPrefix, 0, 0, 16, out var recoveryValid);
+        return new(true, tasksValid && iterationsValid && budgetValid && recoveryValid, taskCount, iterations, budget)
+        {
+            RecoveryPointCount = recoveryPoints,
+        };
     }
 
     private static int ParseSingle(
@@ -67,19 +74,27 @@ internal sealed class PerformanceReviewWorkspace : IDisposable
     private PerformanceReviewWorkspace(
         string directory,
         IWorkspaceSession session,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        TimeSpan recoverySetupDuration,
+        TimeSpan unlockDuration)
     {
         _directory = directory;
         Session = session;
         TimeProvider = timeProvider;
+        RecoverySetupDuration = recoverySetupDuration;
+        UnlockDuration = unlockDuration;
     }
 
     public IWorkspaceSession Session { get; }
     public TimeProvider TimeProvider { get; }
+    public TimeSpan RecoverySetupDuration { get; }
+    public TimeSpan UnlockDuration { get; }
     internal string DirectoryPath => _directory;
 
-    public static PerformanceReviewWorkspace Create(int taskCount)
+    public static PerformanceReviewWorkspace Create(int taskCount, int recoveryPointCount = 0)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(recoveryPointCount);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(recoveryPointCount, 16);
         var directory = Path.Combine(
             Path.GetTempPath(),
             $"dot-orbit-performance-{Guid.NewGuid():N}");
@@ -90,7 +105,7 @@ internal sealed class PerformanceReviewWorkspace : IDisposable
                 ?? throw new InvalidOperationException();
             var category = CategoryName.Create("Synthetic category 01").CategoryName
                 ?? throw new InvalidOperationException();
-            var timeProvider = new FixedPerformanceTimeProvider(FixedNow);
+            var timeProvider = new FixedPerformanceTimeProvider(FixedNow.AddHours(-Math.Max(0, recoveryPointCount - 1)));
             var created = new EncryptedWorkspaceStore(
                 new SystemIdentifierGenerator(),
                 timeProvider).Create(
@@ -103,7 +118,30 @@ internal sealed class PerformanceReviewWorkspace : IDisposable
             try
             {
                 Populate(session.Work, taskCount);
-                return new(directory, session, timeProvider);
+                var recoveryStarted = Stopwatch.GetTimestamp();
+                if (recoveryPointCount > 0)
+                {
+                    var configured = session.Recovery.ConfigureAutomaticRecoveryDirectory(
+                        Path.Combine(directory, "recovery"));
+                    if (configured.Status != RecoveryDirectoryConfigurationStatus.Configured)
+                        throw new InvalidOperationException();
+                    var taskId = session.Work.Read().Tasks.First(task => !task.IsArchived).Id;
+                    for (var index = 1; index < recoveryPointCount; index++)
+                    {
+                        timeProvider.Advance(TimeSpan.FromHours(1));
+                        session.Work.SetTaskTodayLane(taskId,
+                            index % 2 == 0 ? TodayLane.Planned : TodayLane.InProgress);
+                    }
+                    if (Directory.GetFiles(configured.DirectoryPath!, "*.dotorbit-recovery").Length != recoveryPointCount)
+                        throw new InvalidOperationException();
+                }
+                var recoveryDuration = Stopwatch.GetElapsedTime(recoveryStarted);
+                session.Dispose();
+                var unlockStarted = Stopwatch.GetTimestamp();
+                var opened = new EncryptedWorkspaceStore(new SystemIdentifierGenerator(), timeProvider)
+                    .Open(Path.Combine(directory, "workspace.orb"), passphrase);
+                session = opened.Session ?? throw new InvalidOperationException();
+                return new(directory, session, timeProvider, recoveryDuration, Stopwatch.GetElapsedTime(unlockStarted));
             }
             catch
             {
@@ -184,7 +222,9 @@ internal sealed class PerformanceReviewWorkspace : IDisposable
 
 internal sealed class FixedPerformanceTimeProvider(DateTimeOffset utcNow) : TimeProvider
 {
-    public override DateTimeOffset GetUtcNow() => utcNow;
+    private DateTimeOffset _utcNow = utcNow;
+    public void Advance(TimeSpan duration) => _utcNow += duration;
+    public override DateTimeOffset GetUtcNow() => _utcNow;
     public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
 }
 
@@ -197,12 +237,13 @@ internal static class PerformanceReviewRunner
 
     public static async Task<int> RunAsync(
         MainWindow window,
-        IWorkspaceWork store,
+        PerformanceReviewWorkspace workspace,
         PerformanceReviewScenario scenario,
         TimeSpan startupDuration)
     {
         ArgumentNullException.ThrowIfNull(window);
-        ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(workspace);
+        var store = workspace.Session.Work;
         await IdleAsync();
 
         var shell = (ShellViewModel?)window.DataContext ?? throw new InvalidOperationException();
@@ -213,7 +254,9 @@ internal static class PerformanceReviewRunner
         Console.WriteLine(
             $"performance-review: environment commit={PerformanceReviewBuild.Commit()} configuration={Configuration()} "
             + $"os={Environment.OSVersion.Platform} framework={Environment.Version} tasks={scenario.TaskCount} "
-            + $"iterations={scenario.Iterations} budget_ms={scenario.BudgetMilliseconds}");
+            + $"iterations={scenario.Iterations} budget_ms={scenario.BudgetMilliseconds} recovery_points={scenario.RecoveryPointCount}");
+        WriteTimingObservation("recovery-setup", workspace.RecoverySetupDuration);
+        WriteTimingObservation("workspace-unlock", workspace.UnlockDuration);
         Console.WriteLine(
             $"performance-review: operation=startup-to-open iterations=1 p50_ms={Format(startupDuration.TotalMilliseconds)} "
             + $"p95_ms={Format(startupDuration.TotalMilliseconds)} max_ms={Format(startupDuration.TotalMilliseconds)} result=observed");
@@ -350,6 +393,55 @@ internal static class PerformanceReviewRunner
             },
             actionBudgetMilliseconds: 50));
 
+        // These row actions retain their full refresh; measure their complete command-to-idle boundary.
+        var actionTaskId = activeTasks[1].Id;
+        work.RefreshFromStore();
+        var initiallyOnToday = work.TodayPlanned.Concat(work.TodayInProgress).Any(row => row.Task.Id == actionTaskId);
+        observations.AddRange(await MeasureWithIdleAsync(
+            "today-membership", scenario.Iterations, scenario.BudgetMilliseconds,
+            _ => work.ToggleToday(actionTaskId),
+            validateAfterIteration: iteration => Require(
+                work.TodayPlanned.Concat(work.TodayInProgress).Any(row => row.Task.Id == actionTaskId)
+                    == (iteration % 2 == 0 ? !initiallyOnToday : initiallyOnToday)
+                && !work.NeedsDecision)));
+        if (!work.TodayPlanned.Concat(work.TodayInProgress).Any(row => row.Task.Id == actionTaskId))
+            work.ToggleToday(actionTaskId);
+        var initiallyPlanned = work.TodayPlanned.Any(row => row.Task.Id == actionTaskId);
+        observations.AddRange(await MeasureWithIdleAsync(
+            "today-start-stop", scenario.Iterations, scenario.BudgetMilliseconds,
+            _ => work.MoveToOtherTodayLane(actionTaskId),
+            validateAfterIteration: iteration => Require(
+                (iteration % 2 == 0 ? !initiallyPlanned : initiallyPlanned)
+                    ? work.TodayPlanned.Any(row => row.Task.Id == actionTaskId)
+                    : work.TodayInProgress.Any(row => row.Task.Id == actionTaskId))));
+        observations.AddRange(await MeasureWithIdleAsync(
+            "task-complete-reopen", scenario.Iterations, scenario.BudgetMilliseconds,
+            _ => work.ToggleCompletion(actionTaskId),
+            validateAfterIteration: iteration => Require(
+                work.Completed.Any(row => row.Id == actionTaskId) == (iteration % 2 == 0))));
+        // An odd iteration count leaves the Task completed; restore it before the reorder observation.
+        if (store.Read().Tasks.Single(task => task.Id == actionTaskId).IsComplete)
+            work.ToggleCompletion(actionTaskId);
+        work.MoveToBottom(actionTaskId);
+        observations.AddRange(await MeasureWithIdleAsync(
+            "task-move", scenario.Iterations, scenario.BudgetMilliseconds,
+            iteration =>
+            {
+                if (iteration % 2 == 0) work.MoveToTop(actionTaskId);
+                else work.MoveToBottom(actionTaskId);
+            },
+            validateAfterIteration: iteration => Require(
+                work.Backlog[iteration % 2 == 0 ? 0 : work.Backlog.Count - 1].Id == actionTaskId)));
+        if (scenario.RecoveryPointCount > 0)
+        {
+            var recoveryDirectory = workspace.Session.Recovery.AutomaticRecoveryDirectoryPath!;
+            var priorPoints = Directory.GetFiles(recoveryDirectory, "*.dotorbit-recovery").ToHashSet(StringComparer.Ordinal);
+            ((FixedPerformanceTimeProvider)workspace.TimeProvider).Advance(TimeSpan.FromHours(1));
+            observations.Add(MeasureSync("due-recovery-commit", 1, scenario.BudgetMilliseconds,
+                _ => store.CompleteTask(actionTaskId)));
+            Require(Directory.GetFiles(recoveryDirectory, "*.dotorbit-recovery").Any(path => !priorPoints.Contains(path)));
+        }
+
         foreach (var result in results) WriteResult(result);
         foreach (var observation in observations) WriteResult(observation, observedOnly: true);
         var titleSaveStable = results.Single(result => result.Operation == "task-title-save-stable");
@@ -386,7 +478,8 @@ internal static class PerformanceReviewRunner
         int budgetMilliseconds,
         Action<int> action,
         Func<Task>? waitForStable = null,
-        int? actionBudgetMilliseconds = null)
+        int? actionBudgetMilliseconds = null,
+        Action<int>? validateAfterIteration = null)
     {
         var actionElapsed = new double[iterations];
         var actionAllocations = new long[iterations];
@@ -407,6 +500,7 @@ internal static class PerformanceReviewRunner
             await IdleAsync();
             stableElapsed[iteration] = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
             stableAllocations[iteration] = GC.GetTotalAllocatedBytes(precise: false) - totalAllocatedBefore;
+            validateAfterIteration?.Invoke(iteration);
         }
 
         var gen0Collections = GC.CollectionCount(0) - gen0Before;
@@ -482,6 +576,16 @@ internal static class PerformanceReviewRunner
 
     private static Task IdleAsync() =>
         Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle).GetTask();
+
+    private static void Require(bool condition)
+    {
+        if (!condition) throw new InvalidOperationException("Synthetic performance action did not reach its expected state.");
+    }
+
+    private static void WriteTimingObservation(string operation, TimeSpan duration) =>
+        Console.WriteLine(
+            $"performance-review: operation={operation} iterations=1 p50_ms={Format(duration.TotalMilliseconds)} "
+            + $"p95_ms={Format(duration.TotalMilliseconds)} max_ms={Format(duration.TotalMilliseconds)} result=observed");
 
     private static void WriteResult(
         PerformanceOperationResult result,

@@ -96,7 +96,7 @@ public sealed partial class App : Application
         PerformanceReviewWorkspace? workspace = null;
         try
         {
-            workspace = PerformanceReviewWorkspace.Create(scenario.TaskCount);
+            workspace = PerformanceReviewWorkspace.Create(scenario.TaskCount, scenario.RecoveryPointCount);
             var started = Stopwatch.GetTimestamp();
             var mainWindow = new MainWindow(
                 workspace.Session,
@@ -119,7 +119,7 @@ public sealed partial class App : Application
                     var startupDuration = Stopwatch.GetElapsedTime(started);
                     exitCode = await PerformanceReviewRunner.RunAsync(
                         mainWindow,
-                        ownedWorkspace.Session.Work,
+                        ownedWorkspace,
                         scenario,
                         startupDuration);
                 }
