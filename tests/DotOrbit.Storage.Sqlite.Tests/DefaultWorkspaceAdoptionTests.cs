@@ -88,18 +88,36 @@ public sealed class DefaultWorkspaceAdoptionTests
     public void ValidatedEncryptedLegacyWorkspaceIsAdoptedAndReopened()
     {
         using var fixture = new AdoptionFixture();
-        var store = new EncryptedWorkspaceStore();
+        var openedConnections = new List<SqliteConnection>();
+        var validationPairClosedBeforeAdoption = false;
+        var store = new EncryptedWorkspaceStore(
+            new SystemIdentifierGenerator(),
+            new WorkspaceFileOperations(),
+            TimeProvider.System,
+            connectionOpener: (path, passphrase, mode) =>
+            {
+                var connection = EncryptedWorkspaceStore.OpenConnection(path, passphrase, mode);
+                openedConnections.Add(connection);
+                return connection;
+            });
         var created = store.Create(
             fixture.LegacyPath,
             CreatePassphrase(ValidPassphrase),
             CreateCategory("Home"));
         Assert.Equal(WorkspaceCreationStatus.Created, created.Status);
         created.Session?.Dispose();
+        openedConnections.Clear();
         var originalHash = Hash(fixture.LegacyPath);
         var adoptingStore = new DefaultWorkspaceStore(
             store,
             new WorkspaceFileOperations(),
-            new FixedIdentifierGenerator());
+            new FixedIdentifierGenerator(),
+            afterLegacyValidation: () =>
+            {
+                Assert.Equal(2, openedConnections.Count);
+                validationPairClosedBeforeAdoption = openedConnections.All(
+                    connection => connection.State == System.Data.ConnectionState.Closed);
+            });
 
         var result = adoptingStore.Open(
             fixture.LegacyPath,
@@ -108,6 +126,12 @@ public sealed class DefaultWorkspaceAdoptionTests
 
         Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
         Assert.NotNull(session);
+        Assert.True(validationPairClosedBeforeAdoption);
+        Assert.Equal(4, openedConnections.Count);
+        Assert.All(openedConnections.Take(2), connection =>
+            Assert.Equal(System.Data.ConnectionState.Closed, connection.State));
+        Assert.All(openedConnections.Skip(2), connection =>
+            Assert.Equal(System.Data.ConnectionState.Open, connection.State));
         Assert.Equal("Home", session.FirstCategoryName);
         Assert.False(File.Exists(fixture.LegacyPath));
         Assert.Equal(originalHash, Hash(fixture.CurrentPath));

@@ -27,6 +27,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
     private readonly Func<SqliteConnection, string>? _passphraseRotationIntegrityCheck;
     private readonly Func<WorkspacePassphrase, bool>? _passphraseRotationReopenBlocked;
     private readonly Action<EmptyBinCheckpoint>? _emptyBinCheckpoint;
+    private readonly WorkspaceConnectionFactory _connectionFactory;
 
     public EncryptedWorkspaceStore()
         : this(
@@ -61,7 +62,8 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         Action<WorkspacePassphraseRotationCheckpoint>? passphraseRotationCheckpoint = null,
         Func<SqliteConnection, string>? passphraseRotationIntegrityCheck = null,
         Func<WorkspacePassphrase, bool>? passphraseRotationReopenBlocked = null,
-        Action<EmptyBinCheckpoint>? emptyBinCheckpoint = null)
+        Action<EmptyBinCheckpoint>? emptyBinCheckpoint = null,
+        Func<string, WorkspacePassphrase, SqliteOpenMode, SqliteConnection>? connectionOpener = null)
     {
         ArgumentNullException.ThrowIfNull(identifierGenerator);
         ArgumentNullException.ThrowIfNull(fileOperations);
@@ -75,6 +77,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         _passphraseRotationIntegrityCheck = passphraseRotationIntegrityCheck;
         _passphraseRotationReopenBlocked = passphraseRotationReopenBlocked;
         _emptyBinCheckpoint = emptyBinCheckpoint;
+        _connectionFactory = new WorkspaceConnectionFactory(connectionOpener);
         EnsureProviderInitialised();
     }
 
@@ -220,24 +223,27 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         string fullPath,
         WorkspacePassphrase passphrase)
     {
-        SqliteConnection? connection = null;
+        SqliteConnection? readConnection = null;
+        SqliteConnection? writeConnection = null;
         string? migrationRecoveryPointPath = null;
         try
         {
-            connection = OpenConnection(fullPath, passphrase, SqliteOpenMode.ReadOnly);
-            ConfigureConnection(connection);
-            var inspection = InspectWorkspace(connection);
+            readConnection = _connectionFactory.OpenConfigured(
+                fullPath,
+                passphrase,
+                SqliteOpenMode.ReadOnly);
+            var inspection = InspectWorkspace(readConnection);
             if (inspection.Status == WorkspaceInspectionStatus.UnsupportedSchema)
             {
-                connection.Dispose();
-                connection = null;
+                readConnection.Dispose();
+                readConnection = null;
                 return WorkspaceOpenResult.UnsupportedSchema();
             }
 
             if (inspection.Status == WorkspaceInspectionStatus.RequiresMigration)
             {
-                connection.Dispose();
-                connection = null;
+                readConnection.Dispose();
+                readConnection = null;
                 var migration = WorkspaceMigrationRunner.Run(
                     this,
                     fullPath,
@@ -254,9 +260,11 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
 
                 migrationRecoveryPointPath = migration.RecoveryPointPath;
                 _afterMigration?.Invoke();
-                connection = OpenConnection(fullPath, passphrase, SqliteOpenMode.ReadOnly);
-                ConfigureConnection(connection);
-                inspection = InspectWorkspace(connection);
+                readConnection = _connectionFactory.OpenConfigured(
+                    fullPath,
+                    passphrase,
+                    SqliteOpenMode.ReadOnly);
+                inspection = InspectWorkspace(readConnection);
                 if (inspection.Status == WorkspaceInspectionStatus.UnsupportedSchema)
                 {
                     return WorkspaceOpenResult.UnsupportedSchema(migration.RecoveryPointPath);
@@ -268,14 +276,20 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
                 }
             }
 
+            writeConnection = _connectionFactory.OpenConfigured(
+                fullPath,
+                passphrase,
+                SqliteOpenMode.ReadWrite);
             var session = new WorkspaceSession(
                 this,
-                connection,
+                readConnection,
+                writeConnection,
                 fullPath,
                 passphrase,
                 inspection.SchemaVersion,
                 inspection.FirstCategoryName);
-            connection = null;
+            readConnection = null;
+            writeConnection = null;
             return WorkspaceOpenResult.Opened(session);
         }
         catch (SqliteException)
@@ -296,7 +310,8 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         }
         finally
         {
-            connection?.Dispose();
+            readConnection?.Dispose();
+            writeConnection?.Dispose();
         }
     }
 
@@ -876,7 +891,6 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
 
     internal sealed class WorkspaceSession : IWorkspaceSession
     {
-        private SqliteConnection? _connection;
         private readonly object _gate = new();
         private readonly EncryptedWorkspaceRecovery _recovery;
         private readonly WorkspaceTransactionCoordinator _transactions;
@@ -887,7 +901,8 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
 
         public WorkspaceSession(
             EncryptedWorkspaceStore store,
-            SqliteConnection connection,
+            SqliteConnection readConnection,
+            SqliteConnection writeConnection,
             string workspacePath,
             WorkspacePassphrase passphrase,
             int schemaVersion,
@@ -896,7 +911,6 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
             _store = store;
             _workspacePath = workspacePath;
             _passphrase = passphrase;
-            _connection = connection;
             SchemaVersion = schemaVersion;
             FirstCategoryName = firstCategoryName;
             _recovery = new EncryptedWorkspaceRecovery(
@@ -906,10 +920,14 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
                 store._fileOperations,
                 store._timeProvider,
                 _gate,
+                readConnection,
                 Dispose);
             _transactions = new WorkspaceTransactionCoordinator(
                 workspacePath,
                 passphrase,
+                readConnection,
+                writeConnection,
+                store._connectionFactory,
                 _recovery,
                 _gate,
                 SqliteWorkspaceWork.RebuildArchiveSearchIndex,
@@ -980,12 +998,24 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
                     return;
                 }
 
-                _transactions.Close();
-                _recovery.Close();
-                _connection?.Dispose();
-                _connection = null;
-                _passphrase = null;
-                _disposed = true;
+                try
+                {
+                    _transactions.CloseConnections();
+                }
+                finally
+                {
+                    try
+                    {
+                        _recovery.CloseScheduling();
+                    }
+                    finally
+                    {
+                        _transactions.ClearPassphrase();
+                        _recovery.ClearPassphrase();
+                        _passphrase = null;
+                        _disposed = true;
+                    }
+                }
             }
         }
     }

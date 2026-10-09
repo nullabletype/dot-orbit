@@ -38,6 +38,7 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
     private readonly TimeProvider _timeProvider;
     private readonly string _workspacePath;
     private readonly string _recoveryStatePath;
+    private SqliteConnection? _sessionReadConnection;
 
     private string? _automaticRecoveryDirectoryPath;
     private bool _closed;
@@ -52,6 +53,7 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
         IWorkspaceFileOperations fileOperations,
         TimeProvider timeProvider,
         object gate,
+        SqliteConnection sessionReadConnection,
         Action closeWorkspace)
     {
         _store = store;
@@ -60,6 +62,7 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
         _fileOperations = fileOperations;
         _timeProvider = timeProvider;
         _gate = gate;
+        _sessionReadConnection = sessionReadConnection;
         _closeWorkspace = closeWorkspace;
         _recoveryStatePath = workspacePath + ".recovery-state.json";
         LoadRecoveryState();
@@ -215,7 +218,7 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
         try
         {
             _fileOperations.EnsureDirectory(directory);
-            var source = existingSource;
+            var source = existingSource ?? _sessionReadConnection;
             if (source is null)
             {
                 ownedSource = EncryptedWorkspaceStore.OpenConnection(
@@ -399,12 +402,20 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
         }
     }
 
-    internal void Close()
+    internal void CloseScheduling()
     {
         lock (_gate)
         {
             _closed = true;
             InvalidateSchedule();
+            _sessionReadConnection = null;
+        }
+    }
+
+    internal void ClearPassphrase()
+    {
+        lock (_gate)
+        {
             _passphrase = null;
         }
     }

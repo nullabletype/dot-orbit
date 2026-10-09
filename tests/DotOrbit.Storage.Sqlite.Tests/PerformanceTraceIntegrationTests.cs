@@ -13,7 +13,7 @@ public sealed class PerformanceTraceTestGroup;
 public sealed class PerformanceTraceIntegrationTests
 {
     [Fact]
-    public void ActualEncryptedMutationSeparatesOpenQueryCommitAndRecoveryWithoutContent()
+    public void WarmEncryptedOperationsSeparateStagesWithoutReopeningOrExposingContent()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"dot-orbit-trace-test-{Guid.NewGuid():N}");
         try
@@ -36,8 +36,8 @@ public sealed class PerformanceTraceIntegrationTests
                 && sample.Operation == PerformanceOperation.SetTaskTodayLane
                 && samples.Any(child => child.ParentId == sample.Id && child.Stage == PerformanceStage.Commit));
             Assert.Contains(samples, sample => sample.ParentId == write.Id && sample.Stage == PerformanceStage.GateWait);
-            Assert.Contains(samples, sample => sample.ParentId == write.Id && sample.Stage == PerformanceStage.ConnectionOpen);
-            Assert.Contains(samples, sample => sample.ParentId == write.Id && sample.Stage == PerformanceStage.ConnectionConfigure);
+            Assert.DoesNotContain(samples, sample => sample.Stage == PerformanceStage.ConnectionOpen);
+            Assert.DoesNotContain(samples, sample => sample.Stage == PerformanceStage.ConnectionConfigure);
             Assert.Contains(samples, sample => sample.ParentId == write.Id && sample.Stage == PerformanceStage.Mutation);
             Assert.Contains(samples, sample => sample.ParentId == write.Id && sample.Stage == PerformanceStage.DerivedStorage);
             Assert.Contains(samples, sample => sample.ParentId == write.Id && sample.Stage == PerformanceStage.Recovery);
