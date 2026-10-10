@@ -13,6 +13,9 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private readonly IWorkspaceWork _work;
     private readonly TimeProvider _timeProvider;
     private readonly IInspectorSaveWriter _inspectorSaveWriter;
+    private readonly IWorkspaceActionExecutor _actionExecutor;
+    private readonly IUiDispatcher _uiDispatcher;
+    private readonly Queue<QueuedWorkspaceAction> _queuedWorkspaceActions = [];
     private readonly Dictionary<string, TaskRowViewModel> _taskRows = new(StringComparer.Ordinal);
     private WorkspaceWorkSnapshot _snapshot = new([], [], []);
     private Action? _pendingNavigation;
@@ -92,22 +95,48 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private EmptyBinPreview? _pendingEmptyBinPreview;
     private int _bulkArchiveCompletedAgeDays = 30;
     private int _bulkArchiveAffectedCount;
+    private bool _processingWorkspaceActions;
+    private bool _workspaceActionAdmissionClosed;
+    private int _pendingWorkspaceActionCount;
+    private bool _canRetryWorkspaceRefresh;
+    private TaskCompletionSource _workspaceActionsSettled = CompletedActionQueue();
+    private Action? _pendingWorkspaceBarrier;
+    private WorkspaceActionPerformanceTiming? _lastWorkspaceActionTiming;
 
     public static TimeSpan AutosaveDelay { get; } = TimeSpan.FromMilliseconds(600);
 
     public ProjectCaptureViewModel(IWorkspaceWork work, TimeProvider? timeProvider = null)
-        : this(work, timeProvider, new InlineInspectorSaveWriter(new WorkspaceInspectorSaveOperation(work)))
+        : this(work, timeProvider, null, null, null)
     {
     }
 
     internal ProjectCaptureViewModel(
         IWorkspaceWork work,
         TimeProvider? timeProvider,
-        IInspectorSaveWriter inspectorSaveWriter)
+        IInspectorSaveWriter? inspectorSaveWriter,
+        IWorkspaceActionExecutor? actionExecutor = null,
+        IUiDispatcher? uiDispatcher = null)
     {
         _work = work;
         _timeProvider = timeProvider ?? TimeProvider.System;
-        _inspectorSaveWriter = inspectorSaveWriter;
+        if (inspectorSaveWriter is null)
+        {
+            var inline = new InlineWorkspacePersistenceExecutor(
+                new WorkspacePersistenceOperation(work, _timeProvider),
+                _timeProvider);
+            _inspectorSaveWriter = inline;
+            _actionExecutor = inline;
+        }
+        else
+        {
+            _inspectorSaveWriter = inspectorSaveWriter;
+            _actionExecutor = actionExecutor
+                ?? inspectorSaveWriter as IWorkspaceActionExecutor
+                ?? throw new ArgumentException(
+                    "The inspector writer and workspace actions must share one persistence executor.",
+                    nameof(actionExecutor));
+        }
+        _uiDispatcher = uiDispatcher ?? new InlineUiDispatcher();
         NewProjectCommand = new(() => Navigate(BeginProject));
         NewTaskCommand = new(() => Navigate(BeginStandaloneTask));
         NewTodayTaskCommand = new(() => Navigate(BeginTodayTask));
@@ -132,6 +161,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             ParticipantFocusAutomationId = "participant-picker";
         });
         RetryAutosaveCommand = new(() => RunScheduledAutosave(force: true));
+        RetryWorkspaceRefreshCommand = new(() => EnqueueWorkspaceAction(
+            new(WorkspaceActionKind.Refresh), closesInspectorOnCommit: false));
         DeleteCategoryCommand = new(() =>
         {
             if (_editingCategory && !_creating && _editingId is not null) BeginCategoryDeletion(_editingId);
@@ -158,6 +189,12 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             _pendingDeferredActionCompletion?.TrySetResult(false);
             _pendingDeferredActionCompletion = null;
             _pendingNavigationClosesInspector = true;
+            if (_pendingWorkspaceBarrier is not null)
+            {
+                _pendingWorkspaceBarrier = null;
+                _workspaceActionAdmissionClosed = false;
+                Notify(nameof(WorkspaceActionStatus));
+            }
             Notify(nameof(NeedsDecision));
             Notify(nameof(HasBlockingDialog));
         });
@@ -206,6 +243,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public RelayCommand AddNewParticipantCommand { get; }
     public RelayCommand CancelNewParticipantCommand { get; }
     public RelayCommand RetryAutosaveCommand { get; }
+    public RelayCommand RetryWorkspaceRefreshCommand { get; }
     public RelayCommand DeleteCategoryCommand { get; }
     public RelayCommand ConfirmDeleteCategoryCommand { get; }
     public RelayCommand CancelDeleteCategoryCommand { get; }
@@ -309,6 +347,38 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         get => _hasAutosaveError;
         private set { _hasAutosaveError = value; Notify(); }
     }
+    public int PendingWorkspaceActionCount
+    {
+        get => _pendingWorkspaceActionCount;
+        private set
+        {
+            if (_pendingWorkspaceActionCount == value) return;
+            _pendingWorkspaceActionCount = value;
+            Notify();
+            Notify(nameof(HasPendingWorkspaceActions));
+            Notify(nameof(WorkspaceActionStatus));
+        }
+    }
+    public bool HasPendingWorkspaceActions => PendingWorkspaceActionCount > 0;
+    public string WorkspaceActionStatus => PendingWorkspaceActionCount switch
+    {
+        0 => string.Empty,
+        1 => _workspaceActionAdmissionClosed ? "Finishing 1 change before leaving…" : "Saving 1 change…",
+        _ => _workspaceActionAdmissionClosed
+            ? $"Finishing {PendingWorkspaceActionCount} changes before leaving…"
+            : $"Saving {PendingWorkspaceActionCount} changes…",
+    };
+    public bool CanRetryWorkspaceRefresh
+    {
+        get => _canRetryWorkspaceRefresh;
+        private set
+        {
+            if (_canRetryWorkspaceRefresh == value) return;
+            _canRetryWorkspaceRefresh = value;
+            Notify();
+        }
+    }
+    internal WorkspaceActionPerformanceTiming? LastWorkspaceActionTiming => _lastWorkspaceActionTiming;
     public bool ShowNewParticipantEntry => ParticipantToAdd?.IsNew == true;
     public bool ShowExistingParticipantAction => ParticipantToAdd is { IsNew: false, Id: not null };
     public event EventHandler<AutosaveRequestEventArgs>? AutosaveRequested;
@@ -806,18 +876,46 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     internal async Task NavigateAsync(Action destination)
     {
         ArgumentNullException.ThrowIfNull(destination);
-        if (NeedsDecision) return;
+        if (NeedsDecision)
+        {
+            _workspaceActionAdmissionClosed = true;
+            _pendingWorkspaceBarrier = destination;
+            if (HasPendingWorkspaceActions)
+            {
+                Message = WorkspaceActionStatus;
+                Notify(nameof(WorkspaceActionStatus));
+            }
+            return;
+        }
+        _workspaceActionAdmissionClosed = true;
+        _pendingWorkspaceBarrier = destination;
+        if (HasPendingWorkspaceActions)
+        {
+            Message = WorkspaceActionStatus;
+            Notify(nameof(WorkspaceActionStatus));
+        }
+        await CompleteWorkspaceBarrierAsync();
+    }
+
+    private async Task CompleteWorkspaceBarrierAsync()
+    {
         if ((_editingCategory ? IsDirty : HasPendingPersistence)
             && (_editingCategory || !await FlushPendingAutosaveAsync()))
         {
-            _pendingNavigation = destination;
-            _pendingNavigationClosesInspector = true;
+            _pendingNavigation = ResumeWorkspaceActionsAfterDraftDecision;
+            _pendingNavigationClosesInspector = false;
             Notify(nameof(NeedsDecision));
             Notify(nameof(HasBlockingDialog));
             return;
         }
+
+        await _workspaceActionsSettled.Task;
+        if (_pendingWorkspaceBarrier is not { } destination) return;
+        _pendingWorkspaceBarrier = null;
         CloseInspector();
         destination();
+        _workspaceActionAdmissionClosed = false;
+        Notify(nameof(WorkspaceActionStatus));
     }
 
     public void SelectProject(string id) => Navigate(() => LoadProject(id));
@@ -1489,19 +1587,22 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     }
 
     public bool DragTask(string taskId, string targetTaskId)
-    {
-        var targetPosition = Backlog.IndexOf(Backlog.Single(task => task.Id == targetTaskId));
-        return MoveTask(taskId, targetPosition);
-    }
+        => EnqueueWorkspaceAction(new(
+            WorkspaceActionKind.MoveBacklog,
+            taskId,
+            WorkspaceMoveKind.TargetTaskPosition,
+            targetTaskId), closesInspectorOnCommit: false);
 
     public bool DragTodayTask(string taskId, string targetTaskId)
     {
         var task = _snapshot.Tasks.Single(item => item.Id == taskId);
         var target = _snapshot.Tasks.Single(item => item.Id == targetTaskId);
         if (task.TodayLane is null || task.TodayLane != target.TodayLane) return false;
-        var rows = task.TodayLane == TodayLane.Planned ? TodayPlanned : TodayInProgress;
-        var targetPosition = rows.IndexOf(rows.Single(row => row.Task.Id == targetTaskId));
-        return MoveTodayTask(taskId, targetPosition);
+        return EnqueueWorkspaceAction(new(
+            WorkspaceActionKind.MoveToday,
+            taskId,
+            WorkspaceMoveKind.TargetTaskPosition,
+            targetTaskId), closesInspectorOnCommit: false);
     }
 
     public bool DragProject(string projectId, string targetProjectId) =>
@@ -1819,6 +1920,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         {
             HasAutosaveError = false;
             AutosaveStatus = "Saved";
+            StartWorkspaceActionProcessor();
             return;
         }
         if (_immediateSaveRequestedWhileInProgress)
@@ -2238,6 +2340,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         Reload();
         LoadCategory(categoryId);
         Message = "Category saved.";
+        StartWorkspaceActionProcessor();
 
         return true;
     }
@@ -2379,7 +2482,10 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         for (var index = 0; index < desiredArchived.Length; index++)
             Archived.Add(new(desiredArchived[index], index == desiredArchived.Length - 1));
         RefreshArchiveGroups();
-        RefreshArchiveSearch();
+        if (reload.ArchiveSearchQuery is null)
+            RefreshArchiveSearch();
+        else if (string.Equals(reload.ArchiveSearchQuery, ArchiveSearchText, StringComparison.Ordinal))
+            RefreshArchiveSearch(reload.ArchiveSearchResults ?? []);
         Bin.Clear();
         var projectsIncludingBin = _snapshot.Projects
             .Concat(projectBin.Select(item => item.Project))
@@ -2426,7 +2532,10 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         for (var index = 0; index < completedToday.Length; index++)
             CompletedToday.Add(new(completedToday[index], index == completedToday.Length - 1));
         RefreshCompletedGroups();
-        RefreshBulkArchivePreview();
+        if (reload.BulkArchiveAffectedCount is { } affectedCount)
+            BulkArchiveAffectedCount = affectedCount;
+        else
+            RefreshBulkArchivePreview();
         Notify(nameof(ProjectSummary));
         Notify(nameof(InspectorMetaValue));
         Notify(nameof(ShowTaskCompletionDate));
@@ -2561,7 +2670,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         }
     }
 
-    private void RefreshArchiveSearch()
+    private void RefreshArchiveSearch(IReadOnlyList<ArchiveSearchResult>? suppliedResults = null)
     {
         _archiveSearchFailed = false;
         if (!HasArchiveSearchQuery)
@@ -2575,7 +2684,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
         try
         {
-            var results = _work.SearchArchive(ArchiveSearchText);
+            var results = suppliedResults ?? _work.SearchArchive(ArchiveSearchText);
             var matches = results.Select(result =>
             {
                 if (result.RecordType == ArchiveSearchRecordType.Project)
@@ -2762,66 +2871,317 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         return (weekStart, $"Week of {weekStart.ToString("d MMM yyyy", CultureInfo.InvariantCulture)}");
     }
 
+    internal Task WaitForWorkspaceActionsAsync() => _workspaceActionsSettled.Task;
+
+    internal async Task DrainWorkspaceActionsAsync()
+    {
+        _workspaceActionAdmissionClosed = true;
+        if (HasPendingWorkspaceActions)
+        {
+            Message = WorkspaceActionStatus;
+            Notify(nameof(WorkspaceActionStatus));
+        }
+        await _workspaceActionsSettled.Task;
+    }
+
+    private bool EnqueueWorkspaceAction(WorkspaceActionRequest request, bool closesInspectorOnCommit)
+    {
+        if (_workspaceActionAdmissionClosed || NeedsDecision) return false;
+        var admittedAt = _timeProvider.GetTimestamp();
+        request = request with
+        {
+            BulkArchiveCompletedAgeDays = BulkArchiveCompletedAgeDays,
+            ArchiveSearchText = ArchiveSearchText,
+            AdmittedAtTimestamp = admittedAt,
+        };
+        if (PendingWorkspaceActionCount == 0)
+            _workspaceActionsSettled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        PendingWorkspaceActionCount++;
+        if (request.Kind == WorkspaceActionKind.Refresh) CanRetryWorkspaceRefresh = false;
+        Message = WorkspaceActionStatus;
+        _queuedWorkspaceActions.Enqueue(new(
+            request,
+            closesInspectorOnCommit,
+            admittedAt,
+            _timeProvider.GetElapsedTime(admittedAt),
+            _inspectorGeneration,
+            _autosaveRevision));
+        StartWorkspaceActionProcessor();
+        return true;
+    }
+
+    private void StartWorkspaceActionProcessor()
+    {
+        if (_processingWorkspaceActions || _queuedWorkspaceActions.Count == 0) return;
+        _processingWorkspaceActions = true;
+        _ = ProcessWorkspaceActionsAsync();
+    }
+
+    private async Task ProcessWorkspaceActionsAsync()
+    {
+        while (true)
+        {
+            QueuedWorkspaceAction? queued = null;
+            await _uiDispatcher.InvokeAsync(() =>
+            {
+                if (_queuedWorkspaceActions.Count > 0) queued = _queuedWorkspaceActions.Peek();
+            });
+            if (queued is null) break;
+
+            var draftReady = await _uiDispatcher.InvokeAsync(async () =>
+            {
+                if (NeedsDecision) return false;
+                if (!(_editingCategory ? IsDirty : HasPendingPersistence)) return true;
+                return !_editingCategory && await FlushPendingAutosaveAsync();
+            });
+            if (!draftReady)
+            {
+                await _uiDispatcher.InvokeAsync(() =>
+                {
+                    if (!NeedsDecision)
+                    {
+                        _pendingNavigation = ResumeWorkspaceActionsAfterDraftDecision;
+                        _pendingNavigationClosesInspector = false;
+                        Notify(nameof(NeedsDecision));
+                        Notify(nameof(HasBlockingDialog));
+                    }
+                    _processingWorkspaceActions = false;
+                });
+                return;
+            }
+
+            var result = await _actionExecutor.SubmitActionAsync(queued.Request);
+            WorkspaceActionRequest? consistencyRefresh = null;
+            await _uiDispatcher.InvokeAsync(() =>
+            {
+                if (result.Outcome == WorkspaceActionOutcome.Committed
+                    && (_inspectorGeneration != queued.InspectorGeneration
+                        || _autosaveRevision != queued.InspectorRevision))
+                {
+                    var admittedAt = _timeProvider.GetTimestamp();
+                    consistencyRefresh = new(
+                        WorkspaceActionKind.Refresh,
+                        BulkArchiveCompletedAgeDays: BulkArchiveCompletedAgeDays,
+                        ArchiveSearchText: ArchiveSearchText,
+                        AdmittedAtTimestamp: admittedAt);
+                }
+            });
+            if (consistencyRefresh is not null)
+            {
+                var refreshed = await _actionExecutor.SubmitActionAsync(consistencyRefresh);
+                result = refreshed.Outcome == WorkspaceActionOutcome.Refreshed
+                    ? result with
+                    {
+                        Reload = refreshed.Reload,
+                        Timing = new(
+                            result.Timing?.QueueWait ?? TimeSpan.Zero,
+                            (result.Timing?.Persistence ?? TimeSpan.Zero)
+                            + (refreshed.Timing?.Persistence ?? TimeSpan.Zero)),
+                    }
+                    : result with
+                    {
+                        Outcome = WorkspaceActionOutcome.CommittedRefreshFailed,
+                        Reload = null,
+                    };
+            }
+            await _uiDispatcher.InvokeAsync(() =>
+            {
+                var accepted = _queuedWorkspaceActions.Dequeue();
+                ApplyWorkspaceActionResult(accepted, result);
+                PendingWorkspaceActionCount--;
+                if (PendingWorkspaceActionCount == 0) _workspaceActionsSettled.TrySetResult();
+                else Message = $"{Message} {WorkspaceActionStatus}";
+            });
+        }
+
+        await _uiDispatcher.InvokeAsync(() =>
+        {
+            _processingWorkspaceActions = false;
+            StartWorkspaceActionProcessor();
+        });
+    }
+
+    private void ResumeWorkspaceActionsAfterDraftDecision()
+    {
+        StartWorkspaceActionProcessor();
+        if (_pendingWorkspaceBarrier is not null) _ = CompleteWorkspaceBarrierAsync();
+    }
+
+    private void ApplyWorkspaceActionResult(
+        QueuedWorkspaceAction queued,
+        WorkspaceActionResult result)
+    {
+        var dispatcherStarted = _timeProvider.GetTimestamp();
+        var inspectorContextIsCurrent = _inspectorGeneration == queued.InspectorGeneration
+            && _autosaveRevision == queued.InspectorRevision;
+        if (result.Outcome is WorkspaceActionOutcome.MutationFailed)
+        {
+            Message = WorkspaceActionFailureMessage(result.Request.Kind);
+            return;
+        }
+        if (result.Outcome is WorkspaceActionOutcome.CommittedRefreshFailed)
+        {
+            CanRetryWorkspaceRefresh = true;
+            Message = "Change saved, but the view could not refresh. Retry refresh.";
+            return;
+        }
+        if (result.Outcome is WorkspaceActionOutcome.RefreshFailed)
+        {
+            CanRetryWorkspaceRefresh = true;
+            Message = "The view could not refresh. Retry refresh.";
+            return;
+        }
+        if (result.Reload is null) return;
+
+        var priorTask = result.Effect?.TaskId is { } taskId
+            ? _snapshot.Tasks.SingleOrDefault(item => item.Id == taskId)
+            : null;
+        var backlogIndex = priorTask is null ? -1 : Backlog.IndexOf(Backlog.FirstOrDefault(row => row.Id == priorTask.Id)!);
+        var upcomingRows = UpcomingGroups.SelectMany(group => group.Rows).ToArray();
+        var upcomingIndex = priorTask is null ? -1 : Array.FindIndex(upcomingRows, row => row.Task.Id == priorTask.Id);
+        var completedIndex = priorTask is null ? -1 : Completed.IndexOf(Completed.FirstOrDefault(row => row.Id == priorTask.Id)!);
+        var completedTodayIndex = priorTask is null
+            ? -1
+            : CompletedToday.IndexOf(CompletedToday.FirstOrDefault(row => row.Task.Id == priorTask.Id)!);
+        var todaySource = priorTask?.TodayLane == TodayLane.Planned ? TodayPlanned : TodayInProgress;
+        var todayIndex = priorTask is null
+            ? -1
+            : todaySource.IndexOf(todaySource.FirstOrDefault(row => row.Task.Id == priorTask.Id)!);
+        Reload(result.Reload);
+        CanRetryWorkspaceRefresh = false;
+        if (result.Request.Kind == WorkspaceActionKind.Refresh)
+        {
+            Message = "View refreshed.";
+            return;
+        }
+
+        var effect = result.Effect!;
+        var task = _snapshot.Tasks.Single(item => item.Id == effect.TaskId);
+        var announcement = result.Request.Kind switch
+        {
+            WorkspaceActionKind.ToggleToday => effect.TodayLane switch
+            {
+                TodayLane.Planned => $"Added {task.Title} to Today in Planned.",
+                TodayLane.InProgress => $"Moved {task.Title} to In progress.",
+                _ => $"Removed {task.Title} from Today.",
+            },
+            WorkspaceActionKind.ToggleTodayLane => effect.TodayLane == TodayLane.Planned
+                ? $"Moved {task.Title} to Planned."
+                : $"Moved {task.Title} to In progress.",
+            WorkspaceActionKind.ToggleCompletion => effect.IsComplete == true
+                ? "Task completed."
+                : "Task reopened.",
+            WorkspaceActionKind.MoveBacklog =>
+                $"Moved {task.Title} to position {effect.Position} of {effect.Count} in Backlog.",
+            WorkspaceActionKind.MoveToday =>
+                $"Moved {task.Title} to position {effect.Position} of {effect.Count} in {(effect.TodayLane == TodayLane.Planned ? "Planned" : "In progress")}.",
+            _ => "Change saved.",
+        };
+
+        if (result.Request.Kind is WorkspaceActionKind.ToggleToday or WorkspaceActionKind.ToggleTodayLane
+            or WorkspaceActionKind.MoveToday)
+        {
+            TodayAnnouncement = announcement;
+            if (inspectorContextIsCurrent)
+                TodayFocusAutomationId = effect.TodayLane is null && _todayActive
+                    ? todaySource.Count == 0
+                        ? "today-clear"
+                        : todaySource[Math.Min(Math.Max(todayIndex, 0), todaySource.Count - 1)].Task.TodayAutomationId
+                    : result.Request.Kind == WorkspaceActionKind.MoveToday
+                        ? $"today-reorder-{task.Id}"
+                        : $"task-today-{task.Id}";
+        }
+        if (result.Request.Kind == WorkspaceActionKind.MoveBacklog)
+        {
+            ReorderAnnouncement = announcement;
+            if (inspectorContextIsCurrent)
+                ReorderFocusAutomationId = _taskRows[task.Id].ReorderAutomationId;
+        }
+        if (result.Request.Kind == WorkspaceActionKind.ToggleCompletion && inspectorContextIsCurrent)
+        {
+            if (effect.IsComplete == true && _backlogActive)
+            {
+                CompletionFocusAutomationId = Backlog.Count == 0
+                    ? "backlog-quick-title"
+                    : Backlog[Math.Min(Math.Max(backlogIndex, 0), Backlog.Count - 1)].CompletionAutomationId;
+            }
+            else if (effect.IsComplete == true && _upcomingActive)
+            {
+                var remainingUpcoming = UpcomingGroups.SelectMany(group => group.Rows).ToArray();
+                CompletionFocusAutomationId = remainingUpcoming.Length == 0
+                    ? "navigation-upcoming"
+                    : remainingUpcoming[Math.Min(Math.Max(upcomingIndex, 0), remainingUpcoming.Length - 1)]
+                        .Task.CompletionAutomationId;
+            }
+            else if (effect.IsComplete == false && _completedActive)
+            {
+                CompletionFocusAutomationId = Completed.Count == 0
+                    ? "navigation-completed"
+                    : Completed[Math.Min(Math.Max(completedIndex, 0), Completed.Count - 1)].CompletionAutomationId;
+            }
+            else if (effect.IsComplete == false && _todayActive)
+            {
+                CompletionFocusAutomationId = CompletedToday.Count == 0
+                    ? "navigation-today"
+                    : CompletedToday[Math.Min(Math.Max(completedTodayIndex, 0), CompletedToday.Count - 1)]
+                        .Task.CompletionAutomationId;
+            }
+            else CompletionFocusAutomationId = $"task-completion-{task.Id}";
+            var removedFromCurrentView = priorTask is not null &&
+                ((!priorTask.IsComplete && effect.IsComplete == true && (_backlogActive || _upcomingActive))
+                 || (priorTask.IsComplete && effect.IsComplete == false && _completedActive)
+                 || (priorTask.IsComplete && effect.IsComplete == false && _todayActive
+                     && priorTask.CompletionDate == Today));
+            if (queued.ClosesInspectorOnCommit && removedFromCurrentView) CloseInspector();
+        }
+        Message = announcement;
+        _lastWorkspaceActionTiming = new(
+            queued.Admission,
+            result.Timing?.QueueWait ?? TimeSpan.Zero,
+            result.Timing?.Persistence ?? TimeSpan.Zero,
+            _timeProvider.GetElapsedTime(dispatcherStarted),
+            _timeProvider.GetElapsedTime(queued.AdmittedAt));
+    }
+
+    private static string WorkspaceActionFailureMessage(WorkspaceActionKind kind) => kind switch
+    {
+        WorkspaceActionKind.ToggleToday or WorkspaceActionKind.ToggleTodayLane =>
+            "Could not change Today membership. No changes were made.",
+        WorkspaceActionKind.ToggleCompletion => "Could not change Task completion. No changes were made.",
+        WorkspaceActionKind.MoveBacklog => "Could not reorder the Task. The Backlog order was not changed.",
+        WorkspaceActionKind.MoveToday => "Could not reorder the Today lane.",
+        _ => "Could not refresh the view.",
+    };
+
     private bool MoveTask(string taskId, int targetPosition)
     {
-        if (HasPendingPersistence || (_editingCategory && IsDirty))
-            return RunAfterDraftFlush(() => MoveTask(taskId, targetPosition));
         var currentPosition = Backlog.IndexOf(Backlog.Single(task => task.Id == taskId));
         if (currentPosition < 0 || Backlog.Count == 0) return false;
         targetPosition = Math.Clamp(targetPosition, 0, Backlog.Count - 1);
-        if (!Attempt(() =>
-            {
-                var change = _work.MoveTaskInSharedOrder(taskId, targetPosition);
-                Reload();
-                var task = Backlog.Single(row => row.Id == taskId);
-                ReorderAnnouncement = $"Moved {task.Title} to position {change.Position} of {change.Count} in Backlog.";
-                Message = ReorderAnnouncement;
-            }, "Could not reorder the Task. The Backlog order was not changed.")) return false;
-        return true;
+        var move = targetPosition switch
+        {
+            0 => WorkspaceMoveKind.Top,
+            _ when targetPosition == Backlog.Count - 1 => WorkspaceMoveKind.Bottom,
+            _ when targetPosition < currentPosition => WorkspaceMoveKind.Up,
+            _ when targetPosition > currentPosition => WorkspaceMoveKind.Down,
+            _ => (WorkspaceMoveKind?)null,
+        };
+        return move is not null && EnqueueWorkspaceAction(
+            new(WorkspaceActionKind.MoveBacklog, taskId, move), closesInspectorOnCommit: false);
     }
 
     internal void ToggleToday(string taskId)
     {
-        var task = _snapshot.Tasks.Single(item => item.Id == taskId);
-        Action action = () => ApplyTodayLane(taskId, task.TodayLane is null ? TodayLane.Planned : null);
-        ResolveDraftBeforeAction(action);
-    }
-
-    private void ApplyTodayLane(string taskId, TodayLane? lane)
-    {
-        var task = _snapshot.Tasks.Single(item => item.Id == taskId);
-        var source = task.TodayLane == TodayLane.Planned ? TodayPlanned : TodayInProgress;
-        var sourceIndex = source.IndexOf(source.FirstOrDefault(row => row.Task.Id == taskId)!);
-        if (!Attempt(() =>
-            {
-                _work.SetTaskTodayLane(taskId, lane);
-                Reload();
-                var title = _snapshot.Tasks.Single(item => item.Id == taskId).Title;
-                TodayAnnouncement = lane switch
-                {
-                    TodayLane.Planned => $"Added {title} to Today in Planned.",
-                    TodayLane.InProgress => $"Moved {title} to In progress.",
-                    _ => $"Removed {title} from Today.",
-                };
-                if (lane is not null || !_todayActive)
-                    TodayFocusAutomationId = $"task-today-{taskId}";
-                else
-                {
-                    var remaining = task.TodayLane == TodayLane.Planned ? TodayPlanned : TodayInProgress;
-                    TodayFocusAutomationId = remaining.Count == 0
-                        ? "today-clear"
-                        : remaining[Math.Min(Math.Max(sourceIndex, 0), remaining.Count - 1)].Task.TodayAutomationId;
-                }
-                Message = TodayAnnouncement;
-            }, "Could not change Today membership.")) return;
+        EnqueueWorkspaceAction(
+            new(WorkspaceActionKind.ToggleToday, taskId),
+            closesInspectorOnCommit: false);
     }
 
     internal void MoveToOtherTodayLane(string taskId)
     {
-        var task = _snapshot.Tasks.Single(item => item.Id == taskId);
-        if (task.TodayLane is null) return;
-        ResolveDraftBeforeAction(() => ApplyTodayLane(taskId,
-            task.TodayLane == TodayLane.Planned ? TodayLane.InProgress : TodayLane.Planned));
+        EnqueueWorkspaceAction(
+            new(WorkspaceActionKind.ToggleTodayLane, taskId),
+            closesInspectorOnCommit: false);
     }
 
     internal bool MoveTodayTask(string taskId, int targetPosition)
@@ -2832,16 +3192,17 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         var laneRows = task.TodayLane == TodayLane.Planned ? TodayPlanned : TodayInProgress;
         if (laneRows.Count == 0) return false;
         targetPosition = Math.Clamp(targetPosition, 0, laneRows.Count - 1);
-        return RunAfterDraftFlush(() => Attempt(() =>
+        var currentPosition = laneRows.IndexOf(laneRows.Single(row => row.Task.Id == taskId));
+        var move = targetPosition switch
         {
-            var change = _work.MoveTaskInTodayLane(taskId, targetPosition);
-            Reload();
-            var title = _snapshot.Tasks.Single(item => item.Id == taskId).Title;
-            var laneName = change.Lane == TodayLane.Planned ? "Planned" : "In progress";
-            TodayAnnouncement = $"Moved {title} to position {change.Position} of {change.Count} in {laneName}.";
-            TodayFocusAutomationId = $"today-reorder-{taskId}";
-            Message = TodayAnnouncement;
-        }, "Could not reorder the Today lane."));
+            0 => WorkspaceMoveKind.Top,
+            _ when targetPosition == laneRows.Count - 1 => WorkspaceMoveKind.Bottom,
+            _ when targetPosition < currentPosition => WorkspaceMoveKind.Up,
+            _ when targetPosition > currentPosition => WorkspaceMoveKind.Down,
+            _ => (WorkspaceMoveKind?)null,
+        };
+        return move is not null && EnqueueWorkspaceAction(
+            new(WorkspaceActionKind.MoveToday, taskId, move), closesInspectorOnCommit: false);
     }
 
     private void ClearToday()
@@ -2875,59 +3236,9 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     {
         var task = _snapshot.Tasks.Single(item => item.Id == taskId);
         if (task.IsArchived) return;
-        Action action = () => ApplyCompletion(taskId, !task.IsComplete);
-        var removesDraftFromCurrentView = (!task.IsComplete && _backlogActive)
-            || (!task.IsComplete && _upcomingActive)
-            || (task.IsComplete && _completedActive)
-            || (task.IsComplete && _todayActive && task.CompletionDate == Today);
-        ResolveDraftBeforeAction(
-            action,
-            removesDraftFromCurrentView && _editingTask && _editingId == taskId);
-    }
-
-    private void ApplyCompletion(string taskId, bool complete)
-    {
-        var backlogIndex = Backlog.IndexOf(Backlog.FirstOrDefault(row => row.Id == taskId)!);
-        var upcomingRows = UpcomingGroups.SelectMany(group => group.Rows).ToArray();
-        var upcomingIndex = Array.FindIndex(upcomingRows, row => row.Task.Id == taskId);
-        var completedIndex = Completed.IndexOf(Completed.FirstOrDefault(row => row.Id == taskId)!);
-        var completedTodayIndex = CompletedToday.IndexOf(CompletedToday.FirstOrDefault(row => row.Task.Id == taskId)!);
-        if (!Attempt(() =>
-            {
-                if (complete) _work.CompleteTask(taskId); else _work.ReopenTask(taskId);
-                Reload();
-                if (complete && _backlogActive)
-                {
-                    CompletionFocusAutomationId = Backlog.Count == 0
-                        ? "backlog-quick-title"
-                        : Backlog[Math.Min(Math.Max(backlogIndex, 0), Backlog.Count - 1)].CompletionAutomationId;
-                }
-                else if (complete && _upcomingActive)
-                {
-                    var remainingUpcoming = UpcomingGroups.SelectMany(group => group.Rows).ToArray();
-                    CompletionFocusAutomationId = remainingUpcoming.Length == 0
-                        ? "navigation-upcoming"
-                        : remainingUpcoming[Math.Min(Math.Max(upcomingIndex, 0), remainingUpcoming.Length - 1)]
-                            .Task.CompletionAutomationId;
-                }
-                else if (!complete && _completedActive)
-                {
-                    CompletionFocusAutomationId = Completed.Count == 0
-                        ? "navigation-completed"
-                        : Completed[Math.Min(Math.Max(completedIndex, 0), Completed.Count - 1)].CompletionAutomationId;
-                }
-                else if (!complete && _todayActive)
-                {
-                    CompletionFocusAutomationId = CompletedToday.Count == 0
-                        ? "navigation-today"
-                        : CompletedToday[Math.Min(Math.Max(completedTodayIndex, 0), CompletedToday.Count - 1)].Task.CompletionAutomationId;
-                }
-                else
-                {
-                    CompletionFocusAutomationId = $"task-completion-{taskId}";
-                }
-                Message = complete ? "Task completed." : "Task reopened.";
-            }, complete ? "Could not complete the Task." : "Could not reopen the Task.")) return;
+        EnqueueWorkspaceAction(
+            new(WorkspaceActionKind.ToggleCompletion, taskId),
+            closesInspectorOnCommit: _editingTask && _editingId == taskId);
     }
 
     internal bool MoveProject(string projectId, int targetPosition)
@@ -2984,8 +3295,29 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             }, "Could not reorder the Project Task.")) return false;
         return true;
     }
+    private static TaskCompletionSource CompletedActionQueue()
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        completion.TrySetResult();
+        return completion;
+    }
+
+    private sealed record QueuedWorkspaceAction(
+        WorkspaceActionRequest Request,
+        bool ClosesInspectorOnCommit,
+        long AdmittedAt,
+        TimeSpan Admission,
+        long InspectorGeneration,
+        long InspectorRevision);
     private void Notify([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new(name));
 }
+
+internal sealed record WorkspaceActionPerformanceTiming(
+    TimeSpan Admission,
+    TimeSpan QueueWait,
+    TimeSpan Persistence,
+    TimeSpan DispatcherApplication,
+    TimeSpan TotalCompletion);
 
 public sealed record CategoryChoice(string? Id, string Name, string ColourKey = IdentityColourPalette.DefaultKey);
 public sealed record CategoryColourChoice(string Key, string Name);

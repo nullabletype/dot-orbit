@@ -408,16 +408,23 @@ internal static class PerformanceReviewRunner
         observations.AddRange(await MeasureWithIdleAsync(
             "today-membership", scenario.Iterations, scenario.BudgetMilliseconds,
             _ => work.ToggleToday(actionTaskId),
+            waitForStable: work.WaitForWorkspaceActionsAsync,
+            workspaceActionTiming: () => work.LastWorkspaceActionTiming,
             validateAfterIteration: iteration => Require(
                 work.TodayPlanned.Concat(work.TodayInProgress).Any(row => row.Task.Id == actionTaskId)
                     == (iteration % 2 == 0 ? !initiallyOnToday : initiallyOnToday)
                 && !work.NeedsDecision)));
         if (!work.TodayPlanned.Concat(work.TodayInProgress).Any(row => row.Task.Id == actionTaskId))
+        {
             work.ToggleToday(actionTaskId);
+            await work.WaitForWorkspaceActionsAsync();
+        }
         var initiallyPlanned = work.TodayPlanned.Any(row => row.Task.Id == actionTaskId);
         observations.AddRange(await MeasureWithIdleAsync(
             "today-start-stop", scenario.Iterations, scenario.BudgetMilliseconds,
             _ => work.MoveToOtherTodayLane(actionTaskId),
+            waitForStable: work.WaitForWorkspaceActionsAsync,
+            workspaceActionTiming: () => work.LastWorkspaceActionTiming,
             validateAfterIteration: iteration => Require(
                 (iteration % 2 == 0 ? !initiallyPlanned : initiallyPlanned)
                     ? work.TodayPlanned.Any(row => row.Task.Id == actionTaskId)
@@ -425,12 +432,18 @@ internal static class PerformanceReviewRunner
         observations.AddRange(await MeasureWithIdleAsync(
             "task-complete-reopen", scenario.Iterations, scenario.BudgetMilliseconds,
             _ => work.ToggleCompletion(actionTaskId),
+            waitForStable: work.WaitForWorkspaceActionsAsync,
+            workspaceActionTiming: () => work.LastWorkspaceActionTiming,
             validateAfterIteration: iteration => Require(
                 work.Completed.Any(row => row.Id == actionTaskId) == (iteration % 2 == 0))));
         // An odd iteration count leaves the Task completed; restore it before the reorder observation.
         if (store.Read().Tasks.Single(task => task.Id == actionTaskId).IsComplete)
+        {
             work.ToggleCompletion(actionTaskId);
+            await work.WaitForWorkspaceActionsAsync();
+        }
         work.MoveToBottom(actionTaskId);
+        await work.WaitForWorkspaceActionsAsync();
         observations.AddRange(await MeasureWithIdleAsync(
             "task-move", scenario.Iterations, scenario.BudgetMilliseconds,
             iteration =>
@@ -438,6 +451,8 @@ internal static class PerformanceReviewRunner
                 if (iteration % 2 == 0) work.MoveToTop(actionTaskId);
                 else work.MoveToBottom(actionTaskId);
             },
+            waitForStable: work.WaitForWorkspaceActionsAsync,
+            workspaceActionTiming: () => work.LastWorkspaceActionTiming,
             validateAfterIteration: iteration => Require(
                 work.Backlog[iteration % 2 == 0 ? 0 : work.Backlog.Count - 1].Id == actionTaskId)));
         connectionRecording.Dispose();
@@ -509,12 +524,18 @@ internal static class PerformanceReviewRunner
         Action<int> action,
         Func<Task>? waitForStable = null,
         int? actionBudgetMilliseconds = null,
-        Action<int>? validateAfterIteration = null)
+        Action<int>? validateAfterIteration = null,
+        Func<WorkspaceActionPerformanceTiming?>? workspaceActionTiming = null)
     {
         var actionElapsed = new double[iterations];
         var actionAllocations = new long[iterations];
         var stableElapsed = new double[iterations];
         var stableAllocations = new long[iterations];
+        var admissionElapsed = workspaceActionTiming is null ? null : new double[iterations];
+        var queueWaitElapsed = workspaceActionTiming is null ? null : new double[iterations];
+        var persistenceElapsed = workspaceActionTiming is null ? null : new double[iterations];
+        var dispatcherElapsed = workspaceActionTiming is null ? null : new double[iterations];
+        var completionElapsed = workspaceActionTiming is null ? null : new double[iterations];
         var gen0Before = GC.CollectionCount(0);
         var gen1Before = GC.CollectionCount(1);
         var gen2Before = GC.CollectionCount(2);
@@ -530,14 +551,22 @@ internal static class PerformanceReviewRunner
             await IdleAsync();
             stableElapsed[iteration] = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
             stableAllocations[iteration] = GC.GetTotalAllocatedBytes(precise: false) - totalAllocatedBefore;
+            if (workspaceActionTiming?.Invoke() is { } phases)
+            {
+                admissionElapsed![iteration] = phases.Admission.TotalMilliseconds;
+                queueWaitElapsed![iteration] = phases.QueueWait.TotalMilliseconds;
+                persistenceElapsed![iteration] = phases.Persistence.TotalMilliseconds;
+                dispatcherElapsed![iteration] = phases.DispatcherApplication.TotalMilliseconds;
+                completionElapsed![iteration] = phases.TotalCompletion.TotalMilliseconds;
+            }
             validateAfterIteration?.Invoke(iteration);
         }
 
         var gen0Collections = GC.CollectionCount(0) - gen0Before;
         var gen1Collections = GC.CollectionCount(1) - gen1Before;
         var gen2Collections = GC.CollectionCount(2) - gen2Before;
-        return
-        [
+        var results = new List<PerformanceOperationResult>
+        {
             PerformanceOperationResult.Create(
                 $"{operation}-action",
                 actionElapsed,
@@ -558,7 +587,22 @@ internal static class PerformanceReviewRunner
                 Gen1Collections = gen1Collections,
                 Gen2Collections = gen2Collections,
             },
-        ];
+        };
+        if (workspaceActionTiming is not null)
+        {
+            var zeroAllocations = new long[iterations];
+            results.Add(PerformanceOperationResult.Create(
+                $"{operation}-admission", admissionElapsed!, zeroAllocations, 50));
+            results.Add(PerformanceOperationResult.Create(
+                $"{operation}-queue-wait", queueWaitElapsed!, zeroAllocations, budgetMilliseconds));
+            results.Add(PerformanceOperationResult.Create(
+                $"{operation}-persistence", persistenceElapsed!, zeroAllocations, budgetMilliseconds));
+            results.Add(PerformanceOperationResult.Create(
+                $"{operation}-dispatcher-application", dispatcherElapsed!, zeroAllocations, budgetMilliseconds));
+            results.Add(PerformanceOperationResult.Create(
+                $"{operation}-total-completion", completionElapsed!, zeroAllocations, budgetMilliseconds));
+        }
+        return results;
     }
 
     private static PerformanceOperationResult MeasureSync(

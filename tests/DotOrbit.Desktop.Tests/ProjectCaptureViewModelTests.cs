@@ -2239,6 +2239,29 @@ public sealed class ProjectCaptureViewModelTests
     }
 
     [Fact]
+    public async Task BoundaryReorderCommandsRemainSafeAndReportTheirPersistedPosition()
+    {
+        var work = new MemoryWorkspaceWork();
+        var first = work.CreateStandaloneTask("First", "", "home", null);
+        var last = work.CreateStandaloneTask("Last", "", "home", null);
+        work.SetTaskTodayLane(first.Id, TodayLane.Planned);
+        work.SetTaskTodayLane(last.Id, TodayLane.Planned);
+        var model = new ProjectCaptureViewModel(work);
+        var backlogOrder = model.Backlog.Select(row => row.Id).ToArray();
+        var todayOrder = model.TodayPlanned.Select(row => row.Task.Id).ToArray();
+
+        model.Backlog[0].MoveUpCommand.Execute(null);
+        await model.WaitForWorkspaceActionsAsync();
+        model.TodayPlanned[^1].MoveDownCommand.Execute(null);
+        await model.WaitForWorkspaceActionsAsync();
+
+        Assert.Equal(backlogOrder, model.Backlog.Select(row => row.Id));
+        Assert.Equal(todayOrder, model.TodayPlanned.Select(row => row.Task.Id));
+        Assert.Equal("Moved Last to position 1 of 2 in Backlog.", model.ReorderAnnouncement);
+        Assert.Equal("Moved First to position 2 of 2 in Planned.", model.TodayAnnouncement);
+    }
+
+    [Fact]
     public void CompletingBacklogTaskFlushesPendingFieldsAndMovesFocusToNextRow()
     {
         var work = new MemoryWorkspaceWork();
@@ -2515,6 +2538,357 @@ public sealed class ProjectCaptureViewModelTests
         Assert.True(model.RefreshDatePresentation());
         Assert.Empty(model.CompletedToday);
     }
+
+    [Fact]
+    public async Task ThirtyTwoRapidTodayTogglesStayPendingThenCommitExactlyOnceInOrder()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Burst", "", "home", null);
+        var actions = new BlockingWorkspaceActionExecutor(work);
+        var model = new ProjectCaptureViewModel(
+            work,
+            null,
+            new InlineWorkspacePersistenceExecutor(new WorkspacePersistenceOperation(work)),
+            actions,
+            new InlineUiDispatcher());
+
+        for (var index = 0; index < 32; index++) model.ToggleToday(task.Id);
+
+        Assert.Equal(32, model.PendingWorkspaceActionCount);
+        Assert.Equal("Saving 32 changes…", model.Message);
+        Assert.Null(work.Read().Tasks.Single(item => item.Id == task.Id).TodayLane);
+        actions.Release.Set();
+        await model.WaitForWorkspaceActionsAsync().WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal(32, actions.Requests.Count);
+        Assert.All(actions.Requests, request => Assert.Equal(WorkspaceActionKind.ToggleToday, request.Kind));
+        Assert.Null(work.Read().Tasks.Single(item => item.Id == task.Id).TodayLane);
+        Assert.Equal(0, model.PendingWorkspaceActionCount);
+        var timing = Assert.IsType<WorkspaceActionPerformanceTiming>(model.LastWorkspaceActionTiming);
+        Assert.True(timing.TotalCompletion >= timing.DispatcherApplication);
+        Assert.True(timing.Persistence >= TimeSpan.Zero);
+        Assert.True(timing.QueueWait >= TimeSpan.Zero);
+    }
+
+    [Fact]
+    public async Task QueueWaitStartsAtUiAdmissionBeforeTheViewModelQueue()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Queue timing", "", "home", null);
+        var timeProvider = new ManualTimestampProvider();
+        var operation = new FirstActionBlockingOperation(work, timeProvider);
+        await using var executor = new SerializedWorkspacePersistenceExecutor(operation, timeProvider);
+        var model = new ProjectCaptureViewModel(
+            work,
+            timeProvider,
+            executor,
+            executor,
+            new InlineUiDispatcher());
+
+        model.ToggleToday(task.Id);
+        model.ToggleToday(task.Id);
+        await operation.FirstStarted.WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        timeProvider.Advance(TimeSpan.FromMilliseconds(40));
+        operation.Release.Set();
+        await model.WaitForWorkspaceActionsAsync().WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        var timing = Assert.IsType<WorkspaceActionPerformanceTiming>(model.LastWorkspaceActionTiming);
+        Assert.Equal(TimeSpan.FromMilliseconds(40), timing.QueueWait);
+    }
+
+    [Fact]
+    public async Task RepeatedMoveDownIntentsResolveAgainstThePrecedingCommittedOrder()
+    {
+        var work = new MemoryWorkspaceWork();
+        var third = work.CreateStandaloneTask("Third", "", "home", null);
+        var second = work.CreateStandaloneTask("Second", "", "home", null);
+        var first = work.CreateStandaloneTask("First", "", "home", null);
+        var actions = new BlockingWorkspaceActionExecutor(work);
+        var model = new ProjectCaptureViewModel(
+            work,
+            null,
+            new InlineWorkspacePersistenceExecutor(new WorkspacePersistenceOperation(work)),
+            actions,
+            new InlineUiDispatcher());
+
+        model.MoveDown(first.Id);
+        model.MoveDown(first.Id);
+        actions.Release.Set();
+        await model.WaitForWorkspaceActionsAsync().WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal([second.Id, third.Id, first.Id], model.Backlog.Select(row => row.Id));
+        Assert.Equal(2, actions.Requests.Count);
+        Assert.All(actions.Requests, request => Assert.Equal(WorkspaceMoveKind.Down, request.Move));
+    }
+
+    [Fact]
+    public async Task FailedDraftFlushBlocksTheQueuedActionUntilTheDecisionIsResolved()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Original", "", "home", null);
+        var writer = new ControlledInspectorSaveWriter(work);
+        var actions = new RecordingWorkspaceActionExecutor(work);
+        var model = new ProjectCaptureViewModel(work, null, writer, actions, new InlineUiDispatcher());
+        model.SelectTask(task.Id);
+        model.Title = "Unsaved";
+        Assert.True(model.RunScheduledAutosave());
+        await writer.WaitForSubmissionCountAsync(1);
+
+        model.ToggleToday(task.Id);
+        writer.FailNext();
+        await WaitUntilAsync(() => model.NeedsDecision);
+
+        Assert.Empty(actions.Requests);
+        Assert.Null(work.Read().Tasks.Single(item => item.Id == task.Id).TodayLane);
+        Assert.Equal(1, model.PendingWorkspaceActionCount);
+        model.StayCommand.Execute(null);
+        model.Title = "Corrected";
+        Assert.True(model.RunScheduledAutosave());
+        await writer.WaitForSubmissionCountAsync(2);
+        writer.CompleteNext();
+        await model.WaitForWorkspaceActionsAsync().WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal([WorkspaceActionKind.ToggleToday, WorkspaceActionKind.Refresh],
+            actions.Requests.Select(request => request.Kind));
+        Assert.Equal(TodayLane.Planned, work.Read().Tasks.Single(item => item.Id == task.Id).TodayLane);
+    }
+
+    [Fact]
+    public async Task SuccessfulCategorySaveResumesAnActionBlockedByItsDraft()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Category guard", "", "home", null);
+        var actions = new RecordingWorkspaceActionExecutor(work);
+        var model = new ProjectCaptureViewModel(
+            work,
+            null,
+            new InlineWorkspacePersistenceExecutor(new WorkspacePersistenceOperation(work)),
+            actions,
+            new InlineUiDispatcher());
+        model.SelectCategory("home");
+        model.Title = "Renamed home";
+
+        model.ToggleToday(task.Id);
+        Assert.True(model.NeedsDecision);
+        Assert.Empty(actions.Requests);
+        model.StayCommand.Execute(null);
+        model.SaveCommand.Execute(null);
+        await model.WaitForWorkspaceActionsAsync().WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal([WorkspaceActionKind.ToggleToday, WorkspaceActionKind.Refresh],
+            actions.Requests.Select(request => request.Kind));
+        Assert.Equal(TodayLane.Planned, work.Read().Tasks.Single(item => item.Id == task.Id).TodayLane);
+    }
+
+    [Fact]
+    public async Task NavigationClosesActionAdmissionBeforeAwaitingDraftFlush()
+    {
+        var work = new MemoryWorkspaceWork();
+        var edited = work.CreateStandaloneTask("Edited", "", "home", null);
+        var actionTarget = work.CreateStandaloneTask("Action", "", "home", null);
+        var writer = new ControlledInspectorSaveWriter(work);
+        var actions = new RecordingWorkspaceActionExecutor(work);
+        var model = new ProjectCaptureViewModel(work, null, writer, actions, new InlineUiDispatcher());
+        model.SelectTask(edited.Id);
+        model.Title = "New title";
+        var navigated = false;
+
+        var navigation = model.NavigateAsync(() => navigated = true);
+        await writer.WaitForSubmissionCountAsync(1);
+        model.ToggleToday(actionTarget.Id);
+
+        Assert.Equal(0, model.PendingWorkspaceActionCount);
+        Assert.Empty(actions.Requests);
+        writer.CompleteNext();
+        await navigation.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.True(navigated);
+        Assert.Null(work.Read().Tasks.Single(item => item.Id == actionTarget.Id).TodayLane);
+    }
+
+    [Fact]
+    public async Task StayingAfterFailedNavigationReopensWorkspaceActionAdmission()
+    {
+        var work = new MemoryWorkspaceWork();
+        var edited = work.CreateStandaloneTask("Edited", "", "home", null);
+        var actionTarget = work.CreateStandaloneTask("Action", "", "home", null);
+        var writer = new ControlledInspectorSaveWriter(work);
+        var actions = new RecordingWorkspaceActionExecutor(work);
+        var model = new ProjectCaptureViewModel(work, null, writer, actions, new InlineUiDispatcher());
+        model.SelectTask(edited.Id);
+        model.Title = "New title";
+
+        _ = model.NavigateAsync(() => { });
+        await writer.WaitForSubmissionCountAsync(1);
+        writer.FailNext();
+        await WaitUntilAsync(() => model.NeedsDecision);
+        model.StayCommand.Execute(null);
+
+        model.ToggleToday(actionTarget.Id);
+        await writer.WaitForSubmissionCountAsync(2);
+        Assert.Equal(1, model.PendingWorkspaceActionCount);
+        writer.CompleteNext();
+        await model.WaitForWorkspaceActionsAsync().WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal(WorkspaceActionKind.ToggleToday, Assert.Single(actions.Requests).Kind);
+        Assert.Equal(TodayLane.Planned, work.Read().Tasks.Single(item => item.Id == actionTarget.Id).TodayLane);
+    }
+
+    [Fact]
+    public async Task LateActionResultRefreshesAfterANewerInspectorRevision()
+    {
+        var work = new MemoryWorkspaceWork();
+        var edited = work.CreateStandaloneTask("Original", "", "home", null);
+        var actionTarget = work.CreateStandaloneTask("Action", "", "home", null);
+        var actions = new CapturedActionExecutor(work);
+        var model = new ProjectCaptureViewModel(
+            work,
+            null,
+            new InlineWorkspacePersistenceExecutor(new WorkspacePersistenceOperation(work)),
+            actions,
+            new InlineUiDispatcher());
+        model.SelectTask(edited.Id);
+        model.ToggleToday(actionTarget.Id);
+        await actions.ResultCaptured.WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        model.Title = "Newer revision";
+        Assert.True(model.RunScheduledAutosave());
+        actions.Release.Set();
+        await model.WaitForWorkspaceActionsAsync().WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal("Newer revision", model.Title);
+        Assert.Equal("Newer revision", model.Backlog.Single(row => row.Id == edited.Id).Title);
+        Assert.Equal([WorkspaceActionKind.ToggleToday, WorkspaceActionKind.Refresh],
+            actions.Requests.Select(request => request.Kind));
+    }
+
+    [Fact]
+    public async Task CommittedRefreshFailureRetriesOnlyTheRefreshAndDoesNotRepeatTheToggle()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Refresh", "", "home", null);
+        var actions = new RecordingWorkspaceActionExecutor(work) { FailFirstCommittedRefresh = true };
+        var model = new ProjectCaptureViewModel(
+            work,
+            null,
+            new InlineWorkspacePersistenceExecutor(new WorkspacePersistenceOperation(work)),
+            actions,
+            new InlineUiDispatcher());
+
+        model.ToggleToday(task.Id);
+        await model.WaitForWorkspaceActionsAsync().WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.True(model.CanRetryWorkspaceRefresh);
+        Assert.Equal("Change saved, but the view could not refresh. Retry refresh.", model.Message);
+        Assert.Equal(TodayLane.Planned, work.Read().Tasks.Single(item => item.Id == task.Id).TodayLane);
+
+        model.RetryWorkspaceRefreshCommand.Execute(null);
+        await model.WaitForWorkspaceActionsAsync().WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal([WorkspaceActionKind.ToggleToday, WorkspaceActionKind.Refresh],
+            actions.Requests.Select(request => request.Kind));
+        Assert.Equal(TodayLane.Planned, work.Read().Tasks.Single(item => item.Id == task.Id).TodayLane);
+        Assert.Equal(task.Id, Assert.Single(model.TodayPlanned).Task.Id);
+        Assert.False(model.CanRetryWorkspaceRefresh);
+    }
+
+    [Fact]
+    public async Task FailedDiscreteMutationDoesNotPoisonTheNextAcceptedAction()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Failure", "", "home", null);
+        var actions = new RecordingWorkspaceActionExecutor(work) { FailFirstMutation = true };
+        var model = new ProjectCaptureViewModel(
+            work,
+            null,
+            new InlineWorkspacePersistenceExecutor(new WorkspacePersistenceOperation(work)),
+            actions,
+            new InlineUiDispatcher());
+
+        model.ToggleToday(task.Id);
+        model.ToggleToday(task.Id);
+        await model.WaitForWorkspaceActionsAsync().WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, actions.Requests.Count);
+        Assert.Equal(TodayLane.Planned, work.Read().Tasks.Single(item => item.Id == task.Id).TodayLane);
+        Assert.Equal("Added Failure to Today in Planned.", model.Message);
+    }
+
+    [Fact]
+    public async Task FailedQueuedActionRemainsAnnouncedWhileTheNextActionIsPending()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Failure", "", "home", null);
+        var actions = new FailureThenBlockingActionExecutor(work);
+        var model = new ProjectCaptureViewModel(
+            work,
+            null,
+            new InlineWorkspacePersistenceExecutor(new WorkspacePersistenceOperation(work)),
+            actions,
+            new InlineUiDispatcher());
+
+        model.ToggleToday(task.Id);
+        model.ToggleToday(task.Id);
+        actions.FailFirst.Set();
+        await actions.SecondSubmitted.WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, model.PendingWorkspaceActionCount);
+        Assert.Equal(
+            "Could not change Today membership. No changes were made. Saving 1 change…",
+            model.Message);
+        actions.Release.Set();
+        await model.WaitForWorkspaceActionsAsync().WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task NavigationStopsAdmissionAndWaitsForAcceptedWorkspaceActions()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Navigate", "", "home", null);
+        var actions = new BlockingWorkspaceActionExecutor(work);
+        var model = new ProjectCaptureViewModel(
+            work,
+            null,
+            new InlineWorkspacePersistenceExecutor(new WorkspacePersistenceOperation(work)),
+            actions,
+            new InlineUiDispatcher());
+        model.ToggleToday(task.Id);
+        var navigated = false;
+
+        var navigation = model.NavigateAsync(() => navigated = true);
+        model.ToggleToday(task.Id);
+
+        Assert.False(navigation.IsCompleted);
+        Assert.False(navigated);
+        Assert.Equal(1, model.PendingWorkspaceActionCount);
+        Assert.Equal("Finishing 1 change before leaving…", model.Message);
+        actions.Release.Set();
+        await navigation.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.True(navigated);
+        Assert.Single(actions.Requests);
+        Assert.Equal(TodayLane.Planned, work.Read().Tasks.Single(item => item.Id == task.Id).TodayLane);
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            timeout.Token, TestContext.Current.CancellationToken);
+        while (!condition()) await Task.Delay(1, cancellation.Token);
+    }
 }
 
 internal sealed class FixedTimeProvider(DateTimeOffset utcNow, TimeZoneInfo? localTimeZone = null) : TimeProvider
@@ -2530,11 +2904,22 @@ internal sealed class FixedTimeProvider(DateTimeOffset utcNow, TimeZoneInfo? loc
     }
 }
 
-internal sealed class ControlledInspectorSaveWriter(IWorkspaceWork work) : IInspectorSaveWriter
+internal sealed class ManualTimestampProvider : TimeProvider
+{
+    private long _timestamp;
+
+    public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+    public override long GetTimestamp() => Interlocked.Read(ref _timestamp);
+
+    public void Advance(TimeSpan elapsed) => Interlocked.Add(ref _timestamp, elapsed.Ticks);
+}
+
+internal sealed class ControlledInspectorSaveWriter(IWorkspaceWork work)
+    : IInspectorSaveWriter, IWorkspaceActionExecutor
 {
     private readonly object _gate = new();
     private readonly Queue<(InspectorSaveRequest Request, TaskCompletionSource<InspectorSaveResult> Completion)> _pending = [];
-    private readonly WorkspaceInspectorSaveOperation _operation = new(work);
+    private readonly WorkspacePersistenceOperation _operation = new(work);
     private TaskCompletionSource _submissionChanged = NewSignal();
 
     public List<InspectorSaveRequest> Submissions { get; } = [];
@@ -2592,6 +2977,9 @@ internal sealed class ControlledInspectorSaveWriter(IWorkspaceWork work) : IInsp
         return ValueTask.CompletedTask;
     }
 
+    public Task<WorkspaceActionResult> SubmitActionAsync(WorkspaceActionRequest request) =>
+        Task.FromResult(_operation.ExecuteAction(request));
+
     private (InspectorSaveRequest Request, TaskCompletionSource<InspectorSaveResult> Completion) Next()
     {
         lock (_gate) return _pending.Dequeue();
@@ -2599,6 +2987,131 @@ internal sealed class ControlledInspectorSaveWriter(IWorkspaceWork work) : IInsp
 
     private static TaskCompletionSource NewSignal() =>
         new(TaskCreationOptions.RunContinuationsAsynchronously);
+}
+
+internal sealed class BlockingWorkspaceActionExecutor(IWorkspaceWork work) : IWorkspaceActionExecutor
+{
+    private readonly WorkspacePersistenceOperation _operation = new(work);
+    private readonly object _gate = new();
+
+    public ManualResetEventSlim Release { get; } = new();
+    public List<WorkspaceActionRequest> Requests { get; } = [];
+
+    public Task<WorkspaceActionResult> SubmitActionAsync(WorkspaceActionRequest request)
+    {
+        lock (_gate) Requests.Add(request);
+        return Task.Run(() =>
+        {
+            Release.Wait();
+            return _operation.ExecuteAction(request);
+        });
+    }
+
+}
+
+internal sealed class RecordingWorkspaceActionExecutor(IWorkspaceWork work) : IWorkspaceActionExecutor
+{
+    private readonly WorkspacePersistenceOperation _operation = new(work);
+
+    public bool FailFirstCommittedRefresh { get; set; }
+    public bool FailFirstMutation { get; set; }
+    public List<WorkspaceActionRequest> Requests { get; } = [];
+
+    public Task<WorkspaceActionResult> SubmitActionAsync(WorkspaceActionRequest request)
+    {
+        Requests.Add(request);
+        if (FailFirstMutation)
+        {
+            FailFirstMutation = false;
+            return Task.FromResult(new WorkspaceActionResult(request, WorkspaceActionOutcome.MutationFailed));
+        }
+        var result = _operation.ExecuteAction(request);
+        if (FailFirstCommittedRefresh && request.Kind != WorkspaceActionKind.Refresh)
+        {
+            FailFirstCommittedRefresh = false;
+            result = result with { Outcome = WorkspaceActionOutcome.CommittedRefreshFailed, Reload = null };
+        }
+        return Task.FromResult(result);
+    }
+
+}
+
+internal sealed class CapturedActionExecutor(IWorkspaceWork work) : IWorkspaceActionExecutor
+{
+    private readonly WorkspacePersistenceOperation _operation = new(work);
+    private readonly TaskCompletionSource _resultCaptured =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public ManualResetEventSlim Release { get; } = new();
+    public Task ResultCaptured => _resultCaptured.Task;
+    public List<WorkspaceActionRequest> Requests { get; } = [];
+
+    public Task<WorkspaceActionResult> SubmitActionAsync(WorkspaceActionRequest request)
+    {
+        Requests.Add(request);
+        if (request.Kind == WorkspaceActionKind.Refresh)
+            return Task.FromResult(_operation.ExecuteAction(request));
+        return Task.Run(() =>
+        {
+            var result = _operation.ExecuteAction(request);
+            _resultCaptured.TrySetResult();
+            Release.Wait(TestContext.Current.CancellationToken);
+            return result;
+        }, TestContext.Current.CancellationToken);
+    }
+}
+
+internal sealed class FailureThenBlockingActionExecutor(IWorkspaceWork work) : IWorkspaceActionExecutor
+{
+    private readonly WorkspacePersistenceOperation _operation = new(work);
+    private readonly TaskCompletionSource _secondSubmitted =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int _submissionCount;
+
+    public ManualResetEventSlim Release { get; } = new();
+    public ManualResetEventSlim FailFirst { get; } = new();
+    public Task SecondSubmitted => _secondSubmitted.Task;
+
+    public Task<WorkspaceActionResult> SubmitActionAsync(WorkspaceActionRequest request)
+    {
+        if (Interlocked.Increment(ref _submissionCount) == 1)
+            return Task.Run(() =>
+            {
+                FailFirst.Wait(TestContext.Current.CancellationToken);
+                return new WorkspaceActionResult(request, WorkspaceActionOutcome.MutationFailed);
+            }, TestContext.Current.CancellationToken);
+        _secondSubmitted.TrySetResult();
+        return Task.Run(() =>
+        {
+            Release.Wait(TestContext.Current.CancellationToken);
+            return _operation.ExecuteAction(request);
+        }, TestContext.Current.CancellationToken);
+    }
+}
+
+internal sealed class FirstActionBlockingOperation(
+    IWorkspaceWork work,
+    TimeProvider timeProvider) : IWorkspacePersistenceOperation
+{
+    private readonly WorkspacePersistenceOperation _operation = new(work, timeProvider);
+    private readonly TaskCompletionSource _firstStarted =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int _actionCount;
+
+    public Task FirstStarted => _firstStarted.Task;
+    public ManualResetEventSlim Release { get; } = new();
+
+    public InspectorSaveResult Execute(InspectorSaveRequest request) => _operation.Execute(request);
+
+    public WorkspaceActionResult ExecuteAction(WorkspaceActionRequest request)
+    {
+        if (Interlocked.Increment(ref _actionCount) == 1)
+        {
+            _firstStarted.TrySetResult();
+            Release.Wait(TestContext.Current.CancellationToken);
+        }
+        return _operation.ExecuteAction(request);
+    }
 }
 
 internal sealed class MemoryWorkspaceWork : IWorkspaceWork

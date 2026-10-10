@@ -47,6 +47,8 @@ Status: working specification derived from the interactive prototype.
 - **EDIT-016** Backlog provides a Quick add task field with an explicit Category selector for immediate title-only standalone Task creation.
 - **EDIT-017** The selected Backlog quick-add Category remains selected only for the current rapid-entry session, allowing several related standalone Tasks to be entered without becoming a hidden persistent default.
 - **EDIT-018** Backlog quick-add uses the same Enter, Tab, empty-Tab, Escape, and full-inspector follow-up behaviour as Project quick-add.
+- **EDIT-019** Today membership, Planned/In progress, completion/reopen and Backlog/Today reorder activations are accepted in order through the same serialized persistence boundary as inspector saves. Pending actions do not optimistically alter persisted row state; repeated toggles and moves resolve against the committed result of preceding accepted actions.
+- **EDIT-020** A polite pending count remains visible while immediate actions are queued. Navigation and close stop new action admission and await accepted work. Mutation failure is distinguished from a committed mutation whose refresh failed; retry after the latter refreshes only and never repeats the mutation.
 
 ## Categories
 

@@ -59,7 +59,7 @@ public sealed class MainWindowTests
             timeProvider: null,
             inspectorSaveWriterFactory: work => ReferenceEquals(work, session.Work)
                 ? drainingWriter
-                : new InlineInspectorSaveWriter(new WorkspaceInspectorSaveOperation(work)));
+                : new InlineWorkspacePersistenceExecutor(new WorkspacePersistenceOperation(work)));
         window.Show();
 
         var replace = window.ReplaceSessionAsync(replacement);
@@ -73,6 +73,122 @@ public sealed class MainWindowTests
             replacementProject.Id,
             Assert.Single(Assert.IsType<ShellViewModel>(window.DataContext).Work!.Projects).Id);
         window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task SessionReplacementWaitsForAcceptedWorkspaceActionBeforeDisposingOldSession()
+    {
+        var session = new DisposalTrackingWorkspaceSession();
+        var replacement = new DisposalTrackingWorkspaceSession();
+        var task = session.Work.CreateStandaloneTask("Replace", "", "home", null);
+        BlockingWorkspacePersistenceExecutor? executor = null;
+        var window = new MainWindow(
+            session,
+            null,
+            null,
+            timeProvider: null,
+            inspectorSaveWriterFactory: work => ReferenceEquals(work, session.Work)
+                ? executor = new BlockingWorkspacePersistenceExecutor(work)
+                : new InlineWorkspacePersistenceExecutor(new WorkspacePersistenceOperation(work)));
+        window.Show();
+        var model = Assert.IsType<ShellViewModel>(window.DataContext).Work!;
+        model.ToggleToday(task.Id);
+        await executor!.Submitted.WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        var replace = window.ReplaceSessionAsync(replacement);
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(session.IsDisposed);
+
+        executor.CompleteSuccess();
+        await DrainUiUntilCompletedAsync(replace);
+        Assert.True(session.IsDisposed);
+        Assert.Equal(TodayLane.Planned, session.Work.Read().Tasks.Single(item => item.Id == task.Id).TodayLane);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task BlockedWorkspaceActionKeepsDispatcherResponsiveAndExposesAccessibleRefreshRetry()
+    {
+        var session = new DisposalTrackingWorkspaceSession();
+        var task = session.Work.CreateStandaloneTask("Queued", "", "home", null);
+        BlockingWorkspacePersistenceExecutor? executor = null;
+        var window = new MainWindow(
+            session,
+            null,
+            null,
+            timeProvider: null,
+            inspectorSaveWriterFactory: work => executor = new BlockingWorkspacePersistenceExecutor(work));
+        window.Show();
+        var model = Assert.IsType<ShellViewModel>(window.DataContext).Work!;
+
+        model.ToggleToday(task.Id);
+        await executor!.Submitted.WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        var callbackRan = false;
+        Dispatcher.UIThread.Post(() => callbackRan = true);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(callbackRan);
+        Assert.Equal(1, model.PendingWorkspaceActionCount);
+        Assert.Equal("Saving 1 change…", model.Message);
+        var status = Assert.IsType<TextBlock>(window.FindControl<TextBlock>("TopBarStatusMessage"));
+        Assert.Equal(AutomationLiveSetting.Polite, AutomationProperties.GetLiveSetting(status));
+
+        executor.CompleteCommittedRefreshFailure();
+        await DrainUiUntilCompletedAsync(model.WaitForWorkspaceActionsAsync());
+        var retry = Assert.IsType<Button>(window.FindControl<Button>("RetryWorkspaceRefreshButton"));
+        Assert.True(retry.IsVisible);
+        Assert.Equal("Retry workspace refresh", AutomationProperties.GetName(retry));
+
+        retry.Command!.Execute(null);
+        await executor.Submitted.WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        executor.CompleteRefresh();
+        await DrainUiUntilCompletedAsync(model.WaitForWorkspaceActionsAsync());
+        Assert.False(retry.IsVisible);
+        Assert.Equal([WorkspaceActionKind.ToggleToday, WorkspaceActionKind.Refresh],
+            executor.Requests.Select(request => request.Kind));
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task ClosingWaitsForAcceptedWorkspaceActionBeforeDisposingSession()
+    {
+        var session = new DisposalTrackingWorkspaceSession();
+        var task = session.Work.CreateStandaloneTask("Close", "", "home", null);
+        BlockingWorkspacePersistenceExecutor? executor = null;
+        var window = new MainWindow(
+            session,
+            null,
+            null,
+            timeProvider: null,
+            inspectorSaveWriterFactory: work => executor = new BlockingWorkspacePersistenceExecutor(work));
+        window.Show();
+        var model = Assert.IsType<ShellViewModel>(window.DataContext).Work!;
+        model.ToggleToday(task.Id);
+        await executor!.Submitted.WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        window.Close();
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(session.IsDisposed);
+
+        executor.CompleteSuccess();
+        await DrainUiUntilCompletedAsync(session.Disposed);
+        Assert.True(session.IsDisposed);
+        Assert.Equal(TodayLane.Planned, session.Work.Read().Tasks.Single(item => item.Id == task.Id).TodayLane);
+    }
+
+    private static async Task DrainUiUntilCompletedAsync(Task task)
+    {
+        while (!task.IsCompleted)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(1, TestContext.Current.CancellationToken);
+        }
+        await task;
+        Dispatcher.UIThread.RunJobs();
     }
 
     [AvaloniaFact]
@@ -110,9 +226,10 @@ public sealed class MainWindowTests
         }
     }
 
-    private sealed class BlockingInspectorSaveWriter(IWorkspaceWork work) : IInspectorSaveWriter
+    private sealed class BlockingInspectorSaveWriter(IWorkspaceWork work)
+        : IInspectorSaveWriter, IWorkspaceActionExecutor
     {
-        private readonly WorkspaceInspectorSaveOperation _operation = new(work);
+        private readonly WorkspacePersistenceOperation _operation = new(work);
         private readonly TaskCompletionSource _submitted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource<InspectorSaveResult> _completion =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -130,11 +247,15 @@ public sealed class MainWindowTests
         public void Complete() => _completion.TrySetResult(_operation.Execute(_request!));
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        public Task<WorkspaceActionResult> SubmitActionAsync(WorkspaceActionRequest request) =>
+            Task.FromResult(_operation.ExecuteAction(request));
     }
 
-    private sealed class BlockingDisposeInspectorSaveWriter(IWorkspaceWork work) : IInspectorSaveWriter
+    private sealed class BlockingDisposeInspectorSaveWriter(IWorkspaceWork work)
+        : IInspectorSaveWriter, IWorkspaceActionExecutor
     {
-        private readonly WorkspaceInspectorSaveOperation _operation = new(work);
+        private readonly WorkspacePersistenceOperation _operation = new(work);
         private readonly TaskCompletionSource _disposeStarted =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _releaseDispose =
@@ -152,6 +273,60 @@ public sealed class MainWindowTests
         }
 
         public void ReleaseDispose() => _releaseDispose.TrySetResult();
+
+        public Task<WorkspaceActionResult> SubmitActionAsync(WorkspaceActionRequest request) =>
+            Task.FromResult(_operation.ExecuteAction(request));
+    }
+
+    private sealed class BlockingWorkspacePersistenceExecutor(IWorkspaceWork work)
+        : IInspectorSaveWriter, IWorkspaceActionExecutor
+    {
+        private readonly WorkspacePersistenceOperation _operation = new(work);
+        private TaskCompletionSource<WorkspaceActionResult>? _pending;
+        private TaskCompletionSource _submitted = NewSignal();
+
+        public List<WorkspaceActionRequest> Requests { get; } = [];
+        public Task Submitted => _submitted.Task;
+
+        public Task<InspectorSaveResult> SubmitAsync(InspectorSaveRequest request) =>
+            Task.FromResult(_operation.Execute(request));
+
+        public Task<WorkspaceActionResult> SubmitActionAsync(WorkspaceActionRequest request)
+        {
+            Requests.Add(request);
+            _pending = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            _submitted.TrySetResult();
+            return _pending.Task;
+        }
+
+        public void CompleteCommittedRefreshFailure()
+        {
+            var request = Requests[^1];
+            var committed = _operation.ExecuteAction(request);
+            _pending!.TrySetResult(committed with
+            {
+                Outcome = WorkspaceActionOutcome.CommittedRefreshFailed,
+                Reload = null,
+            });
+            _submitted = NewSignal();
+        }
+
+        public void CompleteRefresh()
+        {
+            _pending!.TrySetResult(_operation.ExecuteAction(Requests[^1]));
+            _submitted = NewSignal();
+        }
+
+        public void CompleteSuccess()
+        {
+            _pending!.TrySetResult(_operation.ExecuteAction(Requests[^1]));
+            _submitted = NewSignal();
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        private static TaskCompletionSource NewSignal() =>
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
     [AvaloniaFact]

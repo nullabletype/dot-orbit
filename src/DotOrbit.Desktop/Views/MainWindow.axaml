@@ -196,7 +196,7 @@
             HorizontalAlignment="Left"
             VerticalAlignment="Center"
             IsVisible="{Binding Work.HasMessage, FallbackValue=False}">
-          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="7">
+          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="7">
             <TextBlock
                 x:Name="TopBarStatusIcon"
                 Classes="transient-status-icon"
@@ -213,6 +213,15 @@
                 Text="{Binding Work.Message}"
                 TextTrimming="CharacterEllipsis"
                 TextWrapping="Wrap" />
+            <Button
+                x:Name="RetryWorkspaceRefreshButton"
+                Grid.Column="2"
+                Classes="view-action"
+                Content="Retry refresh"
+                IsVisible="{Binding Work.CanRetryWorkspaceRefresh}"
+                Command="{Binding Work.RetryWorkspaceRefreshCommand}"
+                AutomationProperties.AutomationId="retry-workspace-refresh"
+                AutomationProperties.Name="Retry workspace refresh" />
           </Grid>
         </Border>
       </Grid>
