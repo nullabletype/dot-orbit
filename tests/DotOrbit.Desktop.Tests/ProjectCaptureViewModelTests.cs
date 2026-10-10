@@ -2884,7 +2884,7 @@ public sealed class ProjectCaptureViewModelTests
 
         model.Title = "Newer revision";
         Assert.True(model.RunScheduledAutosave());
-        actions.Release.Set();
+        actions.ReleaseResult();
         await model.WaitForWorkspaceActionsAsync().WaitAsync(
             TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
@@ -2916,7 +2916,7 @@ public sealed class ProjectCaptureViewModelTests
         Assert.Equal("Finishing 1 change before leaving…", model.Message);
         var drain = model.DrainWorkspaceActionsAsync();
         Assert.False(drain.IsCompleted);
-        actions.Release.Set();
+        actions.ReleaseResult();
         await drain.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         Assert.Equal(0, model.PendingWorkspaceActionCount);
@@ -2946,7 +2946,7 @@ public sealed class ProjectCaptureViewModelTests
         await actions.ResultCaptured.WaitAsync(
             TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         model.MoveTaskToBinCommand.Execute(null);
-        actions.Release.Set();
+        actions.ReleaseResult();
         await WaitUntilAsync(() => model.Bin.Any(row => row.Task?.Id == task.Id));
 
         Assert.Equal(0, model.PendingWorkspaceActionCount);
@@ -2977,7 +2977,7 @@ public sealed class ProjectCaptureViewModelTests
         await actions.ResultCaptured.WaitAsync(
             TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         model.MoveTaskToBinCommand.Execute(null);
-        actions.Release.Set();
+        actions.ReleaseResult();
         await work.MoveTaskToBinStarted.Task.WaitAsync(
             TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
@@ -3016,7 +3016,7 @@ public sealed class ProjectCaptureViewModelTests
         await actions.ResultCaptured.WaitAsync(
             TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         var quickAdd = model.QuickAddAsync(project.Id, "Added");
-        actions.Release.Set();
+        actions.ReleaseResult();
         await work.CreateTaskStarted.Task.WaitAsync(
             TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
@@ -3321,23 +3321,27 @@ internal sealed class CapturedActionExecutor(IWorkspaceWork work) : IWorkspaceAc
     private readonly WorkspacePersistenceOperation _operation = new(work);
     private readonly TaskCompletionSource _resultCaptured =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _release =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public ManualResetEventSlim Release { get; } = new();
     public Task ResultCaptured => _resultCaptured.Task;
     public List<WorkspaceActionRequest> Requests { get; } = [];
+    public void ReleaseResult() => _release.TrySetResult();
 
     public Task<WorkspaceActionResult> SubmitActionAsync(WorkspaceActionRequest request)
     {
         Requests.Add(request);
         if (request.Kind == WorkspaceActionKind.Refresh)
             return Task.FromResult(_operation.ExecuteAction(request));
-        return Task.Run(() =>
-        {
-            var result = _operation.ExecuteAction(request);
-            _resultCaptured.TrySetResult();
-            Release.Wait(TestContext.Current.CancellationToken);
-            return result;
-        }, TestContext.Current.CancellationToken);
+        var result = _operation.ExecuteAction(request);
+        _resultCaptured.TrySetResult();
+        return ReleaseResultAsync(result);
+    }
+
+    private async Task<WorkspaceActionResult> ReleaseResultAsync(WorkspaceActionResult result)
+    {
+        await _release.Task.WaitAsync(TestContext.Current.CancellationToken);
+        return result;
     }
 }
 
