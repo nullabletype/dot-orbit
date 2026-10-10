@@ -483,18 +483,27 @@ public sealed class WorkspaceMigrationTests
     public void MigrationHoldsAnExclusiveStoreLockUntilValidationCompletes()
     {
         SqliteConnection? competing = null;
+        SqliteConnection? migrationConnection = null;
+        var sessionConnections = new List<SqliteConnection>();
         using var fixture = new MigrationFixture(
-            (checkpoint, _) =>
+            (checkpoint, connection) =>
             {
                 if (checkpoint != WorkspaceMigrationCheckpoint.RecoveryPointValidated)
                 {
                     return;
                 }
 
+                migrationConnection = connection;
                 using var command = competing!.CreateCommand();
                 command.CommandText = "INSERT INTO categories (id, name, position) VALUES ('other', 'Other', 1);";
                 var error = Assert.Throws<SqliteException>(() => command.ExecuteNonQuery());
                 Assert.Equal(5, error.SqliteErrorCode);
+            },
+            connectionOpener: (path, passphrase, mode) =>
+            {
+                var connection = EncryptedWorkspaceStore.OpenConnection(path, passphrase, mode);
+                sessionConnections.Add(connection);
+                return connection;
             });
         fixture.CreateSchemaOneWorkspace("Home");
         using (competing = OpenInspectionConnection(fixture.WorkspacePath, ValidPassphrase))
@@ -508,6 +517,11 @@ public sealed class WorkspaceMigrationTests
 
             Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
             Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, session?.SchemaVersion);
+            Assert.Equal(System.Data.ConnectionState.Closed, migrationConnection!.State);
+            Assert.Equal(3, sessionConnections.Count);
+            Assert.Equal(System.Data.ConnectionState.Closed, sessionConnections[0].State);
+            Assert.All(sessionConnections.Skip(1), connection =>
+                Assert.Equal(System.Data.ConnectionState.Open, connection.State));
         }
     }
 
@@ -814,7 +828,8 @@ public sealed class WorkspaceMigrationTests
             Action<WorkspaceMigrationCheckpoint, SqliteConnection>? checkpoint = null,
             bool failRecoveryPublication = false,
             Func<SqliteConnection, string>? integrityCheck = null,
-            Action? afterMigration = null)
+            Action? afterMigration = null,
+            Func<string, WorkspacePassphrase, SqliteOpenMode, SqliteConnection>? connectionOpener = null)
         {
             DirectoryPath = Path.Combine(
                 Path.GetTempPath(),
@@ -828,7 +843,8 @@ public sealed class WorkspaceMigrationTests
                 TimeProvider.System,
                 checkpoint,
                 integrityCheck,
-                afterMigration);
+                afterMigration,
+                connectionOpener: connectionOpener);
             WorkspacePath = Path.Combine(DirectoryPath, "workspace.db");
         }
 

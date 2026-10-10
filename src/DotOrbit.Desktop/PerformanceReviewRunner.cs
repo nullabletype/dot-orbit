@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Threading;
+using DotOrbit.Core.Diagnostics;
 using DotOrbit.Core.Workspaces;
 using DotOrbit.Desktop.ViewModels;
 using DotOrbit.Desktop.Views;
@@ -34,7 +35,13 @@ internal readonly record struct PerformanceReviewScenario(
         var iterations = ParseSingle(arguments, IterationsPrefix, 20, 5, 100, out var iterationsValid);
         var budget = ParseSingle(arguments, BudgetPrefix, 100, 1, 5_000, out var budgetValid);
         var recoveryPoints = ParseSingle(arguments, RecoveryPointsPrefix, 0, 0, 16, out var recoveryValid);
-        return new(true, tasksValid && iterationsValid && budgetValid && recoveryValid, taskCount, iterations, budget)
+        var traceModeDisabled = !arguments.Contains("--performance-trace", StringComparer.Ordinal);
+        return new(
+            true,
+            tasksValid && iterationsValid && budgetValid && recoveryValid && traceModeDisabled,
+            taskCount,
+            iterations,
+            budget)
         {
             RecoveryPointCount = recoveryPoints,
         };
@@ -295,6 +302,7 @@ internal static class PerformanceReviewRunner
             await IdleAsync();
         }
 
+        using var connectionRecording = PerformanceTrace.Start(maximumSamples: 100_000);
         var results = new List<PerformanceOperationResult>();
         results.AddRange(await MeasureWithIdleAsync(
             "task-select",
@@ -432,6 +440,14 @@ internal static class PerformanceReviewRunner
             },
             validateAfterIteration: iteration => Require(
                 work.Backlog[iteration % 2 == 0 ? 0 : work.Backlog.Count - 1].Id == actionTaskId)));
+        connectionRecording.Dispose();
+        var trace = connectionRecording.Snapshot();
+        var connectionOpenCount = trace.Count(sample => sample.Stage == PerformanceStage.ConnectionOpen);
+        var connectionConfigureCount = trace.Count(sample => sample.Stage == PerformanceStage.ConnectionConfigure);
+        var connectionReusePassed = ConnectionReuseConstraintsPassed(
+            connectionOpenCount,
+            connectionConfigureCount,
+            connectionRecording.DroppedSamples);
         if (scenario.RecoveryPointCount > 0)
         {
             var recoveryDirectory = workspace.Session.Recovery.AutomaticRecoveryDirectoryPath!;
@@ -451,7 +467,13 @@ internal static class PerformanceReviewRunner
             $"performance-review: constraint=task-title-save allocation_budget_bytes=4000000 "
             + $"maximum_budget_ms={scenario.BudgetMilliseconds * 2} "
             + $"result={(titleSaveAllocationPassed && titleSaveMaximumPassed ? "passed" : "failed")}");
-        var passed = ReviewConstraintsPassed(results, scenario.BudgetMilliseconds);
+        Console.WriteLine(
+            $"performance-review: constraint=scoped-warm-connection-reuse connection_open_count={connectionOpenCount} "
+            + $"connection_configure_count={connectionConfigureCount} "
+            + $"dropped_samples={connectionRecording.DroppedSamples} "
+            + $"result={(connectionReusePassed ? "passed" : "failed")}");
+        var passed = ReviewConstraintsPassed(results, scenario.BudgetMilliseconds)
+            && connectionReusePassed;
         Console.WriteLine(
             $"performance-review: result={(passed ? "passed" : "failed")} code={(passed ? 0 : BudgetExceededExitCode)}");
         return passed ? 0 : BudgetExceededExitCode;
@@ -471,6 +493,14 @@ internal static class PerformanceReviewRunner
         return results.All(result => result.P95Milliseconds <= result.BudgetMilliseconds)
             && TitleSaveStableConstraintsPassed(titleSaveStable, budgetMilliseconds);
     }
+
+    internal static bool ConnectionReuseConstraintsPassed(
+        int connectionOpenCount,
+        int connectionConfigureCount,
+        long droppedSamples) =>
+        connectionOpenCount == 0
+        && connectionConfigureCount == 0
+        && droppedSamples == 0;
 
     private static async Task<IReadOnlyList<PerformanceOperationResult>> MeasureWithIdleAsync(
         string operation,

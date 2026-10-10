@@ -6,6 +6,25 @@ namespace DotOrbit.Desktop.Tests;
 
 public sealed class PerformanceReviewRunnerTests
 {
+    [Theory]
+    [InlineData(0, 0, 0, true)]
+    [InlineData(1, 0, 0, false)]
+    [InlineData(0, 1, 0, false)]
+    [InlineData(0, 0, 1, false)]
+    public void ConnectionReuseConstraintRequiresCompleteTraceWithoutWarmOpens(
+        int connectionOpenCount,
+        int connectionConfigureCount,
+        long droppedSamples,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            PerformanceReviewRunner.ConnectionReuseConstraintsPassed(
+                connectionOpenCount,
+                connectionConfigureCount,
+                droppedSamples));
+    }
+
     [Fact]
     public void UnrelatedArgumentsDoNotEnableTheReview()
     {
@@ -71,6 +90,16 @@ public sealed class PerformanceReviewRunnerTests
         var scenario = PerformanceReviewScenario.FromArguments(
             ["--performance-review", "--performance-recovery-points=1", "--performance-recovery-points=16"]);
 
+        Assert.False(scenario.IsValid);
+    }
+
+    [Fact]
+    public void ReviewArgumentsRejectConcurrentDiagnosticTraceMode()
+    {
+        var scenario = PerformanceReviewScenario.FromArguments(
+            ["--performance-review", "--performance-trace"]);
+
+        Assert.True(scenario.IsEnabled);
         Assert.False(scenario.IsValid);
     }
 

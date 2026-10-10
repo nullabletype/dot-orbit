@@ -11,12 +11,18 @@ internal sealed class WorkspaceTransactionCoordinator
     private readonly EncryptedWorkspaceRecovery _recovery;
     private readonly Action<SqliteConnection, SqliteTransaction?> _synchroniseDerivedStorage;
     private readonly Action<EmptyBinCheckpoint>? _emptyBinCheckpoint;
+    private readonly WorkspaceConnectionFactory _connectionFactory;
+    private SqliteConnection? _readConnection;
+    private SqliteConnection? _writeConnection;
     private WorkspacePassphrase? _passphrase;
     private readonly string _workspacePath;
 
     internal WorkspaceTransactionCoordinator(
         string workspacePath,
         WorkspacePassphrase passphrase,
+        SqliteConnection readConnection,
+        SqliteConnection writeConnection,
+        WorkspaceConnectionFactory connectionFactory,
         EncryptedWorkspaceRecovery recovery,
         object gate,
         Action<SqliteConnection, SqliteTransaction?> synchroniseDerivedStorage,
@@ -24,6 +30,9 @@ internal sealed class WorkspaceTransactionCoordinator
     {
         _workspacePath = workspacePath;
         _passphrase = passphrase;
+        _readConnection = readConnection;
+        _writeConnection = writeConnection;
+        _connectionFactory = connectionFactory;
         _recovery = recovery;
         _gate = gate;
         _synchroniseDerivedStorage = synchroniseDerivedStorage;
@@ -40,20 +49,16 @@ internal sealed class WorkspaceTransactionCoordinator
         lock (_gate)
         {
             wait.Dispose();
-            var passphrase = _passphrase
-                ?? throw new ObjectDisposedException(nameof(IWorkspaceSession));
-            using var connection = EncryptedWorkspaceStore.OpenConnection(
-                _workspacePath,
-                passphrase,
-                SqliteOpenMode.ReadWrite);
-            EncryptedWorkspaceStore.ConfigureConnection(connection);
-            using var transaction = BeginTransaction(connection);
-            using (PerformanceTrace.Measure(PerformanceStage.Mutation, operation))
-                change(connection, transaction);
-            using (PerformanceTrace.Measure(PerformanceStage.DerivedStorage, operation))
-                _synchroniseDerivedStorage(connection, transaction);
-            using (PerformanceTrace.Measure(PerformanceStage.Commit, operation))
-                transaction.Commit();
+            var connection = GetWriteConnection();
+            using (var transaction = BeginTransaction(connection))
+            {
+                using (PerformanceTrace.Measure(PerformanceStage.Mutation, operation))
+                    change(connection, transaction);
+                using (PerformanceTrace.Measure(PerformanceStage.DerivedStorage, operation))
+                    _synchroniseDerivedStorage(connection, transaction);
+                using (PerformanceTrace.Measure(PerformanceStage.Commit, operation))
+                    transaction.Commit();
+            }
             using (PerformanceTrace.Measure(PerformanceStage.Recovery, operation))
                 return _recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed);
         }
@@ -67,15 +72,15 @@ internal sealed class WorkspaceTransactionCoordinator
         lock (_gate)
         {
             wait.Dispose();
-            var passphrase = _passphrase ?? throw new ObjectDisposedException(nameof(IWorkspaceSession));
-            using var connection = EncryptedWorkspaceStore.OpenConnection(_workspacePath, passphrase, SqliteOpenMode.ReadOnly);
-            EncryptedWorkspaceStore.ConfigureConnection(connection);
-            using var transaction = BeginTransaction(connection);
             T result;
-            using (PerformanceTrace.Measure(PerformanceStage.Query, operation))
-                result = read(connection, transaction);
-            using (PerformanceTrace.Measure(PerformanceStage.Commit, operation))
-                transaction.Commit();
+            var connection = GetReadConnection();
+            using (var transaction = BeginTransaction(connection))
+            {
+                using (PerformanceTrace.Measure(PerformanceStage.Query, operation))
+                    result = read(connection, transaction);
+                using (PerformanceTrace.Measure(PerformanceStage.Commit, operation))
+                    transaction.Commit();
+            }
             return result;
         }
     }
@@ -93,11 +98,10 @@ internal sealed class WorkspaceTransactionCoordinator
         {
             var passphrase = _passphrase
                 ?? throw new ObjectDisposedException(nameof(IWorkspaceSession));
-            using var connection = EncryptedWorkspaceStore.OpenConnection(
+            using var connection = _connectionFactory.OpenConfigured(
                 _workspacePath,
                 passphrase,
                 SqliteOpenMode.ReadWrite);
-            EncryptedWorkspaceStore.ConfigureConnection(connection);
             var transactionActive = false;
             try
             {
@@ -181,12 +185,52 @@ internal sealed class WorkspaceTransactionCoordinator
         }
     }
 
-    internal void Close()
+    internal void CloseConnections()
+    {
+        lock (_gate)
+        {
+            if (_readConnection is null && _writeConnection is null)
+            {
+                return;
+            }
+
+            try
+            {
+                _readConnection?.Dispose();
+            }
+            finally
+            {
+                _readConnection = null;
+                try
+                {
+                    _writeConnection?.Dispose();
+                }
+                finally
+                {
+                    _writeConnection = null;
+                }
+            }
+        }
+    }
+
+    internal void ClearPassphrase()
     {
         lock (_gate)
         {
             _passphrase = null;
         }
+    }
+
+    private SqliteConnection GetReadConnection()
+    {
+        ObjectDisposedException.ThrowIf(_passphrase is null, typeof(IWorkspaceSession));
+        return _readConnection ?? throw new ObjectDisposedException(nameof(IWorkspaceSession));
+    }
+
+    private SqliteConnection GetWriteConnection()
+    {
+        ObjectDisposedException.ThrowIf(_passphrase is null, typeof(IWorkspaceSession));
+        return _writeConnection ?? throw new ObjectDisposedException(nameof(IWorkspaceSession));
     }
 }
 

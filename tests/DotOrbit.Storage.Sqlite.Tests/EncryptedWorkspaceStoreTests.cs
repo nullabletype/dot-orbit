@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Security.Cryptography;
 using System.Text;
 using DotOrbit.Core.Workspaces;
 using DotOrbit.Storage.Sqlite;
@@ -28,12 +27,12 @@ public sealed class EncryptedWorkspaceStoreTests
         Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, result.Session.SchemaVersion);
         Assert.Equal("Personal Admin", result.Session.FirstCategoryName);
 
-        var fileBytes = File.ReadAllBytes(fixture.Path);
+        var fileBytes = TestFile.ReadAllBytesWithSharedAccess(fixture.Path);
         Assert.False(fileBytes.AsSpan().StartsWith("SQLite format 3\0"u8));
         Assert.All(Directory.GetFiles(fixture.Directory), file =>
             Assert.DoesNotContain(
                 "Personal Admin",
-                Encoding.UTF8.GetString(File.ReadAllBytes(file)),
+                Encoding.UTF8.GetString(TestFile.ReadAllBytesWithSharedAccess(file)),
                 StringComparison.Ordinal));
         Assert.Empty(Directory.GetFiles(fixture.Directory, "*.creating*"));
 
@@ -283,7 +282,7 @@ public sealed class EncryptedWorkspaceStoreTests
     }
 
     private static string Hash(string path) =>
-        Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
+        TestFile.ComputeSha256WithSharedAccess(path);
 
     private static SqliteConnection OpenInspectionConnection(
         string path,
