@@ -401,11 +401,13 @@ internal static class PerformanceReviewRunner
             },
             actionBudgetMilliseconds: 50));
 
-        // These row actions retain their full refresh; measure their complete command-to-idle boundary.
+        // Measure scoped row actions from command admission through their targeted committed projection update.
+        var scopedActionReads = new List<ScopedActionReadCounts>();
         var actionTaskId = activeTasks[1].Id;
         work.RefreshFromStore();
         var initiallyOnToday = work.TodayPlanned.Concat(work.TodayInProgress).Any(row => row.Task.Id == actionTaskId);
-        observations.AddRange(await MeasureWithIdleAsync(
+        var traceStart = connectionRecording.Snapshot().Count;
+        var actionResults = await MeasureWithIdleAsync(
             "today-membership", scenario.Iterations, scenario.BudgetMilliseconds,
             _ => work.ToggleToday(actionTaskId),
             waitForStable: work.WaitForWorkspaceActionsAsync,
@@ -413,14 +415,18 @@ internal static class PerformanceReviewRunner
             validateAfterIteration: iteration => Require(
                 work.TodayPlanned.Concat(work.TodayInProgress).Any(row => row.Task.Id == actionTaskId)
                     == (iteration % 2 == 0 ? !initiallyOnToday : initiallyOnToday)
-                && !work.NeedsDecision)));
+                && !work.NeedsDecision));
+        observations.AddRange(actionResults);
+        scopedActionReads.Add(ScopedActionReadCounts.Create(
+            "today-membership", connectionRecording.Snapshot().Skip(traceStart)));
         if (!work.TodayPlanned.Concat(work.TodayInProgress).Any(row => row.Task.Id == actionTaskId))
         {
             work.ToggleToday(actionTaskId);
             await work.WaitForWorkspaceActionsAsync();
         }
         var initiallyPlanned = work.TodayPlanned.Any(row => row.Task.Id == actionTaskId);
-        observations.AddRange(await MeasureWithIdleAsync(
+        traceStart = connectionRecording.Snapshot().Count;
+        actionResults = await MeasureWithIdleAsync(
             "today-start-stop", scenario.Iterations, scenario.BudgetMilliseconds,
             _ => work.MoveToOtherTodayLane(actionTaskId),
             waitForStable: work.WaitForWorkspaceActionsAsync,
@@ -428,14 +434,21 @@ internal static class PerformanceReviewRunner
             validateAfterIteration: iteration => Require(
                 (iteration % 2 == 0 ? !initiallyPlanned : initiallyPlanned)
                     ? work.TodayPlanned.Any(row => row.Task.Id == actionTaskId)
-                    : work.TodayInProgress.Any(row => row.Task.Id == actionTaskId))));
-        observations.AddRange(await MeasureWithIdleAsync(
+                    : work.TodayInProgress.Any(row => row.Task.Id == actionTaskId)));
+        observations.AddRange(actionResults);
+        scopedActionReads.Add(ScopedActionReadCounts.Create(
+            "today-start-stop", connectionRecording.Snapshot().Skip(traceStart)));
+        traceStart = connectionRecording.Snapshot().Count;
+        actionResults = await MeasureWithIdleAsync(
             "task-complete-reopen", scenario.Iterations, scenario.BudgetMilliseconds,
             _ => work.ToggleCompletion(actionTaskId),
             waitForStable: work.WaitForWorkspaceActionsAsync,
             workspaceActionTiming: () => work.LastWorkspaceActionTiming,
             validateAfterIteration: iteration => Require(
-                work.Completed.Any(row => row.Id == actionTaskId) == (iteration % 2 == 0))));
+                work.Completed.Any(row => row.Id == actionTaskId) == (iteration % 2 == 0)));
+        observations.AddRange(actionResults);
+        scopedActionReads.Add(ScopedActionReadCounts.Create(
+            "task-complete-reopen", connectionRecording.Snapshot().Skip(traceStart)));
         // An odd iteration count leaves the Task completed; restore it before the reorder observation.
         if (store.Read().Tasks.Single(task => task.Id == actionTaskId).IsComplete)
         {
@@ -444,7 +457,8 @@ internal static class PerformanceReviewRunner
         }
         work.MoveToBottom(actionTaskId);
         await work.WaitForWorkspaceActionsAsync();
-        observations.AddRange(await MeasureWithIdleAsync(
+        traceStart = connectionRecording.Snapshot().Count;
+        actionResults = await MeasureWithIdleAsync(
             "task-move", scenario.Iterations, scenario.BudgetMilliseconds,
             iteration =>
             {
@@ -454,7 +468,43 @@ internal static class PerformanceReviewRunner
             waitForStable: work.WaitForWorkspaceActionsAsync,
             workspaceActionTiming: () => work.LastWorkspaceActionTiming,
             validateAfterIteration: iteration => Require(
-                work.Backlog[iteration % 2 == 0 ? 0 : work.Backlog.Count - 1].Id == actionTaskId)));
+                work.Backlog[iteration % 2 == 0 ? 0 : work.Backlog.Count - 1].Id == actionTaskId));
+        observations.AddRange(actionResults);
+        scopedActionReads.Add(ScopedActionReadCounts.Create(
+            "task-move", connectionRecording.Snapshot().Skip(traceStart)));
+
+        foreach (var taskId in activeTasks.Select(task => task.Id))
+        {
+            var row = work.TodayPlanned.Concat(work.TodayInProgress)
+                .FirstOrDefault(candidate => candidate.Task.Id == taskId);
+            if (row is null)
+            {
+                work.ToggleToday(taskId);
+                await work.WaitForWorkspaceActionsAsync();
+            }
+            else if (work.TodayInProgress.Any(candidate => candidate.Task.Id == taskId))
+            {
+                work.MoveToOtherTodayLane(taskId);
+                await work.WaitForWorkspaceActionsAsync();
+            }
+        }
+        Require(work.TodayPlanned.Count >= 2);
+        work.MoveTodayTask(actionTaskId, work.TodayPlanned.Count - 1);
+        await work.WaitForWorkspaceActionsAsync();
+        traceStart = connectionRecording.Snapshot().Count;
+        actionResults = await MeasureWithIdleAsync(
+            "today-task-move", scenario.Iterations, scenario.BudgetMilliseconds,
+            iteration => work.MoveTodayTask(
+                actionTaskId,
+                iteration % 2 == 0 ? 0 : work.TodayPlanned.Count - 1),
+            waitForStable: work.WaitForWorkspaceActionsAsync,
+            workspaceActionTiming: () => work.LastWorkspaceActionTiming,
+            validateAfterIteration: iteration => Require(
+                work.TodayPlanned[iteration % 2 == 0 ? 0 : work.TodayPlanned.Count - 1].Task.Id
+                    == actionTaskId));
+        observations.AddRange(actionResults);
+        scopedActionReads.Add(ScopedActionReadCounts.Create(
+            "today-task-move", connectionRecording.Snapshot().Skip(traceStart)));
         connectionRecording.Dispose();
         var trace = connectionRecording.Snapshot();
         var connectionOpenCount = trace.Count(sample => sample.Stage == PerformanceStage.ConnectionOpen);
@@ -475,6 +525,7 @@ internal static class PerformanceReviewRunner
 
         foreach (var result in results) WriteResult(result);
         foreach (var observation in observations) WriteResult(observation, observedOnly: true);
+        foreach (var readCounts in scopedActionReads) WriteReadCounts(readCounts);
         var titleSaveStable = results.Single(result => result.Operation == "task-title-save-stable");
         var titleSaveAllocationPassed = titleSaveStable.P50AllocatedBytes < 4_000_000;
         var titleSaveMaximumPassed = titleSaveStable.MaximumMilliseconds <= scenario.BudgetMilliseconds * 2;
@@ -487,8 +538,13 @@ internal static class PerformanceReviewRunner
             + $"connection_configure_count={connectionConfigureCount} "
             + $"dropped_samples={connectionRecording.DroppedSamples} "
             + $"result={(connectionReusePassed ? "passed" : "failed")}");
+        var scopedReadsPassed = scopedActionReads.All(counts => counts.IncidentalReadCount == 0);
+        Console.WriteLine(
+            $"performance-review: constraint=scoped-action-incidental-reads "
+            + $"result={(scopedReadsPassed ? "passed" : "failed")}");
         var passed = ReviewConstraintsPassed(results, scenario.BudgetMilliseconds)
-            && connectionReusePassed;
+            && connectionReusePassed
+            && scopedReadsPassed;
         Console.WriteLine(
             $"performance-review: result={(passed ? "passed" : "failed")} code={(passed ? 0 : BudgetExceededExitCode)}");
         return passed ? 0 : BudgetExceededExitCode;
@@ -516,6 +572,14 @@ internal static class PerformanceReviewRunner
         connectionOpenCount == 0
         && connectionConfigureCount == 0
         && droppedSamples == 0;
+
+    private static void WriteReadCounts(ScopedActionReadCounts counts) =>
+        Console.WriteLine(
+            $"performance-review: operation={counts.Operation}-database-reads "
+            + $"storage_writes={counts.StorageWrites} workspace={counts.Workspace} "
+            + $"task_bin={counts.TaskBin} project_bin={counts.ProjectBin} "
+            + $"bulk_preview={counts.BulkPreview} archive_search={counts.ArchiveSearch} "
+            + $"result={(counts.IncidentalReadCount == 0 ? "passed" : "failed")}");
 
     private static async Task<IReadOnlyList<PerformanceOperationResult>> MeasureWithIdleAsync(
         string operation,
@@ -748,4 +812,37 @@ internal readonly record struct PerformanceOperationResult(
 
     private static long Percentile(long[] sorted, double percentile) =>
         sorted[(int)Math.Ceiling(percentile * sorted.Length) - 1];
+}
+
+internal readonly record struct ScopedActionReadCounts(
+    string Operation,
+    int StorageWrites,
+    int Workspace,
+    int TaskBin,
+    int ProjectBin,
+    int BulkPreview,
+    int ArchiveSearch)
+{
+    public int IncidentalReadCount => Workspace + TaskBin + ProjectBin + BulkPreview + ArchiveSearch;
+
+    public static ScopedActionReadCounts Create(
+        string operation,
+        IEnumerable<PerformanceSample> samples)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(operation);
+        ArgumentNullException.ThrowIfNull(samples);
+        var materialized = samples.ToArray();
+        return new(
+            operation,
+            materialized.Count(sample => sample.Stage == PerformanceStage.StorageWrite),
+            Count(PerformanceOperation.Read),
+            Count(PerformanceOperation.ReadTaskBin),
+            Count(PerformanceOperation.ReadProjectBin),
+            Count(PerformanceOperation.PreviewBulkTaskArchive),
+            Count(PerformanceOperation.SearchArchive));
+
+        int Count(PerformanceOperation target) =>
+            materialized.Count(sample => sample.Operation == target
+                && sample.Stage == PerformanceStage.StorageRead);
+    }
 }

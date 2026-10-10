@@ -115,11 +115,16 @@ internal enum WorkspaceActionOutcome
 }
 
 internal sealed record WorkspaceActionEffect(
-    string? TaskId = null,
+    string TaskId,
+    TaskRecord? CommittedTask = null,
     TodayLane? TodayLane = null,
     bool? IsComplete = null,
     int? Position = null,
-    int? Count = null);
+    int? Count = null,
+    IReadOnlyList<TaskSharedPositionChange>? SharedPositionChanges = null)
+{
+    public IReadOnlyList<TaskSharedPositionChange> PositionChanges => SharedPositionChanges ?? [];
+}
 
 internal sealed record WorkspaceActionTiming(
     TimeSpan QueueWait,
@@ -270,108 +275,67 @@ internal sealed class WorkspacePersistenceOperation : IWorkspacePersistenceOpera
                 Timing: new(TimeSpan.Zero, _timeProvider.GetElapsedTime(started)));
         }
 
-        try
-        {
-            return new(request, WorkspaceActionOutcome.Committed,
-                ReadReloadData(request.BulkArchiveCompletedAgeDays, request.ArchiveSearchText), effect,
-                new(TimeSpan.Zero, _timeProvider.GetElapsedTime(started)));
-        }
-        catch (Exception exception) when (IsWorkspaceFailure(exception))
-        {
-            return new(request, WorkspaceActionOutcome.CommittedRefreshFailed, Effect: effect,
-                Timing: new(TimeSpan.Zero, _timeProvider.GetElapsedTime(started)));
-        }
+        return new(request, WorkspaceActionOutcome.Committed, Effect: effect,
+            Timing: new(TimeSpan.Zero, _timeProvider.GetElapsedTime(started)));
     }
 
     private WorkspaceActionEffect ExecuteMutation(WorkspaceActionRequest request)
     {
         var taskId = request.TaskId ?? throw new ArgumentException("A Task is required.", nameof(request));
-        var snapshot = _work.Read();
-        var task = snapshot.Tasks.Single(item => item.Id == taskId);
         return request.Kind switch
         {
-            WorkspaceActionKind.ToggleToday => ToggleToday(task),
-            WorkspaceActionKind.ToggleTodayLane => ToggleTodayLane(task),
-            WorkspaceActionKind.ToggleCompletion => ToggleCompletion(task),
-            WorkspaceActionKind.MoveBacklog => MoveBacklog(snapshot, task, request),
-            WorkspaceActionKind.MoveToday => MoveToday(snapshot, task, request),
+            WorkspaceActionKind.ToggleToday => ToggleToday(taskId),
+            WorkspaceActionKind.ToggleTodayLane => ToggleTodayLane(taskId),
+            WorkspaceActionKind.ToggleCompletion => ToggleCompletion(taskId),
+            WorkspaceActionKind.MoveBacklog => MoveBacklog(taskId, request),
+            WorkspaceActionKind.MoveToday => MoveToday(taskId, request),
             _ => throw new ArgumentOutOfRangeException(nameof(request)),
         };
     }
 
-    private WorkspaceActionEffect ToggleToday(TaskRecord task)
+    private WorkspaceActionEffect MoveBacklog(string taskId, WorkspaceActionRequest request)
     {
-        TodayLane? lane = task.TodayLane is null ? DotOrbit.Core.Workspaces.TodayLane.Planned : null;
-        _work.SetTaskTodayLane(task.Id, lane);
-        return new(task.Id, TodayLane: lane);
+        var change = _work.MoveTaskInSharedOrder(taskId, ToDomainMove(request));
+        return new(change.TaskId, TodayLane: change.TodayLane, Position: change.Position,
+            Count: change.Count, SharedPositionChanges: change.PositionChanges);
     }
 
-    private WorkspaceActionEffect ToggleTodayLane(TaskRecord task)
+    private WorkspaceActionEffect MoveToday(string taskId, WorkspaceActionRequest request)
     {
-        if (task.TodayLane is null)
-            throw new ArgumentException("The Task does not belong to Today.", nameof(task));
-        var lane = task.TodayLane == DotOrbit.Core.Workspaces.TodayLane.Planned
-            ? DotOrbit.Core.Workspaces.TodayLane.InProgress
-            : DotOrbit.Core.Workspaces.TodayLane.Planned;
-        _work.SetTaskTodayLane(task.Id, lane);
-        return new(task.Id, TodayLane: lane);
+        var change = _work.MoveTaskInTodayLane(taskId, ToDomainMove(request));
+        return new(change.TaskId, TodayLane: change.TodayLane, Position: change.Position,
+            Count: change.Count, SharedPositionChanges: change.PositionChanges);
     }
 
-    private WorkspaceActionEffect ToggleCompletion(TaskRecord task)
+    private WorkspaceActionEffect ToggleToday(string taskId)
     {
-        if (task.IsArchived) throw new ArgumentException("An archived Task cannot be changed.", nameof(task));
-        var complete = !task.IsComplete;
-        if (complete) _work.CompleteTask(task.Id); else _work.ReopenTask(task.Id);
-        return new(task.Id, IsComplete: complete);
+        var task = _work.ToggleTaskToday(taskId);
+        return new(task.Id, task, TodayLane: task.TodayLane);
     }
 
-    private WorkspaceActionEffect MoveBacklog(
-        WorkspaceWorkSnapshot snapshot,
-        TaskRecord task,
-        WorkspaceActionRequest request)
+    private WorkspaceActionEffect ToggleTodayLane(string taskId)
     {
-        var archivedProjectIds = snapshot.Projects.Where(project => project.IsArchived)
-            .Select(project => project.Id).ToHashSet(StringComparer.Ordinal);
-        var visible = snapshot.Tasks.Where(item => !item.IsComplete && !item.IsArchived
-                && (item.ProjectId is null || !archivedProjectIds.Contains(item.ProjectId)))
-            .OrderBy(item => item.SharedPosition).ToArray();
-        var target = ResolveTarget(visible, task.Id, request);
-        var change = _work.MoveTaskInSharedOrder(task.Id, target);
-        return new(task.Id, Position: change.Position, Count: change.Count);
+        var task = _work.ToggleTaskTodayLane(taskId);
+        return new(task.Id, task, TodayLane: task.TodayLane);
     }
 
-    private WorkspaceActionEffect MoveToday(
-        WorkspaceWorkSnapshot snapshot,
-        TaskRecord task,
-        WorkspaceActionRequest request)
+    private WorkspaceActionEffect ToggleCompletion(string taskId)
     {
-        if (task.IsComplete || task.TodayLane is null)
-            throw new ArgumentException("The Task does not belong to an incomplete Today lane.", nameof(task));
-        var visible = snapshot.Tasks.Where(item => !item.IsComplete && item.TodayLane == task.TodayLane)
-            .OrderBy(item => item.SharedPosition).ToArray();
-        var target = ResolveTarget(visible, task.Id, request);
-        var change = _work.MoveTaskInTodayLane(task.Id, target);
-        return new(task.Id, TodayLane: change.Lane, Position: change.Position, Count: change.Count);
+        var task = _work.ToggleTaskCompletion(taskId);
+        return new(task.Id, task, TodayLane: task.TodayLane, IsComplete: task.IsComplete);
     }
 
-    private static int ResolveTarget(
-        TaskRecord[] visible,
-        string taskId,
-        WorkspaceActionRequest request)
-    {
-        var current = visible.Select((item, index) => (item.Id, index))
-            .Single(item => item.Id == taskId).index;
-        return request.Move switch
+    private static TaskOrderMove ToDomainMove(WorkspaceActionRequest request) => new(
+        request.Move switch
         {
-            WorkspaceMoveKind.Up => Math.Max(0, current - 1),
-            WorkspaceMoveKind.Down => Math.Min(visible.Length - 1, current + 1),
-            WorkspaceMoveKind.Top => 0,
-            WorkspaceMoveKind.Bottom => visible.Length - 1,
-            WorkspaceMoveKind.TargetTaskPosition => visible.Select((item, index) => (item.Id, index))
-                .Single(item => item.Id == request.TargetTaskId).index,
+            WorkspaceMoveKind.Up => TaskOrderMoveKind.Up,
+            WorkspaceMoveKind.Down => TaskOrderMoveKind.Down,
+            WorkspaceMoveKind.Top => TaskOrderMoveKind.Top,
+            WorkspaceMoveKind.Bottom => TaskOrderMoveKind.Bottom,
+            WorkspaceMoveKind.TargetTaskPosition => TaskOrderMoveKind.TargetTask,
             _ => throw new ArgumentException("A move intent is required.", nameof(request)),
-        };
-    }
+        },
+        request.TargetTaskId);
 
     private static bool IsWorkspaceFailure(Exception exception) => exception is
         ArgumentException or InvalidOperationException or WorkspaceWorkException;

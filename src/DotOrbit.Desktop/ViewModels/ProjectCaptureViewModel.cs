@@ -97,9 +97,11 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private int _bulkArchiveAffectedCount;
     private bool _processingWorkspaceActions;
     private bool _workspaceActionAdmissionClosed;
+    private bool _workspaceActionAdmissionTerminated;
     private int _pendingWorkspaceActionCount;
     private bool _canRetryWorkspaceRefresh;
     private TaskCompletionSource _workspaceActionsSettled = CompletedActionQueue();
+    private Task _broadActionsSettled = Task.CompletedTask;
     private Action? _pendingWorkspaceBarrier;
     private WorkspaceActionPerformanceTiming? _lastWorkspaceActionTiming;
 
@@ -192,8 +194,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             if (_pendingWorkspaceBarrier is not null)
             {
                 _pendingWorkspaceBarrier = null;
-                _workspaceActionAdmissionClosed = false;
-                Notify(nameof(WorkspaceActionStatus));
+                ReopenWorkspaceActionAdmission(reopen: true);
             }
             Notify(nameof(NeedsDecision));
             Notify(nameof(HasBlockingDialog));
@@ -910,12 +911,22 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         }
 
         await _workspaceActionsSettled.Task;
+        var broadActions = _broadActionsSettled;
+        try
+        {
+            await broadActions;
+        }
+        catch (Exception exception) when (exception is WorkspaceWorkException
+                                          or ArgumentException
+                                          or InvalidOperationException)
+        {
+            Message = "Could not finish the requested action before leaving.";
+        }
         if (_pendingWorkspaceBarrier is not { } destination) return;
         _pendingWorkspaceBarrier = null;
         CloseInspector();
         destination();
-        _workspaceActionAdmissionClosed = false;
-        Notify(nameof(WorkspaceActionStatus));
+        ReopenWorkspaceActionAdmission(reopen: true);
     }
 
     public void SelectProject(string id) => Navigate(() => LoadProject(id));
@@ -1033,7 +1044,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     internal Task<bool> QuickAddAsync(string projectId, string title)
     {
         if (string.IsNullOrWhiteSpace(title)) return Task.FromResult(false);
-        return RunAfterDraftFlushAsync(() =>
+        return RunAfterDraftFlushTrackedAsync(() =>
             Attempt(() => { _work.CreateTask(projectId, title); Reload(); Message = "Task created."; }));
     }
 
@@ -1068,7 +1079,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
         var title = BacklogQuickTitle;
         var categoryId = BacklogQuickCategory.Id;
-        return RunAfterDraftFlushAsync(() =>
+        return RunAfterDraftFlushTrackedAsync(() =>
         {
             if (!Attempt(() => { _work.CreateStandaloneTask(title, string.Empty, categoryId, null); Reload(); Message = "Task created."; }))
                 return false;
@@ -1512,49 +1523,105 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         Notify(nameof(HasBlockingDialog));
     }
 
-    private void ResolveDraftBeforeAction(Action action, bool closesInspector = false) =>
-        _ = ResolveDraftBeforeActionAsync(action, closesInspector);
+    private void ResolveDraftBeforeAction(Action action, bool closesInspector = false)
+    {
+        var execution = ResolveDraftBeforeActionAsync(action, closesInspector);
+        TrackBroadAction(execution);
+        _ = execution;
+    }
 
     private bool RunAfterDraftFlush(Func<bool> action)
     {
-        var execution = RunAfterDraftFlushAsync(action);
+        var execution = RunAfterDraftFlushTrackedAsync(action);
         if (execution.IsCompleted) return execution.GetAwaiter().GetResult();
         _ = execution;
         return true;
     }
 
+    private Task<bool> RunAfterDraftFlushTrackedAsync(Func<bool> action)
+    {
+        var execution = RunAfterDraftFlushAsync(action);
+        TrackBroadAction(execution);
+        return execution;
+    }
+
     private async Task<bool> RunAfterDraftFlushAsync(Func<bool> action)
     {
-        if (NeedsDecision) return false;
+        if (NeedsDecision || _workspaceActionAdmissionClosed) return false;
         if ((_editingCategory ? IsDirty : HasPendingPersistence)
             && (_editingCategory || !await FlushPendingAutosaveAsync()))
         {
             var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             _pendingDeferredActionCompletion = completion;
-            _pendingNavigation = () => completion.TrySetResult(action());
+            _pendingNavigation = () => _ = ResumeDeferredBroadActionAsync(action, completion);
             _pendingNavigationClosesInspector = false;
             Notify(nameof(NeedsDecision));
             Notify(nameof(HasBlockingDialog));
             return await completion.Task;
         }
-        return action();
+        var reopenActionAdmission = await AwaitWorkspaceActionsBeforeBroadActionAsync();
+        try
+        {
+            return action();
+        }
+        finally
+        {
+            ReopenWorkspaceActionAdmission(reopenActionAdmission);
+        }
     }
+
+    private async Task ResumeDeferredBroadActionAsync(
+        Func<bool> action,
+        TaskCompletionSource<bool> completion) =>
+        completion.TrySetResult(await RunAfterDraftFlushAsync(action));
 
     private async Task ResolveDraftBeforeActionAsync(Action action, bool closesInspector)
     {
-        if (NeedsDecision) return;
+        if (NeedsDecision || _workspaceActionAdmissionClosed) return;
         if ((_editingCategory ? IsDirty : HasPendingPersistence)
             && (_editingCategory || !await FlushPendingAutosaveAsync()))
         {
-            _pendingNavigation = action;
-            _pendingNavigationClosesInspector = closesInspector;
+            _pendingNavigation = () => ResolveDraftBeforeAction(action, closesInspector);
+            _pendingNavigationClosesInspector = false;
             Notify(nameof(NeedsDecision));
             Notify(nameof(HasBlockingDialog));
             return;
         }
 
-        if (closesInspector) CloseInspector();
-        action();
+        var reopenActionAdmission = await AwaitWorkspaceActionsBeforeBroadActionAsync();
+        try
+        {
+            if (closesInspector) CloseInspector();
+            action();
+        }
+        finally
+        {
+            ReopenWorkspaceActionAdmission(reopenActionAdmission);
+        }
+    }
+
+    private async Task<bool> AwaitWorkspaceActionsBeforeBroadActionAsync()
+    {
+        if (!HasPendingWorkspaceActions) return false;
+        _workspaceActionAdmissionClosed = true;
+        Message = WorkspaceActionStatus;
+        Notify(nameof(WorkspaceActionStatus));
+        await _workspaceActionsSettled.Task;
+        return true;
+    }
+
+    private void ReopenWorkspaceActionAdmission(bool reopen)
+    {
+        if (!reopen || _workspaceActionAdmissionTerminated || _pendingWorkspaceBarrier is not null) return;
+        _workspaceActionAdmissionClosed = false;
+        Notify(nameof(WorkspaceActionStatus));
+    }
+
+    private void TrackBroadAction(Task execution)
+    {
+        _broadActionsSettled = _broadActionsSettled.IsCompleted
+            ? execution
+            : Task.WhenAll(_broadActionsSettled, execution);
     }
 
     private void CompletePendingAttachment(TaskAttachmentCategoryChoice choice)
@@ -2576,7 +2643,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
     private void RefreshAvailableParticipants() => RefreshParticipantChoices();
 
-    public void RefreshFromStore() => Reload();
+    public void RefreshFromStore() => ResolveDraftBeforeAction(Reload);
     private TaskRowViewModel ToTaskRow(TaskRecord task)
     {
         var inherited = task.ProjectId is not null && task.ExplicitCategoryId is null;
@@ -2627,23 +2694,65 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     {
         var existing = collection.ToDictionary(row => row.Task.Id, StringComparer.Ordinal);
         foreach (var row in collection.Where(row => desired.All(task => task.Id != row.Task.Id))) row.Detach();
-        collection.Clear();
+        var rows = new TodayTaskRowViewModel[desired.Length];
         for (var index = 0; index < desired.Length; index++)
         {
             var row = existing.GetValueOrDefault(desired[index].Id)
                 ?? new TodayTaskRowViewModel(this, desired[index], lane);
             row.Refresh(desired[index], index, desired.Length);
-            collection.Add(row);
+            rows[index] = row;
         }
+        SynchroniseByReference(collection, rows);
     }
 
     private void RefreshCompletedGroups()
     {
-        CompletedGroups.Clear();
-        foreach (var group in Completed.GroupBy(row => CompletedGroupFor(
-                     _snapshot.Tasks.Single(task => task.Id == row.Id).CompletionDate!.Value))
-                 .OrderByDescending(group => group.Key.Start))
-            CompletedGroups.Add(new(group.Key.Heading, group.ToArray()));
+        var desired = Completed.GroupBy(row => CompletedGroupFor(
+                _snapshot.Tasks.Single(task => task.Id == row.Id).CompletionDate!.Value))
+            .OrderByDescending(group => group.Key.Start)
+            .Select(group =>
+            {
+                var tasks = group.ToArray();
+                var existing = CompletedGroups.FirstOrDefault(item =>
+                    string.Equals(item.Heading, group.Key.Heading, StringComparison.Ordinal));
+                if (existing is null) return new CompletedTaskGroupViewModel(group.Key.Heading, tasks);
+                existing.Refresh(tasks);
+                return existing;
+            })
+            .ToArray();
+        SynchroniseByReference(CompletedGroups, desired);
+    }
+
+    private void SynchroniseCompletedToday(TaskRowViewModel[] desired)
+    {
+        var rows = desired.Select((task, index) =>
+        {
+            var isLast = index == desired.Length - 1;
+            var existing = CompletedToday.FirstOrDefault(item => item.Task.Id == task.Id);
+            if (existing is null) return new CompletedTaskRowViewModel(task, isLast);
+            existing.Refresh(task, isLast);
+            return existing;
+        }).ToArray();
+        SynchroniseByReference(CompletedToday, rows);
+    }
+
+    private static void SynchroniseByReference<T>(ObservableCollection<T> collection, T[] desired)
+        where T : class
+    {
+        for (var index = collection.Count - 1; index >= 0; index--)
+            if (!desired.Any(item => ReferenceEquals(item, collection[index]))) collection.RemoveAt(index);
+        for (var index = 0; index < desired.Length; index++)
+        {
+            var current = -1;
+            for (var candidate = 0; candidate < collection.Count; candidate++)
+                if (ReferenceEquals(collection[candidate], desired[index]))
+                {
+                    current = candidate;
+                    break;
+                }
+            if (current < 0) collection.Insert(index, desired[index]);
+            else if (current != index) collection.Move(current, index);
+        }
     }
 
     private void RefreshArchiveGroups()
@@ -2875,6 +2984,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
     internal async Task DrainWorkspaceActionsAsync()
     {
+        _workspaceActionAdmissionTerminated = true;
         _workspaceActionAdmissionClosed = true;
         if (HasPendingWorkspaceActions)
         {
@@ -2882,6 +2992,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             Notify(nameof(WorkspaceActionStatus));
         }
         await _workspaceActionsSettled.Task;
+        await _broadActionsSettled;
     }
 
     private bool EnqueueWorkspaceAction(WorkspaceActionRequest request, bool closesInspectorOnCommit)
@@ -2951,39 +3062,6 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             }
 
             var result = await _actionExecutor.SubmitActionAsync(queued.Request);
-            WorkspaceActionRequest? consistencyRefresh = null;
-            await _uiDispatcher.InvokeAsync(() =>
-            {
-                if (result.Outcome == WorkspaceActionOutcome.Committed
-                    && (_inspectorGeneration != queued.InspectorGeneration
-                        || _autosaveRevision != queued.InspectorRevision))
-                {
-                    var admittedAt = _timeProvider.GetTimestamp();
-                    consistencyRefresh = new(
-                        WorkspaceActionKind.Refresh,
-                        BulkArchiveCompletedAgeDays: BulkArchiveCompletedAgeDays,
-                        ArchiveSearchText: ArchiveSearchText,
-                        AdmittedAtTimestamp: admittedAt);
-                }
-            });
-            if (consistencyRefresh is not null)
-            {
-                var refreshed = await _actionExecutor.SubmitActionAsync(consistencyRefresh);
-                result = refreshed.Outcome == WorkspaceActionOutcome.Refreshed
-                    ? result with
-                    {
-                        Reload = refreshed.Reload,
-                        Timing = new(
-                            result.Timing?.QueueWait ?? TimeSpan.Zero,
-                            (result.Timing?.Persistence ?? TimeSpan.Zero)
-                            + (refreshed.Timing?.Persistence ?? TimeSpan.Zero)),
-                    }
-                    : result with
-                    {
-                        Outcome = WorkspaceActionOutcome.CommittedRefreshFailed,
-                        Reload = null,
-                    };
-            }
             await _uiDispatcher.InvokeAsync(() =>
             {
                 var accepted = _queuedWorkspaceActions.Dequeue();
@@ -3031,8 +3109,6 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             Message = "The view could not refresh. Retry refresh.";
             return;
         }
-        if (result.Reload is null) return;
-
         var priorTask = result.Effect?.TaskId is { } taskId
             ? _snapshot.Tasks.SingleOrDefault(item => item.Id == taskId)
             : null;
@@ -3047,15 +3123,18 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         var todayIndex = priorTask is null
             ? -1
             : todaySource.IndexOf(todaySource.FirstOrDefault(row => row.Task.Id == priorTask.Id)!);
-        Reload(result.Reload);
-        CanRetryWorkspaceRefresh = false;
         if (result.Request.Kind == WorkspaceActionKind.Refresh)
         {
+            if (result.Reload is null) return;
+            Reload(result.Reload);
+            CanRetryWorkspaceRefresh = false;
             Message = "View refreshed.";
             return;
         }
 
-        var effect = result.Effect!;
+        var effect = result.Effect ?? throw new InvalidOperationException("A committed action requires an effect.");
+        ApplyCommittedWorkspaceAction(result.Request.Kind, effect);
+        CanRetryWorkspaceRefresh = false;
         var task = _snapshot.Tasks.Single(item => item.Id == effect.TaskId);
         var announcement = result.Request.Kind switch
         {
@@ -3152,6 +3231,147 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         WorkspaceActionKind.MoveToday => "Could not reorder the Today lane.",
         _ => "Could not refresh the view.",
     };
+
+    private void ApplyCommittedWorkspaceAction(
+        WorkspaceActionKind kind,
+        WorkspaceActionEffect effect)
+    {
+        var previous = _snapshot.Tasks.Single(task => task.Id == effect.TaskId);
+        var positionChanges = effect.PositionChanges.ToDictionary(
+            change => change.TaskId,
+            change => change.SharedPosition,
+            StringComparer.Ordinal);
+        _snapshot = _snapshot with
+        {
+            Tasks = _snapshot.Tasks.Select(task =>
+            {
+                var updated = task;
+                if (positionChanges.TryGetValue(task.Id, out var sharedPosition))
+                    updated = updated with { SharedPosition = sharedPosition };
+                if (!string.Equals(task.Id, effect.TaskId, StringComparison.Ordinal)) return updated;
+                return kind switch
+                {
+                    WorkspaceActionKind.ToggleToday or WorkspaceActionKind.ToggleTodayLane =>
+                        updated with { TodayLane = effect.CommittedTask!.TodayLane },
+                    WorkspaceActionKind.ToggleCompletion => updated with
+                    {
+                        CompletedAt = effect.CommittedTask!.CompletedAt,
+                        CompletionDate = effect.CommittedTask.CompletionDate,
+                        TodayLane = effect.CommittedTask.TodayLane,
+                    },
+                    _ => updated,
+                };
+            }).ToArray(),
+        };
+
+        foreach (var taskId in positionChanges.Keys.Append(effect.TaskId).Distinct(StringComparer.Ordinal))
+            ToTaskRow(_snapshot.Tasks.Single(task => task.Id == taskId));
+
+        switch (kind)
+        {
+            case WorkspaceActionKind.ToggleToday:
+            case WorkspaceActionKind.ToggleTodayLane:
+                RefreshTodayLanes();
+                break;
+            case WorkspaceActionKind.ToggleCompletion:
+                if (previous.ProjectId is { } projectId) RefreshProjectTaskState(projectId);
+                RefreshBacklogProjection();
+                RefreshUpcomingGroups();
+                RefreshTodayLanes();
+                RefreshCompletedProjections();
+                if (NeedsBulkTaskArchiveConfirmation)
+                    BulkArchiveAffectedCount = BulkTaskArchivePolicy.EligibleTasks(
+                        _snapshot,
+                        Today,
+                        BulkArchiveCompletedAgeDays).Count;
+                break;
+            case WorkspaceActionKind.MoveBacklog:
+            case WorkspaceActionKind.MoveToday:
+                RefreshBacklogProjection();
+                RefreshUpcomingGroups();
+                RefreshTodayLanes();
+                foreach (var categoryId in effect.PositionChanges
+                             .Select(change => _snapshot.Tasks.Single(task => task.Id == change.TaskId))
+                             .Where(task => task.ProjectId is null)
+                             .Select(task => task.ExplicitCategoryId!)
+                             .Distinct(StringComparer.Ordinal))
+                    RefreshCategoryGroup(categoryId);
+                break;
+        }
+
+        Notify(nameof(ProjectSummary));
+        Notify(nameof(InspectorMetaValue));
+        Notify(nameof(ShowTaskCompletionDate));
+        Notify(nameof(TaskCompletionDateText));
+        Notify(nameof(TaskCompletionDateAccessibleText));
+        Notify(nameof(UpcomingCount));
+        Notify(nameof(HasUpcoming));
+        Notify(nameof(HasNoUpcoming));
+        Notify(nameof(HasCompleted));
+        Notify(nameof(HasNoCompleted));
+        Notify(nameof(HasTodayTasks));
+        Notify(nameof(HasNoTodayTasks));
+        Notify(nameof(HasCompletedToday));
+    }
+
+    private void RefreshProjectTaskState(string projectId)
+    {
+        var project = _snapshot.Projects.Single(item => item.Id == projectId);
+        var row = Projects.FirstOrDefault(item => item.Id == projectId)
+            ?? ArchivedProjects.FirstOrDefault(item => item.Project.Id == projectId)?.Project;
+        row?.Refresh(
+            project,
+            ProjectWorkSummary.From(_snapshot, projectId),
+            CategoryById(project.CategoryId),
+            _snapshot.Tasks.Where(task => task.ProjectId == projectId)
+                .OrderBy(task => task.ProjectPosition)
+                .Select(TaskRowForProjection));
+    }
+
+    private void RefreshBacklogProjection()
+    {
+        var backlog = _snapshot.Tasks
+            .Where(task => IsTaskInActiveWork(task) && !task.IsComplete && !task.IsArchived)
+            .OrderBy(task => task.SharedPosition)
+            .Select(TaskRowForProjection)
+            .ToArray();
+        SynchroniseBacklog(backlog);
+        for (var index = 0; index < Backlog.Count; index++) Backlog[index].SetPosition(index + 1, Backlog.Count);
+    }
+
+    private void RefreshTodayLanes()
+    {
+        SynchroniseToday(TodayPlanned, _snapshot.Tasks
+            .Where(task => IsTaskInActiveWork(task) && !task.IsComplete && !task.IsArchived
+                && task.TodayLane == TodayLane.Planned)
+            .OrderBy(task => task.SharedPosition)
+            .Select(TaskRowForProjection)
+            .ToArray(), TodayLane.Planned);
+        SynchroniseToday(TodayInProgress, _snapshot.Tasks
+            .Where(task => IsTaskInActiveWork(task) && !task.IsComplete && !task.IsArchived
+                && task.TodayLane == TodayLane.InProgress)
+            .OrderBy(task => task.SharedPosition)
+            .Select(TaskRowForProjection)
+            .ToArray(), TodayLane.InProgress);
+    }
+
+    private void RefreshCompletedProjections()
+    {
+        Synchronise(Completed, _snapshot.Tasks
+            .Where(task => IsTaskInActiveWork(task) && task.IsComplete && !task.IsArchived)
+            .OrderByDescending(task => task.CompletedAt)
+            .ThenBy(task => task.SharedPosition)
+            .Select(TaskRowForProjection)
+            .ToArray());
+        SynchroniseCompletedToday(_snapshot.Tasks
+            .Where(task => IsTaskInActiveWork(task) && task.IsComplete && !task.IsArchived
+                && task.CompletionDate == Today)
+            .OrderByDescending(task => task.CompletedAt)
+            .ThenBy(task => task.SharedPosition)
+            .Select(TaskRowForProjection)
+            .ToArray());
+        RefreshCompletedGroups();
+    }
 
     private bool MoveTask(string taskId, int targetPosition)
     {
@@ -3530,14 +3750,58 @@ public sealed class CategoryGroupViewModel : INotifyPropertyChanged
     }
 }
 
-public sealed record CompletedTaskGroupViewModel(string Heading, IReadOnlyList<TaskRowViewModel> Tasks)
+public sealed class CompletedTaskGroupViewModel
 {
-    public IReadOnlyList<CompletedTaskRowViewModel> Rows { get; } = Tasks
-        .Select((task, index) => new CompletedTaskRowViewModel(task, index == Tasks.Count - 1))
-        .ToArray();
+    public CompletedTaskGroupViewModel(string heading, IReadOnlyList<TaskRowViewModel> tasks)
+    {
+        Heading = heading;
+        Refresh(tasks);
+    }
+
+    public string Heading { get; }
+    public ObservableCollection<CompletedTaskRowViewModel> Rows { get; } = [];
+    public IReadOnlyList<TaskRowViewModel> Tasks => Rows.Select(row => row.Task).ToArray();
+
+    public void Refresh(IReadOnlyList<TaskRowViewModel> tasks)
+    {
+        var desired = tasks.Select((task, index) =>
+        {
+            var row = Rows.FirstOrDefault(item => item.Task.Id == task.Id)
+                ?? new CompletedTaskRowViewModel(task, index == tasks.Count - 1);
+            row.Refresh(task, index == tasks.Count - 1);
+            return row;
+        }).ToArray();
+        for (var index = Rows.Count - 1; index >= 0; index--)
+            if (desired.All(row => !ReferenceEquals(row, Rows[index]))) Rows.RemoveAt(index);
+        for (var index = 0; index < desired.Length; index++)
+        {
+            var current = Rows.IndexOf(desired[index]);
+            if (current < 0) Rows.Insert(index, desired[index]);
+            else if (current != index) Rows.Move(current, index);
+        }
+    }
 }
 
-public sealed record CompletedTaskRowViewModel(TaskRowViewModel Task, bool IsLast);
+public sealed class CompletedTaskRowViewModel : INotifyPropertyChanged
+{
+    public CompletedTaskRowViewModel(TaskRowViewModel task, bool isLast)
+    {
+        Task = task;
+        IsLast = isLast;
+    }
+
+    public TaskRowViewModel Task { get; private set; }
+    public bool IsLast { get; private set; }
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public void Refresh(TaskRowViewModel task, bool isLast)
+    {
+        Task = task;
+        IsLast = isLast;
+        PropertyChanged?.Invoke(this, new(nameof(Task)));
+        PropertyChanged?.Invoke(this, new(nameof(IsLast)));
+    }
+}
 public sealed record ArchivedTaskRowViewModel(TaskRowViewModel Task, bool IsLast);
 public sealed record ArchivedProjectRowViewModel(ProjectRowViewModel Project, bool IsLast);
 

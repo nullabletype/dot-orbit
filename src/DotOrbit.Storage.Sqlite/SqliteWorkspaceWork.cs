@@ -1176,6 +1176,64 @@ internal sealed class SqliteWorkspaceWork(
         return result!;
     }
 
+    public TaskRecord ToggleTaskToday(string id)
+    {
+        TaskRecord? result = null;
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            var task = ReadActiveTask(connection, transaction, id);
+            var lane = task.TodayLane is null ? TodayLane.Planned : (TodayLane?)null;
+            EnsureTodayMembershipAllowed(connection, transaction, task, lane);
+            WriteTodayLane(connection, transaction, id, lane);
+            result = ReadStoredTask(connection, transaction, id, lane);
+        }));
+        return result!;
+    }
+
+    public TaskRecord ToggleTaskTodayLane(string id)
+    {
+        TaskRecord? result = null;
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            var task = ReadActiveTask(connection, transaction, id);
+            if (task.TodayLane is null)
+                throw new ArgumentException("The Task does not belong to Today.", nameof(id));
+            var lane = task.TodayLane == TodayLane.Planned ? TodayLane.InProgress : TodayLane.Planned;
+            EnsureTodayMembershipAllowed(connection, transaction, task, lane);
+            WriteTodayLane(connection, transaction, id, lane);
+            result = ReadStoredTask(connection, transaction, id, lane);
+        }));
+        return result!;
+    }
+
+    public TaskRecord ToggleTaskCompletion(string id)
+    {
+        TaskRecord? result = null;
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            var task = ReadActiveTask(connection, transaction, id);
+            if (task.IsArchived)
+                throw new InvalidOperationException("An archived Task must be restored before its completion can change.");
+            if (task.IsComplete)
+            {
+                Execute(connection, transaction,
+                    "UPDATE tasks SET completion_instant=NULL, completion_date=NULL WHERE id=$id;", ("$id", id));
+                result = ReadStoredTask(connection, transaction, id, task.TodayLane);
+                return;
+            }
+
+            var instant = timeProvider.GetUtcNow();
+            var localDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(instant, timeProvider.LocalTimeZone).DateTime);
+            Execute(connection, transaction, "DELETE FROM today_tasks WHERE task_id=$id;", ("$id", id));
+            Execute(connection, transaction,
+                "UPDATE tasks SET completion_instant=$instant, completion_date=$date WHERE id=$id;",
+                ("$id", id), ("$instant", instant.ToString("O", CultureInfo.InvariantCulture)),
+                ("$date", Date(localDate)));
+            result = ReadStoredTask(connection, transaction, id, null);
+        }));
+        return result!;
+    }
+
     public int ClearToday()
     {
         var cleared = 0;
@@ -1215,6 +1273,40 @@ internal sealed class SqliteWorkspaceWork(
         return result!;
     }
 
+    public TaskOrderMutationResult MoveTaskInTodayLane(string id, TaskOrderMove move)
+    {
+        ArgumentNullException.ThrowIfNull(move);
+        TaskOrderMutationResult? result = null;
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            var orderedTasks = ReadTaskOrderState(connection, transaction);
+            var task = orderedTasks.SingleOrDefault(item => item.Id == id)
+                ?? throw new ArgumentException("The Task does not exist.", nameof(id));
+            if (task.IsComplete || task.TodayLane is null)
+                throw new ArgumentException("The Task does not belong to an incomplete Today lane.", nameof(id));
+            var visibleIds = orderedTasks
+                .Where(item => !item.IsComplete && item.TodayLane == task.TodayLane)
+                .Select(item => item.Id)
+                .ToList();
+            var targetPosition = ResolveTargetPosition(visibleIds, id, move);
+            var originalIds = orderedTasks.Select(item => item.Id).ToArray();
+            Move(visibleIds, id, targetPosition);
+            var visibleSet = visibleIds.ToHashSet(StringComparer.Ordinal);
+            var visibleIndex = 0;
+            var mergedIds = originalIds
+                .Select(taskId => visibleSet.Contains(taskId) ? visibleIds[visibleIndex++] : taskId)
+                .ToList();
+            RewriteSharedOrder(connection, transaction, mergedIds);
+            result = new(
+                id,
+                task.TodayLane,
+                targetPosition + 1,
+                visibleIds.Count,
+                ChangedSharedPositions(originalIds, mergedIds));
+        }));
+        return result!;
+    }
+
     public SharedTaskOrderChange MoveTaskInSharedOrder(string id, int targetPosition)
     {
         SharedTaskOrderChange? result = null;
@@ -1246,6 +1338,39 @@ internal sealed class SqliteWorkspaceWork(
                 RewriteSharedOrder(connection, transaction, mergedIds);
             }
             result = new(id, targetPosition + 1, visibleIds.Count);
+        }));
+        return result!;
+    }
+
+    public TaskOrderMutationResult MoveTaskInSharedOrder(string id, TaskOrderMove move)
+    {
+        ArgumentNullException.ThrowIfNull(move);
+        TaskOrderMutationResult? result = null;
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            var orderedTasks = ReadTaskOrderState(connection, transaction);
+            var visibleIds = orderedTasks
+                .Where(task => !task.IsComplete && !task.IsArchived && !task.ParentProjectIsArchived)
+                .Select(task => task.Id)
+                .ToList();
+            if (!visibleIds.Contains(id, StringComparer.Ordinal))
+                throw new ArgumentException("The Task does not belong to Backlog.", nameof(id));
+            var targetPosition = ResolveTargetPosition(visibleIds, id, move);
+            var originalIds = orderedTasks.Select(item => item.Id).ToArray();
+            Move(visibleIds, id, targetPosition);
+            var visibleSet = visibleIds.ToHashSet(StringComparer.Ordinal);
+            var visibleIndex = 0;
+            var mergedIds = originalIds
+                .Select(taskId => visibleSet.Contains(taskId) ? visibleIds[visibleIndex++] : taskId)
+                .ToList();
+            RewriteSharedOrder(connection, transaction, mergedIds);
+            var lane = orderedTasks.Single(item => item.Id == id).TodayLane;
+            result = new(
+                id,
+                lane,
+                targetPosition + 1,
+                visibleIds.Count,
+                ChangedSharedPositions(originalIds, mergedIds));
         }));
         return result!;
     }
@@ -1496,6 +1621,126 @@ internal sealed class SqliteWorkspaceWork(
             reader.GetInt64(6), reader.IsDBNull(7) ? null : reader.GetInt64(7), ReadInstant(reader, 8),
             ReadDate(reader, 9), participants.AsReadOnly(), todayLane, ReadInstant(reader, 10), ReadDate(reader, 11));
     }
+
+    private static TaskRecord ReadActiveTask(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string id)
+    {
+        RequireActiveTask(connection, transaction, id);
+        return ReadStoredTask(connection, transaction, id, ReadTodayLane(connection, transaction, id));
+    }
+
+    private static TodayLane? ReadTodayLane(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string id)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT lane FROM today_tasks WHERE task_id=$id;";
+        command.Parameters.AddWithValue("$id", id);
+        var value = command.ExecuteScalar();
+        return value is null ? null : ParseTodayLane((string)value);
+    }
+
+    private static void EnsureTodayMembershipAllowed(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        TaskRecord task,
+        TodayLane? lane)
+    {
+        if (lane is null) return;
+        if (task.IsComplete)
+            throw new InvalidOperationException("A completed Task cannot belong to Today.");
+        if (task.ProjectId is { } projectId
+            && Exists(connection, transaction, "project_archives", "project_id", projectId))
+            throw new InvalidOperationException("A Task in an archived Project cannot belong to Today.");
+    }
+
+    private static void WriteTodayLane(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string id,
+        TodayLane? lane)
+    {
+        if (lane is null)
+        {
+            Execute(connection, transaction, "DELETE FROM today_tasks WHERE task_id=$id;", ("$id", id));
+            return;
+        }
+        Execute(connection, transaction, """
+            INSERT INTO today_tasks (task_id,lane) VALUES ($id,$lane)
+            ON CONFLICT(task_id) DO UPDATE SET lane=excluded.lane;
+            """, ("$id", id), ("$lane", TodayLaneValue(lane.Value)));
+    }
+
+    private sealed record TaskOrderState(
+        string Id,
+        bool IsComplete,
+        bool IsArchived,
+        bool ParentProjectIsArchived,
+        TodayLane? TodayLane);
+
+    private static TaskOrderState[] ReadTaskOrderState(
+        SqliteConnection connection,
+        SqliteTransaction transaction)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT t.id,
+                   CASE WHEN t.completion_instant IS NULL THEN 0 ELSE 1 END,
+                   CASE WHEN ta.task_id IS NULL THEN 0 ELSE 1 END,
+                   CASE WHEN pa.project_id IS NULL THEN 0 ELSE 1 END,
+                   tt.lane
+            FROM tasks t
+            LEFT JOIN task_archives ta ON ta.task_id=t.id
+            LEFT JOIN project_archives pa ON pa.project_id=t.project_id
+            LEFT JOIN today_tasks tt ON tt.task_id=t.id
+            WHERE t.id NOT IN (SELECT task_id FROM task_bins)
+            ORDER BY t.shared_position,t.id;
+            """;
+        using var reader = command.ExecuteReader();
+        var tasks = new List<TaskOrderState>();
+        while (reader.Read())
+            tasks.Add(new(
+                reader.GetString(0),
+                reader.GetInt64(1) != 0,
+                reader.GetInt64(2) != 0,
+                reader.GetInt64(3) != 0,
+                reader.IsDBNull(4) ? null : ParseTodayLane(reader.GetString(4))));
+        return tasks.ToArray();
+    }
+
+    private static int ResolveTargetPosition(
+        List<string> visibleIds,
+        string id,
+        TaskOrderMove move)
+    {
+        var current = visibleIds.IndexOf(id);
+        if (current < 0) throw new ArgumentException("The Task is not in the visible order.", nameof(id));
+        return move.Kind switch
+        {
+            TaskOrderMoveKind.Up => Math.Max(0, current - 1),
+            TaskOrderMoveKind.Down => Math.Min(visibleIds.Count - 1, current + 1),
+            TaskOrderMoveKind.Top => 0,
+            TaskOrderMoveKind.Bottom => visibleIds.Count - 1,
+            TaskOrderMoveKind.TargetTask => visibleIds.IndexOf(move.TargetTaskId
+                ?? throw new ArgumentException("A target Task is required.", nameof(move))),
+            _ => throw new ArgumentOutOfRangeException(nameof(move)),
+        } is var target && target >= 0
+            ? target
+            : throw new ArgumentException("The target Task is not in the visible order.", nameof(move));
+    }
+
+    private static TaskSharedPositionChange[] ChangedSharedPositions(
+        string[] originalIds,
+        List<string> updatedIds) => updatedIds
+        .Select((taskId, position) => (taskId, position))
+        .Where(item => !string.Equals(originalIds[item.position], item.taskId, StringComparison.Ordinal))
+        .Select(item => new TaskSharedPositionChange(item.taskId, item.position))
+        .ToArray();
 
     private static TaskBinRecord ReadTaskBinRecord(
         SqliteConnection connection,
