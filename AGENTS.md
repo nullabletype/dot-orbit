@@ -7,6 +7,7 @@
 - Inspect the current checkout and relevant domain documents before editing.
 - Distinguish clearly between proposed, implemented, and verified behaviour.
 - Prefer small vertical slices that leave the repository runnable.
+- For every desktop build launched for user review, use the repository sample workspace (`--sample-workspace`); generate it through `tools/DotOrbit.SampleWorkspace` first when it is absent.
 - Follow `docs/development/agent-loop.md` for branch publication and review pull requests. Merge, tag, or create releases only with explicit user authorisation.
 - Use current, supported releases for direct and transitive dependencies, SDKs, runtimes, GitHub Actions, runner images, and packaging tools. Verify upstream support status and applicable security updates when selecting or updating versions. Deprecated, end-of-life, or unmaintained components block acceptance; a successful build or floating version tag is not evidence of support. Preserve reproducibility with explicit pins and lockfiles.
 - Keep builds deterministic, enable nullable reference types and supported analyzers, and treat compiler and analyzer warnings as errors. Suppress a diagnostic only with a narrow, documented justification.

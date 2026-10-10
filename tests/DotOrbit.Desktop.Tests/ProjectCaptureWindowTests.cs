@@ -655,7 +655,7 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
-    public void TodayCreationAndReorderAlternativesExposeContextHelpFocusAnnouncementAndDrag()
+    public async Task TodayCreationAndReorderAlternativesExposeContextHelpFocusAnnouncementAndDrag()
     {
         var work = new MemoryWorkspaceWork();
         var project = work.CreateProject("Garden", "", "home", null);
@@ -683,15 +683,17 @@ public sealed class ProjectCaptureWindowTests
         Assert.Equal("Move Second to top of Planned", AutomationProperties.GetName(moveToTop));
         moveToTop.Command!.Execute(null);
         menu.Hide();
+        await shell.Work!.WaitForWorkspaceActionsAsync();
         Dispatcher.UIThread.RunJobs();
         Assert.True(ButtonByAutomationId(window, $"today-reorder-{second.Id}").IsFocused);
-        Assert.Equal([second.Id, first.Id], shell.Work!.TodayPlanned.Select(row => row.Task.Id));
+        Assert.Equal([second.Id, first.Id], shell.Work.TodayPlanned.Select(row => row.Task.Id));
         Assert.Equal("Moved Second to position 1 of 2 in Planned.", shell.Work.TodayAnnouncement);
 
         handle = ButtonByAutomationId(window, $"today-reorder-{second.Id}");
         var target = ButtonByAutomationId(window, $"today-reorder-{first.Id}");
         DragToTarget(window, handle, target);
         window.MouseUp(CentreInWindow(target, window), MouseButton.Left, RawInputModifiers.None);
+        await shell.Work.WaitForWorkspaceActionsAsync();
         Dispatcher.UIThread.RunJobs();
         Assert.Equal([first.Id, second.Id], shell.Work.TodayPlanned.Select(row => row.Task.Id));
         Assert.True(ButtonByAutomationId(window, $"today-reorder-{second.Id}").IsFocused);
@@ -4576,9 +4578,10 @@ public sealed class ProjectCaptureWindowTests
 
     private sealed record ScheduledAutosave(long Revision, Action<long> Callback);
 
-    private sealed class ControlledWindowSaveWriter(IWorkspaceWork work) : IInspectorSaveWriter
+    private sealed class ControlledWindowSaveWriter(IWorkspaceWork work)
+        : IInspectorSaveWriter, IWorkspaceActionExecutor
     {
-        private readonly WorkspaceInspectorSaveOperation _operation = new(work);
+        private readonly WorkspacePersistenceOperation _operation = new(work);
         private readonly object _gate = new();
         private readonly List<(InspectorSaveRequest Request, TaskCompletionSource<InspectorSaveResult> Completion)> _pending = [];
         private TaskCompletionSource _submissionChanged = NewSignal();
@@ -4625,6 +4628,9 @@ public sealed class ProjectCaptureWindowTests
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        public Task<WorkspaceActionResult> SubmitActionAsync(WorkspaceActionRequest request) =>
+            Task.FromResult(_operation.ExecuteAction(request));
 
         private static TaskCompletionSource NewSignal() =>
             new(TaskCreationOptions.RunContinuationsAsynchronously);

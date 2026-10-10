@@ -104,3 +104,4 @@ A recoverable soft-deletion state for work the user intends to remove. Bin is di
 40. Quick-add is an explicit immediate action in Projects and Backlog that creates a title-only Task and returns focus to a fresh entry field for rapid sequential capture.
 41. Backlog quick-add creates standalone Tasks using an explicitly selected Category that remains selected only for the current rapid-entry session.
 42. A Category's persisted colour is identity metadata only; renaming or reordering the Category never recalculates it, and changing it never rewrites Project or Task references.
+43. Accepted immediate Task actions are persisted in admission order through the unlocked session's serialized boundary. Pending actions do not change the displayed persisted state optimistically, and later toggles or moves resolve against the committed result of earlier accepted actions.
