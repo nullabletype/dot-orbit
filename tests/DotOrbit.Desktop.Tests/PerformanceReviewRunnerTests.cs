@@ -1,4 +1,5 @@
 using DotOrbit.Desktop;
+using DotOrbit.Core.Diagnostics;
 using DotOrbit.Core.Workspaces;
 using Xunit;
 
@@ -6,6 +7,33 @@ namespace DotOrbit.Desktop.Tests;
 
 public sealed class PerformanceReviewRunnerTests
 {
+    [Fact]
+    public void ScopedActionReadCountsSeparateWritesFromIncidentalSurfaceReads()
+    {
+        var counts = ScopedActionReadCounts.Create(
+            "today-membership",
+            [
+                Sample(PerformanceStage.StorageWrite, PerformanceOperation.ToggleTaskToday),
+                Sample(PerformanceStage.StorageWrite, PerformanceOperation.ToggleTaskToday),
+                Sample(PerformanceStage.StorageRead, PerformanceOperation.Read),
+                Sample(PerformanceStage.StorageRead, PerformanceOperation.ReadTaskBin),
+                Sample(PerformanceStage.StorageRead, PerformanceOperation.ReadProjectBin),
+                Sample(PerformanceStage.StorageRead, PerformanceOperation.PreviewBulkTaskArchive),
+                Sample(PerformanceStage.StorageRead, PerformanceOperation.SearchArchive),
+            ]);
+
+        Assert.Equal(2, counts.StorageWrites);
+        Assert.Equal(1, counts.Workspace);
+        Assert.Equal(1, counts.TaskBin);
+        Assert.Equal(1, counts.ProjectBin);
+        Assert.Equal(1, counts.BulkPreview);
+        Assert.Equal(1, counts.ArchiveSearch);
+        Assert.Equal(5, counts.IncidentalReadCount);
+
+        static PerformanceSample Sample(PerformanceStage stage, PerformanceOperation operation) =>
+            new(1, null, stage, operation, 0, 1, 1);
+    }
+
     [Theory]
     [InlineData(0, 0, 0, true)]
     [InlineData(1, 0, 0, false)]

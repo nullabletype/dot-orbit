@@ -40,9 +40,14 @@ public interface IWorkspaceWork
     BulkTaskArchivePreview PreviewBulkTaskArchive(int completedAgeDays);
     BulkTaskArchiveResult BulkArchiveTasks(BulkTaskArchivePreview confirmedPreview);
     TaskRecord SetTaskTodayLane(string id, TodayLane? lane);
+    TaskRecord ToggleTaskToday(string id);
+    TaskRecord ToggleTaskTodayLane(string id);
+    TaskRecord ToggleTaskCompletion(string id);
     int ClearToday();
     TodayLaneOrderChange MoveTaskInTodayLane(string id, int targetPosition);
+    TaskOrderMutationResult MoveTaskInTodayLane(string id, TaskOrderMove move);
     SharedTaskOrderChange MoveTaskInSharedOrder(string id, int targetPosition);
+    TaskOrderMutationResult MoveTaskInSharedOrder(string id, TaskOrderMove move);
     ProjectOrderChange MoveProject(string id, int targetPosition);
     ProjectTaskOrderChange MoveTaskInProject(string projectId, string taskId, int targetPosition);
     TaskRecord DetachTask(string id);
@@ -167,6 +172,22 @@ public sealed record EmptyBinResult(EmptyBinStatus Status, EmptyBinPreview Previ
 public sealed record TaskBinOrderAnchor(string TaskId, int RelativePosition);
 public sealed record SharedTaskOrderChange(string TaskId, int Position, int Count);
 public sealed record TodayLaneOrderChange(string TaskId, TodayLane Lane, int Position, int Count);
+public enum TaskOrderMoveKind
+{
+    Up,
+    Down,
+    Top,
+    Bottom,
+    TargetTask,
+}
+public sealed record TaskOrderMove(TaskOrderMoveKind Kind, string? TargetTaskId = null);
+public sealed record TaskSharedPositionChange(string TaskId, long SharedPosition);
+public sealed record TaskOrderMutationResult(
+    string TaskId,
+    TodayLane? TodayLane,
+    int Position,
+    int Count,
+    IReadOnlyList<TaskSharedPositionChange> PositionChanges);
 public sealed record ProjectOrderChange(string ProjectId, int Position, int Count);
 public sealed record ProjectTaskOrderChange(string ProjectId, string TaskId, int Position, int Count);
 public sealed record CategoryOrderChange(string CategoryId, int Position, int Count);

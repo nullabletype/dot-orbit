@@ -2626,6 +2626,130 @@ public sealed class ProjectCaptureViewModelTests
     }
 
     [Fact]
+    public async Task ScopedTaskActionsUpdateTheirProjectionsWithoutReadingUnrelatedWorkspaceSurfaces()
+    {
+        var work = new MemoryWorkspaceWork();
+        var archived = work.CreateStandaloneTask("Archived reference", "", "home", null);
+        work.SetCompletion(
+            archived.Id,
+            new DateTimeOffset(2026, 9, 25, 12, 0, 0, TimeSpan.Zero),
+            new DateOnly(2026, 9, 25));
+        work.ArchiveTask(archived.Id);
+        var third = work.CreateStandaloneTask("Third", "", "home", null);
+        var second = work.CreateStandaloneTask("Second", "", "home", null);
+        var first = work.CreateStandaloneTask("First", "", "home", null);
+        var actions = new RecordingWorkspaceActionExecutor(work);
+        var model = new ProjectCaptureViewModel(
+            work,
+            null,
+            new InlineWorkspacePersistenceExecutor(new WorkspacePersistenceOperation(work)),
+            actions,
+            new InlineUiDispatcher());
+        model.ArchiveSearchText = "archived";
+        var firstRow = model.Backlog.Single(row => row.Id == first.Id);
+        var thirdRow = model.Backlog.Single(row => row.Id == third.Id);
+        var homeGroup = model.CategoryGroups.Single(group => group.Id == "home");
+        var archiveSearchRow = Assert.Single(model.ArchiveSearchResults);
+        var archiveSearchGroup = Assert.Single(model.ArchiveSearchGroups);
+        var baseline = ReadCounts(work);
+
+        async Task CompleteActionAsync(Action action)
+        {
+            action();
+            await model.WaitForWorkspaceActionsAsync().WaitAsync(
+                TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            Assert.Equal(baseline, ReadCounts(work));
+        }
+
+        await CompleteActionAsync(() => model.ToggleToday(first.Id));
+        Assert.Equal(first.Id, Assert.Single(model.TodayPlanned).Task.Id);
+
+        await CompleteActionAsync(() => model.MoveToOtherTodayLane(first.Id));
+        Assert.Equal(first.Id, Assert.Single(model.TodayInProgress).Task.Id);
+
+        await CompleteActionAsync(() => model.ToggleCompletion(first.Id));
+        Assert.Equal(first.Id, Assert.Single(model.Completed).Id);
+        Assert.Empty(model.TodayPlanned);
+        Assert.Empty(model.TodayInProgress);
+
+        await CompleteActionAsync(() => model.ToggleCompletion(first.Id));
+        Assert.Equal(first.Id, model.Backlog[0].Id);
+
+        await CompleteActionAsync(() => model.ToggleToday(first.Id));
+        await CompleteActionAsync(() => model.ToggleToday(second.Id));
+        Assert.Equal([first.Id, second.Id], model.TodayPlanned.Select(row => row.Task.Id));
+
+        await CompleteActionAsync(() => Assert.True(model.MoveTodayTask(second.Id, 0)));
+        Assert.Equal([second.Id, first.Id], model.TodayPlanned.Select(row => row.Task.Id));
+
+        await CompleteActionAsync(() => model.MoveToBottom(first.Id));
+        Assert.Equal([second.Id, third.Id, first.Id], model.Backlog.Select(row => row.Id));
+        Assert.Same(firstRow, model.Backlog.Single(row => row.Id == first.Id));
+        Assert.Same(firstRow, model.TodayPlanned.Single(row => row.Task.Id == first.Id).Task);
+        Assert.Same(thirdRow, model.Backlog.Single(row => row.Id == third.Id));
+        Assert.Same(homeGroup, model.CategoryGroups.Single(group => group.Id == "home"));
+        Assert.Same(archiveSearchRow, Assert.Single(model.ArchiveSearchResults));
+        Assert.Same(archiveSearchGroup, Assert.Single(model.ArchiveSearchGroups));
+
+        static (int Workspace, int TaskBin, int ProjectBin, int BulkPreview, int ArchiveSearch)
+            ReadCounts(MemoryWorkspaceWork current) => (
+                current.ReadCount,
+                current.TaskBinReadCount,
+                current.ProjectBinReadCount,
+                current.BulkArchivePreviewCount,
+                current.ArchiveSearchCount);
+    }
+
+    [Fact]
+    public async Task BulkArchiveWorkflowWaitsForPendingCompletionAndOpensFromAFreshPreview()
+    {
+        var work = new MemoryWorkspaceWork();
+        var old = work.CreateStandaloneTask("Old", "", "home", null);
+        var remaining = work.CreateStandaloneTask("Remaining", "", "home", null);
+        work.SetCompletion(
+            old.Id,
+            new DateTimeOffset(2026, 9, 25, 12, 0, 0, TimeSpan.Zero),
+            new DateOnly(2026, 9, 25));
+        work.SetCompletion(
+            remaining.Id,
+            new DateTimeOffset(2026, 9, 24, 12, 0, 0, TimeSpan.Zero),
+            new DateOnly(2026, 9, 24));
+        var actions = new BlockingWorkspaceActionExecutor(work);
+        var model = new ProjectCaptureViewModel(
+            work,
+            null,
+            new InlineWorkspacePersistenceExecutor(new WorkspacePersistenceOperation(work)),
+            actions,
+            new InlineUiDispatcher())
+        {
+            BulkArchiveCompletedAgeDays = 3,
+        };
+
+        model.ToggleCompletion(old.Id);
+        await WaitUntilAsync(() => actions.Requests.Count == 1);
+        var previewCount = work.BulkArchivePreviewCount;
+        model.RequestBulkTaskArchiveCommand.Execute(null);
+        Assert.False(model.NeedsBulkTaskArchiveConfirmation);
+        Assert.Equal(2, model.BulkArchiveAffectedCount);
+        Assert.Equal(previewCount, work.BulkArchivePreviewCount);
+
+        actions.Release.Set();
+        await WaitUntilAsync(() => model.NeedsBulkTaskArchiveConfirmation);
+
+        Assert.True(model.NeedsBulkTaskArchiveConfirmation);
+        Assert.Equal(1, model.BulkArchiveAffectedCount);
+        Assert.Equal(previewCount + 1, work.BulkArchivePreviewCount);
+
+        model.ConfirmBulkTaskArchiveCommand.Execute(null);
+
+        Assert.False(model.NeedsBulkTaskArchiveConfirmation);
+        Assert.Equal(previewCount + 4, work.BulkArchivePreviewCount);
+        Assert.Equal("1 completed Task archived.", model.Message);
+        Assert.False(work.Read().Tasks.Single(task => task.Id == old.Id).IsArchived);
+        Assert.True(work.Read().Tasks.Single(task => task.Id == remaining.Id).IsArchived);
+    }
+
+    [Fact]
     public async Task FailedDraftFlushBlocksTheQueuedActionUntilTheDecisionIsResolved()
     {
         var work = new MemoryWorkspaceWork();
@@ -2653,7 +2777,7 @@ public sealed class ProjectCaptureViewModelTests
         await model.WaitForWorkspaceActionsAsync().WaitAsync(
             TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
-        Assert.Equal([WorkspaceActionKind.ToggleToday, WorkspaceActionKind.Refresh],
+        Assert.Equal([WorkspaceActionKind.ToggleToday],
             actions.Requests.Select(request => request.Kind));
         Assert.Equal(TodayLane.Planned, work.Read().Tasks.Single(item => item.Id == task.Id).TodayLane);
     }
@@ -2681,7 +2805,7 @@ public sealed class ProjectCaptureViewModelTests
         await model.WaitForWorkspaceActionsAsync().WaitAsync(
             TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
-        Assert.Equal([WorkspaceActionKind.ToggleToday, WorkspaceActionKind.Refresh],
+        Assert.Equal([WorkspaceActionKind.ToggleToday],
             actions.Requests.Select(request => request.Kind));
         Assert.Equal(TodayLane.Planned, work.Read().Tasks.Single(item => item.Id == task.Id).TodayLane);
     }
@@ -2741,7 +2865,7 @@ public sealed class ProjectCaptureViewModelTests
     }
 
     [Fact]
-    public async Task LateActionResultRefreshesAfterANewerInspectorRevision()
+    public async Task LateActionResultMergesOwnedStateWithoutOverwritingANewerInspectorRevision()
     {
         var work = new MemoryWorkspaceWork();
         var edited = work.CreateStandaloneTask("Original", "", "home", null);
@@ -2760,14 +2884,170 @@ public sealed class ProjectCaptureViewModelTests
 
         model.Title = "Newer revision";
         Assert.True(model.RunScheduledAutosave());
-        actions.Release.Set();
+        actions.ReleaseResult();
         await model.WaitForWorkspaceActionsAsync().WaitAsync(
             TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         Assert.Equal("Newer revision", model.Title);
         Assert.Equal("Newer revision", model.Backlog.Single(row => row.Id == edited.Id).Title);
-        Assert.Equal([WorkspaceActionKind.ToggleToday, WorkspaceActionKind.Refresh],
+        Assert.Equal([WorkspaceActionKind.ToggleToday],
             actions.Requests.Select(request => request.Kind));
+        Assert.Equal(actionTarget.Id, Assert.Single(model.TodayPlanned).Task.Id);
+    }
+
+    [Fact]
+    public async Task ClearTodayWaitsForADelayedScopedResultAndRemainsTheLastCommittedAction()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Action", "", "home", null);
+        var actions = new CapturedActionExecutor(work);
+        var model = new ProjectCaptureViewModel(
+            work,
+            null,
+            new InlineWorkspacePersistenceExecutor(new WorkspacePersistenceOperation(work)),
+            actions,
+            new InlineUiDispatcher());
+
+        model.ToggleToday(task.Id);
+        await actions.ResultCaptured.WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        model.ClearTodayCommand.Execute(null);
+
+        Assert.Equal("Finishing 1 change before leaving…", model.Message);
+        var drain = model.DrainWorkspaceActionsAsync();
+        Assert.False(drain.IsCompleted);
+        actions.ReleaseResult();
+        await drain.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, model.PendingWorkspaceActionCount);
+        Assert.Empty(model.TodayPlanned);
+        Assert.Empty(model.TodayInProgress);
+        Assert.Equal("Cleared 1 Task from Today.", model.Message);
+        model.ToggleToday(task.Id);
+        Assert.Equal(0, model.PendingWorkspaceActionCount);
+        Assert.Single(actions.Requests);
+    }
+
+    [Fact]
+    public async Task MoveToBinWaitsForADelayedScopedResultWithoutStickingTheActionQueue()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Action", "", "home", null);
+        var actions = new CapturedActionExecutor(work);
+        var model = new ProjectCaptureViewModel(
+            work,
+            null,
+            new InlineWorkspacePersistenceExecutor(new WorkspacePersistenceOperation(work)),
+            actions,
+            new InlineUiDispatcher());
+        model.SelectTask(task.Id);
+
+        model.ToggleToday(task.Id);
+        await actions.ResultCaptured.WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        model.MoveTaskToBinCommand.Execute(null);
+        actions.ReleaseResult();
+        await WaitUntilAsync(() => model.Bin.Any(row => row.Task?.Id == task.Id));
+
+        Assert.Equal(0, model.PendingWorkspaceActionCount);
+        Assert.Empty(model.Backlog);
+        Assert.Empty(model.TodayPlanned);
+        Assert.False(model.HasInspector);
+        Assert.Equal("Task moved to Bin. You can restore it from Bin.", model.Message);
+    }
+
+    [Fact]
+    public async Task NavigationWaitsForAnAlreadyRequestedMoveToBinAfterScopedActionsSettle()
+    {
+        var work = new MemoryWorkspaceWork
+        {
+            MoveTaskToBinRelease = new ManualResetEventSlim(),
+        };
+        var task = work.CreateStandaloneTask("Action", "", "home", null);
+        var actions = new CapturedActionExecutor(work);
+        var model = new ProjectCaptureViewModel(
+            work,
+            null,
+            new InlineWorkspacePersistenceExecutor(new WorkspacePersistenceOperation(work)),
+            actions,
+            new InlineUiDispatcher());
+        model.SelectTask(task.Id);
+
+        model.ToggleToday(task.Id);
+        await actions.ResultCaptured.WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        model.MoveTaskToBinCommand.Execute(null);
+        actions.ReleaseResult();
+        await work.MoveTaskToBinStarted.Task.WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        var navigatedAfterMove = false;
+        var navigation = model.NavigateAsync(() =>
+            navigatedAfterMove = work.ReadTaskBin().Any(item => item.Task.Id == task.Id));
+
+        Assert.False(navigation.IsCompleted);
+        Assert.False(navigatedAfterMove);
+        work.MoveTaskToBinRelease.Set();
+        await navigation.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.True(navigatedAfterMove);
+        Assert.False(model.HasInspector);
+    }
+
+    [Fact]
+    public async Task NavigationTracksQuickAddAndKeepsScopedAdmissionClosedUntilTheDestinationRuns()
+    {
+        var work = new MemoryWorkspaceWork
+        {
+            CreateTaskRelease = new ManualResetEventSlim(),
+        };
+        var project = work.CreateProject("Project", "", "home", null);
+        var actionTarget = work.CreateStandaloneTask("Action", "", "home", null);
+        var rejectedTarget = work.CreateStandaloneTask("Rejected", "", "home", null);
+        var actions = new CapturedActionExecutor(work);
+        var model = new ProjectCaptureViewModel(
+            work,
+            null,
+            new InlineWorkspacePersistenceExecutor(new WorkspacePersistenceOperation(work)),
+            actions,
+            new InlineUiDispatcher());
+
+        model.ToggleToday(actionTarget.Id);
+        await actions.ResultCaptured.WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        var quickAdd = model.QuickAddAsync(project.Id, "Added");
+        actions.ReleaseResult();
+        await work.CreateTaskStarted.Task.WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        var navigatedAfterAdd = false;
+        var destinationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var destinationRelease = new ManualResetEventSlim();
+        var navigation = model.NavigateAsync(() =>
+        {
+            navigatedAfterAdd = work.Read().Tasks.Any(item => item.Title == "Added");
+            destinationEntered.TrySetResult();
+            destinationRelease.Wait(TestContext.Current.CancellationToken);
+        });
+
+        Assert.False(navigation.IsCompleted);
+        Assert.False(navigatedAfterAdd);
+        var admissionProbe = Task.Run(async () =>
+        {
+            await destinationEntered.Task;
+            model.ToggleToday(rejectedTarget.Id);
+            destinationRelease.Set();
+        }, TestContext.Current.CancellationToken);
+        work.CreateTaskRelease.Set();
+        await admissionProbe.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.True(await quickAdd.WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+
+        Assert.Single(actions.Requests);
+        await navigation.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.True(navigatedAfterAdd);
+        Assert.Null(work.Read().Tasks.Single(item => item.Id == rejectedTarget.Id).TodayLane);
     }
 
     [Fact]
@@ -3041,23 +3321,27 @@ internal sealed class CapturedActionExecutor(IWorkspaceWork work) : IWorkspaceAc
     private readonly WorkspacePersistenceOperation _operation = new(work);
     private readonly TaskCompletionSource _resultCaptured =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _release =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public ManualResetEventSlim Release { get; } = new();
     public Task ResultCaptured => _resultCaptured.Task;
     public List<WorkspaceActionRequest> Requests { get; } = [];
+    public void ReleaseResult() => _release.TrySetResult();
 
     public Task<WorkspaceActionResult> SubmitActionAsync(WorkspaceActionRequest request)
     {
         Requests.Add(request);
         if (request.Kind == WorkspaceActionKind.Refresh)
             return Task.FromResult(_operation.ExecuteAction(request));
-        return Task.Run(() =>
-        {
-            var result = _operation.ExecuteAction(request);
-            _resultCaptured.TrySetResult();
-            Release.Wait(TestContext.Current.CancellationToken);
-            return result;
-        }, TestContext.Current.CancellationToken);
+        var result = _operation.ExecuteAction(request);
+        _resultCaptured.TrySetResult();
+        return ReleaseResultAsync(result);
+    }
+
+    private async Task<WorkspaceActionResult> ReleaseResultAsync(WorkspaceActionResult result)
+    {
+        await _release.Task.WaitAsync(TestContext.Current.CancellationToken);
+        return result;
     }
 }
 
@@ -3126,20 +3410,24 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
     private readonly List<ParticipantRecord> _participants = [];
     public bool FailWrites { get; set; }
     public bool FailArchiveSearch { get; set; }
+    public ManualResetEventSlim? CreateTaskRelease { get; set; }
+    public TaskCompletionSource CreateTaskStarted { get; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public ManualResetEventSlim? MoveTaskToBinRelease { get; set; }
+    public TaskCompletionSource MoveTaskToBinStarted { get; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
     public DateOnly CurrentDate { get; set; } = new(2026, 9, 29);
     public Action? BeforeBulkArchive { get; set; }
     public int WriteCount { get; private set; }
     public int ReadCount { get; private set; }
     public int TaskBinReadCount { get; private set; }
     public int ProjectBinReadCount { get; private set; }
+    public int BulkArchivePreviewCount { get; private set; }
+    public int ArchiveSearchCount { get; private set; }
     public WorkspaceWorkSnapshot Read()
     {
         ReadCount++;
-        return new(_categories.OrderBy(category => category.Position)
-            .ToArray(), _projects.Where(project => !_binnedProjectIds.Contains(project.Id))
-            .OrderBy(project => project.Position).ToArray(), _tasks.Where(task => _bin.All(item => item.Task.Id != task.Id)
-                && (task.ProjectId is null || !_binnedProjectIds.Contains(task.ProjectId)))
-            .OrderBy(t => t.SharedPosition).ToArray(), _participants.ToArray());
+        return Snapshot();
     }
     public IReadOnlyList<TaskBinRecord> ReadTaskBin()
     {
@@ -3166,6 +3454,7 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
     public void MarkProjectBinned(string projectId) => _binnedProjectIds.Add(projectId);
     public IReadOnlyList<ArchiveSearchResult> SearchArchive(string query)
     {
+        ArchiveSearchCount++;
         if (FailArchiveSearch) throw new WorkspaceWorkException();
         var queryTokens = SearchTokens(query);
         if (queryTokens.Length == 0) return [];
@@ -3302,6 +3591,8 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
     public TaskRecord CreateTask(string projectId, string title)
     {
         Check();
+        CreateTaskStarted.TrySetResult();
+        CreateTaskRelease?.Wait(TestContext.Current.CancellationToken);
         if (_projects.Single(project => project.Id == projectId).IsArchived) throw new InvalidOperationException();
         ShiftForNewTask();
         var task = new TaskRecord($"task-{_tasks.Count}", projectId, title.Trim(), "", null, null, 0, _tasks.Count(t => t.ProjectId == projectId));
@@ -3439,6 +3730,8 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
     public TaskBinRecord MoveTaskToBin(string id)
     {
         Check();
+        MoveTaskToBinStarted.TrySetResult();
+        MoveTaskToBinRelease?.Wait(TestContext.Current.CancellationToken);
         if (_bin.Any(item => item.Task.Id == id)) throw new InvalidOperationException();
         var index = _tasks.FindIndex(task => task.Id == id);
         var prior = _tasks[index];
@@ -3527,7 +3820,8 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
     }
     public BulkTaskArchivePreview PreviewBulkTaskArchive(int completedAgeDays)
     {
-        var tasks = BulkTaskArchivePolicy.EligibleTasks(Read(), CurrentDate, completedAgeDays);
+        BulkArchivePreviewCount++;
+        var tasks = BulkTaskArchivePolicy.EligibleTasks(Snapshot(), CurrentDate, completedAgeDays);
         return new(completedAgeDays, CurrentDate, tasks.Select(task => task.Id).ToArray());
     }
     public BulkTaskArchiveResult BulkArchiveTasks(BulkTaskArchivePreview confirmedPreview)
@@ -3567,6 +3861,23 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
         if (_tasks[index].IsComplete && lane is not null) throw new InvalidOperationException();
         return _tasks[index] = _tasks[index] with { TodayLane = lane };
     }
+    public TaskRecord ToggleTaskToday(string id)
+    {
+        var task = _tasks.Single(item => item.Id == id);
+        return SetTaskTodayLane(id, task.TodayLane is null ? TodayLane.Planned : null);
+    }
+    public TaskRecord ToggleTaskTodayLane(string id)
+    {
+        var task = _tasks.Single(item => item.Id == id);
+        if (task.TodayLane is null) throw new ArgumentException("Task is not in Today.", nameof(id));
+        return SetTaskTodayLane(id,
+            task.TodayLane == TodayLane.Planned ? TodayLane.InProgress : TodayLane.Planned);
+    }
+    public TaskRecord ToggleTaskCompletion(string id)
+    {
+        var task = _tasks.Single(item => item.Id == id);
+        return task.IsComplete ? ReopenTask(id) : CompleteTask(id);
+    }
     public int ClearToday()
     {
         Check();
@@ -3599,6 +3910,22 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
         }
         return new(id, task.TodayLane.Value, targetPosition + 1, visible.Count);
     }
+    public TaskOrderMutationResult MoveTaskInTodayLane(string id, TaskOrderMove move)
+    {
+        var before = _tasks.ToDictionary(task => task.Id, task => task.SharedPosition, StringComparer.Ordinal);
+        var ordered = _tasks.OrderBy(task => task.SharedPosition).ToArray();
+        var task = ordered.Single(item => item.Id == id);
+        var visibleIds = ordered.Where(item => !item.IsComplete && item.TodayLane == task.TodayLane)
+            .Select(item => item.Id).ToArray();
+        var targetPosition = ResolveTargetPosition(visibleIds, id, move);
+        var change = MoveTaskInTodayLane(id, targetPosition);
+        return new(
+            id,
+            task.TodayLane,
+            change.Position,
+            change.Count,
+            ChangedPositions(before));
+    }
     public SharedTaskOrderChange MoveTaskInSharedOrder(string id, int targetPosition)
     {
         Check();
@@ -3620,6 +3947,24 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
             _tasks[storedIndex] = _tasks[storedIndex] with { SharedPosition = index };
         }
         return new(id, targetPosition + 1, visible.Count);
+    }
+    public TaskOrderMutationResult MoveTaskInSharedOrder(string id, TaskOrderMove move)
+    {
+        var before = _tasks.ToDictionary(task => task.Id, task => task.SharedPosition, StringComparer.Ordinal);
+        var archivedProjectIds = _projects.Where(project => project.IsArchived)
+            .Select(project => project.Id).ToHashSet(StringComparer.Ordinal);
+        var visibleIds = _tasks.OrderBy(task => task.SharedPosition)
+            .Where(task => !task.IsComplete && !task.IsArchived
+                && (task.ProjectId is null || !archivedProjectIds.Contains(task.ProjectId)))
+            .Select(task => task.Id).ToArray();
+        var targetPosition = ResolveTargetPosition(visibleIds, id, move);
+        var change = MoveTaskInSharedOrder(id, targetPosition);
+        return new(
+            id,
+            _tasks.Single(item => item.Id == id).TodayLane,
+            change.Position,
+            change.Count,
+            ChangedPositions(before));
     }
     public ProjectOrderChange MoveProject(string id, int targetPosition)
     {
@@ -3692,6 +4037,42 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
     private void ShiftForNewTask()
     {
         for (var index = 0; index < _tasks.Count; index++) _tasks[index] = _tasks[index] with { SharedPosition = _tasks[index].SharedPosition + 1 };
+    }
+
+    private WorkspaceWorkSnapshot Snapshot() => new(
+        _categories.OrderBy(category => category.Position).ToArray(),
+        _projects.Where(project => !_binnedProjectIds.Contains(project.Id))
+            .OrderBy(project => project.Position).ToArray(),
+        _tasks.Where(task => _bin.All(item => item.Task.Id != task.Id)
+                && (task.ProjectId is null || !_binnedProjectIds.Contains(task.ProjectId)))
+            .OrderBy(task => task.SharedPosition).ToArray(),
+        _participants.ToArray());
+
+    private TaskSharedPositionChange[] ChangedPositions(
+        Dictionary<string, long> before) => _tasks
+        .Where(task => before[task.Id] != task.SharedPosition)
+        .Select(task => new TaskSharedPositionChange(task.Id, task.SharedPosition))
+        .ToArray();
+
+    private static int ResolveTargetPosition(
+        string[] visibleIds,
+        string id,
+        TaskOrderMove move)
+    {
+        var current = Array.IndexOf(visibleIds.ToArray(), id);
+        if (current < 0) throw new ArgumentException("Task is not visible.", nameof(id));
+        var target = move.Kind switch
+        {
+            TaskOrderMoveKind.Up => Math.Max(0, current - 1),
+            TaskOrderMoveKind.Down => Math.Min(visibleIds.Length - 1, current + 1),
+            TaskOrderMoveKind.Top => 0,
+            TaskOrderMoveKind.Bottom => visibleIds.Length - 1,
+            TaskOrderMoveKind.TargetTask => Array.IndexOf(
+                visibleIds.ToArray(),
+                move.TargetTaskId ?? throw new ArgumentException("Target required.", nameof(move))),
+            _ => throw new ArgumentOutOfRangeException(nameof(move)),
+        };
+        return target >= 0 ? target : throw new ArgumentException("Target is not visible.", nameof(move));
     }
     private List<string> ApplyParticipantChanges(ParticipantDraftChange change)
     {
