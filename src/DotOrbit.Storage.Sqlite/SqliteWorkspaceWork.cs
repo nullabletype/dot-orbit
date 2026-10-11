@@ -834,6 +834,7 @@ internal sealed class SqliteWorkspaceWork(
                 ("$date", Date(source.DueDate)), ("$position", projectPosition));
             ApplyParticipantChanges(connection, transaction, id, new(source.Participants, []));
             result = ReadSnapshot(connection, transaction).Tasks.Single(task => task.Id == id);
+            return ArchiveSearchIndexEffects.None;
         }));
         return result!;
     }
@@ -910,6 +911,7 @@ internal sealed class SqliteWorkspaceWork(
                 committed.Projects.Single(item => item.Id == project.Id),
                 copiedIds.Select(id => committed.Tasks.Single(task => task.Id == id)).ToArray(),
                 currentPreview);
+            return ArchiveSearchIndexEffects.None;
         }));
         return result!;
     }
