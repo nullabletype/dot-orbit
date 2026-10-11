@@ -624,16 +624,25 @@ internal static class PerformanceReviewRunner
             + $"result={(counts.IncidentalReadCount == 0 ? "passed" : "failed")}");
 
     private static void WriteStorageUpdateTraceSummary(StorageUpdateTraceSummary summary) =>
-        Console.WriteLine(
-            $"performance-review: operation={summary.Operation}-internal-phases iterations={summary.Iterations} "
-            + $"mutation_p50_ms={Format(summary.Mutation.P50Milliseconds)} "
-            + $"mutation_p95_ms={Format(summary.Mutation.P95Milliseconds)} "
-            + $"mutation_alloc_p50_bytes={summary.Mutation.P50AllocatedBytes} "
-            + $"derived_p50_ms={Format(summary.DerivedStorage.P50Milliseconds)} "
-            + $"derived_p95_ms={Format(summary.DerivedStorage.P95Milliseconds)} "
-            + $"derived_alloc_p50_bytes={summary.DerivedStorage.P50AllocatedBytes} "
-            + $"full_snapshot_reads={summary.FullSnapshotReads} "
-            + $"archive_index_rebuilds={summary.ArchiveIndexRebuilds} result=observed");
+        Console.WriteLine(FormatStorageUpdateTraceSummary(summary));
+
+    internal static string FormatStorageUpdateTraceSummary(StorageUpdateTraceSummary summary) =>
+        $"performance-review: operation={summary.Operation}-internal-phases iterations={summary.Iterations} "
+        + FormatPhase("gate_wait", summary.GateWait)
+        + FormatPhase("transaction_begin", summary.TransactionBegin)
+        + FormatPhase("mutation", summary.Mutation)
+        + FormatPhase("derived", summary.DerivedStorage)
+        + FormatPhase("commit", summary.Commit)
+        + FormatPhase("recovery", summary.Recovery)
+        + $"full_snapshot_reads={summary.FullSnapshotReads} "
+        + $"archive_index_rebuilds={summary.ArchiveIndexRebuilds} result=observed";
+
+    private static string FormatPhase(string name, PerformancePhaseObservation phase) =>
+        $"{name}_count={phase.Count} "
+        + $"{name}_p50_ms={Format(phase.P50Milliseconds)} "
+        + $"{name}_p95_ms={Format(phase.P95Milliseconds)} "
+        + $"{name}_max_ms={Format(phase.MaximumMilliseconds)} "
+        + $"{name}_alloc_p50_bytes={phase.P50AllocatedBytes} ";
 
     private static async Task<IReadOnlyList<PerformanceOperationResult>> MeasureWithIdleAsync(
         string operation,
@@ -905,6 +914,7 @@ internal readonly record struct PerformancePhaseObservation(
     int Count,
     double P50Milliseconds,
     double P95Milliseconds,
+    double MaximumMilliseconds,
     long P50AllocatedBytes)
 {
     internal static PerformancePhaseObservation Create(IReadOnlyCollection<PerformanceSample> samples)
@@ -917,6 +927,7 @@ internal readonly record struct PerformancePhaseObservation(
             samples.Count,
             Percentile(elapsed, 0.50),
             Percentile(elapsed, 0.95),
+            elapsed[^1],
             Percentile(allocations, 0.50));
     }
 
@@ -932,8 +943,12 @@ internal readonly record struct StorageUpdateTraceSummary(
     int Iterations,
     int FullSnapshotReads,
     int ArchiveIndexRebuilds,
+    PerformancePhaseObservation GateWait,
+    PerformancePhaseObservation TransactionBegin,
     PerformancePhaseObservation Mutation,
-    PerformancePhaseObservation DerivedStorage)
+    PerformancePhaseObservation DerivedStorage,
+    PerformancePhaseObservation Commit,
+    PerformancePhaseObservation Recovery)
 {
     internal static StorageUpdateTraceSummary Create(
         string operation,
@@ -950,18 +965,6 @@ internal readonly record struct StorageUpdateTraceSummary(
             .Select(sample => sample.Id)
             .ToHashSet();
         if (writes.Count == 0) throw new InvalidOperationException("No storage-update writes were recorded.");
-        var mutation = materialized
-            .Where(sample => sample.Stage == PerformanceStage.Mutation
-                && sample.ParentId is { } parentId
-                && writes.Contains(parentId))
-            .ToArray();
-        var derivedStorage = materialized
-            .Where(sample => sample.Stage == PerformanceStage.DerivedStorage
-                && sample.ParentId is { } parentId
-                && writes.Contains(parentId))
-            .ToArray();
-        if (mutation.Length != writes.Count || derivedStorage.Length != writes.Count)
-            throw new InvalidOperationException("Storage-update phase measurements are incomplete.");
         return new(
             operation,
             writes.Count,
@@ -969,8 +972,25 @@ internal readonly record struct StorageUpdateTraceSummary(
                 && IsDescendantOfWrite(sample)),
             materialized.Count(sample => sample.Stage == PerformanceStage.ArchiveIndexRebuild
                 && IsDescendantOfWrite(sample)),
-            PerformancePhaseObservation.Create(mutation),
-            PerformancePhaseObservation.Create(derivedStorage));
+            CreateDirectPhase(PerformanceStage.GateWait),
+            CreateDirectPhase(PerformanceStage.TransactionBegin),
+            CreateDirectPhase(PerformanceStage.Mutation),
+            CreateDirectPhase(PerformanceStage.DerivedStorage),
+            CreateDirectPhase(PerformanceStage.Commit),
+            CreateDirectPhase(PerformanceStage.Recovery));
+
+        PerformancePhaseObservation CreateDirectPhase(PerformanceStage stage)
+        {
+            var phaseSamples = materialized
+                .Where(sample => sample.Stage == stage
+                    && sample.ParentId is { } parentId
+                    && writes.Contains(parentId))
+                .ToArray();
+            if (writes.Any(writeId => phaseSamples.Count(sample => sample.ParentId == writeId) != 1))
+                throw new InvalidOperationException(
+                    $"Storage-update {stage} phase measurements must contain one direct sample per write.");
+            return PerformancePhaseObservation.Create(phaseSamples);
+        }
 
         bool IsDescendantOfWrite(PerformanceSample sample)
         {

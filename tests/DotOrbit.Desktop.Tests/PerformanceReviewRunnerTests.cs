@@ -8,45 +8,59 @@ namespace DotOrbit.Desktop.Tests;
 public sealed class PerformanceReviewRunnerTests
 {
     [Fact]
-    public void StorageUpdateTraceSummarySeparatesMutationAndDerivedStorageAllocation()
+    public void StorageUpdateTraceSummaryAggregatesEveryDirectWritePhase()
     {
         var summary = StorageUpdateTraceSummary.Create(
             "storage-update",
             PerformanceOperation.UpdateTask,
-            [
-                Sample(1, null, PerformanceStage.StorageWrite, PerformanceOperation.UpdateTask, 10, 1_000),
-                Sample(2, 1, PerformanceStage.Mutation, PerformanceOperation.UpdateTask, 4, 600),
-                Sample(3, 2, PerformanceStage.SnapshotRead, PerformanceOperation.Other, 1, 200),
-                Sample(4, 2, PerformanceStage.SnapshotRead, PerformanceOperation.Other, 1, 250),
-                Sample(5, 1, PerformanceStage.DerivedStorage, PerformanceOperation.UpdateTask, 3, 300),
-                Sample(6, 5, PerformanceStage.ArchiveIndexRebuild, PerformanceOperation.Other, 2, 280),
-                Sample(7, 6, PerformanceStage.SnapshotRead, PerformanceOperation.Other, 1, 200),
-                Sample(8, null, PerformanceStage.StorageWrite, PerformanceOperation.UpdateTask, 12, 1_200),
-                Sample(9, 8, PerformanceStage.Mutation, PerformanceOperation.UpdateTask, 5, 700),
-                Sample(10, 8, PerformanceStage.DerivedStorage, PerformanceOperation.UpdateTask, 4, 400),
-                Sample(11, 10, PerformanceStage.ArchiveIndexRebuild, PerformanceOperation.Other, 3, 380),
-                Sample(12, 99, PerformanceStage.SnapshotRead, PerformanceOperation.Other, 50, 50_000),
-                Sample(13, null, PerformanceStage.ArchiveIndexRebuild, PerformanceOperation.Other, 50, 50_000),
-            ]);
+            CreateCompleteStorageTrace(PerformanceOperation.UpdateTask));
 
         Assert.Equal("storage-update", summary.Operation);
         Assert.Equal(2, summary.Iterations);
-        Assert.Equal(3, summary.FullSnapshotReads);
+        Assert.Equal(2, summary.FullSnapshotReads);
         Assert.Equal(2, summary.ArchiveIndexRebuilds);
-        Assert.Equal(2, summary.Mutation.Count);
-        Assert.Equal(4, summary.Mutation.P50Milliseconds);
-        Assert.Equal(5, summary.Mutation.P95Milliseconds);
-        Assert.Equal(600, summary.Mutation.P50AllocatedBytes);
-        Assert.Equal(300, summary.DerivedStorage.P50AllocatedBytes);
+        AssertPhase(summary.GateWait, 1, 1.5, 10);
+        AssertPhase(summary.TransactionBegin, 2, 2.5, 20);
+        AssertPhase(summary.Mutation, 4, 5, 600);
+        AssertPhase(summary.DerivedStorage, 3, 4, 300);
+        AssertPhase(summary.Commit, 5, 7, 500);
+        AssertPhase(summary.Recovery, 6, 8, 100);
+    }
 
-        static PerformanceSample Sample(
-            long id,
-            long? parentId,
-            PerformanceStage stage,
-            PerformanceOperation operation,
-            double duration,
-            long allocation) =>
-            new(id, parentId, stage, operation, 0, duration, 1, allocation);
+    [Fact]
+    public void StorageUpdateTraceSummaryRejectsMissingOrDuplicateDirectWritePhases()
+    {
+        var missing = CreateCompleteStorageTrace(PerformanceOperation.UpdateTask);
+        missing.RemoveAll(sample => sample.ParentId == 11 && sample.Stage == PerformanceStage.Recovery);
+        var duplicate = CreateCompleteStorageTrace(PerformanceOperation.UpdateTask);
+        duplicate.Add(Sample(21, 1, PerformanceStage.Commit, PerformanceOperation.UpdateTask, 9, 900));
+
+        Assert.Throws<InvalidOperationException>(() => StorageUpdateTraceSummary.Create(
+            "storage-update", PerformanceOperation.UpdateTask, missing));
+        Assert.Throws<InvalidOperationException>(() => StorageUpdateTraceSummary.Create(
+            "storage-update", PerformanceOperation.UpdateTask, duplicate));
+    }
+
+    [Fact]
+    public void StorageUpdateTraceSummaryFormatsProjectPhaseCountsLatencyAndAllocation()
+    {
+        var summary = StorageUpdateTraceSummary.Create(
+            "storage-project-update",
+            PerformanceOperation.UpdateProject,
+            CreateCompleteStorageTrace(PerformanceOperation.UpdateProject));
+
+        var output = PerformanceReviewRunner.FormatStorageUpdateTraceSummary(summary);
+
+        Assert.Equal(
+            "performance-review: operation=storage-project-update-internal-phases iterations=2 "
+            + "gate_wait_count=2 gate_wait_p50_ms=1.000 gate_wait_p95_ms=1.500 gate_wait_max_ms=1.500 gate_wait_alloc_p50_bytes=10 "
+            + "transaction_begin_count=2 transaction_begin_p50_ms=2.000 transaction_begin_p95_ms=2.500 transaction_begin_max_ms=2.500 transaction_begin_alloc_p50_bytes=20 "
+            + "mutation_count=2 mutation_p50_ms=4.000 mutation_p95_ms=5.000 mutation_max_ms=5.000 mutation_alloc_p50_bytes=600 "
+            + "derived_count=2 derived_p50_ms=3.000 derived_p95_ms=4.000 derived_max_ms=4.000 derived_alloc_p50_bytes=300 "
+            + "commit_count=2 commit_p50_ms=5.000 commit_p95_ms=7.000 commit_max_ms=7.000 commit_alloc_p50_bytes=500 "
+            + "recovery_count=2 recovery_p50_ms=6.000 recovery_p95_ms=8.000 recovery_max_ms=8.000 recovery_alloc_p50_bytes=100 "
+            + "full_snapshot_reads=2 archive_index_rebuilds=2 result=observed",
+            output);
     }
 
     [Theory]
@@ -316,4 +330,50 @@ public sealed class PerformanceReviewRunnerTests
     {
         Assert.Equal(expected, PerformanceReviewBuild.Commit(informationalVersion));
     }
+
+    private static List<PerformanceSample> CreateCompleteStorageTrace(PerformanceOperation operation) =>
+    [
+        Sample(1, null, PerformanceStage.StorageWrite, operation, 10, 1_000),
+        Sample(2, 1, PerformanceStage.GateWait, operation, 1, 10),
+        Sample(3, 1, PerformanceStage.TransactionBegin, PerformanceOperation.Other, 2, 20),
+        Sample(4, 1, PerformanceStage.Mutation, operation, 4, 600),
+        Sample(5, 4, PerformanceStage.SnapshotRead, PerformanceOperation.Other, 1, 200),
+        Sample(6, 1, PerformanceStage.DerivedStorage, operation, 3, 300),
+        Sample(7, 6, PerformanceStage.ArchiveIndexRebuild, PerformanceOperation.Other, 2, 280),
+        Sample(8, 7, PerformanceStage.SnapshotRead, PerformanceOperation.Other, 1, 250),
+        Sample(9, 1, PerformanceStage.Commit, operation, 5, 500),
+        Sample(10, 1, PerformanceStage.Recovery, operation, 6, 100),
+        Sample(11, null, PerformanceStage.StorageWrite, operation, 12, 1_200),
+        Sample(12, 11, PerformanceStage.GateWait, operation, 1.5, 15),
+        Sample(13, 11, PerformanceStage.TransactionBegin, PerformanceOperation.Other, 2.5, 25),
+        Sample(14, 11, PerformanceStage.Mutation, operation, 5, 700),
+        Sample(15, 11, PerformanceStage.DerivedStorage, operation, 4, 400),
+        Sample(16, 15, PerformanceStage.ArchiveIndexRebuild, PerformanceOperation.Other, 3, 380),
+        Sample(17, 11, PerformanceStage.Commit, operation, 7, 550),
+        Sample(18, 11, PerformanceStage.Recovery, operation, 8, 150),
+        Sample(19, 99, PerformanceStage.SnapshotRead, PerformanceOperation.Other, 50, 50_000),
+        Sample(20, null, PerformanceStage.ArchiveIndexRebuild, PerformanceOperation.Other, 50, 50_000),
+    ];
+
+    private static void AssertPhase(
+        PerformancePhaseObservation phase,
+        double p50Milliseconds,
+        double maximumMilliseconds,
+        long p50AllocatedBytes)
+    {
+        Assert.Equal(2, phase.Count);
+        Assert.Equal(p50Milliseconds, phase.P50Milliseconds);
+        Assert.Equal(maximumMilliseconds, phase.P95Milliseconds);
+        Assert.Equal(maximumMilliseconds, phase.MaximumMilliseconds);
+        Assert.Equal(p50AllocatedBytes, phase.P50AllocatedBytes);
+    }
+
+    private static PerformanceSample Sample(
+        long id,
+        long? parentId,
+        PerformanceStage stage,
+        PerformanceOperation operation,
+        double duration,
+        long allocation) =>
+        new(id, parentId, stage, operation, 0, duration, 1, allocation);
 }
