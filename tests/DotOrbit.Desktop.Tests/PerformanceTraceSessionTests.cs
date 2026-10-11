@@ -34,6 +34,7 @@ public sealed class PerformanceTraceSessionTests
         var session = Assert.IsType<PerformanceTraceSession>(
             PerformanceTraceSession.TryStart(["--performance-trace"], () => output));
         using (PerformanceTrace.Measure(PerformanceStage.Command, "private task title and password")) { }
+        using (PerformanceTrace.MeasureAllocationStage(PerformanceStage.SnapshotRead)) { }
         Assert.Equal(0, output.Length);
 
         session.Dispose();

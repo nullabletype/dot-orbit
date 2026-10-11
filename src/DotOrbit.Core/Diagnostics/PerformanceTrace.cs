@@ -6,7 +6,7 @@ public enum PerformanceStage
 {
     Command, DispatchDelay, Refresh, ProjectionApply, StorageRead, StorageWrite,
     GateWait, ConnectionOpen, ConnectionConfigure, TransactionBegin, Query,
-    Mutation, DerivedStorage, Commit, Recovery,
+    Mutation, DerivedStorage, SnapshotRead, ArchiveIndexRebuild, Commit, Recovery,
 }
 
 public enum PerformanceOperation
@@ -68,18 +68,25 @@ public sealed record PerformanceSample(
     PerformanceOperation Operation,
     double StartMilliseconds,
     double DurationMilliseconds,
-    int ThreadId);
+    int ThreadId,
+    long? AllocatedBytes = null);
 
-/// <summary>Opt-in, bounded measurements containing only fixed operation identifiers and timing.</summary>
+/// <summary>
+/// Opt-in, bounded measurements containing fixed operation identifiers and timing, with optional
+/// same-thread allocation counts for synthetic performance review.
+/// </summary>
 public static class PerformanceTrace
 {
     private static readonly AsyncLocal<PerformanceScopeState?> Current = new();
     private static PerformanceRecording? recording;
 
-    public static PerformanceRecording Start(TimeProvider? timeProvider = null, int maximumSamples = 30000)
+    public static PerformanceRecording Start(
+        TimeProvider? timeProvider = null,
+        int maximumSamples = 30000,
+        bool captureAllocations = false)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumSamples);
-        var next = new PerformanceRecording(timeProvider ?? TimeProvider.System, maximumSamples);
+        var next = new PerformanceRecording(timeProvider ?? TimeProvider.System, maximumSamples, captureAllocations);
         if (Interlocked.CompareExchange(ref recording, next, null) is not null)
             throw new InvalidOperationException("A performance recording is already active.");
         return next;
@@ -98,6 +105,15 @@ public static class PerformanceTrace
         var active = Volatile.Read(ref recording);
         return active is null ? default : Measure(active, stage,
             Enum.IsDefined(operation) ? operation : PerformanceOperation.Other);
+    }
+
+    /// <summary>Records a detailed stage only for a recording that explicitly captures allocations.</summary>
+    public static PerformanceScope MeasureAllocationStage(PerformanceStage stage)
+    {
+        var active = Volatile.Read(ref recording);
+        return active is null || !active.CapturesAllocations
+            ? default
+            : Measure(active, stage, PerformanceOperation.Other);
     }
 
     private static PerformanceScope Measure(PerformanceRecording active, PerformanceStage stage,
@@ -148,21 +164,30 @@ public sealed class PerformanceRecording : IDisposable
     private readonly TimeProvider timeProvider;
     private readonly long origin;
     private readonly int maximumSamples;
+    private readonly bool captureAllocations;
     private readonly List<PerformanceSample> samples = [];
     private long nextId;
     private long droppedSamples;
     private bool disposed;
 
-    internal PerformanceRecording(TimeProvider timeProvider, int maximumSamples)
+    internal PerformanceRecording(TimeProvider timeProvider, int maximumSamples, bool captureAllocations)
     {
         this.timeProvider = timeProvider;
         this.maximumSamples = maximumSamples;
+        this.captureAllocations = captureAllocations;
         origin = timeProvider.GetTimestamp();
     }
 
     public long DroppedSamples
     {
         get { lock (gate) return droppedSamples; }
+    }
+
+    internal bool CapturesAllocations => captureAllocations;
+
+    public long CaptureBoundary()
+    {
+        lock (gate) return nextId;
     }
 
     public IReadOnlyList<PerformanceSample> Snapshot()
@@ -178,8 +203,11 @@ public sealed class PerformanceRecording : IDisposable
             if (disposed) return null;
             var parentId = previous is { Completed: false } && ReferenceEquals(previous.Recording, this)
                 ? previous.Id : (long?)null;
+            var threadId = Environment.CurrentManagedThreadId;
             return new PerformanceScopeState(this, ++nextId, parentId, stage, operation,
-                timeProvider.GetTimestamp(), Environment.CurrentManagedThreadId, previous);
+                timeProvider.GetTimestamp(), threadId,
+                captureAllocations ? GC.GetAllocatedBytesForCurrentThread() : null,
+                previous);
         }
     }
 
@@ -196,9 +224,14 @@ public sealed class PerformanceRecording : IDisposable
                 return;
             }
             var finished = timeProvider.GetTimestamp();
+            long? allocatedBytes = state.AllocationStart is { } allocationStart
+                && state.ThreadId == Environment.CurrentManagedThreadId
+                    ? GC.GetAllocatedBytesForCurrentThread() - allocationStart
+                    : null;
             samples.Add(new PerformanceSample(state.Id, state.ParentId, state.Stage, state.Operation,
                 timeProvider.GetElapsedTime(origin, state.Start).TotalMilliseconds,
-                timeProvider.GetElapsedTime(state.Start, finished).TotalMilliseconds, state.ThreadId));
+                timeProvider.GetElapsedTime(state.Start, finished).TotalMilliseconds, state.ThreadId,
+                allocatedBytes));
         }
     }
 
@@ -215,7 +248,8 @@ public sealed class PerformanceRecording : IDisposable
 
 internal sealed class PerformanceScopeState(
     PerformanceRecording recording, long id, long? parentId, PerformanceStage stage,
-    PerformanceOperation operation, long start, int threadId, PerformanceScopeState? previous)
+    PerformanceOperation operation, long start, int threadId, long? allocationStart,
+    PerformanceScopeState? previous)
 {
     internal PerformanceRecording Recording { get; } = recording;
     internal long Id { get; } = id;
@@ -224,6 +258,7 @@ internal sealed class PerformanceScopeState(
     internal PerformanceOperation Operation { get; } = operation;
     internal long Start { get; } = start;
     internal int ThreadId { get; } = threadId;
+    internal long? AllocationStart { get; } = allocationStart;
     internal PerformanceScopeState? Previous { get; } = previous;
     internal bool Completed { get; set; }
 }

@@ -8,6 +8,66 @@ namespace DotOrbit.Desktop.Tests;
 public sealed class PerformanceReviewRunnerTests
 {
     [Fact]
+    public void StorageUpdateTraceSummarySeparatesMutationAndDerivedStorageAllocation()
+    {
+        var summary = StorageUpdateTraceSummary.Create(
+            "storage-update",
+            PerformanceOperation.UpdateTask,
+            [
+                Sample(1, null, PerformanceStage.StorageWrite, PerformanceOperation.UpdateTask, 10, 1_000),
+                Sample(2, 1, PerformanceStage.Mutation, PerformanceOperation.UpdateTask, 4, 600),
+                Sample(3, 2, PerformanceStage.SnapshotRead, PerformanceOperation.Other, 1, 200),
+                Sample(4, 2, PerformanceStage.SnapshotRead, PerformanceOperation.Other, 1, 250),
+                Sample(5, 1, PerformanceStage.DerivedStorage, PerformanceOperation.UpdateTask, 3, 300),
+                Sample(6, 5, PerformanceStage.ArchiveIndexRebuild, PerformanceOperation.Other, 2, 280),
+                Sample(7, 6, PerformanceStage.SnapshotRead, PerformanceOperation.Other, 1, 200),
+                Sample(8, null, PerformanceStage.StorageWrite, PerformanceOperation.UpdateTask, 12, 1_200),
+                Sample(9, 8, PerformanceStage.Mutation, PerformanceOperation.UpdateTask, 5, 700),
+                Sample(10, 8, PerformanceStage.DerivedStorage, PerformanceOperation.UpdateTask, 4, 400),
+                Sample(11, 10, PerformanceStage.ArchiveIndexRebuild, PerformanceOperation.Other, 3, 380),
+                Sample(12, 99, PerformanceStage.SnapshotRead, PerformanceOperation.Other, 50, 50_000),
+                Sample(13, null, PerformanceStage.ArchiveIndexRebuild, PerformanceOperation.Other, 50, 50_000),
+            ]);
+
+        Assert.Equal("storage-update", summary.Operation);
+        Assert.Equal(2, summary.Iterations);
+        Assert.Equal(3, summary.FullSnapshotReads);
+        Assert.Equal(2, summary.ArchiveIndexRebuilds);
+        Assert.Equal(2, summary.Mutation.Count);
+        Assert.Equal(4, summary.Mutation.P50Milliseconds);
+        Assert.Equal(5, summary.Mutation.P95Milliseconds);
+        Assert.Equal(600, summary.Mutation.P50AllocatedBytes);
+        Assert.Equal(300, summary.DerivedStorage.P50AllocatedBytes);
+
+        static PerformanceSample Sample(
+            long id,
+            long? parentId,
+            PerformanceStage stage,
+            PerformanceOperation operation,
+            double duration,
+            long allocation) =>
+            new(id, parentId, stage, operation, 0, duration, 1, allocation);
+    }
+
+    [Theory]
+    [InlineData(50, 999_999, true)]
+    [InlineData(50.001, 999_999, false)]
+    [InlineData(50, 1_000_000, false)]
+    public void StorageUpdateConstraintUsesDedicatedLatencyAndAllocationBudgets(
+        double p95Milliseconds,
+        long allocatedBytes,
+        bool expected)
+    {
+        var result = PerformanceOperationResult.Create(
+            "storage-update",
+            [1, p95Milliseconds],
+            [allocatedBytes, allocatedBytes],
+            100);
+
+        Assert.Equal(expected, PerformanceReviewRunner.StorageUpdateConstraintsPassed(result));
+    }
+
+    [Fact]
     public void ScopedActionReadCountsSeparateWritesFromIncidentalSurfaceReads()
     {
         var counts = ScopedActionReadCounts.Create(

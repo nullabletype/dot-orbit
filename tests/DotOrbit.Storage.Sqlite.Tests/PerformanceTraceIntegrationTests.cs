@@ -13,6 +13,88 @@ public sealed class PerformanceTraceTestGroup;
 public sealed class PerformanceTraceIntegrationTests
 {
     [Fact]
+    public void TaskUpdateTraceIdentifiesFullSnapshotAndArchiveIndexWork()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"dot-orbit-trace-test-{Guid.NewGuid():N}");
+        try
+        {
+            var passphrase = WorkspacePassphrase.Create("private synthetic password", "private synthetic password").Passphrase!;
+            var result = new EncryptedWorkspaceStore().Create(
+                Path.Combine(directory, "private-path.orb"), passphrase, CategoryName.Create("private category").CategoryName!);
+            using var session = Assert.IsAssignableFrom<IWorkspaceSession>(result.Session);
+            var category = Assert.Single(session.Work.Read().Categories);
+            var task = session.Work.CreateStandaloneTask("private task", "private description", category.Id, null);
+            using var recording = PerformanceTrace.Start(captureAllocations: true);
+
+            session.Work.UpdateTask(
+                task.Id,
+                "private updated task",
+                task.Description,
+                task.ExplicitCategoryId,
+                task.DueDate,
+                new ParticipantDraftChange(task.Participants, []));
+            recording.Dispose();
+
+            var samples = recording.Snapshot();
+            var write = Assert.Single(samples, sample => sample.Stage == PerformanceStage.StorageWrite
+                && sample.Operation == PerformanceOperation.UpdateTask);
+            Assert.Single(samples, sample => sample.ParentId == write.Id
+                && sample.Stage == PerformanceStage.Mutation);
+            Assert.Single(samples, sample => sample.ParentId == write.Id
+                && sample.Stage == PerformanceStage.DerivedStorage);
+            Assert.Equal(3, samples.Count(sample => sample.Stage == PerformanceStage.SnapshotRead));
+            Assert.Single(samples, sample => sample.Stage == PerformanceStage.ArchiveIndexRebuild);
+            Assert.All(samples, sample => Assert.NotNull(sample.AllocatedBytes));
+            Assert.DoesNotContain("private", JsonSerializer.Serialize(samples), StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ProjectUpdateTraceIdentifiesFullSnapshotAndArchiveIndexWork()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"dot-orbit-trace-test-{Guid.NewGuid():N}");
+        try
+        {
+            var passphrase = WorkspacePassphrase.Create("private synthetic password", "private synthetic password").Passphrase!;
+            var result = new EncryptedWorkspaceStore().Create(
+                Path.Combine(directory, "private-path.orb"), passphrase, CategoryName.Create("private category").CategoryName!);
+            using var session = Assert.IsAssignableFrom<IWorkspaceSession>(result.Session);
+            var category = Assert.Single(session.Work.Read().Categories);
+            var project = session.Work.CreateProject("private project", "private description", category.Id, null);
+            using var recording = PerformanceTrace.Start(captureAllocations: true);
+
+            session.Work.UpdateProject(
+                project.Id,
+                "private updated project",
+                project.Description,
+                project.CategoryId,
+                project.TargetDate,
+                project.ColourKey);
+            recording.Dispose();
+
+            var samples = recording.Snapshot();
+            var write = Assert.Single(samples, sample => sample.Stage == PerformanceStage.StorageWrite
+                && sample.Operation == PerformanceOperation.UpdateProject);
+            Assert.Single(samples, sample => sample.ParentId == write.Id
+                && sample.Stage == PerformanceStage.Mutation);
+            Assert.Single(samples, sample => sample.ParentId == write.Id
+                && sample.Stage == PerformanceStage.DerivedStorage);
+            Assert.Equal(2, samples.Count(sample => sample.Stage == PerformanceStage.SnapshotRead));
+            Assert.Single(samples, sample => sample.Stage == PerformanceStage.ArchiveIndexRebuild);
+            Assert.All(samples, sample => Assert.NotNull(sample.AllocatedBytes));
+            Assert.DoesNotContain("private", JsonSerializer.Serialize(samples), StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void WarmEncryptedOperationsSeparateStagesWithoutReopeningOrExposingContent()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"dot-orbit-trace-test-{Guid.NewGuid():N}");

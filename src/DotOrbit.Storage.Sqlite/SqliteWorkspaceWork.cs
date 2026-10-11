@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using DotOrbit.Core.Diagnostics;
 using DotOrbit.Core.Workspaces;
 using DotOrbit.Markdown;
 using Microsoft.Data.Sqlite;
@@ -1480,6 +1481,7 @@ internal sealed class SqliteWorkspaceWork(
 
     private static WorkspaceWorkSnapshot ReadSnapshot(SqliteConnection connection, SqliteTransaction? transaction = null)
     {
+        using var timing = PerformanceTrace.MeasureAllocationStage(PerformanceStage.SnapshotRead);
         var hasTaskBins = SchemaObjectExists(connection, transaction, "table", "task_bins");
         var hasProjectBins = SchemaObjectExists(connection, transaction, "table", "project_bins");
         var hasCategoryIdentities = SchemaObjectExists(connection, transaction, "table", "category_identities");
@@ -2159,6 +2161,7 @@ internal sealed class SqliteWorkspaceWork(
         SqliteConnection connection,
         SqliteTransaction? transaction = null)
     {
+        using var timing = PerformanceTrace.MeasureAllocationStage(PerformanceStage.ArchiveIndexRebuild);
         var snapshot = ReadSnapshot(connection, transaction);
         using (var clear = connection.CreateCommand())
         {
