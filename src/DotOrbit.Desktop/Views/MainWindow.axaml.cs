@@ -396,6 +396,15 @@ public sealed partial class MainWindow : Window
                 else
                     FocusAutomationId(archiveConfirmation.DialogReturnFocusAutomationId);
             }, DispatcherPriority.ApplicationIdle);
+        if (e.PropertyName == nameof(ProjectCaptureViewModel.NeedsProjectDuplicationConfirmation)
+            && sender is ProjectCaptureViewModel projectDuplication)
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (projectDuplication.NeedsProjectDuplicationConfirmation)
+                    this.FindControl<TextBox>("ProjectDuplicationTitle")?.Focus();
+                else
+                    FocusAutomationId(projectDuplication.DialogReturnFocusAutomationId);
+            }, DispatcherPriority.ApplicationIdle);
         if (e.PropertyName == nameof(ProjectCaptureViewModel.NeedsBulkTaskArchiveConfirmation)
             && sender is ProjectCaptureViewModel bulkArchiveConfirmation)
             Dispatcher.UIThread.Post(() =>
@@ -582,10 +591,17 @@ public sealed partial class MainWindow : Window
 
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key != Key.Escape
-            || DataContext is not ShellViewModel { Work: { NeedsArchiveConfirmation: true } work }) return;
-        work.CancelArchiveTaskCommand.Execute(null);
-        e.Handled = true;
+        if (e.Key != Key.Escape || DataContext is not ShellViewModel { Work: { } work }) return;
+        if (work.NeedsArchiveConfirmation)
+        {
+            work.CancelArchiveTaskCommand.Execute(null);
+            e.Handled = true;
+        }
+        else if (work.NeedsProjectDuplicationConfirmation)
+        {
+            work.CancelProjectDuplicationCommand.Execute(null);
+            e.Handled = true;
+        }
     }
 
     private void OnWorkPointerPressed(object? sender, PointerPressedEventArgs e)

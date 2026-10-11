@@ -60,6 +60,10 @@ A visibility state and searchable historical projection. Archiving captures both
 
 A recoverable soft-deletion state for work the user intends to remove. Bin is distinct from Archive, records when an item was removed, is excluded from normal and archived-work projections, and is permanently cleared only through an explicit user action.
 
+### Duplicate
+
+An explicit creation action that uses existing work as a starting point while producing fresh active identities. A duplicated Task copies its editable content, due date, Category behaviour, and Participant references, but not completion, archive, Today, or Bin state. It remains attached only when its Project is active; when its Project is archived, the duplicate becomes standalone and materialises the source Task's effective Category. A duplicated Project copies the Project's editable content and identity colour plus its non-archived, non-binned Tasks, with all copied workflow state reset.
+
 ## Invariants
 
 1. Every Task is standalone or belongs to one Project, never more than one.
@@ -105,3 +109,7 @@ A recoverable soft-deletion state for work the user intends to remove. Bin is di
 41. Backlog quick-add creates standalone Tasks using an explicitly selected Category that remains selected only for the current rapid-entry session.
 42. A Category's persisted colour is identity metadata only; renaming or reordering the Category never recalculates it, and changing it never rewrites Project or Task references.
 43. Accepted immediate Task actions are persisted in admission order through the unlocked session's serialized boundary. Pending actions do not change the displayed persisted state optimistically, and later toggles or moves resolve against the committed result of earlier accepted actions.
+44. Duplication always creates fresh identities and active work; it never restores, reopens, or mutates the source.
+45. A Task duplicated from an active Project remains attached with the same inherited or overridden Category behaviour; a Task duplicated from an archived Project becomes standalone with its effective Category made explicit.
+46. Project duplication includes incomplete and completed Tasks but excludes individually archived and binned Tasks. Copied Tasks preserve Project order and relative shared order while starting at the top of shared Task order.
+47. Project duplication is one transaction over the confirmed preview: the new Project and all included Tasks are created together or not at all.

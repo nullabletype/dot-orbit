@@ -1317,7 +1317,8 @@
                 IsVisible="{Binding Work.HasAutosaveError}" Command="{Binding Work.RetryAutosaveCommand}"
                 AutomationProperties.Name="Retry automatic save" />
       </Grid>
-      <ScrollViewer Grid.Row="1" IsVisible="{Binding Work.HasInspector}">
+      <ScrollViewer x:Name="InspectorScroll" Grid.Row="1" IsVisible="{Binding Work.HasInspector}"
+          IsEnabled="{Binding Work.CanEditInspector}">
         <StackPanel Margin="{StaticResource InspectorScrollContentInset}" Spacing="0">
           <Grid Margin="0,9,0,0" ColumnDefinitions="Auto,*" ColumnSpacing="6">
             <views:WorkTypeIcon WorkType="Task" IsVisible="{Binding Work.ShowTaskIdentityIcon}" />
@@ -1331,6 +1332,7 @@
                 Classes="inspector-title"
                 Classes.error="{Binding Work.HasTitleValidationError}"
                 Text="{Binding Work.Title, Mode=TwoWay}"
+                AutomationProperties.AutomationId="draft-title"
                 AutomationProperties.Name="{Binding Work.TitleAutomationName}"
                 AutomationProperties.ItemStatus="{Binding Work.InspectorIdentityAccessibleText}"
                 AutomationProperties.HelpText="{Binding Work.TitleValidationMessage}" />
@@ -1576,6 +1578,32 @@
               AutomationProperties.AutomationId="category-delete" AutomationProperties.Name="Delete category" />
 
           <Border Margin="0,22,0,0" Padding="0,14,0,0" BorderBrush="{DynamicResource LineBrush}"
+              BorderThickness="0,1,0,0" IsVisible="{Binding Work.ShowDuplicateTask}">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="inspector-label" Text="ACTIONS" />
+              <Button Classes="view-action" Content="Duplicate"
+                  Command="{Binding Work.DuplicateTaskCommand}"
+                  IsEnabled="{Binding Work.CanDuplicateTask}"
+                  AutomationProperties.AutomationId="task-duplicate"
+                  AutomationProperties.Name="Duplicate Task as new active work"
+                  AutomationProperties.HelpText="Creates a new active Task with a Copy of title and opens it for editing." />
+            </StackPanel>
+          </Border>
+
+          <Border Margin="0,22,0,0" Padding="0,14,0,0" BorderBrush="{DynamicResource LineBrush}"
+              BorderThickness="0,1,0,0" IsVisible="{Binding Work.ShowDuplicateProject}">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="inspector-label" Text="ACTIONS" />
+              <Button Classes="view-action" Content="Duplicate"
+                  Command="{Binding Work.RequestProjectDuplicationCommand}"
+                  IsEnabled="{Binding Work.CanRequestProjectDuplication}"
+                  AutomationProperties.AutomationId="project-duplicate"
+                  AutomationProperties.Name="Duplicate Project as new active work"
+                  AutomationProperties.HelpText="Reviews which Tasks will be included before creating the new active Project." />
+            </StackPanel>
+          </Border>
+
+          <Border Margin="0,22,0,0" Padding="0,14,0,0" BorderBrush="{DynamicResource LineBrush}"
               BorderThickness="0,1,0,0" IsVisible="{Binding Work.ShowMoveTaskToBin}">
             <StackPanel Spacing="8">
               <Button Classes="view-action" Content="Move Task to Bin"
@@ -1669,6 +1697,44 @@
           <Button Classes="view-action" Content="Cancel" Command="{Binding Work.CancelArchiveTaskCommand}"
               AutomationProperties.AutomationId="archive-cancel"
               AutomationProperties.Name="Cancel task archival" />
+        </StackPanel>
+      </StackPanel>
+    </Border>
+    <Border Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Classes="decision-overlay"
+        IsVisible="{Binding Work.NeedsProjectDuplicationConfirmation}">
+      <StackPanel Width="540" Spacing="16" AutomationProperties.LiveSetting="Assertive">
+        <StackPanel Spacing="5">
+          <TextBlock Text="{Binding Work.ProjectDuplicationHeading}" FontSize="20" FontWeight="Bold" />
+        </StackPanel>
+        <StackPanel Spacing="4">
+          <TextBlock Classes="inspector-label" Text="NEW PROJECT TITLE" />
+          <TextBox x:Name="ProjectDuplicationTitle" Classes="inspector-field"
+              Classes.error="{Binding Work.HasProjectDuplicationValidationError}"
+              Text="{Binding Work.ProjectDuplicationTitle, Mode=TwoWay}"
+              AutomationProperties.AutomationId="project-duplication-title"
+              AutomationProperties.Name="New Project title"
+              AutomationProperties.HelpText="{Binding Work.ProjectDuplicationValidationMessage}" />
+          <TextBlock Classes="validation-message" Text="{Binding Work.ProjectDuplicationValidationMessage}"
+              IsVisible="{Binding Work.HasProjectDuplicationValidationError}"
+              AutomationProperties.LiveSetting="Polite" />
+        </StackPanel>
+        <StackPanel Spacing="5">
+          <TextBlock Text="{Binding Work.ProjectDuplicationBody}" Foreground="{DynamicResource MutedTextBrush}"
+              TextWrapping="Wrap" />
+          <TextBlock Text="{Binding Work.ProjectDuplicationExclusionSummary}"
+              Foreground="{DynamicResource QuietTextBrush}" TextWrapping="Wrap" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Spacing="12">
+          <Button Classes="primary-action" Content="Duplicate Project"
+              Command="{Binding Work.ConfirmProjectDuplicationCommand}"
+              IsEnabled="{Binding Work.CanConfirmProjectDuplication}"
+              AutomationProperties.AutomationId="project-duplication-confirm"
+              AutomationProperties.Name="Duplicate Project as new active work" />
+          <Button Classes="view-action" Content="Cancel"
+              Command="{Binding Work.CancelProjectDuplicationCommand}"
+              IsEnabled="{Binding Work.CanCancelProjectDuplication}"
+              AutomationProperties.AutomationId="project-duplication-cancel"
+              AutomationProperties.Name="Cancel Project duplication" />
         </StackPanel>
       </StackPanel>
     </Border>

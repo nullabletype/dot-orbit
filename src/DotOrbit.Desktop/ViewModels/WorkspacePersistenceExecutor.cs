@@ -84,6 +84,9 @@ internal enum WorkspaceActionKind
     ToggleCompletion,
     MoveBacklog,
     MoveToday,
+    PreviewProjectDuplication,
+    DuplicateTask,
+    DuplicateProject,
     Refresh,
 }
 
@@ -101,6 +104,9 @@ internal sealed record WorkspaceActionRequest(
     string? TaskId = null,
     WorkspaceMoveKind? Move = null,
     string? TargetTaskId = null,
+    string? ProjectId = null,
+    ProjectDuplicationPreview? ProjectDuplicationPreview = null,
+    string? Title = null,
     int BulkArchiveCompletedAgeDays = 30,
     string ArchiveSearchText = "",
     long? AdmittedAtTimestamp = null);
@@ -110,6 +116,7 @@ internal enum WorkspaceActionOutcome
     Committed,
     MutationFailed,
     CommittedRefreshFailed,
+    Previewed,
     Refreshed,
     RefreshFailed,
 }
@@ -135,6 +142,9 @@ internal sealed record WorkspaceActionResult(
     WorkspaceActionOutcome Outcome,
     WorkspaceReloadData? Reload = null,
     WorkspaceActionEffect? Effect = null,
+    ProjectDuplicationPreview? DuplicationPreview = null,
+    TaskRecord? DuplicatedTask = null,
+    ProjectDuplicationResult? DuplicatedProject = null,
     WorkspaceActionTiming? Timing = null)
 {
     public WorkspaceActionResult WithQueueWait(TimeSpan queueWait) =>
@@ -249,6 +259,21 @@ internal sealed class WorkspacePersistenceOperation : IWorkspacePersistenceOpera
     public WorkspaceActionResult ExecuteAction(WorkspaceActionRequest request)
     {
         var started = _timeProvider.GetTimestamp();
+        if (request.Kind == WorkspaceActionKind.PreviewProjectDuplication)
+        {
+            try
+            {
+                var preview = _work.PreviewProjectDuplication(
+                    request.ProjectId ?? throw new ArgumentException("A Project is required.", nameof(request)));
+                return new(request, WorkspaceActionOutcome.Previewed, DuplicationPreview: preview,
+                    Timing: new(TimeSpan.Zero, _timeProvider.GetElapsedTime(started)));
+            }
+            catch (Exception exception) when (IsWorkspaceFailure(exception))
+            {
+                return new(request, WorkspaceActionOutcome.MutationFailed,
+                    Timing: new(TimeSpan.Zero, _timeProvider.GetElapsedTime(started)));
+            }
+        }
         if (request.Kind == WorkspaceActionKind.Refresh)
         {
             try
@@ -264,6 +289,9 @@ internal sealed class WorkspacePersistenceOperation : IWorkspacePersistenceOpera
             }
         }
 
+        if (request.Kind is WorkspaceActionKind.DuplicateTask or WorkspaceActionKind.DuplicateProject)
+            return ExecuteDuplication(request, started);
+
         WorkspaceActionEffect effect;
         try
         {
@@ -277,6 +305,48 @@ internal sealed class WorkspacePersistenceOperation : IWorkspacePersistenceOpera
 
         return new(request, WorkspaceActionOutcome.Committed, Effect: effect,
             Timing: new(TimeSpan.Zero, _timeProvider.GetElapsedTime(started)));
+    }
+
+    private WorkspaceActionResult ExecuteDuplication(WorkspaceActionRequest request, long started)
+    {
+        TaskRecord? duplicatedTask = null;
+        ProjectDuplicationResult? duplicatedProject = null;
+        try
+        {
+            if (request.Kind == WorkspaceActionKind.DuplicateTask)
+                duplicatedTask = _work.DuplicateTask(
+                    request.TaskId ?? throw new ArgumentException("A Task is required.", nameof(request)));
+            else
+                duplicatedProject = _work.DuplicateProject(
+                    request.ProjectDuplicationPreview
+                        ?? throw new ArgumentException("A Project preview is required.", nameof(request)),
+                    request.Title ?? throw new ArgumentException("A Project title is required.", nameof(request)));
+        }
+        catch (Exception exception) when (IsWorkspaceFailure(exception))
+        {
+            return new(request, WorkspaceActionOutcome.MutationFailed,
+                Timing: new(TimeSpan.Zero, _timeProvider.GetElapsedTime(started)));
+        }
+
+        try
+        {
+            return new(
+                request,
+                WorkspaceActionOutcome.Committed,
+                ReadReloadData(),
+                DuplicatedTask: duplicatedTask,
+                DuplicatedProject: duplicatedProject,
+                Timing: new(TimeSpan.Zero, _timeProvider.GetElapsedTime(started)));
+        }
+        catch (Exception exception) when (IsWorkspaceFailure(exception))
+        {
+            return new(
+                request,
+                WorkspaceActionOutcome.CommittedRefreshFailed,
+                DuplicatedTask: duplicatedTask,
+                DuplicatedProject: duplicatedProject,
+                Timing: new(TimeSpan.Zero, _timeProvider.GetElapsedTime(started)));
+        }
     }
 
     private WorkspaceActionEffect ExecuteMutation(WorkspaceActionRequest request)

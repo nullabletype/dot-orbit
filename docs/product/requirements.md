@@ -155,6 +155,12 @@ Status: working specification derived from the interactive prototype.
 
 - **INSPECT-001** Selecting a Project or Task opens its details in an inspector without leaving the current view.
 - **INSPECT-002** Editable fields can be changed directly in the inspector without opening a modal editor.
+- **INSPECT-003** Existing Task and Project inspectors expose a keyboard-operable Duplicate action. Bin surfaces do not expose duplication.
+- **INSPECT-004** Duplicating a Task creates fresh active work titled `Copy of <source>`, copies description, due date, Category behaviour, and Participant references, resets completion, archive, Today, and Bin state, then opens the new Task with its title focused.
+- **INSPECT-005** A Task duplicated from an active Project remains attached and retains inheritance or its explicit override. A Task duplicated from an archived Project becomes standalone and materialises its effective Category as an explicit Category.
+- **INSPECT-006** Duplicating a Project first shows an editable suggested title, included Task count, and explicit archived and Bin exclusions. Confirmation creates a fresh active Project and copies only non-archived, non-binned Tasks; copied completion, archive, Today, and Bin state are reset.
+- **INSPECT-007** Project duplication preserves Project content, Category, target date, identity colour, Task content, Category behaviour, Participant references, Project Task order, and relative shared order. The copied Tasks form a contiguous block at the top of shared Task order.
+- **INSPECT-008** Project duplication rejects a stale confirmation preview and creates the Project and included Tasks atomically.
 - **MARKDOWN-001** Markdown descriptions show a live rendered preview.
 - **MARKDOWN-002** The rendered description can be copied as rich HTML with a plain-text fallback for Teams, Word, and similar applications.
 - **PARTICIPANT-001** Participants are optional reusable local records identified by a user-provided label, typically initials or a nickname, and do not create an assignee or ownership model.

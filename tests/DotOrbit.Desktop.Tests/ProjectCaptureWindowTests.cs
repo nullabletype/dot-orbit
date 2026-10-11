@@ -1676,6 +1676,112 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
+    public async Task TaskDuplicateActionCreatesAndFocusesTheEditableCopy()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var source = work.CreateTask(project.Id, "Plan beds");
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+        shell.Work!.SelectTask(source.Id);
+        Dispatcher.UIThread.RunJobs();
+
+        var duplicate = ButtonByAutomationId(window, "task-duplicate");
+        Assert.Equal("Duplicate Task as new active work", AutomationProperties.GetName(duplicate));
+        Activate(window, duplicate);
+        await shell.Work.WaitForWorkspaceActionsAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("Copy of Plan beds", shell.Work.Title);
+        Assert.True(window.FindControl<TextBox>("DraftTitle")!.IsFocused);
+        Assert.Equal(2, work.Read().Tasks.Count);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task TaskInspectorDisablesEditingWhileImmediateDuplicationIsPending()
+    {
+        var work = new MemoryWorkspaceWork();
+        var source = work.CreateStandaloneTask("Plan beds", "", "home", null);
+        var actions = new BlockingWorkspaceActionExecutor(work);
+        var writer = new InlineWorkspacePersistenceExecutor(new WorkspacePersistenceOperation(work));
+        var shell = new ShellViewModel(work, null, null, writer, actions, new InlineUiDispatcher());
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+        shell.Work!.SelectTask(source.Id);
+        Dispatcher.UIThread.RunJobs();
+
+        Activate(window, ButtonByAutomationId(window, "task-duplicate"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(shell.Work.CanEditInspector);
+        Assert.False(window.FindControl<ScrollViewer>("InspectorScroll")!.IsEnabled);
+
+        actions.Release.Set();
+        await shell.Work.WaitForWorkspaceActionsAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(shell.Work.CanEditInspector);
+        Assert.True(window.FindControl<ScrollViewer>("InspectorScroll")!.IsEnabled);
+        Assert.Equal("Copy of Plan beds", shell.Work.Title);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task ProjectDuplicatePreviewIsAccessibleCancellableAndReturnsFocusBeforeConfirmation()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "Season plan", "home", null, "coral");
+        work.CreateTask(project.Id, "Included");
+        var archived = work.CreateTask(project.Id, "Archived");
+        work.CompleteTask(archived.Id);
+        work.ArchiveTask(archived.Id);
+        var binned = work.CreateTask(project.Id, "Binned");
+        work.MoveTaskToBin(binned.Id);
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+        shell.Work!.SelectProject(project.Id);
+        Dispatcher.UIThread.RunJobs();
+
+        var request = ButtonByAutomationId(window, "project-duplicate");
+        Assert.Equal("Duplicate Project as new active work", AutomationProperties.GetName(request));
+        Activate(window, request);
+        await shell.Work.WaitForWorkspaceActionsAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        var title = window.FindControl<TextBox>("ProjectDuplicationTitle")!;
+        Assert.True(title.IsFocused);
+        Assert.Equal("Copy of Garden", title.Text);
+        Assert.Equal("Excluded: 1 archived; 1 in Bin.", shell.Work.ProjectDuplicationExclusionSummary);
+        Assert.Equal("Duplicate Project as new active work",
+            AutomationProperties.GetName(ButtonByAutomationId(window, "project-duplication-confirm")));
+
+        window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+        window.KeyReleaseQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(shell.Work.NeedsProjectDuplicationConfirmation);
+        Assert.True(ButtonByAutomationId(window, "project-duplicate").IsFocused);
+        Assert.Single(work.Read().Projects);
+
+        Activate(window, ButtonByAutomationId(window, "project-duplicate"));
+        await shell.Work.WaitForWorkspaceActionsAsync();
+        Dispatcher.UIThread.RunJobs();
+        window.FindControl<TextBox>("ProjectDuplicationTitle")!.Text = "Spring garden";
+        Dispatcher.UIThread.RunJobs();
+        Activate(window, ButtonByAutomationId(window, "project-duplication-confirm"));
+        await shell.Work.WaitForWorkspaceActionsAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("Spring garden", shell.Work.Title);
+        Assert.True(window.FindControl<TextBox>("DraftTitle")!.IsFocused);
+        Assert.Equal(2, work.Read().Projects.Count);
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public void ArchivedProjectTaskDisablesCompletionAndOffersAccessibleRestore()
     {
         var work = new MemoryWorkspaceWork();

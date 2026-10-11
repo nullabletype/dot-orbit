@@ -801,6 +801,121 @@ internal sealed class SqliteWorkspaceWork(
         return result!;
     }
 
+    public TaskRecord DuplicateTask(string sourceTaskId)
+    {
+        TaskRecord? result = null;
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            RequireActiveTask(connection, transaction, sourceTaskId);
+            var snapshot = ReadSnapshot(connection, transaction);
+            var source = snapshot.Tasks.Single(task => task.Id == sourceTaskId);
+            var destination = WorkDuplicationPolicy.TaskDestination(snapshot, source);
+            if (destination.ProjectId is not null)
+                RequireActiveProject(connection, transaction, destination.ProjectId);
+
+            ShiftSharedOrderForNewTask(connection, transaction);
+            long? projectPosition = null;
+            if (destination.ProjectId is not null)
+            {
+                using var order = connection.CreateCommand();
+                order.Transaction = transaction;
+                order.CommandText = "SELECT COALESCE(MAX(project_position), -1) + 1 FROM tasks WHERE project_id=$project;";
+                order.Parameters.AddWithValue("$project", destination.ProjectId);
+                projectPosition = (long)order.ExecuteScalar()!;
+            }
+
+            var id = store.GetIdentifier();
+            Execute(connection, transaction, """
+                INSERT INTO tasks VALUES ($id,$project,$title,$description,$category,$date,0,$position,NULL,NULL);
+                """,
+                ("$id", id), ("$project", destination.ProjectId),
+                ("$title", WorkDuplicationPolicy.SuggestedTitle(source.Title)),
+                ("$description", source.Description), ("$category", destination.ExplicitCategoryId),
+                ("$date", Date(source.DueDate)), ("$position", projectPosition));
+            ApplyParticipantChanges(connection, transaction, id, new(source.Participants, []));
+            result = ReadSnapshot(connection, transaction).Tasks.Single(task => task.Id == id);
+            return ArchiveSearchIndexEffects.None;
+        }));
+        return result!;
+    }
+
+    public ProjectDuplicationPreview PreviewProjectDuplication(string sourceProjectId) =>
+        Guard(() => transactions.Read((connection, transaction) =>
+            ReadProjectDuplicationPreview(connection, transaction, sourceProjectId)));
+
+    public ProjectDuplicationResult DuplicateProject(ProjectDuplicationPreview confirmedPreview, string title)
+    {
+        ArgumentNullException.ThrowIfNull(confirmedPreview);
+        title = WorkTitle.Normalize(title);
+        ProjectDuplicationResult? result = null;
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            var currentPreview = ReadProjectDuplicationPreview(
+                connection,
+                transaction,
+                confirmedPreview.SourceProjectId);
+            if (!confirmedPreview.Matches(currentPreview))
+                throw new InvalidOperationException("The Project contents changed. Review the duplication preview again.");
+
+            var snapshot = ReadSnapshot(connection, transaction);
+            var source = snapshot.Projects.Single(project => project.Id == confirmedPreview.SourceProjectId);
+            var projectPosition = EncryptedWorkspaceStore.ExecuteScalar<long>(connection,
+                "SELECT COALESCE(MAX(position), -1) + 1 FROM projects;", transaction);
+            var project = new ProjectRecord(
+                store.GetIdentifier(),
+                title,
+                source.Description,
+                source.CategoryId,
+                source.TargetDate,
+                projectPosition,
+                ColourKey: source.ColourKey);
+            Execute(connection, transaction,
+                "INSERT INTO projects VALUES ($id,$title,$description,$category,$date,$position);",
+                ("$id", project.Id), ("$title", project.Title), ("$description", project.Description),
+                ("$category", project.CategoryId), ("$date", Date(project.TargetDate)),
+                ("$position", project.Position));
+            Execute(connection, transaction,
+                "INSERT INTO project_identities (project_id,colour_key) VALUES ($id,$colour);",
+                ("$id", project.Id), ("$colour", project.ColourKey));
+
+            var included = currentPreview.IncludedTaskIds
+                .Select(id => snapshot.Tasks.Single(task => task.Id == id))
+                .ToArray();
+            var sharedOrder = included.OrderBy(task => task.SharedPosition).Select(task => task.Id).ToArray();
+            var sharedPositions = sharedOrder
+                .Select((id, position) => (id, position))
+                .ToDictionary(item => item.id, item => item.position, StringComparer.Ordinal);
+            if (included.Length > 0)
+            {
+                var existingSharedIds = ReadTaskIdsInSharedOrder(connection, transaction);
+                RewriteSharedOrder(connection, transaction, existingSharedIds, included.Length);
+            }
+
+            var copiedIds = new List<string>(included.Length);
+            foreach (var sourceTask in included.OrderBy(task => task.ProjectPosition).ThenBy(task => task.Id, StringComparer.Ordinal))
+            {
+                var id = store.GetIdentifier();
+                copiedIds.Add(id);
+                Execute(connection, transaction, """
+                    INSERT INTO tasks VALUES ($id,$project,$title,$description,$category,$date,$shared,$position,NULL,NULL);
+                    """,
+                    ("$id", id), ("$project", project.Id), ("$title", sourceTask.Title),
+                    ("$description", sourceTask.Description), ("$category", sourceTask.ExplicitCategoryId),
+                    ("$date", Date(sourceTask.DueDate)), ("$shared", sharedPositions[sourceTask.Id]),
+                    ("$position", copiedIds.Count - 1));
+                ApplyParticipantChanges(connection, transaction, id, new(sourceTask.Participants, []));
+            }
+
+            var committed = ReadSnapshot(connection, transaction);
+            result = new(
+                committed.Projects.Single(item => item.Id == project.Id),
+                copiedIds.Select(id => committed.Tasks.Single(task => task.Id == id)).ToArray(),
+                currentPreview);
+            return ArchiveSearchIndexEffects.None;
+        }));
+        return result!;
+    }
+
     public TaskRecord CreateTask(string projectId, string title)
     {
         title = WorkTitle.Normalize(title);
@@ -1625,6 +1740,52 @@ internal sealed class SqliteWorkspaceWork(
                 && archivedProjectIds.Contains(projectId)))
             throw new InvalidDataException();
         return new(categories.AsReadOnly(), projects.AsReadOnly(), tasks.AsReadOnly(), participants.AsReadOnly());
+    }
+
+    private static ProjectDuplicationPreview ReadProjectDuplicationPreview(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string sourceProjectId)
+    {
+        RequireProjectNotBinned(connection, transaction, sourceProjectId);
+        string title;
+        using (var project = connection.CreateCommand())
+        {
+            project.Transaction = transaction;
+            project.CommandText = "SELECT title FROM projects WHERE id=$id;";
+            project.Parameters.AddWithValue("$id", sourceProjectId);
+            title = (string?)project.ExecuteScalar() ?? throw new InvalidDataException();
+        }
+
+        var included = new List<string>();
+        var archived = new List<string>();
+        var binned = new List<string>();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT t.id,CASE WHEN a.task_id IS NULL THEN 0 ELSE 1 END,
+                   CASE WHEN b.task_id IS NULL THEN 0 ELSE 1 END
+            FROM tasks t
+            LEFT JOIN task_archives a ON a.task_id=t.id
+            LEFT JOIN task_bins b ON b.task_id=t.id
+            WHERE t.project_id=$project
+            ORDER BY t.project_position,t.id;
+            """;
+        command.Parameters.AddWithValue("$project", sourceProjectId);
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var id = reader.GetString(0);
+            if (reader.GetInt64(2) != 0) binned.Add(id);
+            else if (reader.GetInt64(1) != 0) archived.Add(id);
+            else included.Add(id);
+        }
+        return new(
+            sourceProjectId,
+            WorkDuplicationPolicy.SuggestedTitle(title),
+            included.AsReadOnly(),
+            archived.AsReadOnly(),
+            binned.AsReadOnly());
     }
 
     private static TaskRecord ReadStoredTask(
