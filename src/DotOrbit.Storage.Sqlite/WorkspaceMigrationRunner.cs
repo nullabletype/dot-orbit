@@ -359,7 +359,7 @@ internal static class WorkspaceMigrationRunner
     private static int ApplySchemaNineToTen(SqliteConnection connection)
     {
         ExecuteNonQuery(connection, SqliteWorkspaceWork.ArchiveSearchSchema);
-        SqliteWorkspaceWork.RebuildArchiveSearchIndex(connection);
+        ArchiveSearchIndex.Rebuild(connection);
         ExecuteNonQuery(connection, "PRAGMA user_version = 10;");
         return 10;
     }

@@ -516,11 +516,15 @@ public sealed class WorkspaceWorkTests : IDisposable
             Assert.False(snapshot.Projects.Single(project => project.Id == activeProject.Id).IsArchived);
             Assert.True(snapshot.Projects.Single(project => project.Id == archivedProject.Id).IsArchived);
             Assert.Empty(session.Work.PreviewBulkTaskArchive(3).EligibleTaskIds);
+            Assert.Equal(eligibleProjectTaskId, Assert.Single(session.Work.SearchArchive("Old project")).Id);
+            Assert.Equal(eligibleStandaloneId, Assert.Single(session.Work.SearchArchive("Old standalone")).Id);
         }
 
         using var reopened = store.Open(WorkspacePath, _passphrase).Session!;
         Assert.True(reopened.Work.Read().Tasks.Single(task => task.Id == eligibleProjectTaskId).IsArchived);
         Assert.True(reopened.Work.Read().Tasks.Single(task => task.Id == eligibleStandaloneId).IsArchived);
+        Assert.Equal(eligibleProjectTaskId, Assert.Single(reopened.Work.SearchArchive("Old project")).Id);
+        Assert.Equal(eligibleStandaloneId, Assert.Single(reopened.Work.SearchArchive("Old standalone")).Id);
     }
 
     [Fact]
@@ -787,19 +791,95 @@ public sealed class WorkspaceWorkTests : IDisposable
     }
 
     [Fact]
-    public void SearchIndexFailureRollsBackTheSourceEdit()
+    public void ActiveAndArchivedEditsReplaceOnlySearchableDocumentsWithoutDuplicatesAcrossReopen()
+    {
+        var store = new EncryptedWorkspaceStore();
+        string projectId;
+        string taskId;
+        using (var session = store.Create(
+                   WorkspacePath,
+                   _passphrase,
+                   CategoryName.Create("Home").CategoryName!).Session!)
+        {
+            var category = Assert.Single(session.Work.Read().Categories);
+            var project = session.Work.CreateProject("Active parent", "Active project phrase", category.Id, null);
+            var task = session.Work.CreateTaskDraft(
+                project.Id, "Active task", "Active task phrase", null, null);
+            projectId = project.Id;
+            taskId = task.Id;
+
+            session.Work.UpdateProject(project.Id, "Edited active parent", "Edited active project phrase", category.Id, null);
+            session.Work.UpdateTask(task.Id, "Edited active task", "Edited active task phrase", null, null);
+            Assert.Empty(session.Work.SearchArchive("edited active"));
+
+            session.Work.CompleteTask(task.Id);
+            session.Work.ArchiveTask(task.Id);
+            session.Work.ArchiveProject(project.Id);
+            session.Work.UpdateTask(task.Id, "Archived task marker", "Archived task detail", null, null);
+            session.Work.UpdateProject(project.Id, "Archived parent marker", "Archived project detail", category.Id, null);
+            session.Work.UpdateTask(task.Id, "Archived task marker", "Archived task detail", null, null);
+            session.Work.UpdateProject(project.Id, "Archived parent marker", "Archived project detail", category.Id, null);
+
+            Assert.Equal(task.Id, Assert.Single(session.Work.SearchArchive("task marker")).Id);
+            Assert.Equal(project.Id, Assert.Single(session.Work.SearchArchive("project detail")).Id);
+            Assert.Equal("Archived parent marker", Assert.Single(session.Work.SearchArchive("task marker")).ParentProjectTitle);
+            using var inspection = EncryptedWorkspaceStore.OpenConnection(
+                WorkspacePath, _passphrase, SqliteOpenMode.ReadOnly);
+            using var count = inspection.CreateCommand();
+            count.CommandText = "SELECT COUNT(*) FROM archive_search WHERE record_id IN ($project,$task);";
+            count.Parameters.AddWithValue("$project", project.Id);
+            count.Parameters.AddWithValue("$task", task.Id);
+            Assert.Equal(2L, count.ExecuteScalar());
+        }
+
+        using var reopened = store.Open(WorkspacePath, _passphrase).Session!;
+        Assert.Equal(taskId, Assert.Single(reopened.Work.SearchArchive("task detail")).Id);
+        Assert.Equal(projectId, Assert.Single(reopened.Work.SearchArchive("parent marker")).Id);
+    }
+
+    [Fact]
+    public void CategoryReassignmentAndParticipantRenamePropagateToEveryArchivedDependent()
+    {
+        using var session = _store.Create(
+            WorkspacePath,
+            _passphrase,
+            CategoryName.Create("Legacy category").CategoryName!).Session!;
+        var legacy = Assert.Single(session.Work.Read().Categories);
+        var current = session.Work.CreateCategory("Current category");
+        var participant = session.Work.CreateParticipant("Legacy participant");
+        var project = session.Work.CreateProject("Archived project", "", legacy.Id, null);
+        var inherited = session.Work.CreateTaskDraft(
+            project.Id, "Inherited task", "", null, null, new([participant.Id], []));
+        var explicitTask = session.Work.CreateStandaloneTask(
+            "Explicit task", "", legacy.Id, null, new([participant.Id], []));
+        session.Work.CompleteTask(inherited.Id);
+        session.Work.ArchiveTask(inherited.Id);
+        session.Work.CompleteTask(explicitTask.Id);
+        session.Work.ArchiveTask(explicitTask.Id);
+        session.Work.ArchiveProject(project.Id);
+
+        session.Work.RenameParticipant(participant.Id, "Current participant");
+        session.Work.DeleteCategory(legacy.Id, current.Id);
+
+        Assert.Empty(session.Work.SearchArchive("legacy category"));
+        Assert.Empty(session.Work.SearchArchive("legacy participant"));
+        Assert.Equal(
+            new[] { project.Id, inherited.Id, explicitTask.Id }.Order(StringComparer.Ordinal),
+            session.Work.SearchArchive("current category").Select(result => result.Id).Order(StringComparer.Ordinal));
+        Assert.Equal(
+            new[] { inherited.Id, explicitTask.Id }.Order(StringComparer.Ordinal),
+            session.Work.SearchArchive("current participant").Select(result => result.Id).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void SearchIndexFailureRollsBackTheTaskEdit()
     {
         using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
         var category = Assert.Single(session.Work.Read().Categories);
         var task = session.Work.CreateStandaloneTask("Original", "Original description", category.Id, null);
         session.Work.CompleteTask(task.Id);
         session.Work.ArchiveTask(task.Id);
-        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
-        using (var command = connection.CreateCommand())
-        {
-            command.CommandText = "DROP TABLE archive_search;";
-            command.ExecuteNonQuery();
-        }
+        DropArchiveSearchTable();
 
         Assert.Throws<WorkspaceWorkException>(() => session.Work.UpdateTask(
             task.Id, "Changed", "Changed description", category.Id, null));
@@ -807,6 +887,54 @@ public sealed class WorkspaceWorkTests : IDisposable
         var unchanged = Assert.Single(session.Work.Read().Tasks);
         Assert.Equal("Original", unchanged.Title);
         Assert.Equal("Original description", unchanged.Description);
+    }
+
+    [Fact]
+    public void SearchIndexFailureRollsBackTheProjectEdit()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        var project = session.Work.CreateProject("Original", "Original description", category.Id, null);
+        DropArchiveSearchTable();
+
+        Assert.Throws<WorkspaceWorkException>(() => session.Work.UpdateProject(
+            project.Id, "Changed", "Changed description", category.Id, null));
+
+        var unchanged = Assert.Single(session.Work.Read().Projects);
+        Assert.Equal("Original", unchanged.Title);
+        Assert.Equal("Original description", unchanged.Description);
+    }
+
+    [Fact]
+    public void SearchIndexFailureRollsBackTheCategoryRename()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Original").CategoryName!).Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        var task = session.Work.CreateStandaloneTask("Archived", "", category.Id, null);
+        session.Work.CompleteTask(task.Id);
+        session.Work.ArchiveTask(task.Id);
+        DropArchiveSearchTable();
+
+        Assert.Throws<WorkspaceWorkException>(() => session.Work.RenameCategory(category.Id, "Changed"));
+
+        Assert.Equal("Original", Assert.Single(session.Work.Read().Categories).Name);
+    }
+
+    [Fact]
+    public void SearchIndexFailureRollsBackTheParticipantRename()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        var participant = session.Work.CreateParticipant("Original");
+        var task = session.Work.CreateStandaloneTask(
+            "Archived", "", category.Id, null, new([participant.Id], []));
+        session.Work.CompleteTask(task.Id);
+        session.Work.ArchiveTask(task.Id);
+        DropArchiveSearchTable();
+
+        Assert.Throws<WorkspaceWorkException>(() => session.Work.RenameParticipant(participant.Id, "Changed"));
+
+        Assert.Equal("Original", Assert.Single(session.Work.Read().Participants).Label);
     }
 
     [Fact]
@@ -2004,6 +2132,8 @@ public sealed class WorkspaceWorkTests : IDisposable
         Assert.DoesNotContain(session.Work.Read().Projects, item => item.Id == target.Id);
         Assert.DoesNotContain(session.Work.Read().Tasks, item => item.ProjectId == target.Id);
         Assert.Empty(session.Work.SearchArchive("Archived"));
+        Assert.Throws<InvalidOperationException>(() => session.Work.UpdateProject(
+            target.Id, "Changed while binned", "", category.Id, null));
         var blocked = Assert.Single(session.Work.ReadTaskBin());
         Assert.Equal(preBinned.Id, blocked.Task.Id);
         Assert.False(blocked.CanRestore);
@@ -2023,6 +2153,15 @@ public sealed class WorkspaceWorkTests : IDisposable
         Assert.Equal([planned.Id, archived.Id], restoredTasks
             .OrderBy(item => item.ProjectPosition).Select(item => item.Id));
         Assert.Equal(preBinned.Id, Assert.Single(session.Work.ReadTaskBin()).Task.Id);
+    }
+
+    private void DropArchiveSearchTable()
+    {
+        using var connection = EncryptedWorkspaceStore.OpenConnection(
+            WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite);
+        using var command = connection.CreateCommand();
+        command.CommandText = "DROP TABLE archive_search;";
+        command.ExecuteNonQuery();
     }
 
     [Fact]

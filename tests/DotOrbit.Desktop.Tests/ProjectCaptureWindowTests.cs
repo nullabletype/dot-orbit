@@ -1099,7 +1099,9 @@ public sealed class ProjectCaptureWindowTests
         var work = new MemoryWorkspaceWork();
         var project = work.CreateProject("Garden", "", "home", new DateOnly(2026, 10, 12));
         work.CreateTask(project.Id, "Plant bulbs");
-        var shell = new ShellViewModel(work);
+        var shell = new ShellViewModel(
+            work,
+            new FixedTimeProvider(new DateTimeOffset(2026, 10, 1, 12, 0, 0, TimeSpan.Zero)));
         shell.PrimaryNavigation.Single(n => n.Title == "Projects").SelectCommand.Execute(null);
         var window = new MainWindow { DataContext = shell };
         window.Show();
@@ -2163,7 +2165,9 @@ public sealed class ProjectCaptureWindowTests
         var work = new MemoryWorkspaceWork();
         var project = work.CreateProject("Garden", "", "home", new DateOnly(2026, 10, 12));
         var task = work.CreateTask(project.Id, "Plant bulbs");
-        var shell = new ShellViewModel(work);
+        var shell = new ShellViewModel(
+            work,
+            new FixedTimeProvider(new DateTimeOffset(2026, 10, 1, 12, 0, 0, TimeSpan.Zero)));
         shell.PrimaryNavigation.Single(item => item.Title == "Projects").SelectCommand.Execute(null);
         var window = new MainWindow { DataContext = shell };
         window.Show();

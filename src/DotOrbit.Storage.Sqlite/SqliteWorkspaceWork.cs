@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text;
+using DotOrbit.Core.Diagnostics;
 using DotOrbit.Core.Workspaces;
-using DotOrbit.Markdown;
 using Microsoft.Data.Sqlite;
 
 namespace DotOrbit.Storage.Sqlite;
@@ -559,6 +559,9 @@ internal sealed class SqliteWorkspaceWork(
                     DROP TABLE empty_bin_task_ids;
                     DROP TABLE empty_bin_project_ids;
                     """);
+                return ArchiveSearchIndexEffects.Combine(
+                    ArchiveSearchIndexEffects.Tasks(confirmedPreview.TaskIds),
+                    ArchiveSearchIndexEffects.Projects(confirmedPreview.ProjectIds));
             }));
     }
 
@@ -624,6 +627,7 @@ internal sealed class SqliteWorkspaceWork(
             Execute(connection, transaction,
                 "INSERT INTO category_identities (category_id,colour_key) VALUES ($id,$colour);",
                 ("$id", result.Id), ("$colour", result.ColourKey));
+            return ArchiveSearchIndexEffects.None;
         }));
         return result!;
     }
@@ -638,7 +642,8 @@ internal sealed class SqliteWorkspaceWork(
             EnsureCategoryNameAvailable(connection, transaction, name, id);
             Execute(connection, transaction, "UPDATE categories SET name=$name WHERE id=$id;",
                 ("$id", id), ("$name", name));
-            result = ReadSnapshot(connection, transaction).Categories.Single(category => category.Id == id);
+            result = ReadCategory(connection, transaction, id);
+            return ArchiveSearchIndexEffects.Category(id);
         }));
         return result!;
     }
@@ -657,7 +662,8 @@ internal sealed class SqliteWorkspaceWork(
             Execute(connection, transaction,
                 "UPDATE category_identities SET colour_key=$colour WHERE category_id=$id;",
                 ("$id", id), ("$colour", identity.ColourKey));
-            result = ReadSnapshot(connection, transaction).Categories.Single(category => category.Id == id);
+            result = ReadCategory(connection, transaction, id);
+            return ArchiveSearchIndexEffects.Category(id);
         }));
         return result!;
     }
@@ -674,6 +680,7 @@ internal sealed class SqliteWorkspaceWork(
                 "INSERT INTO participants (id,label,comparison_key) VALUES ($id,$label,$key);",
                 ("$id", result.Id), ("$label", result.Label),
                 ("$key", ParticipantLabel.ComparisonKey(result.Label)));
+            return ArchiveSearchIndexEffects.None;
         }));
         return result!;
     }
@@ -690,6 +697,7 @@ internal sealed class SqliteWorkspaceWork(
                 "UPDATE participants SET label=$label, comparison_key=$key WHERE id=$id;",
                 ("$id", id), ("$label", label), ("$key", ParticipantLabel.ComparisonKey(label)));
             result = new(id, label);
+            return ArchiveSearchIndexEffects.Participant(id);
         }));
         return result!;
     }
@@ -706,6 +714,7 @@ internal sealed class SqliteWorkspaceWork(
             var references = (long)referenceCommand.ExecuteScalar()!;
             if (references > 0) throw new InvalidOperationException("The Participant is referenced by a Task.");
             Execute(connection, transaction, "DELETE FROM participants WHERE id=$id;", ("$id", id));
+            return ArchiveSearchIndexEffects.Participant(id);
         }));
     }
 
@@ -741,6 +750,9 @@ internal sealed class SqliteWorkspaceWork(
             Execute(connection, transaction, "DELETE FROM categories WHERE id=$id;", ("$id", id));
             categoryIds.Remove(id);
             RewriteOrder(connection, transaction, "categories", "position", categoryIds);
+            return replacementCategoryId is null
+                ? ArchiveSearchIndexEffects.None
+                : ArchiveSearchIndexEffects.Category(replacementCategoryId);
         }));
     }
 
@@ -754,6 +766,7 @@ internal sealed class SqliteWorkspaceWork(
             Move(orderedIds, id, targetPosition);
             RewriteOrder(connection, transaction, "categories", "position", orderedIds);
             result = new(id, targetPosition + 1, orderedIds.Count);
+            return ArchiveSearchIndexEffects.None;
         }));
         return result!;
     }
@@ -783,6 +796,7 @@ internal sealed class SqliteWorkspaceWork(
             Execute(connection, transaction,
                 "INSERT INTO project_identities (project_id,colour_key) VALUES ($id,$colour);",
                 ("$id", result.Id), ("$colour", identity.ColourKey));
+            return ArchiveSearchIndexEffects.None;
         }));
         return result!;
     }
@@ -804,6 +818,7 @@ internal sealed class SqliteWorkspaceWork(
             Execute(connection, transaction,
                 "INSERT INTO tasks VALUES ($id, $project, $title, '', NULL, NULL, 0, $position, NULL, NULL);",
                 ("$id", result.Id), ("$project", projectId), ("$title", title), ("$position", position));
+            return ArchiveSearchIndexEffects.None;
         }));
         return result!;
     }
@@ -839,7 +854,8 @@ internal sealed class SqliteWorkspaceWork(
             if (todayLane is not null)
                 Execute(connection, transaction, "INSERT INTO today_tasks (task_id, lane) VALUES ($id, $lane);",
                     ("$id", id), ("$lane", TodayLaneValue(todayLane.Value)));
-            result = ReadSnapshot(connection, transaction).Tasks.Single(task => task.Id == id);
+            result = ReadStoredTask(connection, transaction, id, todayLane);
+            return ArchiveSearchIndexEffects.None;
         }));
         return result!;
     }
@@ -861,7 +877,8 @@ internal sealed class SqliteWorkspaceWork(
                 ("$category", categoryId), ("$date", Date(dueDate)));
             ApplyParticipantChanges(connection, transaction, result.Id,
                 participantChange ?? new([], []));
-            result = ReadSnapshot(connection, transaction).Tasks.Single(task => task.Id == result.Id);
+            result = ReadStoredTask(connection, transaction, result.Id, null);
+            return ArchiveSearchIndexEffects.None;
         }));
         return result!;
     }
@@ -880,7 +897,7 @@ internal sealed class SqliteWorkspaceWork(
         ProjectRecord? result = null;
         Guard(() => transactions.Execute((connection, transaction) =>
         {
-            Require(connection, transaction, "projects", id);
+            RequireProjectNotBinned(connection, transaction, id);
             Require(connection, transaction, "categories", categoryId);
             Execute(connection, transaction,
                 "UPDATE projects SET title=$title, description=$description, category_id=$category, target_date=$date WHERE id=$id;",
@@ -889,7 +906,8 @@ internal sealed class SqliteWorkspaceWork(
                 Execute(connection, transaction,
                     "UPDATE project_identities SET colour_key=$colour WHERE project_id=$id;",
                     ("$id", id), ("$colour", identity.ColourKey));
-            result = ReadSnapshot(connection, transaction).Projects.Single(project => project.Id == id);
+            result = ReadStoredProject(connection, transaction, id);
+            return ArchiveSearchIndexEffects.Project(id);
         }));
         return result!;
     }
@@ -902,8 +920,7 @@ internal sealed class SqliteWorkspaceWork(
         TaskRecord? result = null;
         Guard(() => transactions.Execute((connection, transaction) =>
         {
-            RequireActiveTask(connection, transaction, id);
-            var existing = ReadSnapshot(connection, transaction).Tasks.Single(task => task.Id == id);
+            var existing = ReadActiveTask(connection, transaction, id);
             if (existing.ProjectId is null && explicitCategoryId is null)
                 throw new ArgumentException("A standalone Task requires an explicit Category.", nameof(explicitCategoryId));
             if (explicitCategoryId is not null) Require(connection, transaction, "categories", explicitCategoryId);
@@ -912,7 +929,8 @@ internal sealed class SqliteWorkspaceWork(
                 ("$id", id), ("$title", title), ("$description", description), ("$category", explicitCategoryId), ("$date", Date(dueDate)));
             if (participantChange is not null)
                 ApplyParticipantChanges(connection, transaction, id, participantChange);
-            result = ReadSnapshot(connection, transaction).Tasks.Single(task => task.Id == id);
+            result = ReadStoredTask(connection, transaction, id, existing.TodayLane);
+            return ArchiveSearchIndexEffects.Task(id);
         }));
         return result!;
     }
@@ -933,6 +951,7 @@ internal sealed class SqliteWorkspaceWork(
                 "UPDATE tasks SET completion_instant=$instant, completion_date=$date WHERE id=$id;",
                 ("$id", id), ("$instant", instant.ToString("O", CultureInfo.InvariantCulture)), ("$date", Date(localDate)));
             result = ReadSnapshot(connection, transaction).Tasks.Single(task => task.Id == id);
+            return ArchiveSearchIndexEffects.None;
         }));
         return result!;
     }
@@ -950,6 +969,7 @@ internal sealed class SqliteWorkspaceWork(
             Execute(connection, transaction,
                 "UPDATE tasks SET completion_instant=NULL, completion_date=NULL WHERE id=$id;", ("$id", id));
             result = ReadSnapshot(connection, transaction).Tasks.Single(task => task.Id == id);
+            return ArchiveSearchIndexEffects.None;
         }));
         return result!;
     }
@@ -972,6 +992,7 @@ internal sealed class SqliteWorkspaceWork(
                 "INSERT INTO task_archives (task_id,archived_instant,archive_date) VALUES ($id,$instant,$date);",
                 ("$id", id), ("$instant", instant.ToString("O", CultureInfo.InvariantCulture)), ("$date", Date(localDate)));
             result = ReadSnapshot(connection, transaction).Tasks.Single(item => item.Id == id);
+            return ArchiveSearchIndexEffects.Task(id);
         }));
         return result!;
     }
@@ -987,6 +1008,7 @@ internal sealed class SqliteWorkspaceWork(
                 throw new InvalidOperationException("The Task is not archived.");
             Execute(connection, transaction, "DELETE FROM task_archives WHERE task_id=$id;", ("$id", id));
             result = ReadSnapshot(connection, transaction).Tasks.Single(item => item.Id == id);
+            return ArchiveSearchIndexEffects.Task(id);
         }));
         return result!;
     }
@@ -997,6 +1019,7 @@ internal sealed class SqliteWorkspaceWork(
         Guard(() => transactions.Execute((connection, transaction) =>
         {
             result = MoveTaskToBinCore(connection, transaction, id, timeProvider.GetUtcNow(), null);
+            return ArchiveSearchIndexEffects.Task(id);
         }));
         return result!;
     }
@@ -1007,6 +1030,7 @@ internal sealed class SqliteWorkspaceWork(
         Guard(() => transactions.Execute((connection, transaction) =>
         {
             result = RestoreTaskFromBinCore(connection, transaction, id);
+            return ArchiveSearchIndexEffects.Task(id);
         }));
         return result!;
     }
@@ -1034,6 +1058,7 @@ internal sealed class SqliteWorkspaceWork(
             projectIds.Remove(id);
             RewriteProjectOrder(connection, transaction, projectIds);
             result = ReadProjectBinRecord(connection, transaction, id, removedAt);
+            return ArchiveSearchIndexEffects.Project(id);
         }));
         return result!;
     }
@@ -1060,6 +1085,7 @@ internal sealed class SqliteWorkspaceWork(
             RewriteProjectOrder(connection, transaction, projectIds);
             RestoreProjectTaskAggregate(connection, transaction, aggregateTaskIds);
             result = ReadSnapshot(connection, transaction).Projects.Single(item => item.Id == id);
+            return ArchiveSearchIndexEffects.Project(id);
         }));
         return result!;
     }
@@ -1082,6 +1108,7 @@ internal sealed class SqliteWorkspaceWork(
                 ("$id", id), ("$instant", instant.ToString("O", CultureInfo.InvariantCulture)),
                 ("$date", Date(localDate)));
             result = ReadSnapshot(connection, transaction).Projects.Single(item => item.Id == id);
+            return ArchiveSearchIndexEffects.Project(id);
         }));
         return result!;
     }
@@ -1097,6 +1124,7 @@ internal sealed class SqliteWorkspaceWork(
                 throw new InvalidOperationException("The Project is not archived.");
             Execute(connection, transaction, "DELETE FROM project_archives WHERE project_id=$id;", ("$id", id));
             result = ReadSnapshot(connection, transaction).Projects.Single(item => item.Id == id);
+            return ArchiveSearchIndexEffects.Project(id);
         }));
         return result!;
     }
@@ -1123,7 +1151,7 @@ internal sealed class SqliteWorkspaceWork(
             if (!confirmedPreview.Matches(currentPreview))
             {
                 result = new(false, currentPreview, 0);
-                return;
+                return ArchiveSearchIndexEffects.None;
             }
             var eligible = snapshot.Tasks
                 .Where(task => currentPreview.EligibleTaskIds.Contains(task.Id, StringComparer.Ordinal))
@@ -1131,7 +1159,7 @@ internal sealed class SqliteWorkspaceWork(
             if (eligible.Length == 0)
             {
                 result = new(true, confirmedPreview, 0);
-                return;
+                return ArchiveSearchIndexEffects.None;
             }
             var (instant, localDate) = CurrentArchiveMoment();
             foreach (var task in eligible)
@@ -1142,6 +1170,7 @@ internal sealed class SqliteWorkspaceWork(
                     ("$date", Date(localDate)));
             }
             result = new(true, confirmedPreview, eligible.Length);
+            return ArchiveSearchIndexEffects.Tasks(eligible.Select(task => task.Id));
         }));
         return result!;
     }
@@ -1172,6 +1201,7 @@ internal sealed class SqliteWorkspaceWork(
                     """, ("$id", id), ("$lane", TodayLaneValue(lane.Value)));
             }
             result = ReadSnapshot(connection, transaction).Tasks.Single(item => item.Id == id);
+            return ArchiveSearchIndexEffects.None;
         }));
         return result!;
     }
@@ -1186,6 +1216,7 @@ internal sealed class SqliteWorkspaceWork(
             EnsureTodayMembershipAllowed(connection, transaction, task, lane);
             WriteTodayLane(connection, transaction, id, lane);
             result = ReadStoredTask(connection, transaction, id, lane);
+            return ArchiveSearchIndexEffects.None;
         }));
         return result!;
     }
@@ -1202,6 +1233,7 @@ internal sealed class SqliteWorkspaceWork(
             EnsureTodayMembershipAllowed(connection, transaction, task, lane);
             WriteTodayLane(connection, transaction, id, lane);
             result = ReadStoredTask(connection, transaction, id, lane);
+            return ArchiveSearchIndexEffects.None;
         }));
         return result!;
     }
@@ -1219,7 +1251,7 @@ internal sealed class SqliteWorkspaceWork(
                 Execute(connection, transaction,
                     "UPDATE tasks SET completion_instant=NULL, completion_date=NULL WHERE id=$id;", ("$id", id));
                 result = ReadStoredTask(connection, transaction, id, task.TodayLane);
-                return;
+                return ArchiveSearchIndexEffects.None;
             }
 
             var instant = timeProvider.GetUtcNow();
@@ -1230,6 +1262,7 @@ internal sealed class SqliteWorkspaceWork(
                 ("$id", id), ("$instant", instant.ToString("O", CultureInfo.InvariantCulture)),
                 ("$date", Date(localDate)));
             result = ReadStoredTask(connection, transaction, id, null);
+            return ArchiveSearchIndexEffects.None;
         }));
         return result!;
     }
@@ -1243,6 +1276,7 @@ internal sealed class SqliteWorkspaceWork(
             command.Transaction = transaction;
             command.CommandText = "DELETE FROM today_tasks;";
             cleared = command.ExecuteNonQuery();
+            return ArchiveSearchIndexEffects.None;
         }));
         return cleared;
     }
@@ -1269,6 +1303,7 @@ internal sealed class SqliteWorkspaceWork(
                 .ToList();
             RewriteSharedOrder(connection, transaction, mergedIds);
             result = new(id, task.TodayLane.Value, targetPosition + 1, visibleIds.Count);
+            return ArchiveSearchIndexEffects.None;
         }));
         return result!;
     }
@@ -1303,6 +1338,7 @@ internal sealed class SqliteWorkspaceWork(
                 targetPosition + 1,
                 visibleIds.Count,
                 ChangedSharedPositions(originalIds, mergedIds));
+            return ArchiveSearchIndexEffects.None;
         }));
         return result!;
     }
@@ -1338,6 +1374,7 @@ internal sealed class SqliteWorkspaceWork(
                 RewriteSharedOrder(connection, transaction, mergedIds);
             }
             result = new(id, targetPosition + 1, visibleIds.Count);
+            return ArchiveSearchIndexEffects.None;
         }));
         return result!;
     }
@@ -1371,6 +1408,7 @@ internal sealed class SqliteWorkspaceWork(
                 targetPosition + 1,
                 visibleIds.Count,
                 ChangedSharedPositions(originalIds, mergedIds));
+            return ArchiveSearchIndexEffects.None;
         }));
         return result!;
     }
@@ -1391,6 +1429,7 @@ internal sealed class SqliteWorkspaceWork(
                 .ToList();
             RewriteOrder(connection, transaction, "projects", "position", mergedIds);
             result = new(id, targetPosition + 1, visibleIds.Count);
+            return ArchiveSearchIndexEffects.None;
         }));
         return result!;
     }
@@ -1406,6 +1445,7 @@ internal sealed class SqliteWorkspaceWork(
             Move(orderedIds, taskId, targetPosition);
             RewriteProjectTaskOrder(connection, transaction, projectId, orderedIds);
             result = new(projectId, taskId, targetPosition + 1, orderedIds.Count);
+            return ArchiveSearchIndexEffects.None;
         }));
         return result!;
     }
@@ -1428,6 +1468,7 @@ internal sealed class SqliteWorkspaceWork(
                 "SELECT id FROM tasks WHERE project_id=$project AND id NOT IN (SELECT task_id FROM task_bins) ORDER BY project_position,id;", ("$project", sourceProjectId));
             RewriteProjectTaskOrder(connection, transaction, sourceProjectId, sourceIds);
             result = ReadSnapshot(connection, transaction).Tasks.Single(item => item.Id == id);
+            return ArchiveSearchIndexEffects.Task(id);
         }));
         return result!;
     }
@@ -1474,12 +1515,14 @@ internal sealed class SqliteWorkspaceWork(
                 "UPDATE tasks SET project_id=$project, project_position=$position, explicit_category_id=$category WHERE id=$id;",
                 ("$project", projectId), ("$position", destinationPosition), ("$category", explicitCategoryId), ("$id", id));
             result = ReadSnapshot(connection, transaction).Tasks.Single(item => item.Id == id);
+            return ArchiveSearchIndexEffects.Task(id);
         }));
         return result!;
     }
 
     private static WorkspaceWorkSnapshot ReadSnapshot(SqliteConnection connection, SqliteTransaction? transaction = null)
     {
+        using var timing = PerformanceTrace.MeasureAllocationStage(PerformanceStage.SnapshotRead);
         var hasTaskBins = SchemaObjectExists(connection, transaction, "table", "task_bins");
         var hasProjectBins = SchemaObjectExists(connection, transaction, "table", "project_bins");
         var hasCategoryIdentities = SchemaObjectExists(connection, transaction, "table", "category_identities");
@@ -1620,6 +1663,55 @@ internal sealed class SqliteWorkspaceWork(
             reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4), ReadDate(reader, 5),
             reader.GetInt64(6), reader.IsDBNull(7) ? null : reader.GetInt64(7), ReadInstant(reader, 8),
             ReadDate(reader, 9), participants.AsReadOnly(), todayLane, ReadInstant(reader, 10), ReadDate(reader, 11));
+    }
+
+    private static WorkspaceCategory ReadCategory(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string id)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT c.id,c.name,c.position,ci.colour_key
+            FROM categories c
+            JOIN category_identities ci ON ci.category_id=c.id
+            WHERE c.id=$id;
+            """;
+        command.Parameters.AddWithValue("$id", id);
+        using var reader = command.ExecuteReader();
+        if (!reader.Read()) throw new InvalidDataException();
+        return new(reader.GetString(0), reader.GetString(1), reader.GetInt64(2), reader.GetString(3));
+    }
+
+    private static ProjectRecord ReadStoredProject(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string id)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT p.id,p.title,p.description,p.category_id,p.target_date,p.position,
+                   pa.archived_instant,pa.archive_date,pi.colour_key
+            FROM projects p
+            JOIN project_identities pi ON pi.project_id=p.id
+            LEFT JOIN project_archives pa ON pa.project_id=p.id
+            WHERE p.id=$id;
+            """;
+        command.Parameters.AddWithValue("$id", id);
+        using var reader = command.ExecuteReader();
+        if (!reader.Read()) throw new InvalidDataException();
+        return new(
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.GetString(2),
+            reader.GetString(3),
+            ReadDate(reader, 4),
+            reader.GetInt64(5),
+            ReadInstant(reader, 6),
+            ReadDate(reader, 7),
+            reader.GetString(8));
     }
 
     private static TaskRecord ReadActiveTask(
@@ -2153,102 +2245,6 @@ internal sealed class SqliteWorkspaceWork(
                 "INSERT INTO task_participants (task_id,participant_id,position) VALUES ($task,$participant,$position);",
                 ("$task", taskId), ("$participant", associations[position]), ("$position", position));
 
-    }
-
-    internal static void RebuildArchiveSearchIndex(
-        SqliteConnection connection,
-        SqliteTransaction? transaction = null)
-    {
-        var snapshot = ReadSnapshot(connection, transaction);
-        using (var clear = connection.CreateCommand())
-        {
-            clear.Transaction = transaction;
-            clear.CommandText = "DELETE FROM archive_search;";
-            clear.ExecuteNonQuery();
-        }
-
-        var categories = snapshot.Categories.ToDictionary(category => category.Id, StringComparer.Ordinal);
-        var projects = snapshot.Projects.ToDictionary(project => project.Id, StringComparer.Ordinal);
-        var participants = snapshot.Participants.ToDictionary(participant => participant.Id, StringComparer.Ordinal);
-
-        foreach (var project in snapshot.Projects.Where(project => project.IsArchived))
-        {
-            InsertArchiveSearchDocument(
-                connection,
-                transaction,
-                "project",
-                project.Id,
-                project.Title,
-                SearchableMarkdownText(project.Description),
-                categories[project.CategoryId].Name,
-                string.Empty,
-                string.Empty,
-                project.ArchivedAt!.Value.UtcTicks,
-                project.ArchiveDate!.Value,
-                "archived");
-        }
-
-        foreach (var task in snapshot.Tasks.Where(task => task.IsArchived))
-        {
-            var parent = task.ProjectId is null ? null : projects[task.ProjectId];
-            var categoryId = task.ExplicitCategoryId ?? parent!.CategoryId;
-            InsertArchiveSearchDocument(
-                connection,
-                transaction,
-                "task",
-                task.Id,
-                task.Title,
-                SearchableMarkdownText(task.Description),
-                categories[categoryId].Name,
-                string.Join(' ', task.Participants.Select(id => participants[id].Label)),
-                parent?.Title ?? string.Empty,
-                task.ArchivedAt!.Value.UtcTicks,
-                task.CompletionDate!.Value,
-                "completed");
-        }
-    }
-
-    private static void InsertArchiveSearchDocument(
-        SqliteConnection connection,
-        SqliteTransaction? transaction,
-        string recordType,
-        string recordId,
-        string title,
-        string description,
-        string category,
-        string participants,
-        string parentProject,
-        long archiveTicks,
-        DateOnly displayDate,
-        string dateKind)
-    {
-        using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            INSERT INTO archive_search
-                (record_type, record_id, title, description, category, participants,
-                 parent_project, archive_ticks, display_date, date_kind)
-            VALUES
-                ($recordType, $recordId, $title, $description, $category, $participants,
-                 $parentProject, $archiveTicks, $displayDate, $dateKind);
-            """;
-        command.Parameters.AddWithValue("$recordType", recordType);
-        command.Parameters.AddWithValue("$recordId", recordId);
-        command.Parameters.AddWithValue("$title", title);
-        command.Parameters.AddWithValue("$description", description);
-        command.Parameters.AddWithValue("$category", category);
-        command.Parameters.AddWithValue("$participants", participants);
-        command.Parameters.AddWithValue("$parentProject", parentProject);
-        command.Parameters.AddWithValue("$archiveTicks", archiveTicks);
-        command.Parameters.AddWithValue("$displayDate", Date(displayDate));
-        command.Parameters.AddWithValue("$dateKind", dateKind);
-        command.ExecuteNonQuery();
-    }
-
-    private static string SearchableMarkdownText(string markdown)
-    {
-        var plainText = SanitisedMarkdownRenderer.Render(markdown).ToPlainText();
-        return string.Join(' ', plainText.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
     }
 
     private static string BuildArchiveMatchQuery(string query)

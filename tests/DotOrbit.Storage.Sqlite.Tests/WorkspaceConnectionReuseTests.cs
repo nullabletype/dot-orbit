@@ -140,14 +140,22 @@ public sealed class WorkspaceConnectionReuseTests : IDisposable
             firstRead = connection;
             return 0;
         });
-        concrete.Transactions.Execute((connection, _) => firstWrite = connection);
+        concrete.Transactions.Execute((connection, _) =>
+        {
+            firstWrite = connection;
+            return ArchiveSearchIndexEffects.None;
+        });
 
         concrete.Transactions.Read((connection, _) =>
         {
             Assert.Same(firstRead, connection);
             return 0;
         });
-        concrete.Transactions.Execute((connection, _) => Assert.Same(firstWrite, connection));
+        concrete.Transactions.Execute((connection, _) =>
+        {
+            Assert.Same(firstWrite, connection);
+            return ArchiveSearchIndexEffects.None;
+        });
 
         Assert.NotSame(firstRead, firstWrite);
     }
@@ -232,7 +240,11 @@ public sealed class WorkspaceConnectionReuseTests : IDisposable
         using var disposeStarted = new ManualResetEventSlim();
         var cancellationToken = TestContext.Current.CancellationToken;
 
-        concrete.Transactions.Execute((connection, _) => writeConnection = connection);
+        concrete.Transactions.Execute((connection, _) =>
+        {
+            writeConnection = connection;
+            return ArchiveSearchIndexEffects.None;
+        });
         var operation = Task.Run(() => concrete.Transactions.Read((connection, _) =>
         {
             readConnection = connection;
@@ -255,7 +267,8 @@ public sealed class WorkspaceConnectionReuseTests : IDisposable
         Assert.Equal(ConnectionState.Closed, readConnection!.State);
         Assert.Equal(ConnectionState.Closed, writeConnection!.State);
         Assert.Throws<ObjectDisposedException>(() => session.Work.Read());
-        Assert.Throws<ObjectDisposedException>(() => concrete.Transactions.Execute(static (_, _) => { }));
+        Assert.Throws<ObjectDisposedException>(() => concrete.Transactions.Execute(
+            static (_, _) => ArchiveSearchIndexEffects.None));
         session.Dispose();
     }
 
@@ -346,6 +359,7 @@ public sealed class WorkspaceConnectionReuseTests : IDisposable
             command.Transaction = transaction;
             command.CommandText = "PRAGMA locking_mode;";
             writerLockMode = Assert.IsType<string>(command.ExecuteScalar());
+            return ArchiveSearchIndexEffects.None;
         });
 
         Assert.Equal(EmptyBinStatus.Emptied, result.Status);
@@ -392,7 +406,11 @@ public sealed class WorkspaceConnectionReuseTests : IDisposable
             read = connection;
             return 0;
         });
-        session.Transactions.Execute((connection, _) => write = connection);
+        session.Transactions.Execute((connection, _) =>
+        {
+            write = connection;
+            return ArchiveSearchIndexEffects.None;
+        });
         return (Assert.IsType<SqliteConnection>(read), Assert.IsType<SqliteConnection>(write));
     }
 
