@@ -91,6 +91,13 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private string _archiveFocusAutomationId = string.Empty;
     private string _binFocusAutomationId = string.Empty;
     private string? _pendingArchiveTaskId;
+    private ProjectDuplicationPreview? _pendingProjectDuplicationPreview;
+    private string _projectDuplicationTitle = string.Empty;
+    private string _projectDuplicationValidationMessage = string.Empty;
+    private string? _pendingDuplicatedTaskId;
+    private string? _pendingDuplicatedProjectId;
+    private int _pendingDuplicatedProjectTaskCount;
+    private bool _taskDuplicationPending;
     private BulkTaskArchivePreview? _pendingBulkTaskArchivePreview;
     private EmptyBinPreview? _pendingEmptyBinPreview;
     private int _bulkArchiveCompletedAgeDays = 30;
@@ -151,6 +158,10 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         });
         MoveTaskToBinCommand = new(MoveCurrentTaskToBin);
         MoveProjectToBinCommand = new(MoveCurrentProjectToBin);
+        DuplicateTaskCommand = new(RequestDuplicateTask);
+        RequestProjectDuplicationCommand = new(RequestProjectDuplication);
+        ConfirmProjectDuplicationCommand = new(ConfirmProjectDuplication);
+        CancelProjectDuplicationCommand = new(CancelProjectDuplication);
         RequestEmptyBinCommand = new(RequestEmptyBin);
         ConfirmEmptyBinCommand = new(ConfirmEmptyBin);
         CancelEmptyBinCommand = new(CancelEmptyBin);
@@ -237,6 +248,10 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public RelayCommand ClearArchiveSearchCommand { get; }
     public RelayCommand MoveTaskToBinCommand { get; }
     public RelayCommand MoveProjectToBinCommand { get; }
+    public RelayCommand DuplicateTaskCommand { get; }
+    public RelayCommand RequestProjectDuplicationCommand { get; }
+    public RelayCommand ConfirmProjectDuplicationCommand { get; }
+    public RelayCommand CancelProjectDuplicationCommand { get; }
     public RelayCommand RequestEmptyBinCommand { get; }
     public RelayCommand ConfirmEmptyBinCommand { get; }
     public RelayCommand CancelEmptyBinCommand { get; }
@@ -283,6 +298,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             Notify(nameof(ShowMarkdownEditor));
             Notify(nameof(ShowMoveTaskToBin));
             Notify(nameof(ShowMoveProjectToBin));
+            Notify(nameof(ShowDuplicateTask));
+            Notify(nameof(ShowDuplicateProject));
         }
     }
     public bool HasNoInspector => !HasInspector;
@@ -330,8 +347,10 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public bool NeedsArchiveConfirmation => _pendingArchiveTaskId is not null;
     public bool NeedsBulkTaskArchiveConfirmation => _pendingBulkTaskArchivePreview is not null;
     public bool NeedsEmptyBinConfirmation => _pendingEmptyBinPreview is not null;
+    public bool NeedsProjectDuplicationConfirmation => _pendingProjectDuplicationPreview is not null;
     public bool HasBlockingDialog => NeedsDecision || NeedsCategoryReplacement || NeedsAttachmentChoice
-        || NeedsArchiveConfirmation || NeedsBulkTaskArchiveConfirmation || NeedsEmptyBinConfirmation;
+        || NeedsArchiveConfirmation || NeedsBulkTaskArchiveConfirmation || NeedsEmptyBinConfirmation
+        || NeedsProjectDuplicationConfirmation;
     public bool IsDirty => HasInspector && _original != Fingerprint();
     private bool RequiresPersistence => HasInspector && !_editingCategory
         && _persistedFingerprint != CurrentFingerprint();
@@ -358,6 +377,10 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             Notify();
             Notify(nameof(HasPendingWorkspaceActions));
             Notify(nameof(WorkspaceActionStatus));
+            Notify(nameof(CanDuplicateTask));
+            Notify(nameof(CanRequestProjectDuplication));
+            Notify(nameof(CanConfirmProjectDuplication));
+            Notify(nameof(CanCancelProjectDuplication));
         }
     }
     public bool HasPendingWorkspaceActions => PendingWorkspaceActionCount > 0;
@@ -471,6 +494,45 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         : string.Empty;
     public bool ShowMoveTaskToBin => HasInspector && !_editingCategory && !_creating && _editingTask;
     public bool ShowMoveProjectToBin => HasInspector && !_editingCategory && !_creating && !_editingTask;
+    public bool ShowDuplicateTask => ShowMoveTaskToBin;
+    public bool ShowDuplicateProject => ShowMoveProjectToBin;
+    public bool CanDuplicateTask => ShowDuplicateTask && !HasPendingWorkspaceActions;
+    public bool CanEditInspector => !_taskDuplicationPending;
+    public bool CanRequestProjectDuplication => ShowDuplicateProject && !HasPendingWorkspaceActions;
+    public bool CanConfirmProjectDuplication => NeedsProjectDuplicationConfirmation && !HasPendingWorkspaceActions;
+    public bool CanCancelProjectDuplication => NeedsProjectDuplicationConfirmation && !HasPendingWorkspaceActions;
+    public string ProjectDuplicationTitle
+    {
+        get => _projectDuplicationTitle;
+        set
+        {
+            if (string.Equals(_projectDuplicationTitle, value, StringComparison.Ordinal)) return;
+            _projectDuplicationTitle = value;
+            ProjectDuplicationValidationMessage = string.Empty;
+            Notify();
+        }
+    }
+    public string ProjectDuplicationValidationMessage
+    {
+        get => _projectDuplicationValidationMessage;
+        private set
+        {
+            if (string.Equals(_projectDuplicationValidationMessage, value, StringComparison.Ordinal)) return;
+            _projectDuplicationValidationMessage = value;
+            Notify();
+            Notify(nameof(HasProjectDuplicationValidationError));
+        }
+    }
+    public bool HasProjectDuplicationValidationError => ProjectDuplicationValidationMessage.Length > 0;
+    public string ProjectDuplicationHeading => _pendingProjectDuplicationPreview is null
+        ? string.Empty
+        : $"Duplicate Project with {_pendingProjectDuplicationPreview.IncludedTaskCount} {Plural(_pendingProjectDuplicationPreview.IncludedTaskCount, "Task", "Tasks")}?";
+    public string ProjectDuplicationBody => _pendingProjectDuplicationPreview is null
+        ? string.Empty
+        : $"The new active Project will include {_pendingProjectDuplicationPreview.IncludedTaskCount} non-archived {Plural(_pendingProjectDuplicationPreview.IncludedTaskCount, "Task", "Tasks")}. Archived Tasks and Tasks in Bin are excluded.";
+    public string ProjectDuplicationExclusionSummary => _pendingProjectDuplicationPreview is null
+        ? string.Empty
+        : $"Excluded: {_pendingProjectDuplicationPreview.ExcludedArchivedTaskCount} archived; {_pendingProjectDuplicationPreview.ExcludedBinnedTaskCount} in Bin.";
     public string EmptyBinConfirmationHeading => NeedsEmptyBinConfirmation
         ? "Permanently empty Bin?"
         : string.Empty;
@@ -1389,6 +1451,82 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         });
     }
 
+    private void RequestDuplicateTask()
+    {
+        if (!CanDuplicateTask || _editingId is null || HasBlockingDialog) return;
+        var taskId = _editingId;
+        ResolveDraftBeforeAction(() =>
+        {
+            SetTaskDuplicationPending(true);
+            if (!EnqueueWorkspaceAction(
+                    new(WorkspaceActionKind.DuplicateTask, TaskId: taskId),
+                    closesInspectorOnCommit: false))
+                SetTaskDuplicationPending(false);
+        });
+    }
+
+    private void RequestProjectDuplication()
+    {
+        if (!CanRequestProjectDuplication || _editingId is null || HasBlockingDialog) return;
+        var projectId = _editingId;
+        ResolveDraftBeforeAction(() =>
+        {
+            DialogReturnFocusAutomationId = "project-duplicate";
+            EnqueueWorkspaceAction(
+                new(WorkspaceActionKind.PreviewProjectDuplication, ProjectId: projectId),
+                closesInspectorOnCommit: false);
+        });
+    }
+
+    private void ConfirmProjectDuplication()
+    {
+        if (!CanConfirmProjectDuplication || _pendingProjectDuplicationPreview is null) return;
+        string title;
+        try
+        {
+            title = WorkTitle.Normalize(ProjectDuplicationTitle);
+        }
+        catch (ArgumentException)
+        {
+            ProjectDuplicationValidationMessage = "Enter a title.";
+            return;
+        }
+
+        EnqueueWorkspaceAction(
+            new(
+                WorkspaceActionKind.DuplicateProject,
+                ProjectId: _pendingProjectDuplicationPreview.SourceProjectId,
+                ProjectDuplicationPreview: _pendingProjectDuplicationPreview,
+                Title: title),
+            closesInspectorOnCommit: false);
+    }
+
+    private void CancelProjectDuplication()
+    {
+        if (!CanCancelProjectDuplication) return;
+        ClearProjectDuplicationConfirmation();
+    }
+
+    private void ClearProjectDuplicationConfirmation()
+    {
+        _pendingProjectDuplicationPreview = null;
+        _projectDuplicationTitle = string.Empty;
+        ProjectDuplicationValidationMessage = string.Empty;
+        Notify(nameof(ProjectDuplicationTitle));
+        NotifyProjectDuplicationPresentation();
+    }
+
+    private void NotifyProjectDuplicationPresentation()
+    {
+        Notify(nameof(NeedsProjectDuplicationConfirmation));
+        Notify(nameof(ProjectDuplicationHeading));
+        Notify(nameof(ProjectDuplicationBody));
+        Notify(nameof(ProjectDuplicationExclusionSummary));
+        Notify(nameof(CanConfirmProjectDuplication));
+        Notify(nameof(CanCancelProjectDuplication));
+        Notify(nameof(HasBlockingDialog));
+    }
+
     internal void RestoreTaskFromBin(string id)
     {
         if (HasBlockingDialog) return;
@@ -1933,6 +2071,10 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         Notify(nameof(ShowTaskCompletionDate)); Notify(nameof(TaskCompletionDateText)); Notify(nameof(TaskCompletionDateAccessibleText));
         Notify(nameof(ShowMoveTaskToBin));
         Notify(nameof(ShowMoveProjectToBin));
+        Notify(nameof(ShowDuplicateTask));
+        Notify(nameof(ShowDuplicateProject));
+        Notify(nameof(CanDuplicateTask));
+        Notify(nameof(CanRequestProjectDuplication));
         Notify(nameof(InspectorMetaLabel)); Notify(nameof(InspectorMetaValue));
         Notify(nameof(ShowMarkdownPreview)); Notify(nameof(ShowMarkdownEditor));
         Notify(nameof(ShowExplicitInspectorActions)); Notify(nameof(ShowAutosaveStatus));
@@ -3090,8 +3232,22 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         WorkspaceActionResult result)
     {
         var dispatcherStarted = _timeProvider.GetTimestamp();
+        if (result.Request.Kind == WorkspaceActionKind.DuplicateTask)
+            SetTaskDuplicationPending(false);
         var inspectorContextIsCurrent = _inspectorGeneration == queued.InspectorGeneration
             && _autosaveRevision == queued.InspectorRevision;
+        if (result.Outcome is WorkspaceActionOutcome.Previewed)
+        {
+            if (_workspaceActionAdmissionClosed || _pendingWorkspaceBarrier is not null) return;
+            _pendingProjectDuplicationPreview = result.DuplicationPreview
+                ?? throw new InvalidOperationException("A Project duplication preview is required.");
+            _projectDuplicationTitle = _pendingProjectDuplicationPreview.SuggestedTitle;
+            ProjectDuplicationValidationMessage = string.Empty;
+            Notify(nameof(ProjectDuplicationTitle));
+            NotifyProjectDuplicationPresentation();
+            Message = "Review the Project duplication details.";
+            return;
+        }
         if (result.Outcome is WorkspaceActionOutcome.MutationFailed)
         {
             Message = WorkspaceActionFailureMessage(result.Request.Kind);
@@ -3099,6 +3255,14 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         }
         if (result.Outcome is WorkspaceActionOutcome.CommittedRefreshFailed)
         {
+            if (result.Request.Kind == WorkspaceActionKind.DuplicateTask)
+                _pendingDuplicatedTaskId = result.DuplicatedTask?.Id;
+            if (result.Request.Kind == WorkspaceActionKind.DuplicateProject)
+            {
+                _pendingDuplicatedProjectId = result.DuplicatedProject?.Project.Id;
+                _pendingDuplicatedProjectTaskCount = result.DuplicatedProject?.Tasks.Count ?? 0;
+                ClearProjectDuplicationConfirmation();
+            }
             CanRetryWorkspaceRefresh = true;
             Message = "Change saved, but the view could not refresh. Retry refresh.";
             return;
@@ -3109,6 +3273,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             Message = "The view could not refresh. Retry refresh.";
             return;
         }
+        if (result.Request.Kind != WorkspaceActionKind.Refresh)
+            ClearPendingDuplicationRefreshTarget();
         var priorTask = result.Effect?.TaskId is { } taskId
             ? _snapshot.Tasks.SingleOrDefault(item => item.Id == taskId)
             : null;
@@ -3128,7 +3294,55 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             if (result.Reload is null) return;
             Reload(result.Reload);
             CanRetryWorkspaceRefresh = false;
-            Message = "View refreshed.";
+            if (_pendingDuplicatedTaskId is { } duplicatedTaskId
+                && _snapshot.Tasks.Any(task => task.Id == duplicatedTaskId))
+            {
+                LoadTask(duplicatedTaskId);
+                DialogReturnFocusAutomationId = "draft-title";
+                Message = _snapshot.Tasks.Single(task => task.Id == duplicatedTaskId).ProjectId is null
+                    ? "Task duplicated as new standalone active work."
+                    : "Task duplicated as new active work.";
+            }
+            else if (_pendingDuplicatedProjectId is { } duplicatedProjectId
+                && _snapshot.Projects.Any(project => project.Id == duplicatedProjectId))
+            {
+                LoadProject(duplicatedProjectId);
+                DialogReturnFocusAutomationId = "draft-title";
+                Message = $"Project duplicated with {_pendingDuplicatedProjectTaskCount} {Plural(_pendingDuplicatedProjectTaskCount, "Task", "Tasks")}.";
+            }
+            else Message = "View refreshed.";
+            ClearPendingDuplicationRefreshTarget();
+            return;
+        }
+
+        if (result.Request.Kind == WorkspaceActionKind.DuplicateTask)
+        {
+            var duplicatedTask = result.DuplicatedTask
+                ?? throw new InvalidOperationException("A duplicated Task is required.");
+            var reload = result.Reload
+                ?? throw new InvalidOperationException("A duplication reload is required.");
+            Reload(reload);
+            LoadTask(duplicatedTask.Id);
+            DialogReturnFocusAutomationId = "draft-title";
+            CanRetryWorkspaceRefresh = false;
+            Message = duplicatedTask.ProjectId is null
+                ? "Task duplicated as new standalone active work."
+                : "Task duplicated as new active work.";
+            return;
+        }
+
+        if (result.Request.Kind == WorkspaceActionKind.DuplicateProject)
+        {
+            var duplicatedProject = result.DuplicatedProject
+                ?? throw new InvalidOperationException("A duplicated Project is required.");
+            var reload = result.Reload
+                ?? throw new InvalidOperationException("A duplication reload is required.");
+            ClearProjectDuplicationConfirmation();
+            Reload(reload);
+            LoadProject(duplicatedProject.Project.Id);
+            DialogReturnFocusAutomationId = "draft-title";
+            CanRetryWorkspaceRefresh = false;
+            Message = $"Project duplicated with {duplicatedProject.Tasks.Count} {Plural(duplicatedProject.Tasks.Count, "Task", "Tasks")}.";
             return;
         }
 
@@ -3222,6 +3436,20 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             _timeProvider.GetElapsedTime(queued.AdmittedAt));
     }
 
+    private void ClearPendingDuplicationRefreshTarget()
+    {
+        _pendingDuplicatedTaskId = null;
+        _pendingDuplicatedProjectId = null;
+        _pendingDuplicatedProjectTaskCount = 0;
+    }
+
+    private void SetTaskDuplicationPending(bool value)
+    {
+        if (_taskDuplicationPending == value) return;
+        _taskDuplicationPending = value;
+        Notify(nameof(CanEditInspector));
+    }
+
     private static string WorkspaceActionFailureMessage(WorkspaceActionKind kind) => kind switch
     {
         WorkspaceActionKind.ToggleToday or WorkspaceActionKind.ToggleTodayLane =>
@@ -3229,6 +3457,10 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         WorkspaceActionKind.ToggleCompletion => "Could not change Task completion. No changes were made.",
         WorkspaceActionKind.MoveBacklog => "Could not reorder the Task. The Backlog order was not changed.",
         WorkspaceActionKind.MoveToday => "Could not reorder the Today lane.",
+        WorkspaceActionKind.PreviewProjectDuplication =>
+            "Could not prepare the Project duplication. No changes were made.",
+        WorkspaceActionKind.DuplicateTask => "Could not duplicate the Task. No changes were made.",
+        WorkspaceActionKind.DuplicateProject => "Could not duplicate the Project. No changes were made.",
         _ => "Could not refresh the view.",
     };
 

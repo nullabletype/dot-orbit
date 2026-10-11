@@ -17,6 +17,9 @@ public interface IWorkspaceWork
     CategoryOrderChange MoveCategory(string id, int targetPosition);
     ProjectRecord CreateProject(string title, string description, string categoryId, DateOnly? targetDate,
         string? colourKey = null);
+    TaskRecord DuplicateTask(string sourceTaskId);
+    ProjectDuplicationPreview PreviewProjectDuplication(string sourceProjectId);
+    ProjectDuplicationResult DuplicateProject(ProjectDuplicationPreview confirmedPreview, string title);
     TaskRecord CreateTask(string projectId, string title);
     TaskRecord CreateTaskDraft(string? projectId, string title, string description, string? categoryId,
         DateOnly? dueDate, ParticipantDraftChange? participantChange = null, TodayLane? todayLane = null);
@@ -138,6 +141,27 @@ public sealed record WorkspaceWorkSnapshot(
 {
     public IReadOnlyList<ParticipantRecord> Participants => ParticipantRecords ?? [];
 }
+public sealed record ProjectDuplicationPreview(
+    string SourceProjectId,
+    string SuggestedTitle,
+    IReadOnlyList<string> IncludedTaskIds,
+    IReadOnlyList<string> ExcludedArchivedTaskIds,
+    IReadOnlyList<string> ExcludedBinnedTaskIds)
+{
+    public int IncludedTaskCount => IncludedTaskIds.Count;
+    public int ExcludedArchivedTaskCount => ExcludedArchivedTaskIds.Count;
+    public int ExcludedBinnedTaskCount => ExcludedBinnedTaskIds.Count;
+
+    public bool Matches(ProjectDuplicationPreview? other) => other is not null
+        && string.Equals(SourceProjectId, other.SourceProjectId, StringComparison.Ordinal)
+        && IncludedTaskIds.SequenceEqual(other.IncludedTaskIds, StringComparer.Ordinal)
+        && ExcludedArchivedTaskIds.SequenceEqual(other.ExcludedArchivedTaskIds, StringComparer.Ordinal)
+        && ExcludedBinnedTaskIds.SequenceEqual(other.ExcludedBinnedTaskIds, StringComparer.Ordinal);
+}
+public sealed record ProjectDuplicationResult(
+    ProjectRecord Project,
+    IReadOnlyList<TaskRecord> Tasks,
+    ProjectDuplicationPreview Preview);
 public sealed record TaskBinRecord(
     TaskRecord Task,
     DateTimeOffset RemovedAt,
@@ -207,6 +231,26 @@ public sealed record BulkTaskArchiveResult(
     bool Applied,
     BulkTaskArchivePreview Preview,
     int ArchivedCount);
+
+public static class WorkDuplicationPolicy
+{
+    public static string SuggestedTitle(string sourceTitle) => $"Copy of {WorkTitle.Normalize(sourceTitle)}";
+
+    public static (string? ProjectId, string? ExplicitCategoryId) TaskDestination(
+        WorkspaceWorkSnapshot snapshot,
+        TaskRecord source)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(source);
+        if (source.ProjectId is null)
+            return (null, source.ExplicitCategoryId
+                ?? throw new InvalidOperationException("A standalone Task requires an explicit Category."));
+        var project = snapshot.Projects.Single(item => item.Id == source.ProjectId);
+        return project.IsArchived
+            ? (null, source.ExplicitCategoryId ?? project.CategoryId)
+            : (project.Id, source.ExplicitCategoryId);
+    }
+}
 
 public static class TaskBinRestorePolicy
 {

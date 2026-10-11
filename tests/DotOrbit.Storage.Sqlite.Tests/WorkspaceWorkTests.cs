@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using DotOrbit.Core.Workspaces;
 using DotOrbit.Storage.Sqlite;
 using Microsoft.Data.Sqlite;
@@ -59,6 +60,338 @@ public sealed class WorkspaceWorkTests : IDisposable
             unchanged.Tasks.Select(task => (task.Id, task.SharedPosition, task.ProjectPosition, task.TodayLane)));
         Assert.Equal(before.Participants, unchanged.Participants);
         Assert.All(unchanged.Tasks, task => Assert.Empty(task.Participants));
+    }
+
+    [Fact]
+    public void DuplicateTaskCopiesContentAndParticipantsButResetsWorkflowState()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var home = Assert.Single(session.Work.Read().Categories);
+        var work = session.Work.CreateCategory("Work", "violet");
+        var participant = session.Work.CreateParticipant("SD");
+        var project = session.Work.CreateProject("Garden", "", home.Id, null);
+        var active = session.Work.CreateTaskDraft(
+            project.Id,
+            "Plant bulbs",
+            "Near the fence",
+            null,
+            new DateOnly(2026, 10, 31),
+            new([participant.Id], []),
+            TodayLane.Planned);
+
+        var activeCopy = session.Work.DuplicateTask(active.Id);
+
+        Assert.NotEqual(active.Id, activeCopy.Id);
+        Assert.Equal(project.Id, activeCopy.ProjectId);
+        Assert.Null(activeCopy.ExplicitCategoryId);
+        Assert.Equal("Copy of Plant bulbs", activeCopy.Title);
+        Assert.Equal(active.Description, activeCopy.Description);
+        Assert.Equal(active.DueDate, activeCopy.DueDate);
+        Assert.Equal(active.Participants, activeCopy.Participants);
+        Assert.False(activeCopy.IsComplete);
+        Assert.False(activeCopy.IsArchived);
+        Assert.Null(activeCopy.TodayLane);
+        Assert.Equal(0, activeCopy.SharedPosition);
+        Assert.Equal(1, activeCopy.ProjectPosition);
+
+        var archivedSource = session.Work.UpdateTask(
+            active.Id,
+            active.Title,
+            active.Description,
+            work.Id,
+            active.DueDate,
+            new([participant.Id], []));
+        var overrideCopy = session.Work.DuplicateTask(archivedSource.Id);
+        Assert.Equal(project.Id, overrideCopy.ProjectId);
+        Assert.Equal(work.Id, overrideCopy.ExplicitCategoryId);
+
+        var standalone = session.Work.CreateStandaloneTask("Buy compost", "List", home.Id, null);
+        var standaloneSourceCopy = session.Work.DuplicateTask(standalone.Id);
+        Assert.Null(standaloneSourceCopy.ProjectId);
+        Assert.Equal(home.Id, standaloneSourceCopy.ExplicitCategoryId);
+        Assert.Equal("Copy of Buy compost", standaloneSourceCopy.Title);
+
+        session.Work.CompleteTask(archivedSource.Id);
+        session.Work.ArchiveTask(archivedSource.Id);
+        session.Work.ArchiveProject(project.Id);
+
+        var standaloneCopy = session.Work.DuplicateTask(archivedSource.Id);
+
+        Assert.Null(standaloneCopy.ProjectId);
+        Assert.Null(standaloneCopy.ProjectPosition);
+        Assert.Equal(work.Id, standaloneCopy.ExplicitCategoryId);
+        Assert.Equal("Copy of Plant bulbs", standaloneCopy.Title);
+        Assert.False(standaloneCopy.IsComplete);
+        Assert.False(standaloneCopy.IsArchived);
+        Assert.Null(standaloneCopy.TodayLane);
+        Assert.Equal(0, standaloneCopy.SharedPosition);
+    }
+
+    [Fact]
+    public void DuplicateTaskFromArchivedProjectMaterializesInheritedCategoryForStandaloneCopy()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        var project = session.Work.CreateProject("Garden", "", category.Id, null);
+        var task = session.Work.CreateTask(project.Id, "Plan beds");
+        session.Work.ArchiveProject(project.Id);
+
+        var copy = session.Work.DuplicateTask(task.Id);
+
+        Assert.Null(copy.ProjectId);
+        Assert.Equal(category.Id, copy.ExplicitCategoryId);
+        Assert.Equal("Copy of Plan beds", copy.Title);
+    }
+
+    [Fact]
+    public void DuplicateProjectPreviewsExclusionsAndCopiesIncludedTasksAsFreshActiveWork()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        var participant = session.Work.CreateParticipant("SD");
+        var project = session.Work.CreateProject(
+            "Garden",
+            "Season plan",
+            category.Id,
+            new DateOnly(2027, 3, 1),
+            "coral");
+        var first = session.Work.CreateTaskDraft(
+            project.Id, "First", "One", null, new DateOnly(2026, 11, 1), new([participant.Id], []));
+        var completed = session.Work.CreateTask(project.Id, "Completed");
+        var archived = session.Work.CreateTask(project.Id, "Archived");
+        var binned = session.Work.CreateTask(project.Id, "Binned");
+        session.Work.CompleteTask(completed.Id);
+        session.Work.CompleteTask(archived.Id);
+        session.Work.ArchiveTask(archived.Id);
+        session.Work.MoveTaskToBin(binned.Id);
+        session.Work.ArchiveProject(project.Id);
+        var existing = session.Work.CreateStandaloneTask("Existing", "", category.Id, null);
+
+        var preview = session.Work.PreviewProjectDuplication(project.Id);
+
+        Assert.Equal("Copy of Garden", preview.SuggestedTitle);
+        Assert.Equal([first.Id, completed.Id], preview.IncludedTaskIds);
+        Assert.Equal([archived.Id], preview.ExcludedArchivedTaskIds);
+        Assert.Equal([binned.Id], preview.ExcludedBinnedTaskIds);
+
+        var result = session.Work.DuplicateProject(preview, " Spring garden ");
+        var snapshot = session.Work.Read();
+
+        Assert.Equal("Spring garden", result.Project.Title);
+        Assert.Equal(project.Description, result.Project.Description);
+        Assert.Equal(project.CategoryId, result.Project.CategoryId);
+        Assert.Equal(project.TargetDate, result.Project.TargetDate);
+        Assert.Equal(project.ColourKey, result.Project.ColourKey);
+        Assert.False(result.Project.IsArchived);
+        Assert.Equal(["First", "Completed"], result.Tasks.Select(task => task.Title));
+        Assert.All(result.Tasks, task =>
+        {
+            Assert.Equal(result.Project.Id, task.ProjectId);
+            Assert.False(task.IsComplete);
+            Assert.False(task.IsArchived);
+            Assert.Null(task.TodayLane);
+        });
+        Assert.Equal(first.Description, result.Tasks[0].Description);
+        Assert.Equal(first.DueDate, result.Tasks[0].DueDate);
+        Assert.Equal(first.Participants, result.Tasks[0].Participants);
+        Assert.Equal(
+            ["First", "Completed"],
+            result.Tasks.OrderBy(task => task.ProjectPosition).Select(task => task.Title));
+        Assert.Equal(
+            ["Completed", "First"],
+            result.Tasks.OrderBy(task => task.SharedPosition).Select(task => task.Title));
+        Assert.Equal([0L, 1L], result.Tasks.OrderBy(task => task.SharedPosition).Select(task => task.SharedPosition));
+        Assert.Equal(2, snapshot.Tasks.Single(task => task.Id == existing.Id).SharedPosition);
+        Assert.DoesNotContain(snapshot.Tasks, task => (task.Title is "Archived" or "Binned")
+            && task.ProjectId == result.Project.Id);
+    }
+
+    [Fact]
+    public void DuplicateEmptyProjectRemainsNotStarted()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        var source = session.Work.CreateProject("Empty", "Nothing scheduled", category.Id, null);
+
+        var result = session.Work.DuplicateProject(
+            session.Work.PreviewProjectDuplication(source.Id),
+            "Copy of Empty");
+        var snapshot = session.Work.Read();
+        var persisted = snapshot.Projects.Single(project => project.Id == result.Project.Id);
+        var summary = ProjectWorkSummary.From(snapshot, persisted.Id);
+
+        Assert.Empty(result.Tasks);
+        Assert.Equal("Not started", summary.Status);
+        Assert.False(summary.IsComplete);
+        Assert.Null(summary.CompletionDate);
+        Assert.Equal(1, persisted.Position);
+    }
+
+    [Fact]
+    public void DuplicatedProjectAndRelationshipsPersistAcrossReopen()
+    {
+        string duplicatedProjectId;
+        string duplicatedTaskId;
+        string participantId;
+        using (var session = _store.Create(
+                   WorkspacePath,
+                   _passphrase,
+                   CategoryName.Create("Home").CategoryName!).Session!)
+        {
+            var category = Assert.Single(session.Work.Read().Categories);
+            participantId = session.Work.CreateParticipant("SD").Id;
+            var source = session.Work.CreateProject("Garden", "Season plan", category.Id, new DateOnly(2027, 3, 1));
+            session.Work.CreateTaskDraft(
+                source.Id,
+                "Plant bulbs",
+                "Near the fence",
+                null,
+                new DateOnly(2026, 10, 31),
+                new([participantId], []));
+            var result = session.Work.DuplicateProject(
+                session.Work.PreviewProjectDuplication(source.Id),
+                "Spring garden");
+            duplicatedProjectId = result.Project.Id;
+            duplicatedTaskId = Assert.Single(result.Tasks).Id;
+        }
+
+        using var reopened = _store.Open(WorkspacePath, _passphrase).Session!;
+        var snapshot = reopened.Work.Read();
+        var project = snapshot.Projects.Single(item => item.Id == duplicatedProjectId);
+        var task = snapshot.Tasks.Single(item => item.Id == duplicatedTaskId);
+
+        Assert.Equal("Spring garden", project.Title);
+        Assert.Equal("Season plan", project.Description);
+        Assert.Equal(new DateOnly(2027, 3, 1), project.TargetDate);
+        Assert.Equal(duplicatedProjectId, task.ProjectId);
+        Assert.Equal("Plant bulbs", task.Title);
+        Assert.Equal("Near the fence", task.Description);
+        Assert.Equal(new DateOnly(2026, 10, 31), task.DueDate);
+        Assert.Equal([participantId], task.Participants);
+        Assert.False(task.IsComplete);
+        Assert.False(task.IsArchived);
+        Assert.Null(task.TodayLane);
+    }
+
+    [Fact]
+    public void DuplicateProjectPublishesOneCommittedChangeAndOneAutomaticRecoveryObligation()
+    {
+        var time = new ManualTimeProvider(new DateTimeOffset(2026, 10, 11, 9, 0, 0, TimeSpan.Zero));
+        var store = new EncryptedWorkspaceStore(
+            new SystemIdentifierGenerator(),
+            new WorkspaceFileOperations(),
+            time);
+        var recoveryDirectory = Path.Combine(_directory, "recovery");
+        using var session = store.Create(
+            WorkspacePath,
+            _passphrase,
+            CategoryName.Create("Home").CategoryName!).Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        var source = session.Work.CreateProject("Garden", "", category.Id, null);
+        session.Work.CreateTask(source.Id, "First");
+        session.Work.CreateTask(source.Id, "Second");
+        Assert.Equal(
+            RecoveryDirectoryConfigurationStatus.Configured,
+            session.Recovery.ConfigureAutomaticRecoveryDirectory(recoveryDirectory).Status);
+        var recoveryStatePath = WorkspacePath + ".recovery-state.json";
+        long generationBefore;
+        using (var before = JsonDocument.Parse(File.ReadAllText(recoveryStatePath)))
+            generationBefore = before.RootElement.GetProperty("ChangeGeneration").GetInt64();
+        Assert.Single(Directory.GetFiles(recoveryDirectory, "*.dotorbit-recovery"));
+
+        session.Work.DuplicateProject(
+            session.Work.PreviewProjectDuplication(source.Id),
+            "Copy of Garden");
+
+        using (var after = JsonDocument.Parse(File.ReadAllText(recoveryStatePath)))
+        {
+            Assert.Equal(generationBefore + 1, after.RootElement.GetProperty("ChangeGeneration").GetInt64());
+            Assert.Equal(generationBefore + 1, after.RootElement.GetProperty("PendingChangeGeneration").GetInt64());
+        }
+        Assert.Single(Directory.GetFiles(recoveryDirectory, "*.dotorbit-recovery"));
+
+        time.Advance(TimeSpan.FromHours(1));
+
+        Assert.Equal(2, Directory.GetFiles(recoveryDirectory, "*.dotorbit-recovery").Length);
+    }
+
+    [Fact]
+    public void DuplicateProjectRejectsAStalePreviewWithoutCreatingPartialWork()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        var project = session.Work.CreateProject("Garden", "", category.Id, null);
+        session.Work.CreateTask(project.Id, "Known");
+        var preview = session.Work.PreviewProjectDuplication(project.Id);
+        session.Work.CreateTask(project.Id, "Added later");
+        var before = session.Work.Read();
+
+        Assert.Throws<InvalidOperationException>(() => session.Work.DuplicateProject(preview, preview.SuggestedTitle));
+
+        var unchanged = session.Work.Read();
+        Assert.Equal(before.Projects, unchanged.Projects);
+        Assert.Equal(before.Tasks, unchanged.Tasks);
+    }
+
+    [Fact]
+    public void DuplicateProjectRollsBackProjectTasksParticipantsAndOrdersWhenACopyWriteFails()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        var participant = session.Work.CreateParticipant("SD");
+        var project = session.Work.CreateProject("Garden", "", category.Id, null);
+        session.Work.CreateTaskDraft(project.Id, "First", "", null, null, new([participant.Id], []));
+        session.Work.CreateTask(project.Id, "Second");
+        var preview = session.Work.PreviewProjectDuplication(project.Id);
+        var before = session.Work.Read();
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "CREATE TRIGGER reject_second_copy BEFORE INSERT ON tasks WHEN NEW.title='Second' BEGIN SELECT RAISE(ABORT, 'private'); END;";
+            command.ExecuteNonQuery();
+        }
+
+        Assert.Throws<WorkspaceWorkException>(() => session.Work.DuplicateProject(preview, preview.SuggestedTitle));
+
+        var unchanged = session.Work.Read();
+        Assert.Equal(before.Projects, unchanged.Projects);
+        Assert.Equal(
+            before.Tasks.Select(task => (
+                task.Id, task.ProjectId, task.Title, task.Description, task.ExplicitCategoryId, task.DueDate,
+                task.SharedPosition, task.ProjectPosition, task.CompletedAt, task.CompletionDate,
+                Participants: string.Join('|', task.Participants), task.TodayLane, task.ArchivedAt, task.ArchiveDate)),
+            unchanged.Tasks.Select(task => (
+                task.Id, task.ProjectId, task.Title, task.Description, task.ExplicitCategoryId, task.DueDate,
+                task.SharedPosition, task.ProjectPosition, task.CompletedAt, task.CompletionDate,
+                Participants: string.Join('|', task.Participants), task.TodayLane, task.ArchivedAt, task.ArchiveDate)));
+        Assert.Equal(before.Participants, unchanged.Participants);
+    }
+
+    [Fact]
+    public void DuplicateProjectRollsBackWhenIdentifierGenerationFailsMidCopy()
+    {
+        var identifiers = new ArmableIdentifierGenerator();
+        var store = new EncryptedWorkspaceStore(identifiers);
+        using var session = store.Create(
+            WorkspacePath,
+            _passphrase,
+            CategoryName.Create("Home").CategoryName!).Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        var project = session.Work.CreateProject("Garden", "", category.Id, null);
+        session.Work.CreateTask(project.Id, "First");
+        session.Work.CreateTask(project.Id, "Second");
+        var preview = session.Work.PreviewProjectDuplication(project.Id);
+        var before = session.Work.Read();
+        identifiers.FailAfter(2);
+
+        Assert.Throws<WorkspaceWorkException>(() =>
+            session.Work.DuplicateProject(preview, preview.SuggestedTitle));
+
+        var unchanged = session.Work.Read();
+        Assert.Equal(before.Projects, unchanged.Projects);
+        Assert.Equal(
+            before.Tasks.Select(task => (task.Id, task.ProjectId, task.SharedPosition, task.ProjectPosition)),
+            unchanged.Tasks.Select(task => (task.Id, task.ProjectId, task.SharedPosition, task.ProjectPosition)));
     }
 
     [Fact]
@@ -2264,5 +2597,23 @@ public sealed class WorkspaceWorkTests : IDisposable
         public void PublishOrReplace(string candidatePath, string targetPath) =>
             _inner.PublishOrReplace(candidatePath, targetPath);
         public void DeleteFile(string path) => _inner.DeleteFile(path);
+    }
+
+    private sealed class ArmableIdentifierGenerator : IIdentifierGenerator
+    {
+        private readonly SystemIdentifierGenerator _inner = new();
+        private int? _remainingSuccessfulIdentifiers;
+
+        public void FailAfter(int successfulIdentifiers) =>
+            _remainingSuccessfulIdentifiers = successfulIdentifiers;
+
+        public string NewIdentifier()
+        {
+            if (_remainingSuccessfulIdentifiers is 0)
+                throw new InvalidDataException();
+            if (_remainingSuccessfulIdentifiers is not null)
+                _remainingSuccessfulIdentifiers--;
+            return _inner.NewIdentifier();
+        }
     }
 }

@@ -3162,6 +3162,280 @@ public sealed class ProjectCaptureViewModelTests
         Assert.Equal(TodayLane.Planned, work.Read().Tasks.Single(item => item.Id == task.Id).TodayLane);
     }
 
+    [Fact]
+    public async Task DuplicateTaskFlushesPendingEditsAndOpensTheNewActiveCopy()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var source = work.CreateTask(project.Id, "Plan beds");
+        var actions = new RecordingWorkspaceActionExecutor(work);
+        var model = new ProjectCaptureViewModel(
+            work,
+            null,
+            new InlineWorkspacePersistenceExecutor(new WorkspacePersistenceOperation(work)),
+            actions,
+            new InlineUiDispatcher());
+        model.SelectTask(source.Id);
+        model.Description = "Edited before duplication";
+
+        model.DuplicateTaskCommand.Execute(null);
+        await model.WaitForWorkspaceActionsAsync().WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal([WorkspaceActionKind.DuplicateTask], actions.Requests.Select(request => request.Kind));
+        var duplicate = work.Read().Tasks.Single(task => task.Id != source.Id);
+        Assert.Equal("Copy of Plan beds", duplicate.Title);
+        Assert.Equal("Edited before duplication", duplicate.Description);
+        Assert.Equal(project.Id, duplicate.ProjectId);
+        Assert.Equal(duplicate.Title, model.Title);
+        Assert.True(model.HasInspector);
+        Assert.True(model.ShowDuplicateTask);
+        Assert.Equal("draft-title", model.DialogReturnFocusAutomationId);
+    }
+
+    [Fact]
+    public async Task DuplicateTaskFromArchivedProjectOpensAStandaloneCopy()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var source = work.CreateTask(project.Id, "Plan beds");
+        work.ArchiveProject(project.Id);
+        var model = new ProjectCaptureViewModel(work);
+        model.SelectTask(source.Id);
+
+        model.DuplicateTaskCommand.Execute(null);
+        await model.WaitForWorkspaceActionsAsync().WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        var duplicate = work.Read().Tasks.Single(task => task.Id != source.Id);
+        Assert.Null(duplicate.ProjectId);
+        Assert.Equal("home", duplicate.ExplicitCategoryId);
+        Assert.Equal("Copy of Plan beds", model.Title);
+        Assert.Equal("Task duplicated as new standalone active work.", model.Message);
+    }
+
+    [Fact]
+    public async Task DuplicateProjectRequiresPreviewAndEditableValidTitleBeforeOpeningTheCopy()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "Season plan", "home", new DateOnly(2027, 3, 1), "coral");
+        work.CreateTask(project.Id, "Included");
+        var archived = work.CreateTask(project.Id, "Archived");
+        work.CompleteTask(archived.Id);
+        work.ArchiveTask(archived.Id);
+        var actions = new RecordingWorkspaceActionExecutor(work);
+        var model = new ProjectCaptureViewModel(
+            work,
+            null,
+            new InlineWorkspacePersistenceExecutor(new WorkspacePersistenceOperation(work)),
+            actions,
+            new InlineUiDispatcher());
+        model.SelectProject(project.Id);
+
+        model.RequestProjectDuplicationCommand.Execute(null);
+        await model.WaitForWorkspaceActionsAsync().WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.True(model.NeedsProjectDuplicationConfirmation);
+        Assert.True(model.HasBlockingDialog);
+        Assert.Equal("Copy of Garden", model.ProjectDuplicationTitle);
+        Assert.Contains("1 non-archived Task", model.ProjectDuplicationBody, StringComparison.Ordinal);
+        Assert.Equal("Excluded: 1 archived; 0 in Bin.", model.ProjectDuplicationExclusionSummary);
+        model.ProjectDuplicationTitle = " ";
+        model.ConfirmProjectDuplicationCommand.Execute(null);
+        Assert.True(model.HasProjectDuplicationValidationError);
+        Assert.Equal("Enter a title.", model.ProjectDuplicationValidationMessage);
+        Assert.Single(actions.Requests);
+
+        model.ProjectDuplicationTitle = "Spring garden";
+        model.ConfirmProjectDuplicationCommand.Execute(null);
+        await model.WaitForWorkspaceActionsAsync().WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            [WorkspaceActionKind.PreviewProjectDuplication, WorkspaceActionKind.DuplicateProject],
+            actions.Requests.Select(request => request.Kind));
+        Assert.False(model.NeedsProjectDuplicationConfirmation);
+        Assert.False(model.HasBlockingDialog);
+        Assert.Equal("Spring garden", model.Title);
+        Assert.Equal("Project duplicated with 1 Task.", model.Message);
+        Assert.Equal("draft-title", model.DialogReturnFocusAutomationId);
+        Assert.Equal(2, work.Read().Projects.Count);
+    }
+
+    [Fact]
+    public async Task DuplicateCommittedRefreshFailureRetriesOnlyRefresh()
+    {
+        var work = new MemoryWorkspaceWork();
+        var source = work.CreateStandaloneTask("Plan", "", "home", null);
+        var actions = new RecordingWorkspaceActionExecutor(work) { FailFirstCommittedRefresh = true };
+        var model = new ProjectCaptureViewModel(
+            work,
+            null,
+            new InlineWorkspacePersistenceExecutor(new WorkspacePersistenceOperation(work)),
+            actions,
+            new InlineUiDispatcher());
+        model.SelectTask(source.Id);
+
+        model.DuplicateTaskCommand.Execute(null);
+        await model.WaitForWorkspaceActionsAsync().WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.True(model.CanRetryWorkspaceRefresh);
+        Assert.Equal(2, work.Read().Tasks.Count);
+
+        model.RetryWorkspaceRefreshCommand.Execute(null);
+        await model.WaitForWorkspaceActionsAsync().WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            [WorkspaceActionKind.DuplicateTask, WorkspaceActionKind.Refresh],
+            actions.Requests.Select(request => request.Kind));
+        Assert.Equal(2, work.Read().Tasks.Count);
+        Assert.Equal("Copy of Plan", model.Title);
+        Assert.Equal("draft-title", model.DialogReturnFocusAutomationId);
+        Assert.Equal("Task duplicated as new standalone active work.", model.Message);
+    }
+
+    [Fact]
+    public async Task LaterSuccessfulMutationSupersedesAnUnretriedDuplicateRefreshTarget()
+    {
+        var work = new MemoryWorkspaceWork();
+        var source = work.CreateStandaloneTask("Plan", "", "home", null);
+        var actions = new RecordingWorkspaceActionExecutor(work) { FailFirstCommittedRefresh = true };
+        var model = new ProjectCaptureViewModel(
+            work,
+            null,
+            new InlineWorkspacePersistenceExecutor(new WorkspacePersistenceOperation(work)),
+            actions,
+            new InlineUiDispatcher());
+        model.SelectTask(source.Id);
+
+        model.DuplicateTaskCommand.Execute(null);
+        await model.WaitForWorkspaceActionsAsync().WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.True(model.CanRetryWorkspaceRefresh);
+
+        model.DuplicateTaskCommand.Execute(null);
+        await model.WaitForWorkspaceActionsAsync().WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.False(model.CanRetryWorkspaceRefresh);
+        Assert.Equal(3, work.Read().Tasks.Count);
+
+        model.SelectTask(source.Id);
+        actions.FailFirstCommittedRefresh = true;
+        model.ToggleToday(source.Id);
+        await model.WaitForWorkspaceActionsAsync().WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.True(model.CanRetryWorkspaceRefresh);
+
+        model.RetryWorkspaceRefreshCommand.Execute(null);
+        await model.WaitForWorkspaceActionsAsync().WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            [
+                WorkspaceActionKind.DuplicateTask,
+                WorkspaceActionKind.DuplicateTask,
+                WorkspaceActionKind.ToggleToday,
+                WorkspaceActionKind.Refresh,
+            ],
+            actions.Requests.Select(request => request.Kind));
+        Assert.Equal("Plan", model.Title);
+        Assert.Equal("View refreshed.", model.Message);
+    }
+
+    [Fact]
+    public async Task DuplicateTaskDoesNotAdmitASecondActivationWhileTheFirstIsPending()
+    {
+        var work = new MemoryWorkspaceWork();
+        var source = work.CreateStandaloneTask("Plan", "", "home", null);
+        var actions = new BlockingWorkspaceActionExecutor(work);
+        var model = new ProjectCaptureViewModel(
+            work,
+            null,
+            new InlineWorkspacePersistenceExecutor(new WorkspacePersistenceOperation(work)),
+            actions,
+            new InlineUiDispatcher());
+        model.SelectTask(source.Id);
+
+        model.DuplicateTaskCommand.Execute(null);
+        model.DuplicateTaskCommand.Execute(null);
+
+        Assert.False(model.CanDuplicateTask);
+        Assert.False(model.CanEditInspector);
+        Assert.Single(actions.Requests);
+        actions.Release.Set();
+        await model.WaitForWorkspaceActionsAsync().WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.True(model.CanEditInspector);
+        Assert.Equal(2, work.Read().Tasks.Count);
+    }
+
+    [Fact]
+    public async Task ConfirmedProjectDuplicationCannotBeCancelledOrConfirmedAgainWhilePending()
+    {
+        var work = new MemoryWorkspaceWork();
+        var source = work.CreateProject("Garden", "", "home", null);
+        work.CreateTask(source.Id, "Plan");
+        var actions = new BlockingProjectDuplicationExecutor(work);
+        var model = new ProjectCaptureViewModel(
+            work,
+            null,
+            new InlineWorkspacePersistenceExecutor(new WorkspacePersistenceOperation(work)),
+            actions,
+            new InlineUiDispatcher());
+        model.SelectProject(source.Id);
+        model.RequestProjectDuplicationCommand.Execute(null);
+        await model.WaitForWorkspaceActionsAsync().WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        model.ConfirmProjectDuplicationCommand.Execute(null);
+        model.CancelProjectDuplicationCommand.Execute(null);
+        model.ConfirmProjectDuplicationCommand.Execute(null);
+
+        Assert.True(model.NeedsProjectDuplicationConfirmation);
+        Assert.False(model.CanCancelProjectDuplication);
+        Assert.False(model.CanConfirmProjectDuplication);
+        Assert.Equal(
+            [WorkspaceActionKind.PreviewProjectDuplication, WorkspaceActionKind.DuplicateProject],
+            actions.Requests.Select(request => request.Kind));
+        actions.Release.Set();
+        await model.WaitForWorkspaceActionsAsync().WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.False(model.NeedsProjectDuplicationConfirmation);
+        Assert.Equal(2, work.Read().Projects.Count);
+    }
+
+    [Fact]
+    public async Task NavigationSuppressesAProjectDuplicationPreviewThatCompletesDuringTheBarrier()
+    {
+        var work = new MemoryWorkspaceWork();
+        var source = work.CreateProject("Garden", "", "home", null);
+        var actions = new CapturedActionExecutor(work);
+        var model = new ProjectCaptureViewModel(
+            work,
+            null,
+            new InlineWorkspacePersistenceExecutor(new WorkspacePersistenceOperation(work)),
+            actions,
+            new InlineUiDispatcher());
+        model.SelectProject(source.Id);
+        model.RequestProjectDuplicationCommand.Execute(null);
+        await actions.ResultCaptured.WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        var navigated = false;
+
+        var navigation = model.NavigateAsync(() => navigated = true);
+        Assert.False(navigation.IsCompleted);
+        actions.ReleaseResult();
+        await navigation.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.True(navigated);
+        Assert.False(model.NeedsProjectDuplicationConfirmation);
+        Assert.False(model.HasBlockingDialog);
+        Assert.Single(work.Read().Projects);
+    }
+
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -3287,6 +3561,26 @@ internal sealed class BlockingWorkspaceActionExecutor(IWorkspaceWork work) : IWo
         });
     }
 
+}
+
+internal sealed class BlockingProjectDuplicationExecutor(IWorkspaceWork work) : IWorkspaceActionExecutor
+{
+    private readonly WorkspacePersistenceOperation _operation = new(work);
+
+    public ManualResetEventSlim Release { get; } = new();
+    public List<WorkspaceActionRequest> Requests { get; } = [];
+
+    public Task<WorkspaceActionResult> SubmitActionAsync(WorkspaceActionRequest request)
+    {
+        Requests.Add(request);
+        if (request.Kind != WorkspaceActionKind.DuplicateProject)
+            return Task.FromResult(_operation.ExecuteAction(request));
+        return Task.Run(() =>
+        {
+            Release.Wait(TestContext.Current.CancellationToken);
+            return _operation.ExecuteAction(request);
+        }, TestContext.Current.CancellationToken);
+    }
 }
 
 internal sealed class RecordingWorkspaceActionExecutor(IWorkspaceWork work) : IWorkspaceActionExecutor
@@ -3587,6 +3881,78 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
         var project = new ProjectRecord($"project-{_projects.Count}", title.Trim(), description, categoryId, targetDate,
             _projects.Count, ColourKey: identity.ColourKey);
         _projects.Add(project); return project;
+    }
+    public TaskRecord DuplicateTask(string sourceTaskId)
+    {
+        Check();
+        if (_bin.Any(item => item.Task.Id == sourceTaskId)) throw new InvalidOperationException();
+        var source = _tasks.Single(task => task.Id == sourceTaskId);
+        var destination = WorkDuplicationPolicy.TaskDestination(Snapshot(), source);
+        ShiftForNewTask();
+        var duplicate = new TaskRecord(
+            $"task-{_tasks.Count}",
+            destination.ProjectId,
+            WorkDuplicationPolicy.SuggestedTitle(source.Title),
+            source.Description,
+            destination.ExplicitCategoryId,
+            source.DueDate,
+            0,
+            destination.ProjectId is null ? null : _tasks.Count(task => task.ProjectId == destination.ProjectId),
+            ParticipantIds: source.Participants.ToArray());
+        _tasks.Add(duplicate);
+        return duplicate;
+    }
+    public ProjectDuplicationPreview PreviewProjectDuplication(string sourceProjectId)
+    {
+        if (_binnedProjectIds.Contains(sourceProjectId)) throw new InvalidOperationException();
+        var source = _projects.Single(project => project.Id == sourceProjectId);
+        var children = _tasks.Where(task => task.ProjectId == sourceProjectId)
+            .OrderBy(task => task.ProjectPosition).ToArray();
+        return new(
+            sourceProjectId,
+            WorkDuplicationPolicy.SuggestedTitle(source.Title),
+            children.Where(task => !task.IsArchived && _bin.All(item => item.Task.Id != task.Id))
+                .Select(task => task.Id).ToArray(),
+            children.Where(task => task.IsArchived && _bin.All(item => item.Task.Id != task.Id))
+                .Select(task => task.Id).ToArray(),
+            children.Where(task => _bin.Any(item => item.Task.Id == task.Id))
+                .Select(task => task.Id).ToArray());
+    }
+    public ProjectDuplicationResult DuplicateProject(ProjectDuplicationPreview confirmedPreview, string title)
+    {
+        Check();
+        var currentPreview = PreviewProjectDuplication(confirmedPreview.SourceProjectId);
+        if (!confirmedPreview.Matches(currentPreview)) throw new InvalidOperationException();
+        var source = _projects.Single(project => project.Id == confirmedPreview.SourceProjectId);
+        var duplicateProject = new ProjectRecord(
+            $"project-{_projects.Count}",
+            WorkTitle.Normalize(title),
+            source.Description,
+            source.CategoryId,
+            source.TargetDate,
+            _projects.Count,
+            ColourKey: source.ColourKey);
+        _projects.Add(duplicateProject);
+
+        var sourceTasks = confirmedPreview.IncludedTaskIds
+            .Select(id => _tasks.Single(task => task.Id == id)).ToArray();
+        for (var index = 0; index < _tasks.Count; index++)
+            _tasks[index] = _tasks[index] with { SharedPosition = _tasks[index].SharedPosition + sourceTasks.Length };
+        var sharedPositions = sourceTasks.OrderBy(task => task.SharedPosition)
+            .Select((task, index) => (task.Id, Position: (long)index))
+            .ToDictionary(item => item.Id, item => item.Position, StringComparer.Ordinal);
+        var duplicates = sourceTasks.Select((task, projectPosition) => new TaskRecord(
+            $"task-{_tasks.Count + projectPosition}",
+            duplicateProject.Id,
+            task.Title,
+            task.Description,
+            task.ExplicitCategoryId,
+            task.DueDate,
+            sharedPositions[task.Id],
+            projectPosition,
+            ParticipantIds: task.Participants.ToArray())).ToArray();
+        _tasks.AddRange(duplicates);
+        return new(duplicateProject, duplicates, currentPreview);
     }
     public TaskRecord CreateTask(string projectId, string title)
     {
