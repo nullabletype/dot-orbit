@@ -6,16 +6,6 @@ using Microsoft.Data.Sqlite;
 
 namespace DotOrbit.Storage.Sqlite;
 
-internal interface IArchiveSearchIndex
-{
-    void Apply(
-        SqliteConnection connection,
-        SqliteTransaction? transaction,
-        ArchiveSearchIndexEffects effects);
-
-    void Rebuild(SqliteConnection connection, SqliteTransaction? transaction = null);
-}
-
 internal enum ArchiveSearchSourceType
 {
     Task,
@@ -70,9 +60,9 @@ internal sealed class ArchiveSearchIndexEffects
     }
 }
 
-internal sealed class ArchiveSearchIndex : IArchiveSearchIndex
+internal static class ArchiveSearchIndex
 {
-    public void Apply(
+    public static void Apply(
         SqliteConnection connection,
         SqliteTransaction? transaction,
         ArchiveSearchIndexEffects effects)
@@ -135,7 +125,7 @@ internal sealed class ArchiveSearchIndex : IArchiveSearchIndex
             RefreshTask(connection, transaction, id);
     }
 
-    public void Rebuild(SqliteConnection connection, SqliteTransaction? transaction = null)
+    public static void Rebuild(SqliteConnection connection, SqliteTransaction? transaction = null)
     {
         ArgumentNullException.ThrowIfNull(connection);
         using var timing = PerformanceTrace.MeasureAllocationStage(PerformanceStage.ArchiveIndexRebuild);

@@ -9,7 +9,6 @@ internal sealed class WorkspaceTransactionCoordinator
 {
     private readonly object _gate;
     private readonly EncryptedWorkspaceRecovery _recovery;
-    private readonly IArchiveSearchIndex _archiveSearchIndex;
     private readonly Action<EmptyBinCheckpoint>? _emptyBinCheckpoint;
     private readonly WorkspaceConnectionFactory _connectionFactory;
     private SqliteConnection? _readConnection;
@@ -25,7 +24,6 @@ internal sealed class WorkspaceTransactionCoordinator
         WorkspaceConnectionFactory connectionFactory,
         EncryptedWorkspaceRecovery recovery,
         object gate,
-        IArchiveSearchIndex archiveSearchIndex,
         Action<EmptyBinCheckpoint>? emptyBinCheckpoint = null)
     {
         _workspacePath = workspacePath;
@@ -35,7 +33,6 @@ internal sealed class WorkspaceTransactionCoordinator
         _connectionFactory = connectionFactory;
         _recovery = recovery;
         _gate = gate;
-        _archiveSearchIndex = archiveSearchIndex;
         _emptyBinCheckpoint = emptyBinCheckpoint;
     }
 
@@ -56,7 +53,7 @@ internal sealed class WorkspaceTransactionCoordinator
                 using (PerformanceTrace.Measure(PerformanceStage.Mutation, operation))
                     effects = change(connection, transaction);
                 using (PerformanceTrace.Measure(PerformanceStage.DerivedStorage, operation))
-                    _archiveSearchIndex.Apply(connection, transaction, effects);
+                    ArchiveSearchIndex.Apply(connection, transaction, effects);
                 using (PerformanceTrace.Measure(PerformanceStage.Commit, operation))
                     transaction.Commit();
             }
@@ -125,7 +122,7 @@ internal sealed class WorkspaceTransactionCoordinator
                 if (!confirmedPreview.Matches(currentPreview))
                     return new(EmptyBinStatus.PreviewChanged, currentPreview);
                 var effects = delete(connection, null);
-                _archiveSearchIndex.Apply(connection, null, effects);
+                ArchiveSearchIndex.Apply(connection, null, effects);
                 _emptyBinCheckpoint?.Invoke(EmptyBinCheckpoint.BeforeCommit);
                 ExecuteNonQuery(connection, "COMMIT;");
                 transactionActive = false;

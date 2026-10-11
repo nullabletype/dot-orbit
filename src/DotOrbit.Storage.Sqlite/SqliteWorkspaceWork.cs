@@ -897,7 +897,7 @@ internal sealed class SqliteWorkspaceWork(
         ProjectRecord? result = null;
         Guard(() => transactions.Execute((connection, transaction) =>
         {
-            Require(connection, transaction, "projects", id);
+            RequireProjectNotBinned(connection, transaction, id);
             Require(connection, transaction, "categories", categoryId);
             Execute(connection, transaction,
                 "UPDATE projects SET title=$title, description=$description, category_id=$category, target_date=$date WHERE id=$id;",

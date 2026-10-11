@@ -872,19 +872,14 @@ public sealed class WorkspaceWorkTests : IDisposable
     }
 
     [Fact]
-    public void SearchIndexFailureRollsBackTheSourceEdit()
+    public void SearchIndexFailureRollsBackTheTaskEdit()
     {
         using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
         var category = Assert.Single(session.Work.Read().Categories);
         var task = session.Work.CreateStandaloneTask("Original", "Original description", category.Id, null);
         session.Work.CompleteTask(task.Id);
         session.Work.ArchiveTask(task.Id);
-        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
-        using (var command = connection.CreateCommand())
-        {
-            command.CommandText = "DROP TABLE archive_search;";
-            command.ExecuteNonQuery();
-        }
+        DropArchiveSearchTable();
 
         Assert.Throws<WorkspaceWorkException>(() => session.Work.UpdateTask(
             task.Id, "Changed", "Changed description", category.Id, null));
@@ -892,6 +887,54 @@ public sealed class WorkspaceWorkTests : IDisposable
         var unchanged = Assert.Single(session.Work.Read().Tasks);
         Assert.Equal("Original", unchanged.Title);
         Assert.Equal("Original description", unchanged.Description);
+    }
+
+    [Fact]
+    public void SearchIndexFailureRollsBackTheProjectEdit()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        var project = session.Work.CreateProject("Original", "Original description", category.Id, null);
+        DropArchiveSearchTable();
+
+        Assert.Throws<WorkspaceWorkException>(() => session.Work.UpdateProject(
+            project.Id, "Changed", "Changed description", category.Id, null));
+
+        var unchanged = Assert.Single(session.Work.Read().Projects);
+        Assert.Equal("Original", unchanged.Title);
+        Assert.Equal("Original description", unchanged.Description);
+    }
+
+    [Fact]
+    public void SearchIndexFailureRollsBackTheCategoryRename()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Original").CategoryName!).Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        var task = session.Work.CreateStandaloneTask("Archived", "", category.Id, null);
+        session.Work.CompleteTask(task.Id);
+        session.Work.ArchiveTask(task.Id);
+        DropArchiveSearchTable();
+
+        Assert.Throws<WorkspaceWorkException>(() => session.Work.RenameCategory(category.Id, "Changed"));
+
+        Assert.Equal("Original", Assert.Single(session.Work.Read().Categories).Name);
+    }
+
+    [Fact]
+    public void SearchIndexFailureRollsBackTheParticipantRename()
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        var participant = session.Work.CreateParticipant("Original");
+        var task = session.Work.CreateStandaloneTask(
+            "Archived", "", category.Id, null, new([participant.Id], []));
+        session.Work.CompleteTask(task.Id);
+        session.Work.ArchiveTask(task.Id);
+        DropArchiveSearchTable();
+
+        Assert.Throws<WorkspaceWorkException>(() => session.Work.RenameParticipant(participant.Id, "Changed"));
+
+        Assert.Equal("Original", Assert.Single(session.Work.Read().Participants).Label);
     }
 
     [Fact]
@@ -2089,6 +2132,8 @@ public sealed class WorkspaceWorkTests : IDisposable
         Assert.DoesNotContain(session.Work.Read().Projects, item => item.Id == target.Id);
         Assert.DoesNotContain(session.Work.Read().Tasks, item => item.ProjectId == target.Id);
         Assert.Empty(session.Work.SearchArchive("Archived"));
+        Assert.Throws<InvalidOperationException>(() => session.Work.UpdateProject(
+            target.Id, "Changed while binned", "", category.Id, null));
         var blocked = Assert.Single(session.Work.ReadTaskBin());
         Assert.Equal(preBinned.Id, blocked.Task.Id);
         Assert.False(blocked.CanRestore);
@@ -2108,6 +2153,15 @@ public sealed class WorkspaceWorkTests : IDisposable
         Assert.Equal([planned.Id, archived.Id], restoredTasks
             .OrderBy(item => item.ProjectPosition).Select(item => item.Id));
         Assert.Equal(preBinned.Id, Assert.Single(session.Work.ReadTaskBin()).Task.Id);
+    }
+
+    private void DropArchiveSearchTable()
+    {
+        using var connection = EncryptedWorkspaceStore.OpenConnection(
+            WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite);
+        using var command = connection.CreateCommand();
+        command.CommandText = "DROP TABLE archive_search;";
+        command.ExecuteNonQuery();
     }
 
     [Fact]
