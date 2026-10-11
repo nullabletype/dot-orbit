@@ -416,6 +416,7 @@ public sealed class EncryptedWorkspaceRecoveryTests
                 command.Transaction = transaction;
                 command.CommandText = "UPDATE categories SET name = 'After commit';";
                 Assert.Equal(1, command.ExecuteNonQuery());
+                return ArchiveSearchIndexEffects.None;
             });
 
         Assert.Equal(AutomaticRecoveryAttempt.Created, result);
@@ -744,6 +745,7 @@ public sealed class EncryptedWorkspaceRecoveryTests
                     Assert.Equal(1, command.ExecuteNonQuery());
                     mutationReady.Release();
                     allowCommit.Wait(cancellationToken);
+                    return ArchiveSearchIndexEffects.None;
                 }),
             cancellationToken);
         Assert.True(await mutationReady.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken));
@@ -1341,6 +1343,7 @@ public sealed class EncryptedWorkspaceRecoveryTests
                 command.CommandText = "UPDATE categories SET name = $name;";
                 command.Parameters.AddWithValue("$name", category);
                 Assert.Equal(1, command.ExecuteNonQuery());
+                return ArchiveSearchIndexEffects.None;
             });
 
     public enum FailurePoint

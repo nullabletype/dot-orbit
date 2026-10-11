@@ -255,7 +255,9 @@ internal static class PerformanceReviewRunner
 
         var shell = (ShellViewModel?)window.DataContext ?? throw new InvalidOperationException();
         var work = shell.Work ?? throw new InvalidOperationException();
-        var activeTasks = store.Read().Tasks.Where(task => !task.IsArchived).Take(2).ToArray();
+        var initialSnapshot = store.Read();
+        var activeTasks = initialSnapshot.Tasks.Where(task => !task.IsArchived).Take(2).ToArray();
+        var activeProject = initialSnapshot.Projects.First(project => !project.IsArchived);
         if (activeTasks.Length < 2) throw new InvalidOperationException();
 
         Console.WriteLine(
@@ -302,7 +304,7 @@ internal static class PerformanceReviewRunner
             await IdleAsync();
         }
 
-        using var connectionRecording = PerformanceTrace.Start(maximumSamples: 100_000);
+        using var connectionRecording = PerformanceTrace.Start(maximumSamples: 100_000, captureAllocations: true);
         var results = new List<PerformanceOperationResult>();
         results.AddRange(await MeasureWithIdleAsync(
             "task-select",
@@ -345,6 +347,7 @@ internal static class PerformanceReviewRunner
                 _ = iteration;
                 _ = store.ReadProjectBin();
             }));
+        var storageTraceBoundary = connectionRecording.CaptureBoundary();
         results.Add(MeasureSync(
             "storage-update",
             scenario.Iterations,
@@ -360,6 +363,29 @@ internal static class PerformanceReviewRunner
                     task.DueDate,
                     new ParticipantDraftChange(task.Participants, []));
             }));
+        var storageTraceSummary = StorageUpdateTraceSummary.Create(
+            "storage-update",
+            PerformanceOperation.UpdateTask,
+            connectionRecording.Snapshot().Where(sample => sample.Id > storageTraceBoundary));
+        storageTraceBoundary = connectionRecording.CaptureBoundary();
+        results.Add(MeasureSync(
+            "storage-project-update",
+            scenario.Iterations,
+            scenario.BudgetMilliseconds,
+            iteration =>
+            {
+                _ = store.UpdateProject(
+                    activeProject.Id,
+                    $"Synthetic project storage update {iteration % 2}",
+                    activeProject.Description,
+                    activeProject.CategoryId,
+                    activeProject.TargetDate,
+                    activeProject.ColourKey);
+            }));
+        var projectStorageTraceSummary = StorageUpdateTraceSummary.Create(
+            "storage-project-update",
+            PerformanceOperation.UpdateProject,
+            connectionRecording.Snapshot().Where(sample => sample.Id > storageTraceBoundary));
         var observations = new List<PerformanceOperationResult>();
         observations.AddRange(await MeasureWithIdleAsync(
             "full-reload",
@@ -526,6 +552,8 @@ internal static class PerformanceReviewRunner
         foreach (var result in results) WriteResult(result);
         foreach (var observation in observations) WriteResult(observation, observedOnly: true);
         foreach (var readCounts in scopedActionReads) WriteReadCounts(readCounts);
+        WriteStorageUpdateTraceSummary(storageTraceSummary);
+        WriteStorageUpdateTraceSummary(projectStorageTraceSummary);
         var titleSaveStable = results.Single(result => result.Operation == "task-title-save-stable");
         var titleSaveAllocationPassed = titleSaveStable.P50AllocatedBytes < 4_000_000;
         var titleSaveMaximumPassed = titleSaveStable.MaximumMilliseconds <= scenario.BudgetMilliseconds * 2;
@@ -533,6 +561,14 @@ internal static class PerformanceReviewRunner
             $"performance-review: constraint=task-title-save allocation_budget_bytes=4000000 "
             + $"maximum_budget_ms={scenario.BudgetMilliseconds * 2} "
             + $"result={(titleSaveAllocationPassed && titleSaveMaximumPassed ? "passed" : "failed")}");
+        foreach (var storageUpdate in results.Where(result =>
+                     result.Operation is "storage-update" or "storage-project-update"))
+        {
+            Console.WriteLine(
+                $"performance-review: constraint={storageUpdate.Operation} p95_budget_ms=50 "
+                + $"allocation_budget_bytes=1000000 "
+                + $"result={(StorageUpdateConstraintsPassed(storageUpdate) ? "passed" : "failed")}");
+        }
         Console.WriteLine(
             $"performance-review: constraint=scoped-warm-connection-reuse connection_open_count={connectionOpenCount} "
             + $"connection_configure_count={connectionConfigureCount} "
@@ -562,8 +598,14 @@ internal static class PerformanceReviewRunner
     {
         var titleSaveStable = results.Single(result => result.Operation == "task-title-save-stable");
         return results.All(result => result.P95Milliseconds <= result.BudgetMilliseconds)
-            && TitleSaveStableConstraintsPassed(titleSaveStable, budgetMilliseconds);
+            && TitleSaveStableConstraintsPassed(titleSaveStable, budgetMilliseconds)
+            && results.Where(result => result.Operation is "storage-update" or "storage-project-update")
+                .All(StorageUpdateConstraintsPassed);
     }
+
+    internal static bool StorageUpdateConstraintsPassed(PerformanceOperationResult result) =>
+        result.P95Milliseconds <= 50
+        && result.P50AllocatedBytes < 1_000_000;
 
     internal static bool ConnectionReuseConstraintsPassed(
         int connectionOpenCount,
@@ -580,6 +622,27 @@ internal static class PerformanceReviewRunner
             + $"task_bin={counts.TaskBin} project_bin={counts.ProjectBin} "
             + $"bulk_preview={counts.BulkPreview} archive_search={counts.ArchiveSearch} "
             + $"result={(counts.IncidentalReadCount == 0 ? "passed" : "failed")}");
+
+    private static void WriteStorageUpdateTraceSummary(StorageUpdateTraceSummary summary) =>
+        Console.WriteLine(FormatStorageUpdateTraceSummary(summary));
+
+    internal static string FormatStorageUpdateTraceSummary(StorageUpdateTraceSummary summary) =>
+        $"performance-review: operation={summary.Operation}-internal-phases iterations={summary.Iterations} "
+        + FormatPhase("gate_wait", summary.GateWait)
+        + FormatPhase("transaction_begin", summary.TransactionBegin)
+        + FormatPhase("mutation", summary.Mutation)
+        + FormatPhase("derived", summary.DerivedStorage)
+        + FormatPhase("commit", summary.Commit)
+        + FormatPhase("recovery", summary.Recovery)
+        + $"full_snapshot_reads={summary.FullSnapshotReads} "
+        + $"archive_index_rebuilds={summary.ArchiveIndexRebuilds} result=observed";
+
+    private static string FormatPhase(string name, PerformancePhaseObservation phase) =>
+        $"{name}_count={phase.Count} "
+        + $"{name}_p50_ms={Format(phase.P50Milliseconds)} "
+        + $"{name}_p95_ms={Format(phase.P95Milliseconds)} "
+        + $"{name}_max_ms={Format(phase.MaximumMilliseconds)} "
+        + $"{name}_alloc_p50_bytes={phase.P50AllocatedBytes} ";
 
     private static async Task<IReadOnlyList<PerformanceOperationResult>> MeasureWithIdleAsync(
         string operation,
@@ -844,5 +907,101 @@ internal readonly record struct ScopedActionReadCounts(
         int Count(PerformanceOperation target) =>
             materialized.Count(sample => sample.Operation == target
                 && sample.Stage == PerformanceStage.StorageRead);
+    }
+}
+
+internal readonly record struct PerformancePhaseObservation(
+    int Count,
+    double P50Milliseconds,
+    double P95Milliseconds,
+    double MaximumMilliseconds,
+    long P50AllocatedBytes)
+{
+    internal static PerformancePhaseObservation Create(IReadOnlyCollection<PerformanceSample> samples)
+    {
+        if (samples.Count == 0 || samples.Any(sample => sample.AllocatedBytes is null))
+            throw new InvalidOperationException("Performance phase samples must include allocation measurements.");
+        var elapsed = samples.Select(sample => sample.DurationMilliseconds).Order().ToArray();
+        var allocations = samples.Select(sample => sample.AllocatedBytes!.Value).Order().ToArray();
+        return new(
+            samples.Count,
+            Percentile(elapsed, 0.50),
+            Percentile(elapsed, 0.95),
+            elapsed[^1],
+            Percentile(allocations, 0.50));
+    }
+
+    private static double Percentile(double[] sorted, double percentile) =>
+        sorted[(int)Math.Ceiling(percentile * sorted.Length) - 1];
+
+    private static long Percentile(long[] sorted, double percentile) =>
+        sorted[(int)Math.Ceiling(percentile * sorted.Length) - 1];
+}
+
+internal readonly record struct StorageUpdateTraceSummary(
+    string Operation,
+    int Iterations,
+    int FullSnapshotReads,
+    int ArchiveIndexRebuilds,
+    PerformancePhaseObservation GateWait,
+    PerformancePhaseObservation TransactionBegin,
+    PerformancePhaseObservation Mutation,
+    PerformancePhaseObservation DerivedStorage,
+    PerformancePhaseObservation Commit,
+    PerformancePhaseObservation Recovery)
+{
+    internal static StorageUpdateTraceSummary Create(
+        string operation,
+        PerformanceOperation tracedOperation,
+        IEnumerable<PerformanceSample> samples)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(operation);
+        ArgumentNullException.ThrowIfNull(samples);
+        var materialized = samples.ToArray();
+        var byId = materialized.ToDictionary(sample => sample.Id);
+        var writes = materialized
+            .Where(sample => sample.Stage == PerformanceStage.StorageWrite
+                && sample.Operation == tracedOperation)
+            .Select(sample => sample.Id)
+            .ToHashSet();
+        if (writes.Count == 0) throw new InvalidOperationException("No storage-update writes were recorded.");
+        return new(
+            operation,
+            writes.Count,
+            materialized.Count(sample => sample.Stage == PerformanceStage.SnapshotRead
+                && IsDescendantOfWrite(sample)),
+            materialized.Count(sample => sample.Stage == PerformanceStage.ArchiveIndexRebuild
+                && IsDescendantOfWrite(sample)),
+            CreateDirectPhase(PerformanceStage.GateWait),
+            CreateDirectPhase(PerformanceStage.TransactionBegin),
+            CreateDirectPhase(PerformanceStage.Mutation),
+            CreateDirectPhase(PerformanceStage.DerivedStorage),
+            CreateDirectPhase(PerformanceStage.Commit),
+            CreateDirectPhase(PerformanceStage.Recovery));
+
+        PerformancePhaseObservation CreateDirectPhase(PerformanceStage stage)
+        {
+            var phaseSamples = materialized
+                .Where(sample => sample.Stage == stage
+                    && sample.ParentId is { } parentId
+                    && writes.Contains(parentId))
+                .ToArray();
+            if (writes.Any(writeId => phaseSamples.Count(sample => sample.ParentId == writeId) != 1))
+                throw new InvalidOperationException(
+                    $"Storage-update {stage} phase measurements must contain one direct sample per write.");
+            return PerformancePhaseObservation.Create(phaseSamples);
+        }
+
+        bool IsDescendantOfWrite(PerformanceSample sample)
+        {
+            var parentId = sample.ParentId;
+            while (parentId is { } id)
+            {
+                if (writes.Contains(id)) return true;
+                if (!byId.TryGetValue(id, out var parent)) return false;
+                parentId = parent.ParentId;
+            }
+            return false;
+        }
     }
 }

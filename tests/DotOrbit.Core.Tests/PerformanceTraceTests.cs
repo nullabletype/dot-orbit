@@ -17,6 +17,42 @@ public sealed class PerformanceTraceTests
     }
 
     [Fact]
+    public void AllocationCaptureIsOptInAndRequiresSameThreadCompletion()
+    {
+        using (var ordinary = PerformanceTrace.Start())
+        {
+            using (PerformanceTrace.Measure(PerformanceStage.Command)) { }
+            PerformanceTrace.MeasureAllocationStage(PerformanceStage.SnapshotRead).Dispose();
+            Assert.Null(Assert.Single(ordinary.Snapshot()).AllocatedBytes);
+        }
+
+        using var allocating = PerformanceTrace.Start(captureAllocations: true);
+        using (PerformanceTrace.Measure(PerformanceStage.Command)) { }
+        var crossThread = PerformanceTrace.Measure(PerformanceStage.DispatchDelay);
+        var thread = new Thread(crossThread.Dispose);
+        thread.Start();
+        thread.Join();
+        crossThread.Cancel();
+        var samples = allocating.Snapshot();
+        Assert.NotNull(Assert.Single(samples, sample => sample.Stage == PerformanceStage.Command).AllocatedBytes);
+        Assert.Null(Assert.Single(samples, sample => sample.Stage == PerformanceStage.DispatchDelay).AllocatedBytes);
+    }
+
+    [Fact]
+    public void CaptureBoundaryUsesIssuedIdentifiersRatherThanCompletionOrder()
+    {
+        using var recording = PerformanceTrace.Start();
+        var pending = PerformanceTrace.Measure(PerformanceStage.Command);
+        var boundary = recording.CaptureBoundary();
+        using (PerformanceTrace.Measure(PerformanceStage.StorageRead)) { }
+        pending.Dispose();
+
+        var afterBoundary = recording.Snapshot().Where(sample => sample.Id > boundary).ToArray();
+        Assert.Single(afterBoundary);
+        Assert.Equal(PerformanceStage.StorageRead, afterBoundary[0].Stage);
+    }
+
+    [Fact]
     public void NestedSamplesUseMonotonicTimeAndParentIdentifiers()
     {
         var clock = new ManualClock();

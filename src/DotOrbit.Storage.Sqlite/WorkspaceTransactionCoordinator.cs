@@ -9,7 +9,6 @@ internal sealed class WorkspaceTransactionCoordinator
 {
     private readonly object _gate;
     private readonly EncryptedWorkspaceRecovery _recovery;
-    private readonly Action<SqliteConnection, SqliteTransaction?> _synchroniseDerivedStorage;
     private readonly Action<EmptyBinCheckpoint>? _emptyBinCheckpoint;
     private readonly WorkspaceConnectionFactory _connectionFactory;
     private SqliteConnection? _readConnection;
@@ -25,7 +24,6 @@ internal sealed class WorkspaceTransactionCoordinator
         WorkspaceConnectionFactory connectionFactory,
         EncryptedWorkspaceRecovery recovery,
         object gate,
-        Action<SqliteConnection, SqliteTransaction?> synchroniseDerivedStorage,
         Action<EmptyBinCheckpoint>? emptyBinCheckpoint = null)
     {
         _workspacePath = workspacePath;
@@ -35,12 +33,11 @@ internal sealed class WorkspaceTransactionCoordinator
         _connectionFactory = connectionFactory;
         _recovery = recovery;
         _gate = gate;
-        _synchroniseDerivedStorage = synchroniseDerivedStorage;
         _emptyBinCheckpoint = emptyBinCheckpoint;
     }
 
     internal AutomaticRecoveryAttempt Execute(
-        Action<SqliteConnection, SqliteTransaction> change,
+        Func<SqliteConnection, SqliteTransaction, ArchiveSearchIndexEffects> change,
         [CallerMemberName] string operation = "")
     {
         ArgumentNullException.ThrowIfNull(change);
@@ -52,10 +49,11 @@ internal sealed class WorkspaceTransactionCoordinator
             var connection = GetWriteConnection();
             using (var transaction = BeginTransaction(connection))
             {
+                ArchiveSearchIndexEffects effects;
                 using (PerformanceTrace.Measure(PerformanceStage.Mutation, operation))
-                    change(connection, transaction);
+                    effects = change(connection, transaction);
                 using (PerformanceTrace.Measure(PerformanceStage.DerivedStorage, operation))
-                    _synchroniseDerivedStorage(connection, transaction);
+                    ArchiveSearchIndex.Apply(connection, transaction, effects);
                 using (PerformanceTrace.Measure(PerformanceStage.Commit, operation))
                     transaction.Commit();
             }
@@ -88,7 +86,7 @@ internal sealed class WorkspaceTransactionCoordinator
     internal EmptyBinResult ExecuteEmptyBin(
         EmptyBinPreview confirmedPreview,
         Func<SqliteConnection, SqliteTransaction?, EmptyBinPreview> readPreview,
-        Action<SqliteConnection, SqliteTransaction?> delete)
+        Func<SqliteConnection, SqliteTransaction?, ArchiveSearchIndexEffects> delete)
     {
         ArgumentNullException.ThrowIfNull(confirmedPreview);
         ArgumentNullException.ThrowIfNull(readPreview);
@@ -123,8 +121,8 @@ internal sealed class WorkspaceTransactionCoordinator
                 currentPreview = readPreview(connection, null);
                 if (!confirmedPreview.Matches(currentPreview))
                     return new(EmptyBinStatus.PreviewChanged, currentPreview);
-                delete(connection, null);
-                _synchroniseDerivedStorage(connection, null);
+                var effects = delete(connection, null);
+                ArchiveSearchIndex.Apply(connection, null, effects);
                 _emptyBinCheckpoint?.Invoke(EmptyBinCheckpoint.BeforeCommit);
                 ExecuteNonQuery(connection, "COMMIT;");
                 transactionActive = false;
