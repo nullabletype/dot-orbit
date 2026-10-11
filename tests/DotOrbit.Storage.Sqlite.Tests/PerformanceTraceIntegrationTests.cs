@@ -13,7 +13,7 @@ public sealed class PerformanceTraceTestGroup;
 public sealed class PerformanceTraceIntegrationTests
 {
     [Fact]
-    public void TaskUpdateTraceIdentifiesFullSnapshotAndArchiveIndexWork()
+    public void TaskUpdateTraceUsesTargetedReadsAndIncrementalArchiveIndexWork()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"dot-orbit-trace-test-{Guid.NewGuid():N}");
         try
@@ -42,8 +42,8 @@ public sealed class PerformanceTraceIntegrationTests
                 && sample.Stage == PerformanceStage.Mutation);
             Assert.Single(samples, sample => sample.ParentId == write.Id
                 && sample.Stage == PerformanceStage.DerivedStorage);
-            Assert.Equal(3, samples.Count(sample => sample.Stage == PerformanceStage.SnapshotRead));
-            Assert.Single(samples, sample => sample.Stage == PerformanceStage.ArchiveIndexRebuild);
+            Assert.DoesNotContain(samples, sample => sample.Stage == PerformanceStage.SnapshotRead);
+            Assert.DoesNotContain(samples, sample => sample.Stage == PerformanceStage.ArchiveIndexRebuild);
             Assert.All(samples, sample => Assert.NotNull(sample.AllocatedBytes));
             Assert.DoesNotContain("private", JsonSerializer.Serialize(samples), StringComparison.Ordinal);
         }
@@ -54,7 +54,7 @@ public sealed class PerformanceTraceIntegrationTests
     }
 
     [Fact]
-    public void ProjectUpdateTraceIdentifiesFullSnapshotAndArchiveIndexWork()
+    public void ProjectUpdateTraceUsesTargetedReadsAndIncrementalArchiveIndexWork()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"dot-orbit-trace-test-{Guid.NewGuid():N}");
         try
@@ -83,8 +83,8 @@ public sealed class PerformanceTraceIntegrationTests
                 && sample.Stage == PerformanceStage.Mutation);
             Assert.Single(samples, sample => sample.ParentId == write.Id
                 && sample.Stage == PerformanceStage.DerivedStorage);
-            Assert.Equal(2, samples.Count(sample => sample.Stage == PerformanceStage.SnapshotRead));
-            Assert.Single(samples, sample => sample.Stage == PerformanceStage.ArchiveIndexRebuild);
+            Assert.DoesNotContain(samples, sample => sample.Stage == PerformanceStage.SnapshotRead);
+            Assert.DoesNotContain(samples, sample => sample.Stage == PerformanceStage.ArchiveIndexRebuild);
             Assert.All(samples, sample => Assert.NotNull(sample.AllocatedBytes));
             Assert.DoesNotContain("private", JsonSerializer.Serialize(samples), StringComparison.Ordinal);
         }

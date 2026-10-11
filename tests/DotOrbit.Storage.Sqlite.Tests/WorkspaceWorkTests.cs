@@ -516,11 +516,15 @@ public sealed class WorkspaceWorkTests : IDisposable
             Assert.False(snapshot.Projects.Single(project => project.Id == activeProject.Id).IsArchived);
             Assert.True(snapshot.Projects.Single(project => project.Id == archivedProject.Id).IsArchived);
             Assert.Empty(session.Work.PreviewBulkTaskArchive(3).EligibleTaskIds);
+            Assert.Equal(eligibleProjectTaskId, Assert.Single(session.Work.SearchArchive("Old project")).Id);
+            Assert.Equal(eligibleStandaloneId, Assert.Single(session.Work.SearchArchive("Old standalone")).Id);
         }
 
         using var reopened = store.Open(WorkspacePath, _passphrase).Session!;
         Assert.True(reopened.Work.Read().Tasks.Single(task => task.Id == eligibleProjectTaskId).IsArchived);
         Assert.True(reopened.Work.Read().Tasks.Single(task => task.Id == eligibleStandaloneId).IsArchived);
+        Assert.Equal(eligibleProjectTaskId, Assert.Single(reopened.Work.SearchArchive("Old project")).Id);
+        Assert.Equal(eligibleStandaloneId, Assert.Single(reopened.Work.SearchArchive("Old standalone")).Id);
     }
 
     [Fact]
@@ -784,6 +788,87 @@ public sealed class WorkspaceWorkTests : IDisposable
         Assert.Equal(firstProject.Id, Assert.Single(session.Work.SearchArchive("historical reference")).Id);
         session.Work.RestoreProject(firstProject.Id);
         Assert.Empty(session.Work.SearchArchive("historical"));
+    }
+
+    [Fact]
+    public void ActiveAndArchivedEditsReplaceOnlySearchableDocumentsWithoutDuplicatesAcrossReopen()
+    {
+        var store = new EncryptedWorkspaceStore();
+        string projectId;
+        string taskId;
+        using (var session = store.Create(
+                   WorkspacePath,
+                   _passphrase,
+                   CategoryName.Create("Home").CategoryName!).Session!)
+        {
+            var category = Assert.Single(session.Work.Read().Categories);
+            var project = session.Work.CreateProject("Active parent", "Active project phrase", category.Id, null);
+            var task = session.Work.CreateTaskDraft(
+                project.Id, "Active task", "Active task phrase", null, null);
+            projectId = project.Id;
+            taskId = task.Id;
+
+            session.Work.UpdateProject(project.Id, "Edited active parent", "Edited active project phrase", category.Id, null);
+            session.Work.UpdateTask(task.Id, "Edited active task", "Edited active task phrase", null, null);
+            Assert.Empty(session.Work.SearchArchive("edited active"));
+
+            session.Work.CompleteTask(task.Id);
+            session.Work.ArchiveTask(task.Id);
+            session.Work.ArchiveProject(project.Id);
+            session.Work.UpdateTask(task.Id, "Archived task marker", "Archived task detail", null, null);
+            session.Work.UpdateProject(project.Id, "Archived parent marker", "Archived project detail", category.Id, null);
+            session.Work.UpdateTask(task.Id, "Archived task marker", "Archived task detail", null, null);
+            session.Work.UpdateProject(project.Id, "Archived parent marker", "Archived project detail", category.Id, null);
+
+            Assert.Equal(task.Id, Assert.Single(session.Work.SearchArchive("task marker")).Id);
+            Assert.Equal(project.Id, Assert.Single(session.Work.SearchArchive("project detail")).Id);
+            Assert.Equal("Archived parent marker", Assert.Single(session.Work.SearchArchive("task marker")).ParentProjectTitle);
+            using var inspection = EncryptedWorkspaceStore.OpenConnection(
+                WorkspacePath, _passphrase, SqliteOpenMode.ReadOnly);
+            using var count = inspection.CreateCommand();
+            count.CommandText = "SELECT COUNT(*) FROM archive_search WHERE record_id IN ($project,$task);";
+            count.Parameters.AddWithValue("$project", project.Id);
+            count.Parameters.AddWithValue("$task", task.Id);
+            Assert.Equal(2L, count.ExecuteScalar());
+        }
+
+        using var reopened = store.Open(WorkspacePath, _passphrase).Session!;
+        Assert.Equal(taskId, Assert.Single(reopened.Work.SearchArchive("task detail")).Id);
+        Assert.Equal(projectId, Assert.Single(reopened.Work.SearchArchive("parent marker")).Id);
+    }
+
+    [Fact]
+    public void CategoryReassignmentAndParticipantRenamePropagateToEveryArchivedDependent()
+    {
+        using var session = _store.Create(
+            WorkspacePath,
+            _passphrase,
+            CategoryName.Create("Legacy category").CategoryName!).Session!;
+        var legacy = Assert.Single(session.Work.Read().Categories);
+        var current = session.Work.CreateCategory("Current category");
+        var participant = session.Work.CreateParticipant("Legacy participant");
+        var project = session.Work.CreateProject("Archived project", "", legacy.Id, null);
+        var inherited = session.Work.CreateTaskDraft(
+            project.Id, "Inherited task", "", null, null, new([participant.Id], []));
+        var explicitTask = session.Work.CreateStandaloneTask(
+            "Explicit task", "", legacy.Id, null, new([participant.Id], []));
+        session.Work.CompleteTask(inherited.Id);
+        session.Work.ArchiveTask(inherited.Id);
+        session.Work.CompleteTask(explicitTask.Id);
+        session.Work.ArchiveTask(explicitTask.Id);
+        session.Work.ArchiveProject(project.Id);
+
+        session.Work.RenameParticipant(participant.Id, "Current participant");
+        session.Work.DeleteCategory(legacy.Id, current.Id);
+
+        Assert.Empty(session.Work.SearchArchive("legacy category"));
+        Assert.Empty(session.Work.SearchArchive("legacy participant"));
+        Assert.Equal(
+            new[] { project.Id, inherited.Id, explicitTask.Id }.Order(StringComparer.Ordinal),
+            session.Work.SearchArchive("current category").Select(result => result.Id).Order(StringComparer.Ordinal));
+        Assert.Equal(
+            new[] { inherited.Id, explicitTask.Id }.Order(StringComparer.Ordinal),
+            session.Work.SearchArchive("current participant").Select(result => result.Id).Order(StringComparer.Ordinal));
     }
 
     [Fact]

@@ -930,7 +930,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
                 store._connectionFactory,
                 _recovery,
                 _gate,
-                SqliteWorkspaceWork.RebuildArchiveSearchIndex,
+                new ArchiveSearchIndex(),
                 store._emptyBinCheckpoint);
             Work = new SqliteWorkspaceWork(store, _transactions, store._timeProvider);
         }
