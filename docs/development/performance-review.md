@@ -169,3 +169,22 @@ Today membership and lane changes, completion and reopen, Backlog reorder, and T
 The performance review prints latency and database-read evidence separately for each scoped action. Its `*-database-reads` line reports scoped storage writes alongside the five prohibited incidental surface reads: full workspace, Task Bin, Project Bin, bulk-archive preview, and Archive search. The structural constraint requires all five incidental counts to remain zero. Targeted validation reads inside the transaction remain part of the storage-write span because the mutation must inspect current committed state before returning authoritative values.
 
 Bulk-archive eligibility is intentionally not queried after every completion action. The cached count is refreshed when the workflow is opened and the confirmation always performs an authoritative recheck before applying. If a pending completion result arrives while that confirmation is open, the visible count is recalculated from the already committed in-memory snapshot without replacing the confirmed preview; the next confirm therefore still detects and names stale eligibility.
+
+## Change-aware mutation storage (#90)
+
+Project and Task field updates now return their committed records through targeted queries. Every stored mutation declares immutable archive-search effects, and the transaction coordinator applies only the affected archived Task or Project documents before committing the source mutation. A complete archive-index rebuild remains available only to schema migration. Relationship changes cover the indirect documents affected by Project, Category and Participant edits, while operations that genuinely require aggregate ordering retain their broader reads.
+
+The synthetic harness records same-thread allocation and the existing gate-wait, transaction, mutation, derived-storage, commit and recovery phases only in its explicit performance-review mode. Ordinary `--performance-trace` output retains its version-1 seven-field sample shape. The structural gate requires zero full snapshot reads and zero complete archive-index rebuilds beneath each warm Task or Project update.
+
+Exact cross-platform calibration used pull-request merge tree `16f9f1da2b344df56ac5639f1f4e405c75c6af65`, run `38179403717`, with 1,000 synthetic Tasks and 100 warm operations. The temporary matrix step uploaded no artifacts and was removed after its aggregate console evidence was recorded.
+
+| Runner | Operation | p95 | Median allocation | Full snapshots | Full index rebuilds |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `macos-26` | Task update | 7.624 ms | 25,904 bytes | 0 | 0 |
+| `macos-26` | Project update | 5.014 ms | 21,872 bytes | 0 | 0 |
+| `windows-2025` | Task update | 24.002 ms | 24,824 bytes | 0 | 0 |
+| `windows-2025` | Project update | 23.458 ms | 20,784 bytes | 0 | 0 |
+| `ubuntu-24.04` | Task update | 1.751 ms | 25,024 bytes | 0 | 0 |
+| `ubuntu-24.04` | Project update | 1.653 ms | 20,992 bytes | 0 | 0 |
+
+All six scoped measurements pass the 50 ms p95 and 1 MB median-allocation limits. On Windows, the largest Task-update phases were commit at 17.014 ms p95 and recovery-state persistence at 6.342 ms p95; mutation was 2.083 ms and change-aware derived storage was 0.162 ms. Two earlier Windows calibrations on merge tree `7b6e409d0a481bb86d55400a583e0c72bef5ad43` showed large shared-runner tails, including 850.126 ms and 157.168 ms Task-update p95. The phase-attributed exact rerun is the accepted cross-platform measurement, while those earlier distributions remain a warning that shared runners are not controlled performance hardware.
