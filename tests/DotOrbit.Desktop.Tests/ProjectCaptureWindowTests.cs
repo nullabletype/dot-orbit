@@ -151,14 +151,14 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
-    public void SettingsThemePickerIsNamedKeyboardReachableAndAppliesLightThemeImmediately()
+    public void SettingsThemePickerUsesSharedRowAlignmentAndAppliesLightThemeImmediately()
     {
         var application = Assert.IsType<App>(Application.Current);
         var originalTheme = application.RequestedThemeVariant;
         application.RequestedThemeVariant = ThemeVariant.Dark;
         var themes = new TransientApplicationThemeService(ApplicationTheme.Dark, application);
         var shell = new ShellViewModel(new MemoryWorkspaceWork(), applicationThemeService: themes);
-        var window = new MainWindow { DataContext = shell };
+        var window = new MainWindow { DataContext = shell, Width = 1120 };
         try
         {
             window.Show();
@@ -174,8 +174,33 @@ public sealed class ProjectCaptureWindowTests
             Assert.Equal(["Dark", "Light"], picker.Items.Cast<ApplicationThemeOption>().Select(option => option.Name));
             var themeRow = picker.GetVisualAncestors().OfType<Border>()
                 .First(border => border.Classes.Contains("interactive-row"));
+            var themeLabel = Assert.Single(
+                window.GetVisualDescendants().OfType<TextBlock>(),
+                text => text.Text == "Colour theme");
+            var themePanel = themeRow.GetVisualAncestors().OfType<Border>()
+                .First(border => border.Classes.Contains("list-panel"));
             Assert.Contains("separated-row", themeRow.Classes);
             Assert.Contains("last", themeRow.Classes);
+            Assert.Equal(54, themeRow.MinHeight);
+            var themePanelOrigin = OriginInWindow(themePanel, window);
+            var themeLabelOrigin = OriginInWindow(themeLabel, window);
+            var pickerOrigin = OriginInWindow(picker, window);
+            Assert.InRange(
+                Math.Abs(
+                    themeLabelOrigin.X
+                    - themePanelOrigin.X
+                    - themePanel.BorderThickness.Left
+                    - themePanel.Padding.Left),
+                0,
+                0.01);
+            Assert.InRange(
+                Math.Abs(
+                    themePanelOrigin.X + themePanel.Bounds.Width
+                    - themePanel.BorderThickness.Right
+                    - themePanel.Padding.Right
+                    - pickerOrigin.X - picker.Bounds.Width),
+                0,
+                0.01);
 
             picker.SelectedItem = picker.Items.Cast<ApplicationThemeOption>()
                 .Single(option => option.Value == ApplicationTheme.Light);
@@ -458,7 +483,9 @@ public sealed class ProjectCaptureWindowTests
                 .Last(border => border.Classes.Contains("project-row"))),
             Measure("Categories", () => window.GetVisualDescendants().OfType<Border>()
                 .Last(border => border.Classes.Contains("category-row"))),
-            Measure("Completed", () => window.FindControl<Border>("CompletedListPanel")!),
+            Measure("Completed", () => window.GetVisualDescendants().OfType<Border>()
+                .Last(border => border.Classes.Contains("list-panel")
+                    && border.DataContext is CompletedTaskGroupViewModel)),
             Measure("Archive", () => window.GetVisualDescendants().OfType<Border>()
                 .Last(border => border.Classes.Contains("list-panel")
                     && border.DataContext is ArchivedWorkGroupViewModel)),
@@ -995,6 +1022,43 @@ public sealed class ProjectCaptureWindowTests
         Dispatcher.UIThread.RunJobs();
         Assert.Single(work.Read().Participants);
         Assert.NotNull(window.FindControl<Button>("SettingsRecoveryButton"));
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void SettingsRecoveryAndPassphraseRowsShareHorizontalAlignment()
+    {
+        var shell = new ShellViewModel(new MemoryWorkspaceWork());
+        shell.SettingsNavigation.SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 900 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var recoveryLabel = Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(),
+            text => text.Text == "Encrypted recovery");
+        var passphraseLabel = Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(),
+            text => text.Text == "Workspace passphrase");
+        var recoveryButton = Assert.IsType<Button>(window.FindControl<Button>("SettingsRecoveryButton"));
+        var passphraseButton = Assert.IsType<Button>(window.FindControl<Button>("SettingsPassphraseButton"));
+        var recoveryRow = recoveryLabel.GetVisualAncestors().OfType<Border>()
+            .First(border => border.Classes.Contains("interactive-row"));
+        var passphraseRow = passphraseLabel.GetVisualAncestors().OfType<Border>()
+            .First(border => border.Classes.Contains("interactive-row"));
+        var recoveryLabelOrigin = OriginInWindow(recoveryLabel, window);
+        var passphraseLabelOrigin = OriginInWindow(passphraseLabel, window);
+        var recoveryButtonOrigin = OriginInWindow(recoveryButton, window);
+        var passphraseButtonOrigin = OriginInWindow(passphraseButton, window);
+
+        Assert.InRange(Math.Abs(recoveryLabelOrigin.X - passphraseLabelOrigin.X), 0, 0.01);
+        Assert.InRange(
+            Math.Abs(
+                recoveryButtonOrigin.X + recoveryButton.Bounds.Width
+                - passphraseButtonOrigin.X - passphraseButton.Bounds.Width),
+            0,
+            0.01);
+        Assert.Equal(recoveryRow.MinHeight, passphraseRow.MinHeight);
+        Assert.Contains("separated-row", passphraseRow.Classes);
+        Assert.Contains("last", passphraseRow.Classes);
         window.Close();
     }
 
@@ -2420,13 +2484,13 @@ public sealed class ProjectCaptureWindowTests
 
         Assert.Equal(["Today", "Yesterday"], shell.Work!.CompletedGroups.Select(group => group.Heading));
         AssertCompletedSeparators(window, expectedGroups: 2, expectedRowsPerGroup: 2);
-        AssertCompletedPanelGeometry(window, expectedInterGroupSpacing: 12);
+        AssertCompletedGroupPanelGeometry(window, expectedGroups: 2, expectedRowsPerGroup: 2, expectedInterGroupSpacing: 12);
         time.Set(new DateTimeOffset(2026, 10, 2, 18, 0, 0, TimeSpan.Zero));
         Assert.True(shell.Work.RefreshDatePresentation());
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(["Week of 28 Sep 2026"], shell.Work.CompletedGroups.Select(group => group.Heading));
         AssertCompletedSeparators(window, expectedGroups: 1, expectedRowsPerGroup: 4);
-        AssertCompletedPanelGeometry(window, expectedInterGroupSpacing: null);
+        AssertCompletedGroupPanelGeometry(window, expectedGroups: 1, expectedRowsPerGroup: 4, expectedInterGroupSpacing: null);
         window.Close();
 
         var reloadedShell = new ShellViewModel(work, time);
@@ -2435,7 +2499,7 @@ public sealed class ProjectCaptureWindowTests
         reloadedWindow.Show();
         Assert.Equal(["Week of 28 Sep 2026"], reloadedShell.Work!.CompletedGroups.Select(group => group.Heading));
         AssertCompletedSeparators(reloadedWindow, expectedGroups: 1, expectedRowsPerGroup: 4);
-        AssertCompletedPanelGeometry(reloadedWindow, expectedInterGroupSpacing: null);
+        AssertCompletedGroupPanelGeometry(reloadedWindow, expectedGroups: 1, expectedRowsPerGroup: 4, expectedInterGroupSpacing: null);
         reloadedWindow.Close();
 
         void AddCompleted(string title, DateOnly date, int hour)
@@ -3291,19 +3355,26 @@ public sealed class ProjectCaptureWindowTests
         AssertCompletionToggleVisual(toggle, window, Color.Parse("#151923"), Color.Parse("#F2F4F7"), tickVisible: false);
 
         window.MouseMove(new Point(2, 2), RawInputModifiers.None);
-        Assert.True(toggle.Focus());
+        Assert.True(toggle.Focus(NavigationMethod.Tab));
         AssertCompletionFocusShadow(toggle, Color.Parse("#FF4FA3"));
         window.MouseMove(CentreInWindow(toggle, window), RawInputModifiers.None);
         AssertCompletionToggleVisual(toggle, window, Color.Parse("#151923"), Color.Parse("#F2F4F7"), tickVisible: false);
         AssertCompletionFocusShadow(toggle, Color.Parse("#FF4FA3"));
 
+        Assert.True(NamedButton(window, "Plant bulbs").Focus(NavigationMethod.Tab));
         window.MouseMove(new Point(2, 2), RawInputModifiers.None);
-        window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None);
-        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
-        Dispatcher.UIThread.RunJobs();
+        Click(window, toggle);
         toggle = ToggleByAutomationId(window, $"task-completion-{task.Id}");
         Assert.True(toggle.IsChecked);
+        Assert.True(toggle.IsFocused);
+        AssertNoCompletionFocusShadow(toggle);
+        AssertCompletionToggleVisual(toggle, window, Color.Parse("#C93678"), Color.Parse("#C93678"), tickVisible: true);
+        window.MouseMove(new Point(2, 2), RawInputModifiers.None);
+        AssertNoCompletionFocusShadow(toggle);
         AssertCompletionToggleVisual(toggle, window, Color.Parse("#FF4FA3"), Color.Parse("#FF4FA3"), tickVisible: true);
+
+        Assert.True(NamedButton(window, "Plant bulbs").Focus(NavigationMethod.Tab));
+        Assert.True(toggle.Focus(NavigationMethod.Tab));
         AssertCompletionFocusShadow(toggle, Color.Parse("#F2F4F7"));
         window.MouseMove(CentreInWindow(toggle, window), RawInputModifiers.None);
         AssertCompletionToggleVisual(toggle, window, Color.Parse("#C93678"), Color.Parse("#C93678"), tickVisible: true);
@@ -4302,21 +4373,34 @@ public sealed class ProjectCaptureWindowTests
         });
     }
 
-    private static void AssertCompletedPanelGeometry(Window window, double? expectedInterGroupSpacing)
+    private static void AssertCompletedGroupPanelGeometry(
+        Window window,
+        int expectedGroups,
+        int expectedRowsPerGroup,
+        double? expectedInterGroupSpacing)
     {
-        var panel = Assert.IsType<Border>(window.FindControl<Border>("CompletedListPanel"));
-        Assert.Equal(new Thickness(10), panel.Padding);
-        var rows = window.GetVisualDescendants().OfType<Border>()
-            .Where(border => border.Classes.Contains("completed-row"))
+        var panels = window.GetVisualDescendants().OfType<Border>()
+            .Where(border => border.Classes.Contains("list-panel")
+                && border.DataContext is CompletedTaskGroupViewModel)
+            .OrderBy(panel => OriginInWindow(panel, window).Y)
             .ToArray();
-        var finalRow = rows[^1];
-        var panelOrigin = OriginInWindow(panel, window);
-        var finalRowOrigin = OriginInWindow(finalRow, window);
-        var leftInset = finalRowOrigin.X - panelOrigin.X - panel.BorderThickness.Left;
-        var panelInnerBottom = panelOrigin.Y + panel.Bounds.Height - panel.BorderThickness.Bottom;
-        var bottomInset = panelInnerBottom - finalRowOrigin.Y - finalRow.Bounds.Height;
-        Assert.InRange(Math.Abs(leftInset - panel.Padding.Left), 0, 0.01);
-        Assert.InRange(Math.Abs(bottomInset - panel.Padding.Bottom), 0, 0.01);
+        Assert.Equal(expectedGroups, panels.Length);
+        Assert.All(panels, panel =>
+        {
+            Assert.Equal(new Thickness(10), panel.Padding);
+            var rows = panel.GetVisualDescendants().OfType<Border>()
+                .Where(border => border.Classes.Contains("completed-row"))
+                .ToArray();
+            Assert.Equal(expectedRowsPerGroup, rows.Length);
+            var finalRow = rows[^1];
+            var panelOrigin = OriginInWindow(panel, window);
+            var finalRowOrigin = OriginInWindow(finalRow, window);
+            var leftInset = finalRowOrigin.X - panelOrigin.X - panel.BorderThickness.Left;
+            var panelInnerBottom = panelOrigin.Y + panel.Bounds.Height - panel.BorderThickness.Bottom;
+            var bottomInset = panelInnerBottom - finalRowOrigin.Y - finalRow.Bounds.Height;
+            Assert.InRange(Math.Abs(leftInset - panel.Padding.Left), 0, 0.01);
+            Assert.InRange(Math.Abs(bottomInset - panel.Padding.Bottom), 0, 0.01);
+        });
 
         var groups = window.GetVisualDescendants().OfType<StackPanel>()
             .Where(stack => stack.DataContext is CompletedTaskGroupViewModel
@@ -4385,6 +4469,13 @@ public sealed class ProjectCaptureWindowTests
         Assert.Equal(2d, shadow.Spread);
         Assert.Equal(expectedColour, shadow.Color);
         Assert.False(shadow.IsInset);
+    }
+
+    private static void AssertNoCompletionFocusShadow(ToggleButton toggle)
+    {
+        var box = Assert.Single(toggle.GetVisualDescendants().OfType<Border>());
+        Assert.Equal("CompletionBox", box.Name);
+        Assert.Equal(0, box.BoxShadow.Count);
     }
 
     private static void AssertInsertionLine(Border targetRow)
