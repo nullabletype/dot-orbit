@@ -814,17 +814,17 @@
                   TextAlignment="Center" TextWrapping="Wrap" />
             </StackPanel>
           </Border>
-          <Border x:Name="CompletedListPanel" Classes="list-panel" IsVisible="{Binding Work.HasCompleted}">
-            <ItemsControl ItemsSource="{Binding Work.CompletedGroups}">
-              <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate>
-                  <StackPanel Spacing="12" />
-                </ItemsPanelTemplate>
-              </ItemsControl.ItemsPanel>
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="vm:CompletedTaskGroupViewModel">
-                  <StackPanel Spacing="4">
-                    <TextBlock Classes="eyebrow" Margin="6,4" Text="{Binding Heading}" />
+          <ItemsControl ItemsSource="{Binding Work.CompletedGroups}" IsVisible="{Binding Work.HasCompleted}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <StackPanel Spacing="12" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:CompletedTaskGroupViewModel">
+                <StackPanel Spacing="4">
+                  <TextBlock Classes="eyebrow" Margin="6,4" Text="{Binding Heading}" />
+                  <Border Classes="list-panel">
                     <ItemsControl ItemsSource="{Binding Rows}">
                       <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:CompletedTaskRowViewModel">
@@ -848,11 +848,11 @@
                         </DataTemplate>
                       </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                  </StackPanel>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-          </Border>
+                  </Border>
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
         </StackPanel>
       </ScrollViewer>
       <ScrollViewer Grid.Row="2" IsVisible="{Binding ShowArchive}">
@@ -1107,26 +1107,26 @@
                 Text="Choose the colour theme used across dot-orbit, including the workspace unlock and recovery windows." />
           </StackPanel>
           <Border Classes="list-panel">
-            <Border Classes="interactive-row separated-row last">
-            <Grid Margin="6,4" ColumnDefinitions="*,180" ColumnSpacing="18">
-              <StackPanel VerticalAlignment="Center" Spacing="2">
-                <TextBlock FontWeight="SemiBold" Text="Colour theme" />
-                <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
-                    Text="Applies immediately and is remembered on this device." TextWrapping="Wrap" />
-              </StackPanel>
-              <ComboBox x:Name="SettingsThemePicker" Grid.Column="1" Classes="inspector-field"
-                  ItemsSource="{Binding Settings.ThemeOptions}"
-                  SelectedItem="{Binding Settings.SelectedTheme, Mode=TwoWay}"
-                  AutomationProperties.AutomationId="settings-theme"
-                  AutomationProperties.Name="Colour theme"
-                  AutomationProperties.ItemStatus="{Binding Settings.ThemeStatus}">
-                <ComboBox.ItemTemplate>
-                  <DataTemplate x:DataType="desktop:ApplicationThemeOption">
-                    <TextBlock Text="{Binding Name}" />
-                  </DataTemplate>
-                </ComboBox.ItemTemplate>
-              </ComboBox>
-            </Grid>
+            <Border Classes="interactive-row separated-row last" MinHeight="54">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <StackPanel VerticalAlignment="Center" Spacing="2">
+                  <TextBlock FontWeight="SemiBold" Text="Colour theme" />
+                  <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
+                      Text="Applies immediately and is remembered on this device." TextWrapping="Wrap" />
+                </StackPanel>
+                <ComboBox x:Name="SettingsThemePicker" Grid.Column="1" Classes="inspector-field" HorizontalAlignment="Right"
+                    ItemsSource="{Binding Settings.ThemeOptions}"
+                    SelectedItem="{Binding Settings.SelectedTheme, Mode=TwoWay}"
+                    AutomationProperties.AutomationId="settings-theme"
+                    AutomationProperties.Name="Colour theme"
+                    AutomationProperties.ItemStatus="{Binding Settings.ThemeStatus}">
+                  <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="desktop:ApplicationThemeOption">
+                      <TextBlock Text="{Binding Name}" />
+                    </DataTemplate>
+                  </ComboBox.ItemTemplate>
+                </ComboBox>
+              </Grid>
             </Border>
           </Border>
         </StackPanel>
@@ -1258,22 +1258,24 @@
                 TextWrapping="Wrap" />
           </Border>
           <Border Classes="list-panel">
-            <Grid Margin="16,14" ColumnDefinitions="*,Auto" ColumnSpacing="18">
-              <StackPanel Spacing="3">
-                <TextBlock FontWeight="SemiBold" Text="Workspace passphrase" />
-                <TextBlock
-                    Foreground="{DynamicResource MutedTextBrush}"
-                    Text="The current passphrase is required and a validated recovery point is created first."
-                    TextWrapping="Wrap" />
-              </StackPanel>
-              <Button
-                  x:Name="SettingsPassphraseButton"
-                  Grid.Column="1"
-                  Classes="view-action"
-                  Content="Change passphrase"
-                  AutomationProperties.Name="Change workspace passphrase"
-                  Click="OnOpenPassphraseRotation" />
-            </Grid>
+            <Border Classes="interactive-row separated-row last" MinHeight="54">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <StackPanel VerticalAlignment="Center" Spacing="2">
+                  <TextBlock FontWeight="SemiBold" Text="Workspace passphrase" />
+                  <TextBlock FontSize="12"
+                      Foreground="{DynamicResource MutedTextBrush}"
+                      Text="The current passphrase is required and a validated recovery point is created first."
+                      TextWrapping="Wrap" />
+                </StackPanel>
+                <Button
+                    x:Name="SettingsPassphraseButton"
+                    Grid.Column="1"
+                    Classes="view-action"
+                    Content="Change passphrase"
+                    AutomationProperties.Name="Change workspace passphrase"
+                    Click="OnOpenPassphraseRotation" />
+              </Grid>
+            </Border>
           </Border>
         </StackPanel>
         <TextBlock Height="1" Opacity="0" Text="{Binding Settings.Announcement}"
