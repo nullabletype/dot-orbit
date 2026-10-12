@@ -64,6 +64,18 @@ A recoverable soft-deletion state for work the user intends to remove. Bin is di
 
 An explicit creation action that uses existing work as a starting point while producing fresh active identities. A duplicated Task copies its editable content, due date, Category behaviour, and Participant references, but not completion, archive, Today, or Bin state. It remains attached only when its Project is active; when its Project is archived, the duplicate becomes standalone and materialises the source Task's effective Category. A duplicated Project copies the Project's editable content and identity colour plus its non-archived, non-binned Tasks, with all copied workflow state reset.
 
+### Planned: Planning snapshot
+
+An immutable, provider-neutral plaintext view of the current planning boundary for an external tool. It includes the reusable Category and Participant catalogue, active Projects, and non-archived, non-binned standalone or active-Project Tasks, including completed Tasks. It identifies the exact source state with a content-derived snapshot identity and durable workspace revision; it is not a backup, complete export, or grant of mutation authority.
+
+### Planned: Change proposal
+
+An untrusted, ordered JSON document containing typed operations against one Planning snapshot. It may describe one prospective change set, but it changes nothing until dot-orbit has validated the whole document, shown every direct and derived effect, received explicit whole-proposal approval, rechecked the source state, and applied the retained plan atomically after creating a validated encrypted recovery point.
+
+### Planned: Workspace revision
+
+A durable, monotonically increasing identity for committed user-data state. Each transaction that actually changes user data advances it exactly once, including changes to archived, binned, or otherwise hidden state. Reads, export, snapshot generation, recovery creation and retention, passphrase operations, schema migration, device-local preferences, and derived-index maintenance do not advance it. Replacing working data through recovery restore rebases the restored workspace to a new successor revision.
+
 ## Invariants
 
 1. Every Task is standalone or belongs to one Project, never more than one.
@@ -113,3 +125,9 @@ An explicit creation action that uses existing work as a starting point while pr
 45. A Task duplicated from an active Project remains attached with the same inherited or overridden Category behaviour; a Task duplicated from an archived Project becomes standalone with its effective Category made explicit.
 46. Project duplication includes incomplete and completed Tasks but excludes individually archived and binned Tasks. Copied Tasks preserve Project order and relative shared order while starting at the top of shared Task order.
 47. Project duplication is one transaction over the confirmed preview: the new Project and all included Tasks are created together or not at all.
+### Planned agent-interchange invariants
+
+48. Agent interchange uses the same domain actions and invariants as direct user actions; it is not a privileged mutation route.
+49. A Change proposal applies completely and atomically against its exact source Workspace revision or does not apply.
+50. Agent interchange cannot directly change Today membership or lanes, shared Task order, Project order, or Category order; ordinary side effects of approved domain actions still occur.
+51. Proposal-local references never become durable identity; every created record receives a fresh application-generated identity.
