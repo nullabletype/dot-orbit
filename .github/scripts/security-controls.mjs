@@ -115,8 +115,12 @@ async function assertSupportDriftAbsent() {
     ["avalonia.headless.xunit", "12.1.3"],
     ["avalonia.themes.fluent", "12.1.3"],
     ["microsoft.data.sqlite.core", "10.0.12"],
+    ["microsoft.testing.extensions.telemetry", "2.5.1"],
+    ["microsoft.testing.extensions.trxreport.abstractions", "2.5.1"],
+    ["microsoft.testing.platform", "2.5.1"],
+    ["microsoft.testing.platform.msbuild", "2.5.1"],
     ["sqlite3mc.pclraw.bundle", "2.4.0"],
-    ["xunit.v3", "4.0.1"],
+    ["xunit.v3.mtp-v2", "4.0.2"],
   ]);
   for (const [packageId, expected] of packages) {
     const index = await readJson(`https://api.nuget.org/v3-flatcontainer/${packageId}/index.json`);
