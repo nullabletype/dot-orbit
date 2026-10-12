@@ -42,7 +42,7 @@ One person managing their own work on a desktop. Collaboration, organisational a
 
 ## Planned extension
 
-dot-orbit should later support tool-neutral, human-reviewed interchange for agent-assisted planning. A user can export current active work, ask an external tool to propose changes from material such as meeting notes, then import a structured change proposal for validation, preview, and explicit approval. Transcript ingestion, autonomous mutation, and provider-specific AI integration are not part of the first useful release.
+dot-orbit should later support tool-neutral, human-reviewed interchange for agent-assisted planning. A user can explicitly copy a bounded Planning snapshot of the current non-archived working set, ask an external tool to propose changes, then deliberately supply an untrusted structured Change proposal for validation, complete preview, and whole-proposal approval. dot-orbit does not ingest transcripts or meeting material, mutate autonomously, or integrate a provider-specific AI service.
 
 ## Success signal
 
