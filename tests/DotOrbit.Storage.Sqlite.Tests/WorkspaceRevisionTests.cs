@@ -1,7 +1,9 @@
 using DotOrbit.Core.Interchange;
 using DotOrbit.Core.Workspaces;
+using DotOrbit.Interchange.Json;
 using DotOrbit.Storage.Sqlite;
 using Microsoft.Data.Sqlite;
+using System.Text.Json;
 using Xunit;
 
 namespace DotOrbit.Storage.Sqlite.Tests;
@@ -360,6 +362,47 @@ public sealed class WorkspaceRevisionTests : IDisposable
         Assert.DoesNotContain(planning.Tasks, task => task.Id == archivedProjectTask.Id);
         Assert.DoesNotContain(planning.Tasks, task => task.Id == binnedProjectTask.Id);
         Assert.DoesNotContain(planning.Tasks, task => task.Id == binnedTask.Id);
+    }
+
+    [Fact]
+    public void ComposedPlanningSnapshotUsesFilteredAtomicSourceAndDoesNotAdvanceRevision()
+    {
+        using var session = CreateWorkspace();
+        var home = Assert.Single(session.Work.Read().Categories);
+        _ = session.Work.CreateCategory("Hidden catalogue category");
+        _ = session.Work.CreateParticipant("Hidden catalogue participant");
+        var project = session.Work.CreateProject("Current project", "", home.Id, null);
+        var completed = session.Work.CreateTask(project.Id, "Completed task");
+        session.Work.CompleteTask(completed.Id);
+        var excludedChild = session.Work.CreateTask(project.Id, "Archived child");
+        session.Work.CompleteTask(excludedChild.Id);
+        session.Work.ArchiveTask(excludedChild.Id);
+        var archivedProject = session.Work.CreateProject("Archived project", "", home.Id, null);
+        var excludedByParent = session.Work.CreateTask(archivedProject.Id, "Excluded by parent");
+        session.Work.ArchiveProject(archivedProject.Id);
+        var binned = session.Work.CreateStandaloneTask("Binned task", "", home.Id, null);
+        session.Work.MoveTaskToBin(binned.Id);
+        var before = session.Planning.Read().WorkspaceRevision;
+
+        var result = PlanningInterchangeCopyComposer.ComposeSnapshot(
+            session.Planning.Read(),
+            includeAgentInstructionsAndSchema: false);
+
+        Assert.True(result.Succeeded);
+        using var document = JsonDocument.Parse(result.Payload!.Value);
+        var root = document.RootElement;
+        Assert.Equal(before.ToString(), root.GetProperty("workspaceRevision").GetString());
+        Assert.Equal(2, root.GetProperty("categories").GetArrayLength());
+        Assert.Equal(1, root.GetProperty("participants").GetArrayLength());
+        Assert.Equal(1, root.GetProperty("projects").GetArrayLength());
+        Assert.Equal(1, root.GetProperty("tasks").GetArrayLength());
+        Assert.True(root.GetProperty("tasks")[0].GetProperty("isComplete").GetBoolean());
+        Assert.Equal(1, root.GetProperty("projects")[0]
+            .GetProperty("excludedArchivedTaskCount").GetInt32());
+        Assert.DoesNotContain(root.GetProperty("tasks").EnumerateArray(), task =>
+            task.GetProperty("id").GetString() is { } id
+            && (id == excludedChild.Id || id == excludedByParent.Id || id == binned.Id));
+        Assert.Equal(before, session.Planning.Read().WorkspaceRevision);
     }
 
     [Fact]

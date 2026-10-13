@@ -19,11 +19,25 @@ public interface IApplicationThemeService
     bool TrySetTheme(ApplicationTheme theme);
 }
 
+public interface IInterchangePreferenceService
+{
+    bool IncludeAgentInstructionsAndSchemaWithSnapshot { get; }
+
+    bool TrySetIncludeAgentInstructionsAndSchemaWithSnapshot(bool include);
+}
+
 internal interface IApplicationThemePreferenceStore
 {
     ApplicationTheme Load();
 
     bool TrySave(ApplicationTheme theme);
+}
+
+internal interface IInterchangePreferenceStore
+{
+    bool LoadIncludeAgentInstructionsAndSchemaWithSnapshot();
+
+    bool TrySaveIncludeAgentInstructionsAndSchemaWithSnapshot(bool include);
 }
 
 internal sealed class ApplicationThemeService : IApplicationThemeService
@@ -108,7 +122,40 @@ internal sealed class TransientApplicationThemeService : IApplicationThemeServic
     }
 }
 
-internal sealed class JsonApplicationThemePreferenceStore : IApplicationThemePreferenceStore
+internal sealed class InterchangePreferenceService(
+    IInterchangePreferenceStore preferenceStore) : IInterchangePreferenceService
+{
+    public bool IncludeAgentInstructionsAndSchemaWithSnapshot { get; private set; } =
+        preferenceStore.LoadIncludeAgentInstructionsAndSchemaWithSnapshot();
+
+    public bool TrySetIncludeAgentInstructionsAndSchemaWithSnapshot(bool include)
+    {
+        if (!preferenceStore.TrySaveIncludeAgentInstructionsAndSchemaWithSnapshot(include))
+        {
+            return false;
+        }
+
+        IncludeAgentInstructionsAndSchemaWithSnapshot = include;
+        return true;
+    }
+}
+
+internal sealed class TransientInterchangePreferenceService(
+    bool includeAgentInstructionsAndSchemaWithSnapshot = true) : IInterchangePreferenceService
+{
+    public bool IncludeAgentInstructionsAndSchemaWithSnapshot { get; private set; } =
+        includeAgentInstructionsAndSchemaWithSnapshot;
+
+    public bool TrySetIncludeAgentInstructionsAndSchemaWithSnapshot(bool include)
+    {
+        IncludeAgentInstructionsAndSchemaWithSnapshot = include;
+        return true;
+    }
+}
+
+internal sealed class JsonApplicationThemePreferenceStore :
+    IApplicationThemePreferenceStore,
+    IInterchangePreferenceStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -131,36 +178,54 @@ internal sealed class JsonApplicationThemePreferenceStore : IApplicationThemePre
 
     public ApplicationTheme Load()
     {
+        var document = LoadDocument();
+        return Enum.TryParse<ApplicationTheme>(document.Theme, ignoreCase: true, out var theme)
+            && Enum.IsDefined(theme)
+                ? theme
+                : ApplicationTheme.Dark;
+    }
+
+    public bool TrySave(ApplicationTheme theme) => TrySaveDocument(
+        LoadDocument() with { Theme = theme.ToString() });
+
+    public bool LoadIncludeAgentInstructionsAndSchemaWithSnapshot() =>
+        LoadDocument().IncludeAgentInstructionsAndSchemaWithSnapshot ?? true;
+
+    public bool TrySaveIncludeAgentInstructionsAndSchemaWithSnapshot(bool include) =>
+        TrySaveDocument(LoadDocument() with
+        {
+            IncludeAgentInstructionsAndSchemaWithSnapshot = include,
+        });
+
+    private PreferenceDocument LoadDocument()
+    {
         try
         {
             if (!File.Exists(_path))
             {
-                return ApplicationTheme.Dark;
+                return new(null, null);
             }
 
-            var document = JsonSerializer.Deserialize<ThemePreferenceDocument>(
-                File.ReadAllText(_path),
-                JsonOptions);
-            return Enum.TryParse<ApplicationTheme>(document?.Theme, ignoreCase: true, out var theme)
-                && Enum.IsDefined(theme)
-                    ? theme
-                    : ApplicationTheme.Dark;
+            return JsonSerializer.Deserialize<PreferenceDocument>(
+                       File.ReadAllText(_path),
+                       JsonOptions)
+                   ?? new(null, null);
         }
         catch (IOException)
         {
-            return ApplicationTheme.Dark;
+            return new(null, null);
         }
         catch (UnauthorizedAccessException)
         {
-            return ApplicationTheme.Dark;
+            return new(null, null);
         }
         catch (JsonException)
         {
-            return ApplicationTheme.Dark;
+            return new(null, null);
         }
     }
 
-    public bool TrySave(ApplicationTheme theme)
+    private bool TrySaveDocument(PreferenceDocument document)
     {
         var directory = Path.GetDirectoryName(_path);
         if (string.IsNullOrEmpty(directory))
@@ -174,7 +239,7 @@ internal sealed class JsonApplicationThemePreferenceStore : IApplicationThemePre
             Directory.CreateDirectory(directory);
             File.WriteAllText(
                 candidate,
-                JsonSerializer.Serialize(new ThemePreferenceDocument(theme.ToString()), JsonOptions));
+                JsonSerializer.Serialize(document, JsonOptions));
             File.Move(candidate, _path, overwrite: true);
             return true;
         }
@@ -204,5 +269,7 @@ internal sealed class JsonApplicationThemePreferenceStore : IApplicationThemePre
         }
     }
 
-    private sealed record ThemePreferenceDocument(string Theme);
+    private sealed record PreferenceDocument(
+        string? Theme,
+        bool? IncludeAgentInstructionsAndSchemaWithSnapshot);
 }

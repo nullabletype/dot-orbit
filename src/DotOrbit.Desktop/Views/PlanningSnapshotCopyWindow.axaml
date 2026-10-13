@@ -1,0 +1,113 @@
+<Window
+    x:Class="DotOrbit.Desktop.Views.PlanningSnapshotCopyWindow"
+    x:DataType="vm:PlanningSnapshotCopyViewModel"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:DotOrbit.Desktop.ViewModels"
+    Title="dot-orbit Planning snapshot"
+    Width="640"
+    Height="720"
+    MinWidth="560"
+    MinHeight="640"
+    Background="{DynamicResource BackgroundBrush}"
+    WindowStartupLocation="CenterOwner">
+  <ScrollViewer>
+    <StackPanel Margin="36" Spacing="14">
+      <TextBlock Classes="eyebrow" Text="AGENT INTERCHANGE" />
+      <TextBlock FontSize="28" FontWeight="Bold" Text="Copy current Planning snapshot" />
+      <TextBlock
+          Foreground="{DynamicResource MutedTextBrush}"
+          LineHeight="21"
+          Text="Review the complete scope that will leave dot-orbit. The retained snapshot will not be refreshed while this window is open."
+          TextWrapping="Wrap" />
+
+      <Border Classes="list-panel" Margin="0,8,0,0">
+        <StackPanel Spacing="6">
+          <TextBlock FontWeight="SemiBold" Text="Included scope and relationships" />
+          <TextBlock Text="{Binding CategoryScopeText}" />
+          <TextBlock Text="{Binding ParticipantScopeText}" />
+          <TextBlock Text="{Binding ProjectScopeText}" />
+          <TextBlock Text="{Binding TaskScopeText}" />
+          <TextBlock
+              Foreground="{DynamicResource MutedTextBrush}"
+              Text="Includes stable identifiers, Category and Project relationships, Category inheritance or override, Participant associations, dates, completion, Today lane, progress, and manual ordering."
+              TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
+
+      <Border Classes="list-panel">
+        <StackPanel Spacing="6">
+          <TextBlock FontWeight="SemiBold" Text="Excluded scope" />
+          <TextBlock
+              Text="Archived and Bin Project and Task content, recovery data, storage paths, and export history are excluded."
+              TextWrapping="Wrap" />
+          <TextBlock Text="{Binding ExcludedChildScopeText}" TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
+
+      <Border
+          x:Name="PlanningSnapshotCatalogueDisclosure"
+          Classes="attention-panel"
+          AutomationProperties.Name="Reusable catalogue disclosure">
+        <StackPanel Spacing="5">
+          <TextBlock FontWeight="SemiBold" Text="Reusable catalogue disclosure" />
+          <TextBlock
+              Text="The full reusable Category and Participant catalogue is included. Names or labels referenced only by archived or Bin work may reveal hidden context."
+              TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
+
+      <TextBlock FontWeight="SemiBold" Text="Output" />
+      <TextBlock Foreground="{DynamicResource MutedTextBrush}" Text="{Binding OutputScopeText}" TextWrapping="Wrap" />
+
+      <Border
+          x:Name="PlanningSnapshotClipboardWarning"
+          Classes="attention-panel"
+          AutomationProperties.LiveSetting="Assertive"
+          AutomationProperties.Name="Sensitive plaintext clipboard confirmation">
+        <StackPanel Spacing="10">
+          <TextBlock FontWeight="SemiBold" Text="Copy sensitive unencrypted plaintext?" />
+          <TextBlock
+              Text="Clipboard contents can be read by other applications and clipboard history. This confirmation authorises this copy only."
+              TextWrapping="Wrap" />
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <Button
+                x:Name="ConfirmPlanningSnapshotCopyButton"
+                Classes="primary-action"
+                AutomationProperties.Name="Confirm sensitive plaintext Planning snapshot copy"
+                Click="OnConfirmCopy"
+                IsEnabled="{Binding CanConfirmCopy}"
+                TabIndex="0">
+              Copy Planning snapshot
+            </Button>
+            <Button
+                x:Name="CancelPlanningSnapshotCopyButton"
+                Classes="view-action"
+                AutomationProperties.Name="Cancel Planning snapshot copy"
+                Click="OnCancelCopy"
+                TabIndex="1">
+              Do not copy
+            </Button>
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
+      <TextBlock
+          x:Name="PlanningSnapshotCopyStatus"
+          AutomationProperties.LiveSetting="Assertive"
+          Foreground="{DynamicResource MutedTextBrush}"
+          IsVisible="{Binding HasStatusMessage}"
+          Text="{Binding StatusMessage}"
+          TextWrapping="Wrap" />
+      <Button
+          x:Name="ClosePlanningSnapshotCopyButton"
+          HorizontalAlignment="Right"
+          AutomationProperties.Name="Close Planning snapshot review"
+          Click="OnClose"
+          IsCancel="True"
+          TabIndex="2">
+        Close
+      </Button>
+    </StackPanel>
+  </ScrollViewer>
+</Window>

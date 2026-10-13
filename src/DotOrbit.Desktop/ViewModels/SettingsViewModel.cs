@@ -2,6 +2,8 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using DotOrbit.Core.Workspaces;
+using DotOrbit.Desktop.Clipboard;
+using DotOrbit.Interchange.Json;
 
 namespace DotOrbit.Desktop.ViewModels;
 
@@ -10,18 +12,26 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private readonly IWorkspaceWork _work;
     private readonly Action _participantsChanged;
     private readonly IApplicationThemeService _applicationThemeService;
+    private readonly IInterchangePreferenceService _interchangePreferenceService;
     private string _announcement = string.Empty;
     private string _focusAutomationId = string.Empty;
     private string _securityConfirmation = string.Empty;
+    private string _interchangeStatus = string.Empty;
+    private bool _includeAgentInstructionsAndSchemaWithSnapshot;
 
     public SettingsViewModel(
         IWorkspaceWork work,
         Action participantsChanged,
-        IApplicationThemeService? applicationThemeService = null)
+        IApplicationThemeService? applicationThemeService = null,
+        IInterchangePreferenceService? interchangePreferenceService = null)
     {
         _work = work;
         _participantsChanged = participantsChanged;
         _applicationThemeService = applicationThemeService ?? new TransientApplicationThemeService();
+        _interchangePreferenceService = interchangePreferenceService
+            ?? new TransientInterchangePreferenceService();
+        _includeAgentInstructionsAndSchemaWithSnapshot =
+            _interchangePreferenceService.IncludeAgentInstructionsAndSchemaWithSnapshot;
         ThemeOptions =
         [
             new(ApplicationTheme.Dark, "Dark"),
@@ -61,6 +71,35 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         }
     }
     public string ThemeStatus => $"{SelectedTheme.Name} theme selected";
+    public bool IncludeAgentInstructionsAndSchemaWithSnapshot
+    {
+        get => _includeAgentInstructionsAndSchemaWithSnapshot;
+        set
+        {
+            if (value == _includeAgentInstructionsAndSchemaWithSnapshot)
+            {
+                return;
+            }
+
+            if (!_interchangePreferenceService.TrySetIncludeAgentInstructionsAndSchemaWithSnapshot(value))
+            {
+                InterchangeStatus =
+                    "Could not save the snapshot output preference. The previous setting is still active.";
+                Notify();
+                return;
+            }
+
+            _includeAgentInstructionsAndSchemaWithSnapshot = value;
+            Notify();
+            Notify(nameof(InterchangePreferenceStatus));
+            InterchangeStatus = value
+                ? "Agent instructions and schemas will be included with Planning snapshots."
+                : "Planning snapshots will be copied as JSON only.";
+        }
+    }
+    public string InterchangePreferenceStatus => IncludeAgentInstructionsAndSchemaWithSnapshot
+        ? "Agent instructions and schemas included"
+        : "Snapshot JSON only";
     public bool HasParticipants => Participants.Count > 0;
     public bool HasNoParticipants => !HasParticipants;
     public string Announcement
@@ -84,6 +123,44 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         }
     }
     public bool HasSecurityConfirmation => !string.IsNullOrEmpty(SecurityConfirmation);
+    public string InterchangeStatus
+    {
+        get => _interchangeStatus;
+        private set
+        {
+            _interchangeStatus = value;
+            Notify();
+            Notify(nameof(HasInterchangeStatus));
+        }
+    }
+    public bool HasInterchangeStatus => !string.IsNullOrEmpty(InterchangeStatus);
+
+    internal async Task CopyReusableInstructionsAsync(IPlainTextClipboard clipboard)
+    {
+        ArgumentNullException.ThrowIfNull(clipboard);
+        var result = AgentInterchangeDocumentComposer.ComposeReusableInstructionsAndSchemas();
+        if (!result.Succeeded)
+        {
+            InterchangeStatus = PlanningSnapshotCopyViewModel.TooLargeStatus;
+            return;
+        }
+
+        try
+        {
+            await clipboard.WriteTextAsync(result.Payload!.Value);
+            InterchangeStatus = "Reusable agent instructions and v1 schemas copied.";
+        }
+        catch (Exception)
+        {
+            InterchangeStatus = "Reusable agent instructions and schemas could not be copied. Try again.";
+        }
+    }
+
+    internal void ReportInterchangeStatus(string status)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(status);
+        InterchangeStatus = status;
+    }
 
     public void Refresh()
     {

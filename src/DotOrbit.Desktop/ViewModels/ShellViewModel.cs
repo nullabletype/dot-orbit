@@ -11,8 +11,9 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     public ShellViewModel(
         IWorkspaceWork? work = null,
         TimeProvider? timeProvider = null,
-        IApplicationThemeService? applicationThemeService = null)
-        : this(work, timeProvider, applicationThemeService, null)
+        IApplicationThemeService? applicationThemeService = null,
+        IInterchangePreferenceService? interchangePreferenceService = null)
+        : this(work, timeProvider, applicationThemeService, null, null, null, interchangePreferenceService)
     {
     }
 
@@ -22,7 +23,8 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         IApplicationThemeService? applicationThemeService,
         IInspectorSaveWriter? inspectorSaveWriter = null,
         IWorkspaceActionExecutor? actionExecutor = null,
-        IUiDispatcher? uiDispatcher = null)
+        IUiDispatcher? uiDispatcher = null,
+        IInterchangePreferenceService? interchangePreferenceService = null)
     {
         applicationThemeService ??= new TransientApplicationThemeService();
         Work = work is null
@@ -35,7 +37,8 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             : new SettingsViewModel(
                 work,
                 () => Work!.RefreshFromStore(),
-                applicationThemeService);
+                applicationThemeService,
+                interchangePreferenceService);
         PrimaryNavigation =
         [
             CreateNavigationItem(

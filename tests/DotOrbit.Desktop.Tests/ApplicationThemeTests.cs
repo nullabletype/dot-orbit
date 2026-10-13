@@ -1,5 +1,7 @@
 using Avalonia;
 using Avalonia.Styling;
+using DotOrbit.Core.Workspaces;
+using DotOrbit.Storage.Sqlite;
 using Xunit;
 
 namespace DotOrbit.Desktop.Tests;
@@ -20,6 +22,7 @@ public sealed class ApplicationThemeTests
 
         File.WriteAllText(path, "{\"theme\":\"Sepia\"}");
         Assert.Equal(ApplicationTheme.Dark, store.Load());
+        Assert.True(store.LoadIncludeAgentInstructionsAndSchemaWithSnapshot());
     }
 
     [Fact]
@@ -36,6 +39,60 @@ public sealed class ApplicationThemeTests
         Assert.True(store.TrySave(ApplicationTheme.Dark));
         Assert.Equal(ApplicationTheme.Dark, store.Load());
         Assert.Empty(Directory.GetFiles(directory.Path, "*.tmp"));
+    }
+
+    [Fact]
+    public void InterchangePreferenceDefaultsEnabledAndPersistsWithoutClobberingTheme()
+    {
+        using var directory = new TemporaryDirectory();
+        var path = Path.Combine(directory.Path, "preferences.json");
+        var store = new JsonApplicationThemePreferenceStore(path);
+
+        Assert.True(store.LoadIncludeAgentInstructionsAndSchemaWithSnapshot());
+        Assert.True(store.TrySave(ApplicationTheme.Light));
+        Assert.True(store.TrySaveIncludeAgentInstructionsAndSchemaWithSnapshot(false));
+
+        var reloaded = new JsonApplicationThemePreferenceStore(path);
+        Assert.Equal(ApplicationTheme.Light, reloaded.Load());
+        Assert.False(reloaded.LoadIncludeAgentInstructionsAndSchemaWithSnapshot());
+
+        Assert.True(reloaded.TrySave(ApplicationTheme.Dark));
+        Assert.False(reloaded.LoadIncludeAgentInstructionsAndSchemaWithSnapshot());
+        Assert.Empty(Directory.GetFiles(directory.Path, "*.tmp"));
+    }
+
+    [Fact]
+    public void InterchangePreferenceServiceChangesStateOnlyAfterPersistenceSucceeds()
+    {
+        var store = new RecordingInterchangePreferenceStore();
+        var service = new InterchangePreferenceService(store);
+
+        Assert.True(service.IncludeAgentInstructionsAndSchemaWithSnapshot);
+        Assert.True(service.TrySetIncludeAgentInstructionsAndSchemaWithSnapshot(false));
+        Assert.False(service.IncludeAgentInstructionsAndSchemaWithSnapshot);
+
+        store.AllowSave = false;
+        Assert.False(service.TrySetIncludeAgentInstructionsAndSchemaWithSnapshot(true));
+        Assert.False(service.IncludeAgentInstructionsAndSchemaWithSnapshot);
+    }
+
+    [Fact]
+    public void InterchangePreferencePersistenceDoesNotAdvanceWorkspaceRevision()
+    {
+        using var directory = new TemporaryDirectory();
+        const string passphraseText = "synthetic preference revision password";
+        var passphrase = WorkspacePassphrase.Create(passphraseText, passphraseText).Passphrase!;
+        using var session = Assert.IsAssignableFrom<IWorkspaceSession>(new EncryptedWorkspaceStore().Create(
+            Path.Combine(directory.Path, "workspace.db"),
+            passphrase,
+            CategoryName.Create("Home").CategoryName!).Session);
+        var before = session.Planning.Read().WorkspaceRevision;
+        var preferences = new InterchangePreferenceService(
+            new JsonApplicationThemePreferenceStore(Path.Combine(directory.Path, "preferences.json")));
+
+        Assert.True(preferences.TrySetIncludeAgentInstructionsAndSchemaWithSnapshot(false));
+
+        Assert.Equal(before, session.Planning.Read().WorkspaceRevision);
     }
 
     [Fact]
@@ -92,6 +149,26 @@ public sealed class ApplicationThemeTests
         public ApplicationTheme Load() => ApplicationTheme.Dark;
 
         public bool TrySave(ApplicationTheme theme) => false;
+    }
+
+    private sealed class RecordingInterchangePreferenceStore : IInterchangePreferenceStore
+    {
+        private bool _include = true;
+
+        public bool AllowSave { get; set; } = true;
+
+        public bool LoadIncludeAgentInstructionsAndSchemaWithSnapshot() => _include;
+
+        public bool TrySaveIncludeAgentInstructionsAndSchemaWithSnapshot(bool include)
+        {
+            if (!AllowSave)
+            {
+                return false;
+            }
+
+            _include = include;
+            return true;
+        }
     }
 
     private sealed class TemporaryDirectory : IDisposable

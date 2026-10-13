@@ -17,6 +17,9 @@ public sealed partial class App : Application
     internal IApplicationThemeService ThemeService { get; private set; } =
         new TransientApplicationThemeService();
 
+    internal IInterchangePreferenceService InterchangePreferenceService { get; private set; } =
+        new TransientInterchangePreferenceService();
+
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
     public override void OnFrameworkInitializationCompleted()
@@ -26,9 +29,9 @@ public sealed partial class App : Application
             Program.TraceSession?.StartUiProbe(
                 action => Dispatcher.UIThread.Post(action, DispatcherPriority.Background),
                 Environment.CurrentManagedThreadId);
-            ThemeService = new ApplicationThemeService(
-                this,
-                JsonApplicationThemePreferenceStore.CreateDefault());
+            var preferenceStore = JsonApplicationThemePreferenceStore.CreateDefault();
+            ThemeService = new ApplicationThemeService(this, preferenceStore);
+            InterchangePreferenceService = new InterchangePreferenceService(preferenceStore);
 
             if (desktop.Args?.Contains("--markdown-link-smoke", StringComparer.Ordinal) == true)
             {

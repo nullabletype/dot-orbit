@@ -115,6 +115,13 @@
       "dotorbit.core": {
         "type": "Project"
       },
+      "dotorbit.interchange.json": {
+        "type": "Project",
+        "dependencies": {
+          "Bebop.JsonSchema": "[1.1.0, )",
+          "DotOrbit.Core": "[1.0.0, )"
+        }
+      },
       "dotorbit.markdown": {
         "type": "Project",
         "dependencies": {
@@ -129,6 +136,12 @@
           "Microsoft.Data.Sqlite.Core": "[10.0.12, )",
           "SQLite3MC.PCLRaw.bundle": "[2.4.0, )"
         }
+      },
+      "Bebop.JsonSchema": {
+        "type": "CentralTransitive",
+        "requested": "[1.1.0, )",
+        "resolved": "1.1.0",
+        "contentHash": "53yF/u7oQYJ6rNYDHlB+5RZNI3cYa76Ci2qEb1SoAMYlZubaGz1e0ttpc6XbtalJHQZTb/SP3Z7gXdMDkJ8L2Q=="
       },
       "Markdig": {
         "type": "CentralTransitive",

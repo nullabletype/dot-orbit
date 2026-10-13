@@ -101,6 +101,51 @@ public sealed class SettingsViewModelTests
         Assert.Contains("previous theme is still active", settings.Announcement, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void InterchangePreferenceDefaultsEnabledAndChangesOnlyAfterDevicePersistenceSucceeds()
+    {
+        var preferences = new RecordingInterchangePreferenceService();
+        var settings = new SettingsViewModel(
+            new MemoryWorkspaceWork(),
+            () => { },
+            interchangePreferenceService: preferences);
+
+        Assert.True(settings.IncludeAgentInstructionsAndSchemaWithSnapshot);
+        Assert.Equal("Agent instructions and schemas included", settings.InterchangePreferenceStatus);
+
+        settings.IncludeAgentInstructionsAndSchemaWithSnapshot = false;
+
+        Assert.False(settings.IncludeAgentInstructionsAndSchemaWithSnapshot);
+        Assert.Equal("Planning snapshots will be copied as JSON only.", settings.InterchangeStatus);
+
+        preferences.AllowChange = false;
+        settings.IncludeAgentInstructionsAndSchemaWithSnapshot = true;
+
+        Assert.False(settings.IncludeAgentInstructionsAndSchemaWithSnapshot);
+        Assert.Contains("previous setting", settings.InterchangeStatus, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ReusableInstructionCopyReportsFixedSuccessAndFailureOutcomes()
+    {
+        var settings = new SettingsViewModel(new MemoryWorkspaceWork(), () => { });
+        var clipboard = new PlanningSnapshotCopyViewModelTests.RecordingPlainTextClipboard();
+
+        await settings.CopyReusableInstructionsAsync(clipboard);
+
+        Assert.Equal(1, clipboard.WriteCount);
+        Assert.Equal("Reusable agent instructions and v1 schemas copied.", settings.InterchangeStatus);
+
+        await settings.CopyReusableInstructionsAsync(
+            new PlanningSnapshotCopyViewModelTests.RecordingPlainTextClipboard(
+                new IOException("synthetic private content")));
+
+        Assert.Equal(
+            "Reusable agent instructions and schemas could not be copied. Try again.",
+            settings.InterchangeStatus);
+        Assert.DoesNotContain("private", settings.InterchangeStatus, StringComparison.OrdinalIgnoreCase);
+    }
+
     private sealed class RecordingThemeService(ApplicationTheme theme) : IApplicationThemeService
     {
         public ApplicationTheme CurrentTheme { get; private set; } = theme;
@@ -115,6 +160,24 @@ public sealed class SettingsViewModelTests
             }
 
             CurrentTheme = theme;
+            return true;
+        }
+    }
+
+    private sealed class RecordingInterchangePreferenceService : IInterchangePreferenceService
+    {
+        public bool IncludeAgentInstructionsAndSchemaWithSnapshot { get; private set; } = true;
+
+        public bool AllowChange { get; set; } = true;
+
+        public bool TrySetIncludeAgentInstructionsAndSchemaWithSnapshot(bool include)
+        {
+            if (!AllowChange)
+            {
+                return false;
+            }
+
+            IncludeAgentInstructionsAndSchemaWithSnapshot = include;
             return true;
         }
     }
