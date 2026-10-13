@@ -277,6 +277,8 @@ public sealed class RecoveryViewModelTests
 
         public IWorkspaceRecovery Recovery { get; } = recovery;
 
+        public DotOrbit.Core.Interchange.IPlanningSnapshotSource Planning => throw new NotSupportedException();
+
         public PassphraseRotationResult RotatePassphrase(
             WorkspacePassphrase currentPassphrase,
             WorkspacePassphrase newPassphrase) =>

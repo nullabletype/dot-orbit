@@ -1,4 +1,5 @@
 using System.Globalization;
+using DotOrbit.Core.Interchange;
 using DotOrbit.Core.Workspaces;
 using DotOrbit.Core.Diagnostics;
 using Microsoft.Data.Sqlite;
@@ -7,7 +8,7 @@ namespace DotOrbit.Storage.Sqlite;
 
 public sealed class EncryptedWorkspaceStore : IWorkspaceStore
 {
-    public const int CurrentSchemaVersion = 14;
+    public const int CurrentSchemaVersion = 15;
 
     internal const string CipherName = "chacha20";
     internal const int KdfIterations = 64007;
@@ -763,7 +764,11 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         {
             SqliteWorkspaceWork.ValidateShape(connection, transaction, SqliteWorkspaceWork.SchemaThirteen);
         }
-        else if (schemaVersion >= 14)
+        else if (schemaVersion == 14)
+        {
+            SqliteWorkspaceWork.ValidateShape(connection, transaction, SqliteWorkspaceWork.SchemaFourteen);
+        }
+        else if (schemaVersion == 15)
         {
             SqliteWorkspaceWork.ValidateShape(connection, transaction);
         }
@@ -932,6 +937,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
                 _gate,
                 store._emptyBinCheckpoint);
             Work = new SqliteWorkspaceWork(store, _transactions, store._timeProvider);
+            Planning = new SqlitePlanningSnapshotSource(_transactions);
         }
 
         public int SchemaVersion { get; }
@@ -939,6 +945,8 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         public string FirstCategoryName { get; }
 
         public IWorkspaceRecovery Recovery => _recovery;
+
+        public IPlanningSnapshotSource Planning { get; }
 
         public PassphraseRotationResult RotatePassphrase(
             WorkspacePassphrase currentPassphrase,

@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RuntimeIdentifiers>win-x64;linux-x64;osx-x64;osx-arm64</RuntimeIdentifiers>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Bebop.JsonSchema" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../DotOrbit.Core/DotOrbit.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="../../schemas/interchange/v1/planning-snapshot.schema.json"
+                      Link="Schemas/interchange/v1/planning-snapshot.schema.json"
+                      LogicalName="DotOrbit.Interchange.Json.Schemas.planning-snapshot.schema.json" />
+    <EmbeddedResource Include="../../schemas/interchange/v1/change-proposal.schema.json"
+                      Link="Schemas/interchange/v1/change-proposal.schema.json"
+                      LogicalName="DotOrbit.Interchange.Json.Schemas.change-proposal.schema.json" />
+    <EmbeddedResource Include="MetaSchemas/draft2020-12/schema.json"
+                      LogicalName="DotOrbit.Interchange.Json.MetaSchemas.draft2020-12.schema.json" />
+    <EmbeddedResource Include="MetaSchemas/draft2020-12/meta/core.json"
+                      LogicalName="DotOrbit.Interchange.Json.MetaSchemas.draft2020-12.meta.core.json" />
+    <EmbeddedResource Include="MetaSchemas/draft2020-12/meta/applicator.json"
+                      LogicalName="DotOrbit.Interchange.Json.MetaSchemas.draft2020-12.meta.applicator.json" />
+    <EmbeddedResource Include="MetaSchemas/draft2020-12/meta/unevaluated.json"
+                      LogicalName="DotOrbit.Interchange.Json.MetaSchemas.draft2020-12.meta.unevaluated.json" />
+    <EmbeddedResource Include="MetaSchemas/draft2020-12/meta/validation.json"
+                      LogicalName="DotOrbit.Interchange.Json.MetaSchemas.draft2020-12.meta.validation.json" />
+    <EmbeddedResource Include="MetaSchemas/draft2020-12/meta/meta-data.json"
+                      LogicalName="DotOrbit.Interchange.Json.MetaSchemas.draft2020-12.meta.meta-data.json" />
+    <EmbeddedResource Include="MetaSchemas/draft2020-12/meta/format-annotation.json"
+                      LogicalName="DotOrbit.Interchange.Json.MetaSchemas.draft2020-12.meta.format-annotation.json" />
+    <EmbeddedResource Include="MetaSchemas/draft2020-12/meta/content.json"
+                      LogicalName="DotOrbit.Interchange.Json.MetaSchemas.draft2020-12.meta.content.json" />
+  </ItemGroup>
+</Project>

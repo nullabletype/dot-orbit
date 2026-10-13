@@ -1,3 +1,5 @@
+using DotOrbit.Core.Interchange;
+
 namespace DotOrbit.Core.Workspaces;
 
 public interface IWorkspaceStore
@@ -24,6 +26,8 @@ public interface IWorkspaceSession : IDisposable
     string FirstCategoryName { get; }
 
     IWorkspaceRecovery Recovery { get; }
+
+    IPlanningSnapshotSource Planning { get; }
 
     PassphraseRotationResult RotatePassphrase(
         WorkspacePassphrase currentPassphrase,

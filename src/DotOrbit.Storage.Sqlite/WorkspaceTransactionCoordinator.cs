@@ -34,6 +34,7 @@ internal sealed class WorkspaceTransactionCoordinator
         _recovery = recovery;
         _gate = gate;
         _emptyBinCheckpoint = emptyBinCheckpoint;
+        WorkspaceRevisionStorage.InstallChangeTracking(writeConnection);
     }
 
     internal AutomaticRecoveryAttempt Execute(
@@ -47,16 +48,23 @@ internal sealed class WorkspaceTransactionCoordinator
         {
             wait.Dispose();
             var connection = GetWriteConnection();
+            var changed = false;
             using (var transaction = BeginTransaction(connection))
             {
+                WorkspaceRevisionStorage.ResetChangeTracking(connection, transaction);
                 ArchiveSearchIndexEffects effects;
                 using (PerformanceTrace.Measure(PerformanceStage.Mutation, operation))
                     effects = change(connection, transaction);
                 using (PerformanceTrace.Measure(PerformanceStage.DerivedStorage, operation))
                     ArchiveSearchIndex.Apply(connection, transaction, effects);
+                changed = WorkspaceRevisionStorage.HasTrackedChanges(connection, transaction);
+                if (changed)
+                    WorkspaceRevisionStorage.AdvanceChecked(connection, transaction);
                 using (PerformanceTrace.Measure(PerformanceStage.Commit, operation))
                     transaction.Commit();
             }
+            if (!changed)
+                return AutomaticRecoveryAttempt.Ignored;
             using (PerformanceTrace.Measure(PerformanceStage.Recovery, operation))
                 return _recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed);
         }
@@ -100,6 +108,7 @@ internal sealed class WorkspaceTransactionCoordinator
                 _workspacePath,
                 passphrase,
                 SqliteOpenMode.ReadWrite);
+            WorkspaceRevisionStorage.InstallChangeTracking(connection);
             var transactionActive = false;
             try
             {
@@ -108,6 +117,12 @@ internal sealed class WorkspaceTransactionCoordinator
                 var currentPreview = readPreview(connection, null);
                 if (!confirmedPreview.Matches(currentPreview))
                     return new(EmptyBinStatus.PreviewChanged, currentPreview);
+                if (currentPreview.IsEmpty)
+                {
+                    ExecuteNonQuery(connection, "ROLLBACK;");
+                    transactionActive = false;
+                    return new(EmptyBinStatus.Emptied, currentPreview);
+                }
 
                 ExecuteNonQuery(connection, "ROLLBACK;");
                 transactionActive = false;
@@ -118,11 +133,15 @@ internal sealed class WorkspaceTransactionCoordinator
 
                 ExecuteNonQuery(connection, "BEGIN EXCLUSIVE;");
                 transactionActive = true;
+                WorkspaceRevisionStorage.ResetChangeTracking(connection, null);
                 currentPreview = readPreview(connection, null);
                 if (!confirmedPreview.Matches(currentPreview))
                     return new(EmptyBinStatus.PreviewChanged, currentPreview);
                 var effects = delete(connection, null);
                 ArchiveSearchIndex.Apply(connection, null, effects);
+                if (!WorkspaceRevisionStorage.HasTrackedChanges(connection, null))
+                    throw new InvalidDataException();
+                WorkspaceRevisionStorage.AdvanceChecked(connection, null);
                 _emptyBinCheckpoint?.Invoke(EmptyBinCheckpoint.BeforeCommit);
                 ExecuteNonQuery(connection, "COMMIT;");
                 transactionActive = false;
@@ -136,6 +155,10 @@ internal sealed class WorkspaceTransactionCoordinator
                 return new(EmptyBinStatus.Failed, confirmedPreview);
             }
             catch (InvalidOperationException)
+            {
+                return new(EmptyBinStatus.Failed, confirmedPreview);
+            }
+            catch (OverflowException)
             {
                 return new(EmptyBinStatus.Failed, confirmedPreview);
             }

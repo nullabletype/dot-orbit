@@ -1803,6 +1803,8 @@ public sealed class WorkspaceWorkTests : IDisposable
     [InlineData("archive_date TEXT NOT NULL", "archive_date TEXT")]
     [InlineData("archive_date TEXT NOT NULL", "archive_date INTEGER NOT NULL")]
     [InlineData("tokenize = 'unicode61 remove_diacritics 2'", "tokenize = 'ascii'")]
+    [InlineData("CHECK(singleton = 1)", "CHECK(singleton >= 1)")]
+    [InlineData("CHECK(typeof(revision) = 'integer' AND revision >= 1)", "CHECK(typeof(revision) = 'integer' AND revision >= 0)")]
     public void OpenRejectsCurrentSchemaWithChangedCanonicalDefinitions(string original, string replacement)
     {
         _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!.Dispose();
@@ -1816,7 +1818,7 @@ public sealed class WorkspaceWorkTests : IDisposable
             var mutatedSchema = schema[..mutationIndex]
                 + replacement
                 + schema[(mutationIndex + original.Length)..];
-            command.CommandText = "DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; DROP TABLE today_tasks; DROP TABLE task_participants; DROP TABLE participants; DROP TABLE tasks; DROP TABLE projects;" +
+            command.CommandText = "DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; DROP TABLE today_tasks; DROP TABLE task_participants; DROP TABLE participants; DROP TABLE tasks; DROP TABLE projects;" +
                 mutatedSchema;
             command.ExecuteNonQuery();
             Assert.Equal("ok", EncryptedWorkspaceStore.ExecuteScalar<string>(connection, "PRAGMA integrity_check;"));

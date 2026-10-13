@@ -6,6 +6,7 @@ dot-orbit packages include the .NET runtime and open-source libraries used by th
 
 - [.NET runtime](https://github.com/dotnet/runtime): Copyright .NET Foundation and contributors.
 - [Avalonia](https://github.com/AvaloniaUI/Avalonia): Copyright 2013-2026 The AvaloniaUI Project.
+- [Bebop.JsonSchema](https://github.com/cptjazz/Bebop.JsonSchema): Copyright 2025 Alexander Jesner.
 - [Microsoft.Data.Sqlite](https://github.com/dotnet/efcore): Copyright Microsoft Corporation.
 - [SQLite3 Multiple Ciphers](https://github.com/utelle/SQLite3MultipleCiphers) and `SQLite3MC.PCLRaw.bundle`: Copyright 2023-2026 Ulrich Telle and contributors.
 - [SkiaSharp and HarfBuzzSharp](https://github.com/mono/SkiaSharp): Copyright Microsoft Corporation and contributors.
@@ -29,6 +30,8 @@ The embedded [Inter typeface](https://github.com/rsms/inter), Copyright 2016 The
 ## BSD-licensed component
 
 The Windows package embeds [ANGLE](https://github.com/AvaloniaUI/angle), Copyright 2018 The ANGLE Project Authors. Its complete redistribution terms are included as `ANGLE-LICENSE.txt`.
+
+The application embeds the official [JSON Schema Draft 2020-12 meta-schemas](https://json-schema.org/draft/2020-12/), distributed by the JSON Schema project under the BSD 3-Clause License or Academic Free License 3.0.
 
 [Markdig](https://github.com/xoofx/markdig) is licensed under the BSD 2-Clause License:
 

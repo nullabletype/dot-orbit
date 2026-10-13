@@ -230,10 +230,15 @@ internal sealed class SqliteWorkspaceWork(
         + TaskBinSchema + ProjectBinSchema + ProjectBinAggregateSchema + CategoryIdentitySchemaThirteen
         + "PRAGMA user_version = 13;";
 
-    internal const string Schema = ProjectSchema + TaskSchema + ParticipantSchema + TaskParticipantSchema
+    internal const string SchemaFourteen = ProjectSchema + TaskSchema + ParticipantSchema + TaskParticipantSchema
         + TodayTaskSchema + TaskArchiveSchema + ProjectArchiveSchema + ArchiveSearchSchema
         + TaskBinSchema + ProjectBinSchema + ProjectBinAggregateSchema + CategoryIdentitySchema
         + ProjectIdentitySchema + "PRAGMA user_version = 14;";
+
+    internal const string Schema = ProjectSchema + TaskSchema + ParticipantSchema + TaskParticipantSchema
+        + TodayTaskSchema + TaskArchiveSchema + ProjectArchiveSchema + ArchiveSearchSchema
+        + TaskBinSchema + ProjectBinSchema + ProjectBinAggregateSchema + CategoryIdentitySchema
+        + ProjectIdentitySchema + WorkspaceRevisionStorage.Schema + "PRAGMA user_version = 15;";
 
     internal static void ValidateShape(SqliteConnection connection, SqliteTransaction? transaction, string? schema = null)
     {
@@ -254,6 +259,7 @@ internal sealed class SqliteWorkspaceWork(
             || string.Equals(schema, SchemaEleven, StringComparison.Ordinal)
             || string.Equals(schema, SchemaTwelve, StringComparison.Ordinal)
             || string.Equals(schema, SchemaThirteen, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaFourteen, StringComparison.Ordinal)
             || string.Equals(schema, Schema, StringComparison.Ordinal);
         if (hasParticipants)
         {
@@ -267,6 +273,7 @@ internal sealed class SqliteWorkspaceWork(
             || string.Equals(schema, SchemaEleven, StringComparison.Ordinal)
             || string.Equals(schema, SchemaTwelve, StringComparison.Ordinal)
             || string.Equals(schema, SchemaThirteen, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaFourteen, StringComparison.Ordinal)
             || string.Equals(schema, Schema, StringComparison.Ordinal);
         if (hasToday)
             ValidateTableDefinition(command, "today_tasks", definitions[4]);
@@ -276,6 +283,7 @@ internal sealed class SqliteWorkspaceWork(
             || string.Equals(schema, SchemaEleven, StringComparison.Ordinal)
             || string.Equals(schema, SchemaTwelve, StringComparison.Ordinal)
             || string.Equals(schema, SchemaThirteen, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaFourteen, StringComparison.Ordinal)
             || string.Equals(schema, Schema, StringComparison.Ordinal);
         if (hasTaskArchive)
             ValidateTableDefinition(command, "task_archives", definitions[5]);
@@ -284,6 +292,7 @@ internal sealed class SqliteWorkspaceWork(
             || string.Equals(schema, SchemaEleven, StringComparison.Ordinal)
             || string.Equals(schema, SchemaTwelve, StringComparison.Ordinal)
             || string.Equals(schema, SchemaThirteen, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaFourteen, StringComparison.Ordinal)
             || string.Equals(schema, Schema, StringComparison.Ordinal);
         if (hasProjectArchive)
             ValidateTableDefinition(command, "project_archives", definitions[6]);
@@ -291,11 +300,13 @@ internal sealed class SqliteWorkspaceWork(
             || string.Equals(schema, SchemaEleven, StringComparison.Ordinal)
             || string.Equals(schema, SchemaTwelve, StringComparison.Ordinal)
             || string.Equals(schema, SchemaThirteen, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaFourteen, StringComparison.Ordinal)
             || string.Equals(schema, Schema, StringComparison.Ordinal))
             ValidateTableDefinition(command, "archive_search", definitions[7]);
         if (string.Equals(schema, SchemaEleven, StringComparison.Ordinal)
             || string.Equals(schema, SchemaTwelve, StringComparison.Ordinal)
             || string.Equals(schema, SchemaThirteen, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaFourteen, StringComparison.Ordinal)
             || string.Equals(schema, Schema, StringComparison.Ordinal))
         {
             ValidateTableDefinition(command, "task_bins", definitions[8]);
@@ -304,16 +315,32 @@ internal sealed class SqliteWorkspaceWork(
         }
         if (string.Equals(schema, SchemaTwelve, StringComparison.Ordinal)
             || string.Equals(schema, SchemaThirteen, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaFourteen, StringComparison.Ordinal)
             || string.Equals(schema, Schema, StringComparison.Ordinal))
         {
             ValidateTableDefinition(command, "project_bin_tasks", definitions[11]);
             ValidateTableDefinition(command, "project_bin_order_anchors", definitions[12]);
         }
         if (string.Equals(schema, SchemaThirteen, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaFourteen, StringComparison.Ordinal)
             || string.Equals(schema, Schema, StringComparison.Ordinal))
             ValidateTableDefinition(command, "category_identities", definitions[13]);
-        if (string.Equals(schema, Schema, StringComparison.Ordinal))
+        if (string.Equals(schema, SchemaFourteen, StringComparison.Ordinal)
+            || string.Equals(schema, Schema, StringComparison.Ordinal))
             ValidateTableDefinition(command, "project_identities", definitions[14]);
+        if (string.Equals(schema, Schema, StringComparison.Ordinal))
+        {
+            ValidateTableDefinition(command, "workspace_revision", definitions[15]);
+            command.Parameters.Clear();
+            command.CommandText = "SELECT singleton,revision,typeof(revision) FROM workspace_revision;";
+            using var revision = command.ExecuteReader();
+            if (!revision.Read()
+                || revision.GetInt64(0) != 1
+                || revision.GetInt64(1) < 1
+                || !string.Equals(revision.GetString(2), "integer", StringComparison.Ordinal)
+                || revision.Read())
+                throw new InvalidDataException();
+        }
         command.Parameters.Clear();
         command.CommandText = "PRAGMA foreign_key_check;";
         using (var foreignKeys = command.ExecuteReader())
@@ -414,6 +441,7 @@ internal sealed class SqliteWorkspaceWork(
         if (string.Equals(schema, SchemaEleven, StringComparison.Ordinal)
             || string.Equals(schema, SchemaTwelve, StringComparison.Ordinal)
             || string.Equals(schema, SchemaThirteen, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaFourteen, StringComparison.Ordinal)
             || string.Equals(schema, Schema, StringComparison.Ordinal))
         {
             command.CommandText = "SELECT removed_instant FROM task_bins UNION ALL SELECT removed_instant FROM project_bins;";
@@ -428,6 +456,7 @@ internal sealed class SqliteWorkspaceWork(
             if ((long)command.ExecuteScalar()! != 0) throw new InvalidDataException();
         }
         if (string.Equals(schema, SchemaThirteen, StringComparison.Ordinal)
+            || string.Equals(schema, SchemaFourteen, StringComparison.Ordinal)
             || string.Equals(schema, Schema, StringComparison.Ordinal))
         {
             command.CommandText = """
@@ -450,7 +479,8 @@ internal sealed class SqliteWorkspaceWork(
                 }
             }
         }
-        if (string.Equals(schema, Schema, StringComparison.Ordinal))
+        if (string.Equals(schema, SchemaFourteen, StringComparison.Ordinal)
+            || string.Equals(schema, Schema, StringComparison.Ordinal))
         {
             command.CommandText = """
                 SELECT pi.colour_key
@@ -1635,7 +1665,7 @@ internal sealed class SqliteWorkspaceWork(
         return result!;
     }
 
-    private static WorkspaceWorkSnapshot ReadSnapshot(SqliteConnection connection, SqliteTransaction? transaction = null)
+    internal static WorkspaceWorkSnapshot ReadSnapshot(SqliteConnection connection, SqliteTransaction? transaction = null)
     {
         using var timing = PerformanceTrace.MeasureAllocationStage(PerformanceStage.SnapshotRead);
         var hasTaskBins = SchemaObjectExists(connection, transaction, "table", "task_bins");
@@ -2260,6 +2290,13 @@ internal sealed class SqliteWorkspaceWork(
         var binnedIds = ReadIds(connection, transaction,
             "SELECT task_id FROM task_bins ORDER BY removed_instant,task_id;");
         var allIds = orderedIds.Concat(binnedIds.Where(id => !orderedIds.Contains(id, StringComparer.Ordinal))).ToArray();
+        if (OrderAlreadyMatches(
+                connection,
+                transaction,
+                "SELECT id,shared_position FROM tasks ORDER BY shared_position,id;",
+                allIds,
+                startingPosition))
+            return;
         var offset = allIds.Length + startingPosition + 1;
         Execute(connection, transaction, "UPDATE tasks SET shared_position = shared_position + $offset;", ("$offset", offset));
         for (var position = 0; position < allIds.Length; position++)
@@ -2291,6 +2328,13 @@ internal sealed class SqliteWorkspaceWork(
 
     private static void RewriteOrder(SqliteConnection connection, SqliteTransaction transaction, string table, string column, List<string> orderedIds)
     {
+        if (OrderAlreadyMatches(
+                connection,
+                transaction,
+                $"SELECT id,{column} FROM {table} ORDER BY {column},id;",
+                orderedIds,
+                0))
+            return;
         using var offsetCommand = connection.CreateCommand();
         offsetCommand.Transaction = transaction;
         offsetCommand.CommandText = $"SELECT COALESCE(MAX({column}), -1) + $count + 1 FROM {table};";
@@ -2329,6 +2373,14 @@ internal sealed class SqliteWorkspaceWork(
             ORDER BY b.removed_instant,b.task_id;
             """, ("$project", projectId));
         var allIds = orderedIds.Concat(binnedIds.Where(id => !orderedIds.Contains(id, StringComparer.Ordinal))).ToArray();
+        if (OrderAlreadyMatches(
+                connection,
+                transaction,
+                "SELECT id,project_position FROM tasks WHERE project_id=$project ORDER BY project_position,id;",
+                allIds,
+                0,
+                ("$project", projectId)))
+            return;
         using var offsetCommand = connection.CreateCommand();
         offsetCommand.Transaction = transaction;
         offsetCommand.CommandText = "SELECT COALESCE(MAX(project_position), -1) + $count + 1 FROM tasks WHERE project_id=$project;";
@@ -2340,6 +2392,30 @@ internal sealed class SqliteWorkspaceWork(
             ("$offset", offset), ("$project", projectId));
         for (var position = 0; position < allIds.Length; position++)
             Execute(connection, transaction, "UPDATE tasks SET project_position=$position WHERE id=$id;", ("$position", position), ("$id", allIds[position]));
+    }
+
+    private static bool OrderAlreadyMatches(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string sql,
+        IReadOnlyList<string> expectedIds,
+        int startingPosition,
+        params (string Name, object? Value)[] parameters)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = sql;
+        foreach (var (name, value) in parameters)
+            command.Parameters.AddWithValue(name, value ?? DBNull.Value);
+        using var reader = command.ExecuteReader();
+        for (var index = 0; index < expectedIds.Count; index++)
+        {
+            if (!reader.Read()
+                || !string.Equals(reader.GetString(0), expectedIds[index], StringComparison.Ordinal)
+                || reader.GetInt64(1) != startingPosition + index)
+                return false;
+        }
+        return !reader.Read();
     }
 
     private static List<string> ReadActiveProjectTaskIds(
@@ -2398,6 +2474,16 @@ internal sealed class SqliteWorkspaceWork(
                 ("$id", participant.Id), ("$label", participant.Label),
                 ("$key", ParticipantLabel.ComparisonKey(participant.Label)));
             associations.Add(participant.Id);
+        }
+
+        if (change.NewParticipantLabels.Count == 0)
+        {
+            var current = ReadIds(
+                connection,
+                transaction,
+                "SELECT participant_id FROM task_participants WHERE task_id=$task ORDER BY participant_id;",
+                ("$task", taskId));
+            if (current.ToHashSet(StringComparer.Ordinal).SetEquals(associations)) return;
         }
 
         Execute(connection, transaction, "DELETE FROM task_participants WHERE task_id=$task;", ("$task", taskId));
@@ -2576,5 +2662,6 @@ internal sealed class SqliteWorkspaceWork(
         catch (UnauthorizedAccessException) { throw new WorkspaceWorkException(); }
         catch (FormatException) { throw new WorkspaceWorkException(); }
         catch (InvalidDataException) { throw new WorkspaceWorkException(); }
+        catch (OverflowException) { throw new WorkspaceWorkException(); }
     }
 }

@@ -1250,6 +1250,9 @@ public sealed class EncryptedWorkspaceRecoveryTests
         originalSession.Dispose();
         fixture.ChangeFirstCategory("Current");
         using var currentSession = fixture.OpenWorkspace();
+        long? publishedRevision = null;
+        fixture.FileOperations.AfterReplace = (_, targetPath) =>
+            publishedRevision = fixture.ReadRevision(targetPath);
         fixture.FileOperations.Failure = FailurePoint.ThrowAfterReplacementPublication;
 
         var result = currentSession.Recovery.Restore(
@@ -1260,6 +1263,8 @@ public sealed class EncryptedWorkspaceRecoveryTests
         Assert.Equal(WorkspaceRestoreStatus.Restored, result.Status);
         Assert.NotNull(restoredSession);
         Assert.Equal("Selected", restoredSession.FirstCategoryName);
+        Assert.Equal(2, publishedRevision);
+        Assert.Equal(2, restoredSession.Planning.Read().WorkspaceRevision.Value);
         Assert.Empty(Directory.GetFiles(fixture.Directory, "*.rollback"));
         Assert.Empty(Directory.GetFiles(fixture.Directory, "*.creating"));
     }
@@ -1471,6 +1476,14 @@ public sealed class EncryptedWorkspaceRecoveryTests
             command.ExecuteNonQuery();
         }
 
+        public long ReadRevision(string path)
+        {
+            using var connection = OpenInspectionConnection(path, _passphrase);
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT revision FROM workspace_revision WHERE singleton=1;";
+            return (long)command.ExecuteScalar()!;
+        }
+
         public void Dispose() => System.IO.Directory.Delete(Directory, recursive: true);
 
         private static WorkspacePassphrase CreatePassphrase(string value) =>
@@ -1502,6 +1515,8 @@ public sealed class EncryptedWorkspaceRecoveryTests
         private int _statePublishCalls;
 
         public Action<string, string>? BeforePublish { get; set; }
+
+        public Action<string, string>? AfterReplace { get; set; }
 
         public FailurePoint Failure { get; set; }
 
@@ -1604,6 +1619,7 @@ public sealed class EncryptedWorkspaceRecoveryTests
             }
 
             _inner.Replace(candidatePath, targetPath);
+            AfterReplace?.Invoke(candidatePath, targetPath);
             if (Failure == FailurePoint.ThrowAfterReplacementPublication)
             {
                 Failure = FailurePoint.None;

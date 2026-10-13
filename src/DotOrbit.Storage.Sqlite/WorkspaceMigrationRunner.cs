@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using DotOrbit.Core.Interchange;
 using DotOrbit.Core.Workspaces;
 using Microsoft.Data.Sqlite;
 
@@ -177,6 +178,12 @@ internal static class WorkspaceMigrationRunner
             try
             {
                 var sourceInspection = EncryptedWorkspaceStore.InspectWorkspace(target);
+                if (sourceInspection.Status
+                    != EncryptedWorkspaceStore.WorkspaceInspectionStatus.RequiresMigration)
+                {
+                    ExecuteNonQuery(target, "ROLLBACK;");
+                    return MigrationRecoveryRestoreResult.InvalidRecoveryPoint();
+                }
                 ExecuteNonQuery(target, "ROLLBACK;");
                 PublishRecoveryPoint(
                     store,
@@ -250,6 +257,43 @@ internal static class WorkspaceMigrationRunner
         }
     }
 
+    internal static void PrepareRestoreCandidate(
+        string path,
+        WorkspacePassphrase passphrase,
+        WorkspaceRevision successorRevision)
+    {
+        using var connection = EncryptedWorkspaceStore.OpenConnection(
+            path,
+            passphrase,
+            SqliteOpenMode.ReadWrite);
+        EncryptedWorkspaceStore.ConfigureConnection(connection);
+        var inspection = EncryptedWorkspaceStore.InspectWorkspace(connection);
+        if (inspection.Status is not (
+                EncryptedWorkspaceStore.WorkspaceInspectionStatus.Valid
+                or EncryptedWorkspaceStore.WorkspaceInspectionStatus.RequiresMigration))
+        {
+            throw new InvalidDataException();
+        }
+        EnterExclusiveLock(connection);
+        var transactionActive = true;
+        try
+        {
+            ApplyMigrations(connection, inspection.SchemaVersion, integrityCheck: null);
+            WorkspaceRevisionStorage.Set(connection, null, successorRevision);
+            EncryptedWorkspaceStore.ValidateIntegrity(connection);
+            EncryptedWorkspaceStore.ValidateWorkspaceShape(
+                connection,
+                EncryptedWorkspaceStore.CurrentSchemaVersion);
+            ExecuteNonQuery(connection, "COMMIT;");
+            transactionActive = false;
+        }
+        finally
+        {
+            if (transactionActive)
+                TryRollback(connection);
+        }
+    }
+
     private static void ApplyMigrations(
         SqliteConnection connection,
         int startingVersion,
@@ -273,6 +317,7 @@ internal static class WorkspaceMigrationRunner
                 11 => ApplySchemaElevenToTwelve(connection),
                 12 => ApplySchemaTwelveToThirteen(connection),
                 13 => ApplySchemaThirteenToFourteen(connection),
+                14 => ApplySchemaFourteenToFifteen(connection),
                 _ => throw new InvalidDataException(),
             };
 
@@ -433,6 +478,12 @@ internal static class WorkspaceMigrationRunner
             PRAGMA user_version = 14;
             """);
         return 14;
+    }
+
+    private static int ApplySchemaFourteenToFifteen(SqliteConnection connection)
+    {
+        ExecuteNonQuery(connection, WorkspaceRevisionStorage.Schema + "PRAGMA user_version = 15;");
+        return 15;
     }
 
     private static int ApplySchemaOneToTwo(SqliteConnection connection)
