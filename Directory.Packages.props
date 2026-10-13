@@ -8,6 +8,7 @@
     <PackageVersion Include="Avalonia.Fonts.Inter" Version="12.1.3" />
     <PackageVersion Include="Avalonia.Headless.XUnit" Version="12.1.3" />
     <PackageVersion Include="Avalonia.Themes.Fluent" Version="12.1.3" />
+    <PackageVersion Include="Bebop.JsonSchema" Version="1.1.0" />
     <PackageVersion Include="Markdig" Version="1.4.0" />
     <PackageVersion Include="Microsoft.Data.Sqlite.Core" Version="10.0.12" />
     <!-- Keep the Microsoft Testing Platform and its extensions on one current release line. -->

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3.mtp-v2" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/DotOrbit.Core/DotOrbit.Core.csproj" />
+    <ProjectReference Include="../../src/DotOrbit.Interchange.Json/DotOrbit.Interchange.Json.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../examples/interchange/v1/*.json"
+          Link="Examples/%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

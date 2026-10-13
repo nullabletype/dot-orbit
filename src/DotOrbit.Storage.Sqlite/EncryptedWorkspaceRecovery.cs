@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using DotOrbit.Core.Interchange;
 using DotOrbit.Core.Workspaces;
 using Microsoft.Data.Sqlite;
 
@@ -344,6 +345,8 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
                     return WorkspaceRestoreResult.InvalidRecoveryPoint();
                 }
 
+                var recoveredRevision = ReadRevision(restoreCandidatePath, passphrase);
+
                 var preRestoreRecovery = CreateRecoveryPointCore(
                     preRestoreRecoveryDirectoryPath,
                     ManualRecoveryPrefix,
@@ -351,6 +354,24 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
                 if (preRestoreRecovery.Status != RecoveryPointCreationStatus.Created)
                 {
                     return WorkspaceRestoreResult.PreRestoreRecoveryFailed();
+                }
+                var beforeRevision = ReadRevision(
+                    preRestoreRecovery.RecoveryPointPath
+                        ?? throw new InvalidDataException(),
+                    passphrase);
+                var successorRevision = WorkspaceRevisionStorage.RebaseChecked(
+                    beforeRevision,
+                    recoveredRevision);
+
+                WorkspaceMigrationRunner.PrepareRestoreCandidate(
+                    restoreCandidatePath,
+                    passphrase,
+                    successorRevision);
+                _fileOperations.Flush(restoreCandidatePath);
+                if (Validate(restoreCandidatePath, passphrase) != RecoveryValidation.Valid
+                    || ReadRevision(restoreCandidatePath, passphrase) != successorRevision)
+                {
+                    return WorkspaceRestoreResult.InvalidRecoveryPoint();
                 }
 
                 _closeWorkspace();
@@ -392,6 +413,10 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
                 return WorkspaceRestoreResult.Failed();
             }
             catch (UnauthorizedAccessException)
+            {
+                return WorkspaceRestoreResult.Failed();
+            }
+            catch (OverflowException)
             {
                 return WorkspaceRestoreResult.Failed();
             }
@@ -873,7 +898,7 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
         string path,
         WorkspacePassphrase passphrase)
     {
-        var opened = _store.Open(path, passphrase);
+        var opened = _store.OpenExistingWorkspace(path, passphrase);
         return opened.Status == WorkspaceOpenStatus.Opened ? opened.Session : null;
     }
 
@@ -881,13 +906,26 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
         string restoreCandidatePath,
         WorkspacePassphrase passphrase)
     {
+        var replacementCompleted = !_fileOperations.Exists(restoreCandidatePath);
         var reopened = ReopenWorkspace(_workspacePath, passphrase);
-        if (!_fileOperations.Exists(restoreCandidatePath) && reopened is not null)
+        if (replacementCompleted && reopened is not null)
         {
             return WorkspaceRestoreResult.Restored(reopened);
         }
 
         return WorkspaceRestoreResult.Failed(reopened);
+    }
+
+    private static WorkspaceRevision? ReadRevision(
+        string path,
+        WorkspacePassphrase passphrase)
+    {
+        using var connection = EncryptedWorkspaceStore.OpenConnection(
+            path,
+            passphrase,
+            SqliteOpenMode.ReadOnly);
+        EncryptedWorkspaceStore.ConfigureConnection(connection);
+        return WorkspaceRevisionStorage.TryRead(connection);
     }
 
     private static RecoveryValidation Validate(

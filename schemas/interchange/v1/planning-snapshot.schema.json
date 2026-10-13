@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/nullabletype/dot-orbit/main/schemas/interchange/v1/planning-snapshot.schema.json",
+  "title": "dot-orbit planning snapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "schemaVersion", "workspaceRevision", "snapshotId", "categories", "participants", "projects", "tasks", "orders"],
+  "properties": {
+    "format": { "const": "dot-orbit-planning-snapshot" },
+    "schemaVersion": { "const": 1 },
+    "workspaceRevision": { "$ref": "#/$defs/revision" },
+    "snapshotId": { "$ref": "#/$defs/snapshotId" },
+    "categories": { "type": "array", "items": { "$ref": "#/$defs/category" } },
+    "participants": { "type": "array", "items": { "$ref": "#/$defs/participant" } },
+    "projects": { "type": "array", "items": { "$ref": "#/$defs/project" } },
+    "tasks": { "type": "array", "items": { "$ref": "#/$defs/task" } },
+    "orders": { "$ref": "#/$defs/orders" }
+  },
+  "$defs": {
+    "identifier": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "identifierArray": { "type": "array", "items": { "$ref": "#/$defs/identifier" }, "uniqueItems": true },
+    "revision": { "type": "string", "pattern": "^(?:[1-9][0-9]{0,17}|[1-8][0-9]{18}|9[0-1][0-9]{17}|92[0-1][0-9]{16}|922[0-2][0-9]{15}|9223[0-2][0-9]{14}|92233[0-6][0-9]{13}|922337[0-1][0-9]{12}|92233720[0-2][0-9]{10}|922337203[0-5][0-9]{9}|9223372036[0-7][0-9]{8}|92233720368[0-4][0-9]{7}|922337203685[0-3][0-9]{6}|9223372036854[0-6][0-9]{5}|92233720368547[0-6][0-9]{4}|922337203685477[0-4][0-9]{3}|9223372036854775[0-7][0-9]{2}|922337203685477580[0-7])$" },
+    "snapshotId": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "date": { "type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])$" },
+    "nullableDate": { "oneOf": [{ "$ref": "#/$defs/date" }, { "type": "null" }] },
+    "category": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "participant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "label": { "type": "string", "minLength": 1 }
+      }
+    },
+    "progress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["completedTaskCount", "taskCount"],
+      "properties": {
+        "completedTaskCount": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "taskCount": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+      }
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "description", "categoryId", "targetDate", "status", "progress", "completionDate", "excludedArchivedTaskCount", "taskIds"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "title": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "categoryId": { "$ref": "#/$defs/identifier" },
+        "targetDate": { "$ref": "#/$defs/nullableDate" },
+        "status": { "enum": ["notStarted", "inProgress", "complete"] },
+        "progress": { "$ref": "#/$defs/progress" },
+        "completionDate": { "$ref": "#/$defs/nullableDate" },
+        "excludedArchivedTaskCount": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "taskIds": { "$ref": "#/$defs/identifierArray" }
+      }
+    },
+    "taskCategory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "categoryId"],
+      "properties": {
+        "mode": { "enum": ["inherited", "explicit"] },
+        "categoryId": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "projectId", "title", "description", "category", "dueDate", "isComplete", "completionDate", "participantIds", "todayLane"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "projectId": { "oneOf": [{ "$ref": "#/$defs/identifier" }, { "type": "null" }] },
+        "title": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "category": { "$ref": "#/$defs/taskCategory" },
+        "dueDate": { "$ref": "#/$defs/nullableDate" },
+        "isComplete": { "type": "boolean" },
+        "completionDate": { "$ref": "#/$defs/nullableDate" },
+        "participantIds": { "$ref": "#/$defs/identifierArray" },
+        "todayLane": { "enum": ["planned", "inProgress", null] }
+      }
+    },
+    "orders": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["categoryIds", "projectIds", "sharedTaskIds"],
+      "properties": {
+        "categoryIds": { "$ref": "#/$defs/identifierArray" },
+        "projectIds": { "$ref": "#/$defs/identifierArray" },
+        "sharedTaskIds": { "$ref": "#/$defs/identifierArray" }
+      }
+    }
+  }
+}
