@@ -218,7 +218,7 @@ public sealed class PlanningSnapshotCopyWindowTests
         Assert.True(snapshotLauncher.IsKeyboardFocusWithin);
         Assert.Equal(
             "Planning snapshot copy cancelled. Clipboard contents were not changed.",
-            shell.Settings!.InterchangeStatus);
+            shell.Ai!.InterchangeStatus);
         Assert.True(instructions.Focus());
         window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
@@ -227,7 +227,7 @@ public sealed class PlanningSnapshotCopyWindowTests
         Assert.Equal(1, clipboard.WriteCount);
         Assert.Equal(
             "Reusable agent instructions and v1 schemas copied.",
-            shell.Settings.InterchangeStatus);
+            shell.Ai.InterchangeStatus);
         window.Close();
     }
 
@@ -247,8 +247,8 @@ public sealed class PlanningSnapshotCopyWindowTests
         var shell = Assert.IsType<ShellViewModel>(window.DataContext);
         Assert.Equal(
             "The Planning snapshot could not be prepared. Nothing was copied.",
-            shell.Settings!.InterchangeStatus);
-        Assert.DoesNotContain("private", shell.Settings.InterchangeStatus, StringComparison.OrdinalIgnoreCase);
+            shell.Ai!.InterchangeStatus);
+        Assert.DoesNotContain("private", shell.Ai.InterchangeStatus, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(0, clipboard.WriteCount);
         Assert.Empty(window.OwnedWindows);
         window.Close();
@@ -285,7 +285,7 @@ public sealed class PlanningSnapshotCopyWindowTests
 
         foreach (var outcome in outcomes)
         {
-            shell.Settings!.ReportInterchangeStatus(outcome);
+            shell.Ai!.ReportInterchangeStatus(outcome);
             Dispatcher.UIThread.RunJobs();
 
             Assert.True(status.IsVisible);

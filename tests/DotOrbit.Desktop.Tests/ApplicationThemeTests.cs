@@ -63,26 +63,20 @@ public sealed class ApplicationThemeTests
     }
 
     [Fact]
-    public void InterchangeToggleSurvivesStoreServiceAndSettingsRecreation()
+    public void InterchangeToggleSurvivesStoreServiceAndAiViewModelRecreation()
     {
         using var directory = new TemporaryDirectory();
         var path = Path.Combine(directory.Path, "preferences.json");
         var service = new InterchangePreferenceService(new JsonDevicePreferenceStore(path));
-        var settings = new SettingsViewModel(
-            new MemoryWorkspaceWork(),
-            () => { },
-            interchangePreferenceService: service);
+        var ai = new AiViewModel(service);
 
-        Assert.True(settings.IncludeAgentInstructionsAndSchemaWithSnapshot);
-        settings.IncludeAgentInstructionsAndSchemaWithSnapshot = false;
+        Assert.True(ai.IncludeAgentInstructionsAndSchemaWithSnapshot);
+        ai.IncludeAgentInstructionsAndSchemaWithSnapshot = false;
 
         var recreatedService = new InterchangePreferenceService(new JsonDevicePreferenceStore(path));
-        var recreatedSettings = new SettingsViewModel(
-            new MemoryWorkspaceWork(),
-            () => { },
-            interchangePreferenceService: recreatedService);
+        var recreatedAi = new AiViewModel(recreatedService);
 
-        Assert.False(recreatedSettings.IncludeAgentInstructionsAndSchemaWithSnapshot);
+        Assert.False(recreatedAi.IncludeAgentInstructionsAndSchemaWithSnapshot);
     }
 
     [Fact]

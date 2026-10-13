@@ -37,8 +37,10 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             : new SettingsViewModel(
                 work,
                 () => Work!.RefreshFromStore(),
-                applicationThemeService,
-                interchangePreferenceService);
+                applicationThemeService);
+        Ai = work is null
+            ? null
+            : new AiViewModel(interchangePreferenceService);
         PrimaryNavigation =
         [
             CreateNavigationItem(
@@ -171,6 +173,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
 
     public ProjectCaptureViewModel? Work { get; }
     public SettingsViewModel? Settings { get; }
+    public AiViewModel? Ai { get; }
 
     public bool ShowProjects => Work is not null && ViewTitle == "Projects";
     public bool ShowToday => Work is not null && ViewTitle == "Today";

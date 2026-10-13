@@ -1323,10 +1323,10 @@
                       x:Name="AiIncludeAgentInstructionsToggle"
                       Grid.Column="1"
                       VerticalAlignment="Center"
-                      IsChecked="{Binding Settings.IncludeAgentInstructionsAndSchemaWithSnapshot, Mode=TwoWay}"
+                      IsChecked="{Binding Ai.IncludeAgentInstructionsAndSchemaWithSnapshot, Mode=TwoWay}"
                       AutomationProperties.AutomationId="ai-interchange-include-instructions"
                       AutomationProperties.Name="Include agent instructions and schema with snapshot"
-                      AutomationProperties.ItemStatus="{Binding Settings.InterchangePreferenceStatus}" />
+                      AutomationProperties.ItemStatus="{Binding Ai.InterchangePreferenceStatus}" />
                 </Grid>
               </Border>
               <Border Classes="interactive-row separated-row" MinHeight="54">
@@ -1359,8 +1359,8 @@
           </Border>
           <TextBlock x:Name="AiInterchangeStatus"
               Foreground="{DynamicResource MutedTextBrush}"
-              IsVisible="{Binding Settings.HasInterchangeStatus}"
-              Text="{Binding Settings.InterchangeStatus}"
+              IsVisible="{Binding Ai.HasInterchangeStatus}"
+              Text="{Binding Ai.InterchangeStatus}"
               TextWrapping="Wrap"
               AutomationProperties.Name="Agent interchange status"
               AutomationProperties.LiveSetting="Polite" />

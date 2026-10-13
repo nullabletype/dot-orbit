@@ -169,7 +169,7 @@ public sealed partial class MainWindow : Window
 
         void OpenReview()
         {
-            if (DataContext is not ShellViewModel { Settings: { } settings })
+            if (DataContext is not ShellViewModel { Ai: { } ai })
             {
                 return;
             }
@@ -177,7 +177,7 @@ public sealed partial class MainWindow : Window
             var clipboard = PlainTextClipboard();
             if (clipboard is null)
             {
-                settings.ReportInterchangeStatus("The system clipboard is unavailable. Nothing was copied.");
+                ai.ReportInterchangeStatus("The system clipboard is unavailable. Nothing was copied.");
                 return;
             }
 
@@ -186,11 +186,11 @@ public sealed partial class MainWindow : Window
                 var snapshot = _session.Planning.Read();
                 var viewModel = new PlanningSnapshotCopyViewModel(
                     snapshot,
-                    settings.IncludeAgentInstructionsAndSchemaWithSnapshot,
+                    ai.IncludeAgentInstructionsAndSchemaWithSnapshot,
                     clipboard);
                 if (viewModel.HasStatusMessage)
                 {
-                    settings.ReportInterchangeStatus(viewModel.StatusMessage);
+                    ai.ReportInterchangeStatus(viewModel.StatusMessage);
                 }
 
                 PropertyChangedEventHandler reportStatus = (_, args) =>
@@ -198,7 +198,7 @@ public sealed partial class MainWindow : Window
                     if (args.PropertyName == nameof(PlanningSnapshotCopyViewModel.StatusMessage)
                         && viewModel.HasStatusMessage)
                     {
-                        settings.ReportInterchangeStatus(viewModel.StatusMessage);
+                        ai.ReportInterchangeStatus(viewModel.StatusMessage);
                     }
                 };
                 viewModel.PropertyChanged += reportStatus;
@@ -212,7 +212,7 @@ public sealed partial class MainWindow : Window
             }
             catch (Exception)
             {
-                settings.ReportInterchangeStatus(
+                ai.ReportInterchangeStatus(
                     "The Planning snapshot could not be prepared. Nothing was copied.");
             }
         }
@@ -229,7 +229,7 @@ public sealed partial class MainWindow : Window
 
     private async void OnCopyReusableInstructions(object? sender, RoutedEventArgs e)
     {
-        if (DataContext is not ShellViewModel { Settings: { } settings })
+        if (DataContext is not ShellViewModel { Ai: { } ai })
         {
             return;
         }
@@ -237,11 +237,11 @@ public sealed partial class MainWindow : Window
         var clipboard = PlainTextClipboard();
         if (clipboard is null)
         {
-            settings.ReportInterchangeStatus("The system clipboard is unavailable. Nothing was copied.");
+            ai.ReportInterchangeStatus("The system clipboard is unavailable. Nothing was copied.");
             return;
         }
 
-        await settings.CopyReusableInstructionsAsync(clipboard);
+        await ai.CopyReusableInstructionsAsync(clipboard);
     }
 
     private IPlainTextClipboard? PlainTextClipboard() =>
