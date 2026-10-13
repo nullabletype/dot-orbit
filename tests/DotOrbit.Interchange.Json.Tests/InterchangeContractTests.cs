@@ -351,6 +351,8 @@ public sealed class InterchangeContractTests
 
         Assert.True(snapshotOnly.Succeeded);
         var snapshotText = Encoding.UTF8.GetString(snapshotOnly.Payload!.Value.Span);
+        Assert.DoesNotContain('\r', snapshotText);
+        Assert.Contains('\n', snapshotText);
         Assert.True(snapshotText.Contains(
             "\n  \"format\": \"dot-orbit-planning-snapshot\"",
             StringComparison.Ordinal));
@@ -362,6 +364,7 @@ public sealed class InterchangeContractTests
 
         Assert.True(combined.Succeeded);
         var combinedText = Encoding.UTF8.GetString(combined.Payload!.Value.Span);
+        Assert.DoesNotContain('\r', combinedText);
         var liveSnapshotHeading = combinedText.IndexOf("## Live Planning snapshot", StringComparison.Ordinal);
         Assert.True(liveSnapshotHeading >= 0);
         var snapshotStart = combinedText.IndexOf("```json\n", liveSnapshotHeading, StringComparison.Ordinal)

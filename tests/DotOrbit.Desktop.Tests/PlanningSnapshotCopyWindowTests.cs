@@ -10,6 +10,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using System.ComponentModel;
 using DotOrbit.Core.Interchange;
 using DotOrbit.Core.Workspaces;
 using DotOrbit.Desktop.ViewModels;
@@ -363,7 +364,7 @@ public sealed class PlanningSnapshotCopyWindowTests
     }
 
     [AvaloniaFact]
-    public void AiNavigationUsesTheExistingSaveDiscardStayGuard()
+    public async Task AiNavigationUsesTheExistingSaveDiscardStayGuard()
     {
         var work = new MemoryWorkspaceWork();
         var task = work.CreateStandaloneTask("Original", "", "home", null);
@@ -378,7 +379,9 @@ public sealed class PlanningSnapshotCopyWindowTests
         shell.Work.Title = "Edited";
         work.FailWrites = true;
 
+        var firstDecision = DecisionRequested(shell.Work);
         shell.AiNavigation.SelectCommand.Execute(null);
+        await firstDecision;
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(shell.Work.NeedsDecision);
@@ -388,8 +391,12 @@ public sealed class PlanningSnapshotCopyWindowTests
         Dispatcher.UIThread.RunJobs();
         Assert.False(shell.Work.NeedsDecision);
         Assert.False(shell.ShowAI);
+        Assert.Equal("Edited", shell.Work.Title);
+        Assert.Equal("Original", work.Read().Tasks.Single(item => item.Id == task.Id).Title);
 
+        var secondDecision = DecisionRequested(shell.Work);
         shell.AiNavigation.SelectCommand.Execute(null);
+        await secondDecision;
         Dispatcher.UIThread.RunJobs();
         Assert.True(shell.Work.NeedsDecision);
         shell.Work.DiscardAndLeaveCommand.Execute(null);
@@ -397,6 +404,24 @@ public sealed class PlanningSnapshotCopyWindowTests
         Assert.True(shell.ShowAI);
         Assert.Equal("Original", work.Read().Tasks.Single(item => item.Id == task.Id).Title);
         window.Close();
+    }
+
+    private static Task DecisionRequested(ProjectCaptureViewModel work)
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        PropertyChangedEventHandler? changed = null;
+        changed = (_, args) =>
+        {
+            if (args.PropertyName != nameof(ProjectCaptureViewModel.NeedsDecision) || !work.NeedsDecision)
+            {
+                return;
+            }
+
+            work.PropertyChanged -= changed;
+            completion.TrySetResult();
+        };
+        work.PropertyChanged += changed;
+        return completion.Task;
     }
 
     private sealed class RecordingPlanningSnapshotSource(PlanningSnapshotContent snapshot)

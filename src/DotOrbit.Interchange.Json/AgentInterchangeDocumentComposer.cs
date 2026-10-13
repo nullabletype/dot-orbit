@@ -96,6 +96,7 @@ public static class PlanningInterchangeCopyComposer
     private static readonly JsonSerializerOptions PrettyJson = new()
     {
         WriteIndented = true,
+        NewLine = "\n",
     };
 
     public static InterchangeGenerationResult ComposeSnapshot(
