@@ -406,22 +406,28 @@ public sealed class PlanningSnapshotCopyWindowTests
         window.Close();
     }
 
-    private static Task DecisionRequested(ProjectCaptureViewModel work)
+    private static async Task DecisionRequested(ProjectCaptureViewModel work)
     {
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        PropertyChangedEventHandler? changed = null;
-        changed = (_, args) =>
+        PropertyChangedEventHandler changed = (_, args) =>
         {
             if (args.PropertyName != nameof(ProjectCaptureViewModel.NeedsDecision) || !work.NeedsDecision)
             {
                 return;
             }
 
-            work.PropertyChanged -= changed;
             completion.TrySetResult();
         };
         work.PropertyChanged += changed;
-        return completion.Task;
+        try
+        {
+            await completion.Task.WaitAsync(
+                TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            work.PropertyChanged -= changed;
+        }
     }
 
     private sealed class RecordingPlanningSnapshotSource(PlanningSnapshotContent snapshot)

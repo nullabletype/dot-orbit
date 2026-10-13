@@ -71,7 +71,7 @@ public static class AgentInterchangeDocumentComposer
     private static readonly byte[] LineFeed = Encoding.UTF8.GetBytes("\n");
 
     public static InterchangeGenerationResult ComposeReusableInstructionsAndSchemas() =>
-        InterchangePayloadComposer.Compose(
+        ComposeNormalized(
             Introduction,
             InterchangeSchemaCatalogue.GetApplicationSchema(AgentInterchangeV1.PlanningSnapshotSchemaId),
             BetweenSchemas,
@@ -79,7 +79,7 @@ public static class AgentInterchangeDocumentComposer
             EndSchemas);
 
     public static InterchangeGenerationResult ComposeWithSnapshot(ReadOnlyMemory<byte> snapshot) =>
-        InterchangePayloadComposer.Compose(
+        ComposeNormalized(
             Introduction,
             InterchangeSchemaCatalogue.GetApplicationSchema(AgentInterchangeV1.PlanningSnapshotSchemaId),
             BetweenSchemas,
@@ -89,6 +89,45 @@ public static class AgentInterchangeDocumentComposer
             LineFeed,
             snapshot,
             EndSnapshot);
+
+    private static InterchangeGenerationResult ComposeNormalized(params ReadOnlyMemory<byte>[] segments)
+    {
+        var normalized = new ReadOnlyMemory<byte>[segments.Length];
+        for (var index = 0; index < segments.Length; index++)
+        {
+            normalized[index] = NormalizeLineEndings(segments[index]);
+        }
+
+        return InterchangePayloadComposer.Compose(normalized);
+    }
+
+    private static ReadOnlyMemory<byte> NormalizeLineEndings(ReadOnlyMemory<byte> segment)
+    {
+        var source = segment.Span;
+        if (source.IndexOf((byte)'\r') < 0)
+        {
+            return segment;
+        }
+
+        var normalized = new byte[source.Length];
+        var written = 0;
+        for (var index = 0; index < source.Length; index++)
+        {
+            if (source[index] != (byte)'\r')
+            {
+                normalized[written++] = source[index];
+                continue;
+            }
+
+            normalized[written++] = (byte)'\n';
+            if (index + 1 < source.Length && source[index + 1] == (byte)'\n')
+            {
+                index++;
+            }
+        }
+
+        return normalized.AsMemory(0, written);
+    }
 }
 
 public static class PlanningInterchangeCopyComposer

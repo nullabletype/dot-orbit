@@ -305,15 +305,46 @@ public sealed class InterchangeContractTests
         }
         Assert.Contains(
             Encoding.UTF8.GetString(InterchangeSchemaCatalogue.GetApplicationSchema(
-                AgentInterchangeV1.PlanningSnapshotSchemaId).Span),
+                AgentInterchangeV1.PlanningSnapshotSchemaId).Span).ReplaceLineEndings("\n"),
             text,
             StringComparison.Ordinal);
         Assert.Contains(
             Encoding.UTF8.GetString(InterchangeSchemaCatalogue.GetApplicationSchema(
-                AgentInterchangeV1.ChangeProposalSchemaId).Span),
+                AgentInterchangeV1.ChangeProposalSchemaId).Span).ReplaceLineEndings("\n"),
             text,
             StringComparison.Ordinal);
         Assert.DoesNotContain("Live Planning snapshot", text, StringComparison.Ordinal);
+        Assert.DoesNotContain('\r', text);
+    }
+
+    [Fact]
+    public void CombinedCompositionNormalizesCrlfAndLoneCrSnapshotInput()
+    {
+        var result = AgentInterchangeDocumentComposer.ComposeWithSnapshot(
+            Encoding.UTF8.GetBytes("first\r\nsecond\rthird\nfourth"));
+
+        Assert.True(result.Succeeded);
+        var text = Encoding.UTF8.GetString(result.Payload!.Value.Span);
+        Assert.DoesNotContain('\r', text);
+        Assert.Contains("first\nsecond\nthird\nfourth", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CombinedCompositionNormalizesBeforeApplyingTheCompleteOutputLimit()
+    {
+        var snapshot = new byte[AgentInterchangeV1.MaximumOutputBytes];
+        for (var index = 0; index < snapshot.Length; index += 2)
+        {
+            snapshot[index] = (byte)'\r';
+            snapshot[index + 1] = (byte)'\n';
+        }
+
+        var result = AgentInterchangeDocumentComposer.ComposeWithSnapshot(snapshot);
+
+        Assert.True(result.Succeeded);
+        Assert.NotNull(result.Payload);
+        Assert.True(result.Payload.Value.Length < AgentInterchangeV1.MaximumOutputBytes);
+        Assert.DoesNotContain((byte)'\r', result.Payload.Value.ToArray());
     }
 
     [Fact]
