@@ -153,7 +153,7 @@ internal sealed class TransientInterchangePreferenceService(
     }
 }
 
-internal sealed class JsonApplicationThemePreferenceStore :
+internal sealed class JsonDevicePreferenceStore :
     IApplicationThemePreferenceStore,
     IInterchangePreferenceStore
 {
@@ -165,13 +165,13 @@ internal sealed class JsonApplicationThemePreferenceStore :
 
     private readonly string _path;
 
-    public JsonApplicationThemePreferenceStore(string path)
+    public JsonDevicePreferenceStore(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         _path = Path.GetFullPath(path);
     }
 
-    public static JsonApplicationThemePreferenceStore CreateDefault() => new(Path.Combine(
+    public static JsonDevicePreferenceStore CreateDefault() => new(Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "dot-orbit",
         "preferences.json"));

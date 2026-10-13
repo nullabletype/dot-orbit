@@ -53,6 +53,8 @@ public sealed class PlanningSnapshotCopyViewModelTests
         cancelled.CancelCopy();
 
         Assert.Equal(0, clipboard.WriteCount);
+        Assert.False(cancelled.CanConfirmCopy);
+        Assert.False(cancelled.CanCancelCopy);
         Assert.Equal(
             "Planning snapshot copy cancelled. Clipboard contents were not changed.",
             cancelled.StatusMessage);
@@ -72,6 +74,43 @@ public sealed class PlanningSnapshotCopyViewModelTests
     }
 
     [Fact]
+    public async Task ConcurrentConfirmationsWriteOnceAndCancelledReviewCannotLaterConfirm()
+    {
+        var delayedClipboard = new DelayedPlainTextClipboard();
+        var confirming = new PlanningSnapshotCopyViewModel(
+            CreateRepresentativeSnapshot(),
+            includeAgentInstructionsAndSchema: true,
+            delayedClipboard);
+
+        var firstConfirmation = confirming.ConfirmCopyAsync();
+        var secondConfirmation = confirming.ConfirmCopyAsync();
+
+        Assert.Equal(1, delayedClipboard.WriteCount);
+        Assert.False(confirming.CanConfirmCopy);
+        Assert.False(confirming.CanCancelCopy);
+        Assert.True(secondConfirmation.IsCompletedSuccessfully);
+
+        delayedClipboard.CompleteWrite();
+        await firstConfirmation;
+
+        Assert.Equal(1, delayedClipboard.WriteCount);
+        Assert.False(confirming.CanConfirmCopy);
+
+        var cancelledClipboard = new RecordingPlainTextClipboard();
+        var cancelled = new PlanningSnapshotCopyViewModel(
+            CreateRepresentativeSnapshot(),
+            includeAgentInstructionsAndSchema: true,
+            cancelledClipboard);
+        cancelled.CancelCopy();
+
+        await cancelled.ConfirmCopyAsync();
+
+        Assert.Equal(0, cancelledClipboard.WriteCount);
+        Assert.False(cancelled.CanConfirmCopy);
+        Assert.False(cancelled.CanCancelCopy);
+    }
+
+    [Fact]
     public async Task ClipboardFailureUsesFixedStatusWithoutPayloadContent()
     {
         var viewModel = new PlanningSnapshotCopyViewModel(
@@ -87,6 +126,7 @@ public sealed class PlanningSnapshotCopyViewModelTests
             viewModel.StatusMessage);
         Assert.DoesNotContain("private synthetic", viewModel.StatusMessage, StringComparison.OrdinalIgnoreCase);
         Assert.True(viewModel.CanConfirmCopy);
+        Assert.True(viewModel.CanCancelCopy);
     }
 
     [Fact]
@@ -208,5 +248,21 @@ public sealed class PlanningSnapshotCopyViewModelTests
                 ? ValueTask.CompletedTask
                 : ValueTask.FromException(failure);
         }
+    }
+
+    private sealed class DelayedPlainTextClipboard : IPlainTextClipboard
+    {
+        private readonly TaskCompletionSource _writeCompletion = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int WriteCount { get; private set; }
+
+        public ValueTask WriteTextAsync(ReadOnlyMemory<byte> strictUtf8Text)
+        {
+            WriteCount++;
+            return new ValueTask(_writeCompletion.Task);
+        }
+
+        public void CompleteWrite() => _writeCompletion.SetResult();
     }
 }

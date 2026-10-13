@@ -1244,9 +1244,11 @@
               </Border>
             </StackPanel>
           </Border>
-          <TextBlock x:Name="SettingsInterchangeStatus" Height="1" Opacity="0"
+          <TextBlock x:Name="SettingsInterchangeStatus"
+              Foreground="{DynamicResource MutedTextBrush}"
               IsVisible="{Binding Settings.HasInterchangeStatus}"
               Text="{Binding Settings.InterchangeStatus}"
+              TextWrapping="Wrap"
               AutomationProperties.Name="Agent interchange status"
               AutomationProperties.LiveSetting="Polite" />
         </StackPanel>

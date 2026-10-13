@@ -1,9 +1,13 @@
+using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Input.Raw;
+using Avalonia.Media;
+using Avalonia.Media.Imaging;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using DotOrbit.Core.Interchange;
 using DotOrbit.Core.Workspaces;
@@ -34,7 +38,7 @@ public sealed class PlanningSnapshotCopyWindowTests
         var status = Assert.IsType<TextBlock>(window.FindControl<TextBlock>("PlanningSnapshotCopyStatus"));
 
         Assert.Equal(560, window.MinWidth);
-        Assert.Equal(640, window.MinHeight);
+        Assert.Equal(420, window.MinHeight);
         Assert.Equal("Reusable catalogue disclosure", AutomationProperties.GetName(disclosure));
         Assert.Equal("Sensitive plaintext clipboard confirmation", AutomationProperties.GetName(warning));
         Assert.Equal(AutomationLiveSetting.Assertive, AutomationProperties.GetLiveSetting(warning));
@@ -54,6 +58,45 @@ public sealed class PlanningSnapshotCopyWindowTests
             viewModel.StatusMessage);
         Assert.True(window.FindControl<Button>("ClosePlanningSnapshotCopyButton")!.IsKeyboardFocusWithin);
         window.Close();
+    }
+
+    [AvaloniaFact]
+    public void ReviewRendersScrollableAtSupportedMinimumInLightAndDarkThemes()
+    {
+        var colours = new List<Color>();
+        foreach (var theme in new[] { ThemeVariant.Dark, ThemeVariant.Light })
+        {
+            var viewModel = new PlanningSnapshotCopyViewModel(
+                PlanningSnapshotCopyViewModelTests.CreateRepresentativeSnapshot(),
+                includeAgentInstructionsAndSchema: true,
+                new PlanningSnapshotCopyViewModelTests.RecordingPlainTextClipboard());
+            var window = new PlanningSnapshotCopyWindow(viewModel)
+            {
+                RequestedThemeVariant = theme,
+                Width = 560,
+                Height = 420,
+            };
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal(theme, window.ActualThemeVariant);
+            Assert.Equal(560, window.Bounds.Width);
+            Assert.Equal(420, window.Bounds.Height);
+            var scroll = Assert.IsType<ScrollViewer>(
+                window.FindControl<ScrollViewer>("PlanningSnapshotReviewScrollViewer"));
+            Assert.True(scroll.Viewport.Height > 0);
+            Assert.True(scroll.Extent.Height > scroll.Viewport.Height);
+            Assert.True(window.FindControl<Button>("ConfirmPlanningSnapshotCopyButton")!.IsVisible);
+            using var bitmap = new RenderTargetBitmap(
+                new PixelSize((int)window.Bounds.Width, (int)window.Bounds.Height),
+                new Vector(96, 96));
+            bitmap.Render(window);
+            colours.Add(Assert.IsAssignableFrom<ISolidColorBrush>(window.Background).Color);
+            window.Close();
+        }
+
+        Assert.Equal(Color.Parse("#090B10"), colours[0]);
+        Assert.Equal(Color.Parse("#F7F4F6"), colours[1]);
     }
 
     [AvaloniaFact]
@@ -207,6 +250,50 @@ public sealed class PlanningSnapshotCopyWindowTests
         Assert.DoesNotContain("private", shell.Settings.InterchangeStatus, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(0, clipboard.WriteCount);
         Assert.Empty(window.OwnedWindows);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void SettingsInterchangeOutcomesRemainVisibleReadableAndPolitelyAnnounced()
+    {
+        using var session = new StubWorkspaceSession(
+            new MemoryWorkspaceWork(),
+            new RecordingPlanningSnapshotSource(
+                PlanningSnapshotCopyViewModelTests.CreateRepresentativeSnapshot()));
+        var window = new MainWindow(
+            session,
+            null,
+            null,
+            plainTextClipboard: new PlanningSnapshotCopyViewModelTests.RecordingPlainTextClipboard())
+        {
+            Width = 1120,
+            Height = 600,
+        };
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.SettingsNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var status = Assert.IsType<TextBlock>(window.FindControl<TextBlock>("SettingsInterchangeStatus"));
+        var outcomes = new[]
+        {
+            "Reusable agent instructions and v1 schemas copied.",
+            "Reusable agent instructions and schemas could not be copied. Try again.",
+            "The system clipboard is unavailable. Nothing was copied.",
+            "The Planning snapshot could not be prepared. Nothing was copied.",
+        };
+
+        foreach (var outcome in outcomes)
+        {
+            shell.Settings!.ReportInterchangeStatus(outcome);
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.True(status.IsVisible);
+            Assert.Equal(outcome, status.Text);
+            Assert.Equal(1, status.Opacity);
+            Assert.True(status.Bounds.Height > 1);
+            Assert.Equal(AutomationLiveSetting.Polite, AutomationProperties.GetLiveSetting(status));
+        }
+
         window.Close();
     }
 

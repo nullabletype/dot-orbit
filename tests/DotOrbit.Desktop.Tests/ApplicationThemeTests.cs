@@ -13,7 +13,7 @@ public sealed class ApplicationThemeTests
     {
         using var directory = new TemporaryDirectory();
         var path = Path.Combine(directory.Path, "preferences.json");
-        var store = new JsonApplicationThemePreferenceStore(path);
+        var store = new JsonDevicePreferenceStore(path);
 
         Assert.Equal(ApplicationTheme.Dark, store.Load());
 
@@ -30,7 +30,7 @@ public sealed class ApplicationThemeTests
     {
         using var directory = new TemporaryDirectory();
         var path = Path.Combine(directory.Path, "preferences.json");
-        var store = new JsonApplicationThemePreferenceStore(path);
+        var store = new JsonDevicePreferenceStore(path);
 
         Assert.True(store.TrySave(ApplicationTheme.Light));
         Assert.Equal(ApplicationTheme.Light, store.Load());
@@ -46,13 +46,13 @@ public sealed class ApplicationThemeTests
     {
         using var directory = new TemporaryDirectory();
         var path = Path.Combine(directory.Path, "preferences.json");
-        var store = new JsonApplicationThemePreferenceStore(path);
+        var store = new JsonDevicePreferenceStore(path);
 
         Assert.True(store.LoadIncludeAgentInstructionsAndSchemaWithSnapshot());
         Assert.True(store.TrySave(ApplicationTheme.Light));
         Assert.True(store.TrySaveIncludeAgentInstructionsAndSchemaWithSnapshot(false));
 
-        var reloaded = new JsonApplicationThemePreferenceStore(path);
+        var reloaded = new JsonDevicePreferenceStore(path);
         Assert.Equal(ApplicationTheme.Light, reloaded.Load());
         Assert.False(reloaded.LoadIncludeAgentInstructionsAndSchemaWithSnapshot());
 
@@ -88,7 +88,7 @@ public sealed class ApplicationThemeTests
             CategoryName.Create("Home").CategoryName!).Session);
         var before = session.Planning.Read().WorkspaceRevision;
         var preferences = new InterchangePreferenceService(
-            new JsonApplicationThemePreferenceStore(Path.Combine(directory.Path, "preferences.json")));
+            new JsonDevicePreferenceStore(Path.Combine(directory.Path, "preferences.json")));
 
         Assert.True(preferences.TrySetIncludeAgentInstructionsAndSchemaWithSnapshot(false));
 
@@ -101,7 +101,7 @@ public sealed class ApplicationThemeTests
         using var directory = new TemporaryDirectory();
         var blockedParent = Path.Combine(directory.Path, "not-a-directory");
         File.WriteAllText(blockedParent, "blocked");
-        var store = new JsonApplicationThemePreferenceStore(Path.Combine(blockedParent, "preferences.json"));
+        var store = new JsonDevicePreferenceStore(Path.Combine(blockedParent, "preferences.json"));
 
         Assert.False(store.TrySave(ApplicationTheme.Light));
         Assert.Equal(["not-a-directory"], Directory.GetFiles(directory.Path).Select(Path.GetFileName));
@@ -111,7 +111,7 @@ public sealed class ApplicationThemeTests
     public void ThemeServiceLoadsAppliesAndPersistsSuccessfulChanges()
     {
         using var directory = new TemporaryDirectory();
-        var store = new JsonApplicationThemePreferenceStore(Path.Combine(directory.Path, "preferences.json"));
+        var store = new JsonDevicePreferenceStore(Path.Combine(directory.Path, "preferences.json"));
         Assert.True(store.TrySave(ApplicationTheme.Light));
         var application = Assert.IsType<App>(Application.Current);
         var originalTheme = application.RequestedThemeVariant;

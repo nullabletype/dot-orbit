@@ -29,7 +29,7 @@ public sealed partial class App : Application
             Program.TraceSession?.StartUiProbe(
                 action => Dispatcher.UIThread.Post(action, DispatcherPriority.Background),
                 Environment.CurrentManagedThreadId);
-            var preferenceStore = JsonApplicationThemePreferenceStore.CreateDefault();
+            var preferenceStore = JsonDevicePreferenceStore.CreateDefault();
             ThemeService = new ApplicationThemeService(this, preferenceStore);
             InterchangePreferenceService = new InterchangePreferenceService(preferenceStore);
 

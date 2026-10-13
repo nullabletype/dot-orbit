@@ -6,12 +6,12 @@
     xmlns:vm="using:DotOrbit.Desktop.ViewModels"
     Title="dot-orbit Planning snapshot"
     Width="640"
-    Height="720"
+    Height="560"
     MinWidth="560"
-    MinHeight="640"
+    MinHeight="420"
     Background="{DynamicResource BackgroundBrush}"
     WindowStartupLocation="CenterOwner">
-  <ScrollViewer>
+  <ScrollViewer x:Name="PlanningSnapshotReviewScrollViewer">
     <StackPanel Margin="36" Spacing="14">
       <TextBlock Classes="eyebrow" Text="AGENT INTERCHANGE" />
       <TextBlock FontSize="28" FontWeight="Bold" Text="Copy current Planning snapshot" />
@@ -85,6 +85,7 @@
                 Classes="view-action"
                 AutomationProperties.Name="Cancel Planning snapshot copy"
                 Click="OnCancelCopy"
+                IsEnabled="{Binding CanCancelCopy}"
                 TabIndex="1">
               Do not copy
             </Button>
