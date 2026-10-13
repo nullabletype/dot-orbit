@@ -258,6 +258,10 @@
           <StackPanel Spacing="4">
             <ContentControl
                 HorizontalContentAlignment="Stretch"
+                Content="{Binding AiNavigation}"
+                ContentTemplate="{StaticResource NavigationItemTemplate}" />
+            <ContentControl
+                HorizontalContentAlignment="Stretch"
                 Content="{Binding BinNavigation}"
                 ContentTemplate="{StaticResource NavigationItemTemplate}" />
             <ContentControl
@@ -271,7 +275,7 @@
 
     <Grid
         x:Name="CurrentViewRegion"
-        IsVisible="{Binding !ShowSettings}"
+        IsVisible="{Binding ShowWorkspace}"
         IsEnabled="{Binding !Work.HasBlockingDialog, FallbackValue=True}"
         Grid.Row="1"
         Grid.Column="1"
@@ -1283,9 +1287,90 @@
       </StackPanel>
     </ScrollViewer>
 
+    <ScrollViewer
+        x:Name="AiRegion"
+        Grid.Row="1"
+        Grid.Column="1"
+        Grid.ColumnSpan="2"
+        Margin="32,30,32,0"
+        IsVisible="{Binding ShowAI}">
+      <StackPanel Margin="{StaticResource ScrollContentInset}" Spacing="24">
+        <StackPanel Spacing="7">
+          <TextBlock Classes="eyebrow" Text="AI ASSISTANT" />
+          <TextBlock FontSize="31" FontWeight="Bold" LetterSpacing="-1.2" Text="AI"
+              AutomationProperties.Name="Current view" />
+          <TextBlock x:Name="AiIntroductionText" MaxWidth="760" HorizontalAlignment="Left"
+              FontSize="14" Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
+              Text="dot-orbit does not contact an AI provider. Copy planning context to an AI assistant, then bring proposed changes back to dot-orbit for review before anything is applied. Importing proposals is not available yet." />
+        </StackPanel>
+
+        <StackPanel Spacing="10">
+          <StackPanel Spacing="4">
+            <TextBlock FontSize="20" FontWeight="Bold" Text="Copy planning context" />
+            <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
+                Text="Choose whether to copy a bounded Planning snapshot by itself or with reusable provider-neutral instructions and schemas." />
+          </StackPanel>
+          <Border Classes="list-panel">
+            <StackPanel>
+              <Border Classes="interactive-row separated-row" MinHeight="54">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                  <StackPanel VerticalAlignment="Center" Spacing="2">
+                    <TextBlock FontWeight="SemiBold" Text="Include agent instructions and schema with snapshot" />
+                    <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
+                        Text="Stored on this device. Turn off to copy only pretty-printed Planning snapshot JSON." />
+                  </StackPanel>
+                  <ToggleSwitch
+                      x:Name="AiIncludeAgentInstructionsToggle"
+                      Grid.Column="1"
+                      VerticalAlignment="Center"
+                      IsChecked="{Binding Ai.IncludeAgentInstructionsAndSchemaWithSnapshot, Mode=TwoWay}"
+                      AutomationProperties.AutomationId="ai-interchange-include-instructions"
+                      AutomationProperties.Name="Include agent instructions and schema with snapshot"
+                      AutomationProperties.ItemStatus="{Binding Ai.InterchangePreferenceStatus}" />
+                </Grid>
+              </Border>
+              <Border Classes="interactive-row separated-row" MinHeight="54">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                  <StackPanel VerticalAlignment="Center" Spacing="2">
+                    <TextBlock FontWeight="SemiBold" Text="Current Planning snapshot" />
+                    <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
+                        Text="Review included and excluded scope, catalogue disclosure, and plaintext warning before copying." />
+                  </StackPanel>
+                  <Button x:Name="AiPlanningSnapshotButton" Grid.Column="1" Classes="view-action"
+                      Content="Review and copy…" Click="OnOpenPlanningSnapshot"
+                      AutomationProperties.AutomationId="ai-planning-snapshot-open"
+                      AutomationProperties.Name="Review and copy current Planning snapshot" />
+                </Grid>
+              </Border>
+              <Border Classes="interactive-row separated-row last" MinHeight="54">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                  <StackPanel VerticalAlignment="Center" Spacing="2">
+                    <TextBlock FontWeight="SemiBold" Text="Reusable agent instructions and schemas" />
+                    <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
+                        Text="Copy provider-neutral guidance and exact v1 schemas without reading or including live workspace content." />
+                  </StackPanel>
+                  <Button x:Name="AiReusableInstructionsButton" Grid.Column="1" Classes="view-action"
+                      Content="Copy instructions" Click="OnCopyReusableInstructions"
+                      AutomationProperties.AutomationId="ai-interchange-instructions-copy"
+                      AutomationProperties.Name="Copy reusable agent instructions and schemas without workspace content" />
+                </Grid>
+              </Border>
+            </StackPanel>
+          </Border>
+          <TextBlock x:Name="AiInterchangeStatus"
+              Foreground="{DynamicResource MutedTextBrush}"
+              IsVisible="{Binding Ai.HasInterchangeStatus}"
+              Text="{Binding Ai.InterchangeStatus}"
+              TextWrapping="Wrap"
+              AutomationProperties.Name="Agent interchange status"
+              AutomationProperties.LiveSetting="Polite" />
+        </StackPanel>
+      </StackPanel>
+    </ScrollViewer>
+
     <Border
         x:Name="InspectorRegion"
-        IsVisible="{Binding !ShowSettings}"
+        IsVisible="{Binding ShowWorkspace}"
         IsEnabled="{Binding !Work.HasBlockingDialog, FallbackValue=True}"
         Grid.Row="1"
         Grid.Column="2"

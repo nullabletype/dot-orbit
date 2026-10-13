@@ -291,6 +291,154 @@ public sealed class InterchangeContractTests
     }
 
     [Fact]
+    public void ReusableInstructionsContainProviderNeutralContractAndExactPackagedSchemas()
+    {
+        var result = AgentInterchangeDocumentComposer.ComposeReusableInstructionsAndSchemas();
+
+        Assert.True(result.Succeeded);
+        var text = Encoding.UTF8.GetString(result.Payload!.Value.Span);
+        Assert.Contains("Act as a planning assistant", text, StringComparison.Ordinal);
+        Assert.Contains("Return exactly one JSON object", text, StringComparison.Ordinal);
+        foreach (var operation in OperationVocabulary)
+        {
+            Assert.Contains(operation, text, StringComparison.Ordinal);
+        }
+        Assert.Contains(
+            Encoding.UTF8.GetString(InterchangeSchemaCatalogue.GetApplicationSchema(
+                AgentInterchangeV1.PlanningSnapshotSchemaId).Span).ReplaceLineEndings("\n"),
+            text,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            Encoding.UTF8.GetString(InterchangeSchemaCatalogue.GetApplicationSchema(
+                AgentInterchangeV1.ChangeProposalSchemaId).Span).ReplaceLineEndings("\n"),
+            text,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("Live Planning snapshot", text, StringComparison.Ordinal);
+        Assert.DoesNotContain('\r', text);
+    }
+
+    [Fact]
+    public void CombinedCompositionNormalizesCrlfAndLoneCrSnapshotInput()
+    {
+        var result = AgentInterchangeDocumentComposer.ComposeWithSnapshot(
+            Encoding.UTF8.GetBytes("first\r\nsecond\rthird\nfourth"));
+
+        Assert.True(result.Succeeded);
+        var text = Encoding.UTF8.GetString(result.Payload!.Value.Span);
+        Assert.DoesNotContain('\r', text);
+        Assert.Contains("first\nsecond\nthird\nfourth", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CombinedCompositionNormalizesBeforeApplyingTheCompleteOutputLimit()
+    {
+        var snapshot = new byte[AgentInterchangeV1.MaximumOutputBytes];
+        for (var index = 0; index < snapshot.Length; index += 2)
+        {
+            snapshot[index] = (byte)'\r';
+            snapshot[index + 1] = (byte)'\n';
+        }
+
+        var result = AgentInterchangeDocumentComposer.ComposeWithSnapshot(snapshot);
+
+        Assert.True(result.Succeeded);
+        Assert.NotNull(result.Payload);
+        Assert.True(result.Payload.Value.Length < AgentInterchangeV1.MaximumOutputBytes);
+        Assert.DoesNotContain((byte)'\r', result.Payload.Value.ToArray());
+    }
+
+    [Fact]
+    public void SnapshotCompositionSelectsValidJsonOnlyOrDocumentedCombinedOutput()
+    {
+        var snapshot = CreateSnapshot();
+
+        var snapshotOnly = PlanningInterchangeCopyComposer.ComposeSnapshot(
+            snapshot,
+            includeAgentInstructionsAndSchema: false);
+        var combined = PlanningInterchangeCopyComposer.ComposeSnapshot(
+            snapshot,
+            includeAgentInstructionsAndSchema: true);
+
+        Assert.True(snapshotOnly.Succeeded);
+        using var snapshotDocument = JsonDocument.Parse(snapshotOnly.Payload!.Value);
+        Assert.True(InterchangeSchemaCatalogue.Validate(
+            AgentInterchangeV1.PlanningSnapshotSchemaId,
+            snapshotDocument.RootElement).IsValid);
+        Assert.True(combined.Succeeded);
+        var combinedText = Encoding.UTF8.GetString(combined.Payload!.Value.Span);
+        Assert.Contains("## Live Planning snapshot", combinedText, StringComparison.Ordinal);
+        Assert.Contains(Encoding.UTF8.GetString(snapshotOnly.Payload.Value.Span), combinedText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SnapshotOnlyCopyIsIndentedValidJsonAndMatchesTheCombinedSnapshot()
+    {
+        var snapshotOnly = PlanningInterchangeCopyComposer.ComposeSnapshot(
+            CreateSnapshot(),
+            includeAgentInstructionsAndSchema: false);
+        var combined = PlanningInterchangeCopyComposer.ComposeSnapshot(
+            CreateSnapshot(),
+            includeAgentInstructionsAndSchema: true);
+
+        Assert.True(snapshotOnly.Succeeded);
+        var snapshotText = Encoding.UTF8.GetString(snapshotOnly.Payload!.Value.Span);
+        Assert.DoesNotContain('\r', snapshotText);
+        Assert.Contains('\n', snapshotText);
+        Assert.True(snapshotText.Contains(
+            "\n  \"format\": \"dot-orbit-planning-snapshot\"",
+            StringComparison.Ordinal));
+        Assert.True(snapshotText.Contains("\n    {\n      \"id\":", StringComparison.Ordinal));
+        using var snapshotDocument = JsonDocument.Parse(snapshotOnly.Payload.Value);
+        Assert.True(InterchangeSchemaCatalogue.Validate(
+            AgentInterchangeV1.PlanningSnapshotSchemaId,
+            snapshotDocument.RootElement).IsValid);
+
+        Assert.True(combined.Succeeded);
+        var combinedText = Encoding.UTF8.GetString(combined.Payload!.Value.Span);
+        Assert.DoesNotContain('\r', combinedText);
+        var liveSnapshotHeading = combinedText.IndexOf("## Live Planning snapshot", StringComparison.Ordinal);
+        Assert.True(liveSnapshotHeading >= 0);
+        var snapshotStart = combinedText.IndexOf("```json\n", liveSnapshotHeading, StringComparison.Ordinal)
+            + "```json\n".Length;
+        Assert.True(snapshotStart >= "```json\n".Length);
+        var snapshotEnd = combinedText.IndexOf("\n```", snapshotStart, StringComparison.Ordinal);
+        Assert.True(snapshotEnd > snapshotStart);
+        Assert.True(snapshotText.AsSpan().SequenceEqual(combinedText.AsSpan(snapshotStart, snapshotEnd - snapshotStart)));
+    }
+
+    [Fact]
+    public void CombinedOutputLimitRejectsCompletePayloadWithoutTruncation()
+    {
+        var reusable = AgentInterchangeDocumentComposer.ComposeReusableInstructionsAndSchemas();
+        Assert.True(reusable.Succeeded);
+        var descriptionLength = AgentInterchangeV1.MaximumOutputBytes
+            - reusable.Payload!.Value.Length
+            - 1024;
+        var content = CreateSnapshot() with
+        {
+            Tasks =
+            [
+                CreateSnapshot().Tasks[0] with
+                {
+                    Description = new string('x', descriptionLength),
+                },
+            ],
+        };
+
+        var snapshotOnly = PlanningInterchangeCopyComposer.ComposeSnapshot(
+            content,
+            includeAgentInstructionsAndSchema: false);
+        var combined = PlanningInterchangeCopyComposer.ComposeSnapshot(
+            content,
+            includeAgentInstructionsAndSchema: true);
+
+        Assert.True(snapshotOnly.Succeeded);
+        Assert.False(combined.Succeeded);
+        Assert.Null(combined.Payload);
+        Assert.Equal("workspace-too-large-for-v1-interchange", combined.ErrorCode);
+    }
+
+    [Fact]
     public void GenerationRejectsInvalidUnicodeBeforeMaterialisingJson()
     {
         var content = CreateSnapshot() with

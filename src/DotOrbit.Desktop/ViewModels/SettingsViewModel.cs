@@ -84,7 +84,6 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         }
     }
     public bool HasSecurityConfirmation => !string.IsNullOrEmpty(SecurityConfirmation);
-
     public void Refresh()
     {
         var snapshot = _work.Read();

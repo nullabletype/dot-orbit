@@ -11,6 +11,7 @@ The repository contains the first runnable Avalonia shell and the earlier intera
 - Generate a reusable encrypted development workspace with the commands in [`docs/development/sample-workspace.md`](docs/development/sample-workspace.md).
 - Build and validate self-contained Release archives with the commands in [`docs/development/release-packaging.md`](docs/development/release-packaging.md).
 - Read [`docs/data/plaintext-export-v3.md`](docs/data/plaintext-export-v3.md) for the implemented versioned unencrypted workspace-export contract.
+- Read [`docs/development/agent-interchange-copy.md`](docs/development/agent-interchange-copy.md) for the implemented Planning snapshot and reusable-instruction clipboard workflow.
 - Open `prototype/index.html` in a modern desktop browser to explore the broader product direction. It is self-contained and needs no build step.
 - Read `docs/product/brief.md` for the product boundary.
 - Read `docs/product/requirements.md` for the current behavioural specification.
@@ -25,7 +26,7 @@ The repository contains the first runnable Avalonia shell and the earlier intera
 - UI prototype: interactive and locally verified for the original six views; it predates the accepted Upcoming-view decision and must be updated before serving as evidence for that view.
 - Application platform: Avalonia UI on .NET, targeting macOS, Linux, and Windows.
 - Local persistence: encrypted workspace creation, unlock, automatic recovery and retention, manual recovery, and forward-only migration are implemented with SQLite3MC.
-- Production application: the cross-platform navigation shell, encrypted workspace access and recovery, Project and standalone Task workflows, Today, Upcoming, Completed, Archive, Bin, reusable Participants, persisted ordering, Markdown rendering, theme selection, and explicit plaintext JSON export are implemented. Later product slices remain specified rather than implemented.
+- Production application: the cross-platform navigation shell, encrypted workspace access and recovery, Project and standalone Task workflows, Today, Upcoming, Completed, Archive, Bin, reusable Participants, persisted ordering, Markdown rendering, theme selection, explicit plaintext JSON export, and the dedicated AI destination for explicit Planning snapshot/reusable-instruction copy are implemented. Change-proposal intake, review, and apply remain specified for issue #81 rather than implemented.
 - Licence: MIT.
 
 ## Build and test

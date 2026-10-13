@@ -38,8 +38,10 @@ public sealed partial class MainWindow : Window
     private readonly IInspectorAutosaveScheduler _autosaveScheduler;
     private readonly ITransientMessageScheduler _transientMessageScheduler;
     private readonly IMarkdownClipboard? _markdownClipboard;
+    private readonly IPlainTextClipboard? _plainTextClipboard;
     private readonly Action _workspaceUnavailable;
     private readonly IApplicationThemeService _applicationThemeService;
+    private readonly IInterchangePreferenceService _interchangePreferenceService;
     private readonly TimeProvider _timeProvider;
     private readonly Func<IWorkspaceWork, IInspectorSaveWriter> _inspectorSaveWriterFactory;
     private long _transientMessageRevision;
@@ -69,16 +71,22 @@ public sealed partial class MainWindow : Window
         ITransientMessageScheduler? transientMessageScheduler = null,
         IApplicationThemeService? applicationThemeService = null,
         TimeProvider? timeProvider = null,
-        Func<IWorkspaceWork, IInspectorSaveWriter>? inspectorSaveWriterFactory = null)
+        Func<IWorkspaceWork, IInspectorSaveWriter>? inspectorSaveWriterFactory = null,
+        IPlainTextClipboard? plainTextClipboard = null,
+        IInterchangePreferenceService? interchangePreferenceService = null)
     {
         _session = session;
         _markdownClipboard = markdownClipboard;
+        _plainTextClipboard = plainTextClipboard;
         _autosaveScheduler = autosaveScheduler ?? new DispatcherInspectorAutosaveScheduler();
         _transientMessageScheduler = transientMessageScheduler ?? new DispatcherTransientMessageScheduler();
         _workspaceUnavailable = () => HandleWorkspaceUnavailable(workspaceUnavailable);
         _applicationThemeService = applicationThemeService
             ?? (Application.Current as App)?.ThemeService
             ?? new TransientApplicationThemeService(application: Application.Current);
+        _interchangePreferenceService = interchangePreferenceService
+            ?? (Application.Current as App)?.InterchangePreferenceService
+            ?? new TransientInterchangePreferenceService();
         _timeProvider = timeProvider ?? TimeProvider.System;
         _inspectorSaveWriterFactory = inspectorSaveWriterFactory
             ?? (work => new SerializedWorkspacePersistenceExecutor(work, _timeProvider));
@@ -109,6 +117,10 @@ public sealed partial class MainWindow : Window
             exportButton.IsVisible = session is not null;
         if (this.FindControl<Button>("SettingsPassphraseButton") is { } passphraseButton)
             passphraseButton.IsVisible = session is not null;
+        if (this.FindControl<Button>("AiPlanningSnapshotButton") is { } snapshotButton)
+            snapshotButton.IsVisible = session is not null;
+        if (this.FindControl<Button>("AiReusableInstructionsButton") is { } instructionsButton)
+            instructionsButton.IsVisible = session is not null;
         Closed += OnClosed;
         Closing += OnClosing;
     }
@@ -144,6 +156,96 @@ public sealed partial class MainWindow : Window
             _ = export.ShowDialog(this);
         });
     }
+
+    private async void OnOpenPlanningSnapshot(object? sender, RoutedEventArgs e) =>
+        await OpenPlanningSnapshotAsync(sender as Control);
+
+    internal async Task OpenPlanningSnapshotAsync(Control? launcher = null)
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        void OpenReview()
+        {
+            if (DataContext is not ShellViewModel { Ai: { } ai })
+            {
+                return;
+            }
+
+            var clipboard = PlainTextClipboard();
+            if (clipboard is null)
+            {
+                ai.ReportInterchangeStatus("The system clipboard is unavailable. Nothing was copied.");
+                return;
+            }
+
+            try
+            {
+                var snapshot = _session.Planning.Read();
+                var viewModel = new PlanningSnapshotCopyViewModel(
+                    snapshot,
+                    ai.IncludeAgentInstructionsAndSchemaWithSnapshot,
+                    clipboard);
+                if (viewModel.HasStatusMessage)
+                {
+                    ai.ReportInterchangeStatus(viewModel.StatusMessage);
+                }
+
+                PropertyChangedEventHandler reportStatus = (_, args) =>
+                {
+                    if (args.PropertyName == nameof(PlanningSnapshotCopyViewModel.StatusMessage)
+                        && viewModel.HasStatusMessage)
+                    {
+                        ai.ReportInterchangeStatus(viewModel.StatusMessage);
+                    }
+                };
+                viewModel.PropertyChanged += reportStatus;
+                var review = new PlanningSnapshotCopyWindow(viewModel);
+                review.Closed += (_, _) =>
+                {
+                    viewModel.PropertyChanged -= reportStatus;
+                    Dispatcher.UIThread.Post(() => launcher?.Focus());
+                };
+                _ = review.ShowDialog(this);
+            }
+            catch (Exception)
+            {
+                ai.ReportInterchangeStatus(
+                    "The Planning snapshot could not be prepared. Nothing was copied.");
+            }
+        }
+
+        if (DataContext is ShellViewModel { Work: { } work })
+        {
+            await work.NavigateAsync(OpenReview);
+        }
+        else
+        {
+            OpenReview();
+        }
+    }
+
+    private async void OnCopyReusableInstructions(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not ShellViewModel { Ai: { } ai })
+        {
+            return;
+        }
+
+        var clipboard = PlainTextClipboard();
+        if (clipboard is null)
+        {
+            ai.ReportInterchangeStatus("The system clipboard is unavailable. Nothing was copied.");
+            return;
+        }
+
+        await ai.CopyReusableInstructionsAsync(clipboard);
+    }
+
+    private IPlainTextClipboard? PlainTextClipboard() =>
+        _plainTextClipboard ?? (Clipboard is null ? null : new AvaloniaPlainTextClipboard(Clipboard));
 
     private void OnOpenPassphraseRotation(object? sender, RoutedEventArgs e)
     {
@@ -238,7 +340,8 @@ public sealed partial class MainWindow : Window
             applicationThemeService: _applicationThemeService,
             inspectorSaveWriter: _inspectorSaveWriter,
             actionExecutor: _actionExecutor,
-            uiDispatcher: new AvaloniaUiDispatcher());
+            uiDispatcher: new AvaloniaUiDispatcher(),
+            interchangePreferenceService: _interchangePreferenceService);
     }
 
     private void OnDataContextChanged(object? sender, EventArgs e)

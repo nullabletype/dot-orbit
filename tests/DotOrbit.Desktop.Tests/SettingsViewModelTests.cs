@@ -118,4 +118,5 @@ public sealed class SettingsViewModelTests
             return true;
         }
     }
+
 }
