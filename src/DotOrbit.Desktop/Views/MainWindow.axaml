@@ -1204,7 +1204,7 @@
                   <StackPanel VerticalAlignment="Center" Spacing="2">
                     <TextBlock FontWeight="SemiBold" Text="Include agent instructions and schema with snapshot" />
                     <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
-                        Text="Stored on this device. Turn off to copy only the canonical Planning snapshot JSON." />
+                        Text="Stored on this device. Turn off to copy only pretty-printed Planning snapshot JSON." />
                   </StackPanel>
                   <ToggleSwitch
                       x:Name="SettingsIncludeAgentInstructionsToggle"

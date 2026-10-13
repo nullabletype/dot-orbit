@@ -64,7 +64,7 @@ internal sealed class PlanningSnapshotCopyViewModel : INotifyPropertyChanged
         $"Individually archived child Tasks excluded from included Projects: {ExcludedArchivedChildTaskCount}";
     public string OutputScopeText => IncludeAgentInstructionsAndSchema
         ? "One text document: provider-neutral instructions, exact v1 schemas, operation vocabulary, output instructions, and this live snapshot with its relationships."
-        : "Snapshot-only mode: one canonical v1 Planning snapshot JSON document with its relationships.";
+        : "Snapshot-only mode: one pretty-printed v1 Planning snapshot JSON document with its relationships.";
     public bool CanConfirmCopy => _payload is not null && _copyState == CopyState.Ready;
     public bool CanCancelCopy => _payload is not null && _copyState == CopyState.Ready;
 

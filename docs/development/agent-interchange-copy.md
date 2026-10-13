@@ -14,7 +14,7 @@ The review retains one atomic revision-bearing snapshot. It does not silently re
 
 The snapshot contains every reusable Category and Participant, active non-Bin Projects, and every non-archived/non-binned standalone or included-Project Task, including completed Tasks. It includes stable identifiers, relationships, Category inheritance or override, Participant associations, dates, completion, Today state, progress, and domain-significant order. Archived and Bin Project/Task content, recovery data, storage paths, export history, and persistence positions are excluded. A reusable Category or Participant label referenced only by excluded work is still present and may reveal hidden context.
 
-When the preference is enabled, the clipboard receives one documented text payload containing provider-neutral role and constraints, the exact packaged Planning snapshot and Change proposal schemas, the operation vocabulary, output instructions, and the live snapshot. When disabled, it receives only valid canonical Planning snapshot JSON. Snapshot identity is deterministic `sha256:` JCS/SHA-256 content identity; copy creates no random or persisted identifier.
+When the preference is enabled, the clipboard receives one documented text payload containing provider-neutral role and constraints, the exact packaged Planning snapshot and Change proposal schemas, the operation vocabulary, output instructions, and the live snapshot. When disabled, it receives only valid pretty-printed Planning snapshot JSON; the combined document uses the same formatting for its snapshot portion. Snapshot identity remains the deterministic `sha256:` JCS/SHA-256 content identity; copy creates no random or persisted identifier.
 
 ## Copy reusable instructions without workspace content
 

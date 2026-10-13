@@ -340,6 +340,39 @@ public sealed class InterchangeContractTests
     }
 
     [Fact]
+    public void SnapshotOnlyCopyIsIndentedValidJsonAndMatchesTheCombinedSnapshot()
+    {
+        var snapshotOnly = PlanningInterchangeCopyComposer.ComposeSnapshot(
+            CreateSnapshot(),
+            includeAgentInstructionsAndSchema: false);
+        var combined = PlanningInterchangeCopyComposer.ComposeSnapshot(
+            CreateSnapshot(),
+            includeAgentInstructionsAndSchema: true);
+
+        Assert.True(snapshotOnly.Succeeded);
+        var snapshotText = Encoding.UTF8.GetString(snapshotOnly.Payload!.Value.Span);
+        Assert.True(snapshotText.Contains(
+            "\n  \"format\": \"dot-orbit-planning-snapshot\"",
+            StringComparison.Ordinal));
+        Assert.True(snapshotText.Contains("\n    {\n      \"id\":", StringComparison.Ordinal));
+        using var snapshotDocument = JsonDocument.Parse(snapshotOnly.Payload.Value);
+        Assert.True(InterchangeSchemaCatalogue.Validate(
+            AgentInterchangeV1.PlanningSnapshotSchemaId,
+            snapshotDocument.RootElement).IsValid);
+
+        Assert.True(combined.Succeeded);
+        var combinedText = Encoding.UTF8.GetString(combined.Payload!.Value.Span);
+        var liveSnapshotHeading = combinedText.IndexOf("## Live Planning snapshot", StringComparison.Ordinal);
+        Assert.True(liveSnapshotHeading >= 0);
+        var snapshotStart = combinedText.IndexOf("```json\n", liveSnapshotHeading, StringComparison.Ordinal)
+            + "```json\n".Length;
+        Assert.True(snapshotStart >= "```json\n".Length);
+        var snapshotEnd = combinedText.IndexOf("\n```", snapshotStart, StringComparison.Ordinal);
+        Assert.True(snapshotEnd > snapshotStart);
+        Assert.True(snapshotText.AsSpan().SequenceEqual(combinedText.AsSpan(snapshotStart, snapshotEnd - snapshotStart)));
+    }
+
+    [Fact]
     public void CombinedOutputLimitRejectsCompletePayloadWithoutTruncation()
     {
         var reusable = AgentInterchangeDocumentComposer.ComposeReusableInstructionsAndSchemas();

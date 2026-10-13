@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using DotOrbit.Core.Interchange;
 
 namespace DotOrbit.Interchange.Json;
@@ -67,6 +68,8 @@ public static class AgentInterchangeDocumentComposer
         ```
         """);
 
+    private static readonly byte[] LineFeed = Encoding.UTF8.GetBytes("\n");
+
     public static InterchangeGenerationResult ComposeReusableInstructionsAndSchemas() =>
         InterchangePayloadComposer.Compose(
             Introduction,
@@ -83,23 +86,33 @@ public static class AgentInterchangeDocumentComposer
             InterchangeSchemaCatalogue.GetApplicationSchema(AgentInterchangeV1.ChangeProposalSchemaId),
             EndSchemas,
             BeforeSnapshot,
+            LineFeed,
             snapshot,
             EndSnapshot);
 }
 
 public static class PlanningInterchangeCopyComposer
 {
+    private static readonly JsonSerializerOptions PrettyJson = new()
+    {
+        WriteIndented = true,
+    };
+
     public static InterchangeGenerationResult ComposeSnapshot(
         PlanningSnapshotContent snapshot,
         bool includeAgentInstructionsAndSchema)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         var generated = PlanningSnapshotJsonGenerator.Generate(snapshot);
-        if (!generated.Succeeded || !includeAgentInstructionsAndSchema)
+        if (!generated.Succeeded)
         {
             return generated;
         }
 
-        return AgentInterchangeDocumentComposer.ComposeWithSnapshot(generated.Payload!.Value);
+        using var document = JsonDocument.Parse(generated.Payload!.Value);
+        var prettySnapshot = JsonSerializer.SerializeToUtf8Bytes(document.RootElement, PrettyJson);
+        return includeAgentInstructionsAndSchema
+            ? AgentInterchangeDocumentComposer.ComposeWithSnapshot(prettySnapshot)
+            : InterchangePayloadComposer.Compose(prettySnapshot);
     }
 }

@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Styling;
 using DotOrbit.Core.Workspaces;
+using DotOrbit.Desktop.ViewModels;
 using DotOrbit.Storage.Sqlite;
 using Xunit;
 
@@ -59,6 +60,29 @@ public sealed class ApplicationThemeTests
         Assert.True(reloaded.TrySave(ApplicationTheme.Dark));
         Assert.False(reloaded.LoadIncludeAgentInstructionsAndSchemaWithSnapshot());
         Assert.Empty(Directory.GetFiles(directory.Path, "*.tmp"));
+    }
+
+    [Fact]
+    public void InterchangeToggleSurvivesStoreServiceAndSettingsRecreation()
+    {
+        using var directory = new TemporaryDirectory();
+        var path = Path.Combine(directory.Path, "preferences.json");
+        var service = new InterchangePreferenceService(new JsonDevicePreferenceStore(path));
+        var settings = new SettingsViewModel(
+            new MemoryWorkspaceWork(),
+            () => { },
+            interchangePreferenceService: service);
+
+        Assert.True(settings.IncludeAgentInstructionsAndSchemaWithSnapshot);
+        settings.IncludeAgentInstructionsAndSchemaWithSnapshot = false;
+
+        var recreatedService = new InterchangePreferenceService(new JsonDevicePreferenceStore(path));
+        var recreatedSettings = new SettingsViewModel(
+            new MemoryWorkspaceWork(),
+            () => { },
+            interchangePreferenceService: recreatedService);
+
+        Assert.False(recreatedSettings.IncludeAgentInstructionsAndSchemaWithSnapshot);
     }
 
     [Fact]
