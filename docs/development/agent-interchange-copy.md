@@ -4,8 +4,8 @@ The implemented outbound version 1 workflow is manual and provider-neutral. dot-
 
 ## Copy a current Planning snapshot
 
-1. Unlock the workspace and open **Settings**.
-2. Under **Agent interchange**, choose whether **Include agent instructions and schema with snapshot** is enabled. This device-local preference defaults enabled, shares the local `preferences.json` document with the theme preference, and never changes Workspace revision.
+1. Unlock the workspace and open **AI**, the sparkle destination immediately above Bin.
+2. Under **Copy planning context**, choose whether **Include agent instructions and schema with snapshot** is enabled. This device-local preference defaults enabled, shares the local `preferences.json` document with the theme preference, and never changes Workspace revision.
 3. Activate **Review and copy…**. Any valid pending Project or Task inspector edit is saved first. Invalid or failed edits keep the current editing decision open and no snapshot is read until the edit is corrected, retried, or explicitly discarded.
 4. Review the included record counts and relationships, excluded scope, reusable-catalogue disclosure, selected output form, and clipboard warning.
 5. Activate **Copy Planning snapshot** to authorise that one clipboard write. **Do not copy**, window close, or navigation writes nothing.
@@ -26,4 +26,4 @@ Each complete final output—snapshot JSON, reusable instructions/schemas, or th
 
 Clipboard payloads are sensitive unencrypted plaintext. Payload content, labels, identifiers, digests, and clipboard values must not appear in logs, telemetry, exception messages, screenshots, test reports, CI output, or GitHub artifacts. Success, cancellation, unavailable clipboard, generation failure, and clipboard failure use fixed non-sensitive status text.
 
-This workflow does not import or apply a Change proposal and does not replace the complete plaintext workspace export. Proposal typing/paste/file intake, Review, and explicit Apply are separate follow-up work under the same version 1 contract.
+This workflow does not import or apply a Change proposal and does not replace the complete plaintext workspace export. Proposal typing/paste/file intake, Review, and explicit Apply are separate follow-up work tracked by issue #81 under the same version 1 contract. The AI destination intentionally exposes no proposal input until that work is implemented.

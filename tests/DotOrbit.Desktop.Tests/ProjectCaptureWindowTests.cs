@@ -1082,7 +1082,7 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
-    public void SettingsParticipantInterchangeExportAndRecoveryControlsFollowLogicalKeyboardTabOrder()
+    public void SettingsParticipantExportAndRecoveryControlsFollowLogicalKeyboardTabOrder()
     {
         using var session = new RecoveryViewModelTests.StubWorkspaceSession(
             new RecoveryViewModelTests.StubWorkspaceRecovery());
@@ -1114,12 +1114,6 @@ public sealed class ProjectCaptureWindowTests
         Assert.True(rename.IsKeyboardFocusWithin);
         Tab(window);
         Assert.True(ButtonByAutomationId(window, $"settings-participant-delete-{participant.Id}").IsKeyboardFocusWithin);
-        Tab(window);
-        Assert.True(window.FindControl<ToggleSwitch>("SettingsIncludeAgentInstructionsToggle")!.IsKeyboardFocusWithin);
-        Tab(window);
-        Assert.True(window.FindControl<Button>("SettingsPlanningSnapshotButton")!.IsKeyboardFocusWithin);
-        Tab(window);
-        Assert.True(window.FindControl<Button>("SettingsReusableInstructionsButton")!.IsKeyboardFocusWithin);
         Tab(window);
         Assert.True(window.FindControl<Button>("SettingsPlaintextExportButton")!.IsKeyboardFocusWithin);
         Tab(window);

@@ -85,6 +85,14 @@ public sealed class ShellViewModel : INotifyPropertyChanged
                 "Projects and tasks you archive will remain available to restore here."),
         ];
 
+        AiNavigation = CreateNavigationItem(
+            "AI",
+            "M12 1.8l1.55 4.15L17.7 7.5l-4.15 1.55L12 13.2l-1.55-4.15L6.3 7.5l4.15-1.55L12 1.8zm-6.2 8.7l1.05 2.8 2.8 1.05-2.8 1.05-1.05 2.8-1.05-2.8-2.8-1.05 2.8-1.05 1.05-2.8zm12.4 4l.95 2.55L21.7 18l-2.55.95-.95 2.55-.95-2.55L14.7 18l2.55-.95.95-2.55z",
+            "Copy planning context for an AI assistant without contacting a provider.",
+            "AI planning exchange",
+            "Copy planning context explicitly and review proposed changes before applying them.",
+            countText: null);
+
         BinNavigation = CreateNavigationItem(
             "Bin",
             "M6,19C6,20.1 6.9,21 8,21H16C17.1,21 18,20.1 18,19V7H6V19M8,9H10V18H8V9M14,9H16V18H14V9M15.5,4L14.5,3H9.5L8.5,4H5V6H19V4H15.5",
@@ -126,6 +134,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
 
     public IReadOnlyList<NavigationItemViewModel> PrimaryNavigation { get; }
 
+    public NavigationItemViewModel AiNavigation { get; }
     public NavigationItemViewModel BinNavigation { get; }
     public NavigationItemViewModel SettingsNavigation { get; }
 
@@ -151,7 +160,9 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(ShowBin));
             OnPropertyChanged(nameof(ShowCategories));
             OnPropertyChanged(nameof(ShowEmpty));
+            OnPropertyChanged(nameof(ShowAI));
             OnPropertyChanged(nameof(ShowSettings));
+            OnPropertyChanged(nameof(ShowWorkspace));
             OnPropertyChanged(nameof(ViewSubtitle));
             OnPropertyChanged(nameof(EmptyStateHeading));
             OnPropertyChanged(nameof(EmptyStateBody));
@@ -169,8 +180,10 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     public bool ShowArchive => Work is not null && ViewTitle == "Archive";
     public bool ShowBin => Work is not null && ViewTitle == "Bin";
     public bool ShowCategories => Work is not null && ViewTitle == "Categories";
+    public bool ShowAI => ViewTitle == "AI";
     public bool ShowSettings => ViewTitle == "Settings";
-    public bool ShowEmpty => !ShowToday && !ShowUpcoming && !ShowProjects && !ShowBacklog && !ShowCompleted && !ShowArchive && !ShowBin && !ShowCategories && !ShowSettings;
+    public bool ShowWorkspace => !ShowAI && !ShowSettings;
+    public bool ShowEmpty => !ShowToday && !ShowUpcoming && !ShowProjects && !ShowBacklog && !ShowCompleted && !ShowArchive && !ShowBin && !ShowCategories && !ShowAI && !ShowSettings;
 
     public string ViewTitle => SelectedItem.Title;
 

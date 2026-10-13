@@ -6,7 +6,7 @@ namespace DotOrbit.Desktop.Tests;
 public sealed class ShellViewModelTests
 {
     [Fact]
-    public void StartsOnTodayWithBinSeparatedFromPrimaryNavigation()
+    public void StartsOnTodayWithAiBinAndSettingsSeparatedFromPrimaryNavigation()
     {
         var shell = new ShellViewModel();
 
@@ -14,11 +14,20 @@ public sealed class ShellViewModelTests
         Assert.Equal(
             ["Today", "Upcoming", "Backlog", "Projects", "Categories", "Completed", "Archive"],
             shell.PrimaryNavigation.Select(item => item.Title));
+        Assert.Equal("AI", shell.AiNavigation.Title);
+        Assert.Equal(
+            "M12 1.8l1.55 4.15L17.7 7.5l-4.15 1.55L12 13.2l-1.55-4.15L6.3 7.5l4.15-1.55L12 1.8zm-6.2 8.7l1.05 2.8 2.8 1.05-2.8 1.05-1.05 2.8-1.05-2.8-2.8-1.05 2.8-1.05 1.05-2.8zm12.4 4l.95 2.55L21.7 18l-2.55.95-.95 2.55-.95-2.55L14.7 18l2.55-.95.95-2.55z",
+            shell.AiNavigation.IconData);
+        Assert.Equal("navigation-ai", shell.AiNavigation.AutomationId);
+        Assert.Equal("Open AI", shell.AiNavigation.AccessibleName);
+        Assert.Contains("without contacting a provider", shell.AiNavigation.ViewSubtitle, StringComparison.Ordinal);
         Assert.Equal("Bin", shell.BinNavigation.Title);
         Assert.Equal("Settings", shell.SettingsNavigation.Title);
+        Assert.DoesNotContain(shell.AiNavigation, shell.PrimaryNavigation);
         Assert.DoesNotContain(shell.BinNavigation, shell.PrimaryNavigation);
         Assert.DoesNotContain(shell.SettingsNavigation, shell.PrimaryNavigation);
         Assert.All(shell.PrimaryNavigation, item => Assert.Equal("0", item.CountText));
+        Assert.Null(shell.AiNavigation.CountText);
         Assert.Null(shell.BinNavigation.CountText);
         Assert.Null(shell.SettingsNavigation.CountText);
     }
@@ -27,7 +36,10 @@ public sealed class ShellViewModelTests
     public void EveryDestinationProvidesAUsableEmptyState()
     {
         var shell = new ShellViewModel();
-        var destinations = shell.PrimaryNavigation.Append(shell.BinNavigation).Append(shell.SettingsNavigation);
+        var destinations = shell.PrimaryNavigation
+            .Append(shell.AiNavigation)
+            .Append(shell.BinNavigation)
+            .Append(shell.SettingsNavigation);
 
         Assert.All(destinations, destination =>
         {

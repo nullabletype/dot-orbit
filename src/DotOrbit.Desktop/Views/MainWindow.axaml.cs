@@ -117,9 +117,9 @@ public sealed partial class MainWindow : Window
             exportButton.IsVisible = session is not null;
         if (this.FindControl<Button>("SettingsPassphraseButton") is { } passphraseButton)
             passphraseButton.IsVisible = session is not null;
-        if (this.FindControl<Button>("SettingsPlanningSnapshotButton") is { } snapshotButton)
+        if (this.FindControl<Button>("AiPlanningSnapshotButton") is { } snapshotButton)
             snapshotButton.IsVisible = session is not null;
-        if (this.FindControl<Button>("SettingsReusableInstructionsButton") is { } instructionsButton)
+        if (this.FindControl<Button>("AiReusableInstructionsButton") is { } instructionsButton)
             instructionsButton.IsVisible = session is not null;
         Closed += OnClosed;
         Closing += OnClosing;

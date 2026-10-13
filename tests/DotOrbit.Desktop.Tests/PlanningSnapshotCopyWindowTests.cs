@@ -9,6 +9,7 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Styling;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using DotOrbit.Core.Interchange;
 using DotOrbit.Core.Workspaces;
 using DotOrbit.Desktop.ViewModels;
@@ -181,7 +182,7 @@ public sealed class PlanningSnapshotCopyWindowTests
     }
 
     [AvaloniaFact]
-    public async Task SettingsActionsRestoreSnapshotLauncherFocusAndInstructionsNeverReadWorkspace()
+    public async Task AiActionsRestoreSnapshotLauncherFocusAndInstructionsNeverReadWorkspace()
     {
         var source = new RecordingPlanningSnapshotSource(
             PlanningSnapshotCopyViewModelTests.CreateRepresentativeSnapshot());
@@ -190,14 +191,14 @@ public sealed class PlanningSnapshotCopyWindowTests
         var window = new MainWindow(session, null, null, plainTextClipboard: clipboard);
         window.Show();
         var shell = Assert.IsType<ShellViewModel>(window.DataContext);
-        shell.SettingsNavigation.SelectCommand.Execute(null);
+        shell.AiNavigation.SelectCommand.Execute(null);
         Dispatcher.UIThread.RunJobs();
         var snapshotLauncher = Assert.IsType<Button>(
-            window.FindControl<Button>("SettingsPlanningSnapshotButton"));
+            window.FindControl<Button>("AiPlanningSnapshotButton"));
         var instructions = Assert.IsType<Button>(
-            window.FindControl<Button>("SettingsReusableInstructionsButton"));
+            window.FindControl<Button>("AiReusableInstructionsButton"));
         var preference = Assert.IsType<ToggleSwitch>(
-            window.FindControl<ToggleSwitch>("SettingsIncludeAgentInstructionsToggle"));
+            window.FindControl<ToggleSwitch>("AiIncludeAgentInstructionsToggle"));
 
         Assert.Equal("Review and copy current Planning snapshot", AutomationProperties.GetName(snapshotLauncher));
         Assert.Contains("without workspace content", AutomationProperties.GetName(instructions), StringComparison.Ordinal);
@@ -254,7 +255,7 @@ public sealed class PlanningSnapshotCopyWindowTests
     }
 
     [AvaloniaFact]
-    public void SettingsInterchangeOutcomesRemainVisibleReadableAndPolitelyAnnounced()
+    public void AiInterchangeOutcomesRemainVisibleReadableAndPolitelyAnnounced()
     {
         using var session = new StubWorkspaceSession(
             new MemoryWorkspaceWork(),
@@ -271,9 +272,9 @@ public sealed class PlanningSnapshotCopyWindowTests
         };
         window.Show();
         var shell = Assert.IsType<ShellViewModel>(window.DataContext);
-        shell.SettingsNavigation.SelectCommand.Execute(null);
+        shell.AiNavigation.SelectCommand.Execute(null);
         Dispatcher.UIThread.RunJobs();
-        var status = Assert.IsType<TextBlock>(window.FindControl<TextBlock>("SettingsInterchangeStatus"));
+        var status = Assert.IsType<TextBlock>(window.FindControl<TextBlock>("AiInterchangeStatus"));
         var outcomes = new[]
         {
             "Reusable agent instructions and v1 schemas copied.",
@@ -294,6 +295,107 @@ public sealed class PlanningSnapshotCopyWindowTests
             Assert.Equal(AutomationLiveSetting.Polite, AutomationProperties.GetLiveSetting(status));
         }
 
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void AiDestinationOwnsInterchangeContentAndSettingsDoesNotDuplicateIt()
+    {
+        using var session = new StubWorkspaceSession(
+            new MemoryWorkspaceWork(),
+            new RecordingPlanningSnapshotSource(
+                PlanningSnapshotCopyViewModelTests.CreateRepresentativeSnapshot()));
+        var window = new MainWindow(
+            session,
+            null,
+            null,
+            plainTextClipboard: new PlanningSnapshotCopyViewModelTests.RecordingPlainTextClipboard())
+        {
+            Width = 1120,
+            Height = 600,
+        };
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.SettingsNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+
+        var settingsRegion = Assert.IsType<ScrollViewer>(window.FindControl<ScrollViewer>("SettingsRegion"));
+        var aiRegion = Assert.IsType<ScrollViewer>(window.FindControl<ScrollViewer>("AiRegion"));
+        Assert.True(settingsRegion.IsVisible);
+        Assert.False(aiRegion.IsVisible);
+        Assert.DoesNotContain(settingsRegion.GetVisualDescendants().OfType<Control>(), control =>
+            AutomationProperties.GetAutomationId(control)?.StartsWith("ai-", StringComparison.Ordinal) == true);
+        Assert.DoesNotContain(settingsRegion.GetVisualDescendants().OfType<TextBlock>(), text =>
+            text.Text is "Agent interchange" or "Copy planning context");
+
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(settingsRegion.IsVisible);
+        Assert.True(aiRegion.IsVisible);
+        Assert.True(aiRegion.Viewport.Height > 0);
+        var introduction = Assert.IsType<TextBlock>(window.FindControl<TextBlock>("AiIntroductionText"));
+        Assert.Contains("does not contact an AI provider", introduction.Text, StringComparison.Ordinal);
+        Assert.Contains("Copy planning context to an AI assistant", introduction.Text, StringComparison.Ordinal);
+        Assert.Contains("review before anything is applied", introduction.Text, StringComparison.Ordinal);
+        Assert.Contains("Importing proposals is not available yet", introduction.Text, StringComparison.Ordinal);
+        Assert.Empty(aiRegion.GetVisualDescendants().OfType<TextBox>());
+
+        var preference = Assert.IsType<ToggleSwitch>(
+            window.FindControl<ToggleSwitch>("AiIncludeAgentInstructionsToggle"));
+        var snapshot = Assert.IsType<Button>(window.FindControl<Button>("AiPlanningSnapshotButton"));
+        var instructions = Assert.IsType<Button>(window.FindControl<Button>("AiReusableInstructionsButton"));
+        var status = Assert.IsType<TextBlock>(window.FindControl<TextBlock>("AiInterchangeStatus"));
+        Assert.Equal("ai-interchange-include-instructions", AutomationProperties.GetAutomationId(preference));
+        Assert.Equal("ai-planning-snapshot-open", AutomationProperties.GetAutomationId(snapshot));
+        Assert.Equal("ai-interchange-instructions-copy", AutomationProperties.GetAutomationId(instructions));
+        Assert.Equal("Agent interchange status", AutomationProperties.GetName(status));
+        Assert.True(preference.Focus(NavigationMethod.Tab));
+        window.KeyPressQwerty(PhysicalKey.Tab, RawInputModifiers.None);
+        window.KeyReleaseQwerty(PhysicalKey.Tab, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(snapshot.IsKeyboardFocusWithin);
+        window.KeyPressQwerty(PhysicalKey.Tab, RawInputModifiers.None);
+        window.KeyReleaseQwerty(PhysicalKey.Tab, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(instructions.IsKeyboardFocusWithin);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void AiNavigationUsesTheExistingSaveDiscardStayGuard()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Original", "", "home", null);
+        using var session = new StubWorkspaceSession(
+            work,
+            new RecordingPlanningSnapshotSource(
+                PlanningSnapshotCopyViewModelTests.CreateRepresentativeSnapshot()));
+        var window = new MainWindow(session);
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.Work!.SelectTask(task.Id);
+        shell.Work.Title = "Edited";
+        work.FailWrites = true;
+
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(shell.Work.NeedsDecision);
+        Assert.False(shell.ShowAI);
+        Assert.True(window.FindControl<Button>("GuardSave")!.IsKeyboardFocusWithin);
+        shell.Work.StayCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(shell.Work.NeedsDecision);
+        Assert.False(shell.ShowAI);
+
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(shell.Work.NeedsDecision);
+        shell.Work.DiscardAndLeaveCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(shell.ShowAI);
+        Assert.Equal("Original", work.Read().Tasks.Single(item => item.Id == task.Id).Title);
         window.Close();
     }
 
