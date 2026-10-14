@@ -25,8 +25,9 @@ public sealed class ProposalReviewBoundary(IProposalWorkspaceSource source, Time
         using var document = JsonDocument.Parse(snapshot.Payload!.Value);
         var identity = document.RootElement.GetProperty("snapshotId").GetString()!;
         var planner = new ProposalSemanticPlanner(timeProvider, new MarkdownValidator());
-        return planner.Validate(parsed.Proposal!, current, identity,
-            Convert.ToHexString(parsed.CanonicalDigest.Span).ToLowerInvariant());
+        return planner.ValidateForApplication(parsed.Proposal!, source, current, identity,
+            Convert.ToHexString(parsed.CanonicalDigest.Span).ToLowerInvariant(),
+            PlanningSnapshotIdentityVerifier.Instance);
     }
 
     private static ProposalPlanResult Unavailable() => new(null,

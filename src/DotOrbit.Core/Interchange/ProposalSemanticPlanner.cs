@@ -6,8 +6,44 @@ namespace DotOrbit.Core.Interchange;
 
 public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposalMarkdownValidator markdownValidator)
 {
-    public ProposalPlanResult Validate(ChangeProposal proposal, ProposalWorkspaceState source,
-        string currentSnapshotId, string proposalDigest)
+    public ProposalPlanResult Validate(
+        ChangeProposal proposal,
+        ProposalWorkspaceState source,
+        string currentSnapshotId,
+        string proposalDigest) => ValidateCore(
+        proposal,
+        source,
+        currentSnapshotId,
+        proposalDigest,
+        identityVerifier: null,
+        applicationSource: null);
+
+    internal ProposalPlanResult ValidateForApplication(
+        ChangeProposal proposal,
+        IProposalWorkspaceSource applicationSource,
+        ProposalWorkspaceState source,
+        string currentSnapshotId,
+        string proposalDigest,
+        IPlanningSnapshotIdentityVerifier identityVerifier)
+    {
+        ArgumentNullException.ThrowIfNull(applicationSource);
+        ArgumentNullException.ThrowIfNull(identityVerifier);
+        return ValidateCore(
+            proposal,
+            source,
+            currentSnapshotId,
+            proposalDigest,
+            identityVerifier,
+            applicationSource);
+    }
+
+    private ProposalPlanResult ValidateCore(
+        ChangeProposal proposal,
+        ProposalWorkspaceState source,
+        string currentSnapshotId,
+        string proposalDigest,
+        IPlanningSnapshotIdentityVerifier? identityVerifier,
+        IProposalWorkspaceSource? applicationSource)
     {
         ArgumentNullException.ThrowIfNull(proposal);
         ArgumentNullException.ThrowIfNull(source);
@@ -29,7 +65,8 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
         {
             simulation.Finish();
             return new(new(proposal.SourceSnapshotId, source.Revision, proposalDigest,
-                Array.AsReadOnly(operations), Array.AsReadOnly(simulation.Effects.ToArray())), []);
+                Array.AsReadOnly(operations), Array.AsReadOnly(simulation.Effects.ToArray()),
+                simulation.Instant, simulation.TimeZone, identityVerifier, applicationSource), []);
         }
         catch (InvalidProposalException error) { return Failed(error.Code); }
     }
@@ -72,13 +109,16 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
         private int nodes;
         private long bytes;
         public List<ProposalPreviewEffect> Effects { get; } = [];
+        public DateTimeOffset Instant => instant;
+        public TimeZoneInfo TimeZone { get; }
 
         public Simulation(ProposalWorkspaceState source, TimeProvider time, IProposalMarkdownValidator markdown)
         {
             this.source = source;
             this.markdown = markdown;
             instant = time.GetUtcNow();
-            date = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(instant, time.LocalTimeZone).DateTime);
+            TimeZone = time.LocalTimeZone;
+            date = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(instant, TimeZone).DateTime);
             categories = source.Workspace.Categories.ToDictionary(x => x.Id, StringComparer.Ordinal);
             participants = source.Workspace.Participants.ToDictionary(x => x.Id, StringComparer.Ordinal);
             projects = source.Workspace.Projects.ToDictionary(x => x.Id, StringComparer.Ordinal);

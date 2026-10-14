@@ -313,6 +313,50 @@ internal sealed class EncryptedWorkspaceRecovery : IWorkspaceRecovery
         }
     }
 
+    internal RecoveryPointCreationResult CreateProposalImportRecoveryPoint(SqliteConnection source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        lock (_gate)
+        {
+            ThrowIfClosed();
+            var directoryPath = _automaticRecoveryDirectoryPath
+                ?? Path.GetDirectoryName(_workspacePath);
+            return string.IsNullOrEmpty(directoryPath)
+                ? RecoveryPointCreationResult.Failed()
+                : CreateRecoveryPointCore(
+                    directoryPath,
+                    "dot-orbit-pre-import-",
+                    includePointIdentifier: true,
+                    source);
+        }
+    }
+
+    internal AutomaticRecoveryAttempt ReconcilePendingStoredDataChange()
+    {
+        lock (_gate)
+        {
+            ThrowIfClosed();
+            if (_pendingChangeUtc is null)
+            {
+                return AutomaticRecoveryAttempt.Ignored;
+            }
+
+            if (!PersistRecoveryState(
+                    _automaticRecoveryDirectoryPath,
+                    _pendingChangeUtc,
+                    _changeGeneration,
+                    _pendingChangeGeneration,
+                    _recoverySetIdentifier))
+            {
+                return _automaticRecoveryDirectoryPath is null
+                    ? AutomaticRecoveryAttempt.NotConfigured
+                    : CreateAutomaticRecoveryPoint();
+            }
+
+            return ScheduleOrCreateAutomaticRecovery();
+        }
+    }
+
     public WorkspaceRestoreResult Restore(
         string recoveryPointPath,
         string preRestoreRecoveryDirectoryPath)

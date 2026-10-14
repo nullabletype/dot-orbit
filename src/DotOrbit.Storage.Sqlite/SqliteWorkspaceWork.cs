@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using DotOrbit.Core.Diagnostics;
+using DotOrbit.Core.Interchange;
 using DotOrbit.Core.Workspaces;
 using Microsoft.Data.Sqlite;
 
@@ -11,6 +12,8 @@ internal sealed class SqliteWorkspaceWork(
     WorkspaceTransactionCoordinator transactions,
     TimeProvider timeProvider) : IWorkspaceWork
 {
+    private TimeProvider EffectiveTimeProvider => transactions.EffectiveTimeProvider(timeProvider);
+
     internal const string SchemaThree = """
         CREATE TABLE projects (
             id TEXT NOT NULL PRIMARY KEY,
@@ -524,7 +527,7 @@ internal sealed class SqliteWorkspaceWork(
     public IReadOnlyList<TaskBinRecord> ReadTaskBin() => Guard(() => transactions.Read(ReadTaskBin));
 
     internal static IReadOnlyList<TaskBinRecord> ReadTaskBin(
-        SqliteConnection connection, SqliteTransaction transaction)
+        SqliteConnection connection, SqliteTransaction? transaction)
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
@@ -548,7 +551,7 @@ internal sealed class SqliteWorkspaceWork(
     public IReadOnlyList<ProjectBinRecord> ReadProjectBin() => Guard(() => transactions.Read(ReadProjectBin));
 
     internal static IReadOnlyList<ProjectBinRecord> ReadProjectBin(
-        SqliteConnection connection, SqliteTransaction transaction)
+        SqliteConnection connection, SqliteTransaction? transaction)
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
@@ -1095,8 +1098,9 @@ internal sealed class SqliteWorkspaceWork(
             var task = ReadSnapshot(connection, transaction).Tasks.Single(item => item.Id == id);
             if (task.IsArchived)
                 throw new InvalidOperationException("An archived Task must be restored before it can be completed.");
-            var instant = timeProvider.GetUtcNow();
-            var localDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(instant, timeProvider.LocalTimeZone).DateTime);
+            var clock = EffectiveTimeProvider;
+            var instant = clock.GetUtcNow();
+            var localDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(instant, clock.LocalTimeZone).DateTime);
             Execute(connection, transaction, "DELETE FROM today_tasks WHERE task_id=$id;", ("$id", id));
             Execute(connection, transaction,
                 "UPDATE tasks SET completion_instant=$instant, completion_date=$date WHERE id=$id;",
@@ -1136,8 +1140,9 @@ internal sealed class SqliteWorkspaceWork(
                 throw new InvalidOperationException("Only a complete Task can be archived.");
             if (task.IsArchived)
                 throw new InvalidOperationException("The Task is already archived.");
-            var instant = timeProvider.GetUtcNow();
-            var localDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(instant, timeProvider.LocalTimeZone).DateTime);
+            var clock = EffectiveTimeProvider;
+            var instant = clock.GetUtcNow();
+            var localDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(instant, clock.LocalTimeZone).DateTime);
             Execute(connection, transaction, "DELETE FROM today_tasks WHERE task_id=$id;", ("$id", id));
             Execute(connection, transaction,
                 "INSERT INTO task_archives (task_id,archived_instant,archive_date) VALUES ($id,$instant,$date);",
@@ -1169,7 +1174,7 @@ internal sealed class SqliteWorkspaceWork(
         TaskBinRecord? result = null;
         Guard(() => transactions.Execute((connection, transaction) =>
         {
-            result = MoveTaskToBinCore(connection, transaction, id, timeProvider.GetUtcNow(), null);
+            result = MoveTaskToBinCore(connection, transaction, id, EffectiveTimeProvider.GetUtcNow(), null);
             return ArchiveSearchIndexEffects.Task(id);
         }));
         return result!;
@@ -1196,7 +1201,7 @@ internal sealed class SqliteWorkspaceWork(
             var project = snapshot.Projects.Single(item => item.Id == id);
             var projectIds = snapshot.Projects.OrderBy(item => item.Position).Select(item => item.Id).ToList();
             var projectIndex = projectIds.IndexOf(id);
-            var removedAt = timeProvider.GetUtcNow();
+            var removedAt = EffectiveTimeProvider.GetUtcNow();
             Execute(connection, transaction,
                 "INSERT INTO project_bins (project_id,removed_instant) VALUES ($id,$removed);",
                 ("$id", id), ("$removed", removedAt.ToString("O", CultureInfo.InvariantCulture)));
@@ -1405,8 +1410,9 @@ internal sealed class SqliteWorkspaceWork(
                 return ArchiveSearchIndexEffects.None;
             }
 
-            var instant = timeProvider.GetUtcNow();
-            var localDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(instant, timeProvider.LocalTimeZone).DateTime);
+            var clock = EffectiveTimeProvider;
+            var instant = clock.GetUtcNow();
+            var localDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(instant, clock.LocalTimeZone).DateTime);
             Execute(connection, transaction, "DELETE FROM today_tasks WHERE task_id=$id;", ("$id", id));
             Execute(connection, transaction,
                 "UPDATE tasks SET completion_instant=$instant, completion_date=$date WHERE id=$id;",
@@ -1599,6 +1605,61 @@ internal sealed class SqliteWorkspaceWork(
             return ArchiveSearchIndexEffects.None;
         }));
         return result!;
+    }
+
+    internal void MoveTaskInIncludedProjectOrder(
+        string projectId,
+        string taskId,
+        ProjectTaskPlacement placement)
+    {
+        ArgumentNullException.ThrowIfNull(placement);
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            RequireActiveProject(connection, transaction, projectId);
+            var snapshot = ReadSnapshot(connection, transaction);
+            var fullIds = snapshot.Tasks
+                .Where(task => string.Equals(task.ProjectId, projectId, StringComparison.Ordinal))
+                .OrderBy(task => task.ProjectPosition)
+                .ThenBy(task => task.Id, StringComparer.Ordinal)
+                .Select(task => task.Id)
+                .ToArray();
+            var includedIds = snapshot.Tasks
+                .Where(task => string.Equals(task.ProjectId, projectId, StringComparison.Ordinal) && !task.IsArchived)
+                .OrderBy(task => task.ProjectPosition)
+                .ThenBy(task => task.Id, StringComparer.Ordinal)
+                .Select(task => task.Id)
+                .ToList();
+            if (!includedIds.Remove(taskId))
+            {
+                throw new ArgumentException("The Task is not in the included Project order.", nameof(taskId));
+            }
+
+            var targetIndex = placement.Kind switch
+            {
+                ProjectTaskPlacementKind.First => 0,
+                ProjectTaskPlacementKind.Last => includedIds.Count,
+                ProjectTaskPlacementKind.Before => includedIds.IndexOf(
+                    placement.Anchor?.ExistingId ?? placement.Anchor?.LocalId
+                    ?? throw new ArgumentException("An order anchor is required.", nameof(placement))),
+                ProjectTaskPlacementKind.After => checked(includedIds.IndexOf(
+                    placement.Anchor?.ExistingId ?? placement.Anchor?.LocalId
+                    ?? throw new ArgumentException("An order anchor is required.", nameof(placement))) + 1),
+                _ => throw new ArgumentOutOfRangeException(nameof(placement)),
+            };
+            if ((uint)targetIndex > (uint)includedIds.Count)
+            {
+                throw new ArgumentException("The order anchor is not in the included Project order.", nameof(placement));
+            }
+
+            includedIds.Insert(targetIndex, taskId);
+            var includedSet = includedIds.ToHashSet(StringComparer.Ordinal);
+            var includedIndex = 0;
+            var mergedIds = fullIds
+                .Select(id => includedSet.Contains(id) ? includedIds[includedIndex++] : id)
+                .ToList();
+            RewriteProjectTaskOrder(connection, transaction, projectId, mergedIds);
+            return ArchiveSearchIndexEffects.None;
+        }));
     }
 
     public TaskRecord DetachTask(string id)
@@ -2157,7 +2218,7 @@ internal sealed class SqliteWorkspaceWork(
 
     private static ProjectBinRecord ReadProjectBinRecord(
         SqliteConnection connection,
-        SqliteTransaction transaction,
+        SqliteTransaction? transaction,
         string id,
         DateTimeOffset removedAt)
     {
@@ -2528,8 +2589,11 @@ internal sealed class SqliteWorkspaceWork(
 
     private static string? Date(DateOnly? date) => date?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
-    private DateOnly CurrentLocalDate() =>
-        DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(timeProvider.GetUtcNow(), timeProvider.LocalTimeZone).DateTime);
+    private DateOnly CurrentLocalDate()
+    {
+        var clock = EffectiveTimeProvider;
+        return DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(clock.GetUtcNow(), clock.LocalTimeZone).DateTime);
+    }
 
     private static BulkTaskArchivePreview CreateBulkTaskArchivePreview(
         WorkspaceWorkSnapshot snapshot,
@@ -2542,8 +2606,9 @@ internal sealed class SqliteWorkspaceWork(
 
     private (DateTimeOffset Instant, DateOnly LocalDate) CurrentArchiveMoment()
     {
-        var instant = timeProvider.GetUtcNow();
-        return (instant, DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(instant, timeProvider.LocalTimeZone).DateTime));
+        var clock = EffectiveTimeProvider;
+        var instant = clock.GetUtcNow();
+        return (instant, DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(instant, clock.LocalTimeZone).DateTime));
     }
 
     private static void EnsureParticipantLabelAvailable(
