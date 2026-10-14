@@ -362,10 +362,18 @@ public sealed record BoundedMarkdownResult(
     SanitisedMarkdownDocument? Document,
     MarkdownBudgetError Error);
 
+public sealed record MarkdownBudgetMeasurement(int NodeCount, int ContainerDepth, MarkdownBudgetError Error);
+
 public static class SanitisedMarkdown
 {
     public static BoundedMarkdownResult ParseBounded(string source, int maxNodes = 4096, int maxDepth = 32)
         => SanitisedMarkdownRenderer.ParseBounded(source, maxNodes, maxDepth);
+
+    public static MarkdownBudgetMeasurement MeasureBounded(string source, int maxNodes = 4096, int maxDepth = 32)
+    {
+        var result = SanitisedMarkdownRenderer.ParseBounded(source, maxNodes, maxDepth, renderDocument: false);
+        return new(result.NodeCount, result.ContainerDepth, result.Error);
+    }
 }
 
 public static class SanitisedMarkdownRenderer
@@ -381,7 +389,7 @@ public static class SanitisedMarkdownRenderer
         return RenderParsed(Markdig.Markdown.Parse(normalised.Source, Pipeline), normalised.AlphaStarts);
     }
 
-    internal static BoundedMarkdownResult ParseBounded(string source, int maxNodes, int maxDepth)
+    internal static BoundedMarkdownResult ParseBounded(string source, int maxNodes, int maxDepth, bool renderDocument = true)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentOutOfRangeException.ThrowIfNegative(maxNodes);
@@ -424,7 +432,9 @@ public static class SanitisedMarkdownRenderer
                 for (var child = inlineContainer.FirstChild; child is not null; child = child.NextSibling)
                     pending.Push((child, depth));
         }
-        return new(nodeCount, containerDepth, RenderParsed(parsed, normalised.AlphaStarts), MarkdownBudgetError.None);
+        return new(nodeCount, containerDepth,
+            renderDocument ? RenderParsed(parsed, normalised.AlphaStarts) : null,
+            MarkdownBudgetError.None);
     }
 
     private static SanitisedMarkdownDocument RenderParsed(MarkdownDocument parsed, IReadOnlyDictionary<int, int> alphaStarts)

@@ -68,6 +68,25 @@ public sealed class BoundedMarkdownTests
         Assert.Equal(MarkdownBudgetError.ContainerDepthExceeded, result.Error);
         Assert.Null(result.Document);
         Assert.DoesNotContain("private-marker", result.ToString(), StringComparison.Ordinal);
+        Assert.Equal(MarkdownBudgetError.ContainerDepthExceeded,
+            SanitisedMarkdown.MeasureBounded(new string('>', depth) + " private-marker", 65536, 65536).Error);
+    }
+
+    [Theory]
+    [InlineData("a *b* c", 4096, 32)]
+    [InlineData("![*label*](https://example.test/image)\n\n<script>secret</script>", 4096, 32)]
+    [InlineData(">>> nested", 4096, 2)]
+    [InlineData("a *b* c", 4, 32)]
+    public void MetadataMeasurementSharesParserAndBudgetCounts(string source, int maxNodes, int maxDepth)
+    {
+        var parsed = SanitisedMarkdown.ParseBounded(source, maxNodes, maxDepth);
+        var measurement = SanitisedMarkdown.MeasureBounded(source, maxNodes, maxDepth);
+
+        Assert.Equal(parsed.NodeCount, measurement.NodeCount);
+        Assert.Equal(parsed.ContainerDepth, measurement.ContainerDepth);
+        Assert.Equal(parsed.Error, measurement.Error);
+        Assert.DoesNotContain(typeof(MarkdownBudgetMeasurement).GetProperties(),
+            property => property.PropertyType == typeof(SanitisedMarkdownDocument));
     }
 
     [Fact]
