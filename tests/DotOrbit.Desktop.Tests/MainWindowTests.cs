@@ -9,15 +9,150 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using DotOrbit.Core.Interchange;
 using DotOrbit.Core.Workspaces;
 using DotOrbit.Desktop.ViewModels;
 using DotOrbit.Desktop.Views;
+using DotOrbit.Interchange.Json;
+using System.Text.Json;
 using Xunit;
 
 namespace DotOrbit.Desktop.Tests;
 
 public sealed class MainWindowTests
 {
+    [AvaloniaFact]
+    public async Task InputMutationDuringReviewDiscardsLatePlanAndNeverEnablesApply()
+    {
+        var source = new BlockingProposalSource();
+        var session = new ProposalWorkspaceSession(source);
+        var window = new MainWindow(session);
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var editor = Assert.IsType<BoundedProposalTextBox>(
+            window.FindControl<BoundedProposalTextBox>("AiProposalTextBox"));
+        editor.Text = ProposalJson(source.State, "Original synthetic task");
+        var launcher = Assert.IsType<Button>(window.FindControl<Button>("AiProposalReviewButton"));
+
+        var review = window.CompleteProposalReviewAsync(launcher);
+        await source.ReadStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+        editor.Text = ProposalJson(source.State, "Changed while validation was running");
+        source.ReleaseRead.Set();
+        await review;
+
+        Assert.Contains("invalidated", shell.Ai!.ProposalStatus, StringComparison.Ordinal);
+        Assert.True(shell.Ai.CanReviewProposal);
+        Assert.True(launcher.IsEnabled);
+        Assert.True(launcher.IsFocused);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task RejectedExplicitPastePreservesPasteButtonFocusAndExistingText()
+    {
+        var window = new MainWindow(
+            new DisposalTrackingWorkspaceSession(),
+            null,
+            null,
+            proposalClipboardReader: new StaticProposalClipboardReader("\ud800"));
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var editor = Assert.IsType<BoundedProposalTextBox>(
+            window.FindControl<BoundedProposalTextBox>("AiProposalTextBox"));
+        editor.Text = "preserved";
+        var paste = Assert.IsType<Button>(window.FindControl<Button>("AiProposalPasteButton"));
+        paste.Focus();
+        Assert.True(paste.IsFocused);
+
+        paste.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Task.Yield();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("preserved", editor.Text);
+        Assert.True(paste.IsFocused);
+        Assert.Equal(AiViewModel.ProposalInputRejectedStatus, shell.Ai!.ProposalStatus);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task LaterTypingPreventsEarlierFileLoadFromReplacingProposalText()
+    {
+        var intake = new BlockingProposalFileIntake();
+        var window = new MainWindow(
+            new DisposalTrackingWorkspaceSession(),
+            null,
+            null,
+            proposalFilePicker: new StaticProposalFilePicker("/synthetic/proposal.json"),
+            proposalFileIntake: intake);
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var editor = Assert.IsType<BoundedProposalTextBox>(
+            window.FindControl<BoundedProposalTextBox>("AiProposalTextBox"));
+        var load = Assert.IsType<Button>(window.FindControl<Button>("AiProposalLoadButton"));
+
+        load.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await intake.Started.Task.WaitAsync(TestContext.Current.CancellationToken);
+        editor.Text = "newer typed proposal";
+        intake.Complete(ProposalFileIntakeResult.Loaded("older file proposal"));
+        await DrainUiUntilAsync(
+            () => shell.Ai!.ProposalStatus.Contains("superseded", StringComparison.Ordinal));
+
+        Assert.Equal("newer typed proposal", editor.Text);
+        Assert.True(intake.ObservedCancellation);
+        Assert.Contains("not changed", shell.Ai!.ProposalStatus, StringComparison.Ordinal);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void ProposalEditorAtomicallyAcceptsSelectionReplacementAndPreservesTextAndSelectionOnRejection()
+    {
+        var editor = new BoundedProposalTextBox { Text = "abcd" };
+        editor.SelectionStart = 1;
+        editor.SelectionEnd = 3;
+
+        Assert.True(editor.TryReplaceSelection("é"));
+        Assert.Equal("aéd", editor.Text);
+        Assert.Equal(2, editor.CaretIndex);
+        Assert.Equal(2, editor.SelectionStart);
+        Assert.Equal(2, editor.SelectionEnd);
+
+        editor.SelectionStart = 1;
+        editor.SelectionEnd = 2;
+        Assert.False(editor.TryReplaceSelection("\ud800"));
+        Assert.Equal("aéd", editor.Text);
+        Assert.Equal(1, editor.SelectionStart);
+        Assert.Equal(2, editor.SelectionEnd);
+    }
+
+    [AvaloniaFact]
+    public void AiProposalInputExposesNamedKeyboardActionsAndBoundedScrollableEditor()
+    {
+        var window = new MainWindow(new DisposalTrackingWorkspaceSession());
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+
+        shell.AiNavigation.SelectCommand.Execute(null);
+
+        var editor = Assert.IsType<BoundedProposalTextBox>(window.FindControl<BoundedProposalTextBox>("AiProposalTextBox"));
+        Assert.Equal("Change proposal JSON", AutomationProperties.GetName(editor));
+        Assert.True(editor.AcceptsReturn);
+        Assert.True(editor.MaxHeight > 0);
+        var paste = Assert.IsType<Button>(window.FindControl<Button>("AiProposalPasteButton"));
+        var load = Assert.IsType<Button>(window.FindControl<Button>("AiProposalLoadButton"));
+        var review = Assert.IsType<Button>(window.FindControl<Button>("AiProposalReviewButton"));
+        Assert.Contains("Paste", AutomationProperties.GetName(paste), StringComparison.Ordinal);
+        Assert.Contains("one local", AutomationProperties.GetName(load), StringComparison.Ordinal);
+        Assert.Contains("without applying", AutomationProperties.GetName(review), StringComparison.Ordinal);
+        Assert.False(review.IsEnabled);
+        window.Close();
+    }
+
     [AvaloniaFact]
     public async Task ClosingWaitsForCommittedInspectorSaveBeforeDisposingSession()
     {
@@ -191,6 +326,17 @@ public sealed class MainWindowTests
         Dispatcher.UIThread.RunJobs();
     }
 
+    private static async Task DrainUiUntilAsync(Func<bool> condition)
+    {
+        while (!condition())
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(1, TestContext.Current.CancellationToken);
+        }
+
+        Dispatcher.UIThread.RunJobs();
+    }
+
     [AvaloniaFact]
     public void WorkspaceUnavailableShowsReplacementAndClosesTheShell()
     {
@@ -228,6 +374,100 @@ public sealed class MainWindowTests
             IsDisposed = true;
             _disposed.TrySetResult();
         }
+    }
+
+    private sealed class ProposalWorkspaceSession(IProposalWorkspaceSource source) : IWorkspaceSession
+    {
+        public IWorkspaceWork Work { get; } = new MemoryWorkspaceWork();
+        public int SchemaVersion => 1;
+        public string FirstCategoryName => "Home";
+        public IWorkspaceRecovery Recovery { get; } = new RecoveryViewModelTests.StubWorkspaceRecovery();
+        public IProposalWorkspaceSource Proposals { get; } = source;
+        public IPlanningSnapshotSource Planning => throw new NotSupportedException();
+        public PassphraseRotationResult RotatePassphrase(
+            WorkspacePassphrase currentPassphrase,
+            WorkspacePassphrase newPassphrase) => PassphraseRotationResult.Failed();
+        public void Dispose() { }
+    }
+
+    private sealed class BlockingProposalSource : IProposalWorkspaceSource
+    {
+        public ProposalWorkspaceState State { get; } = new(
+            new(1),
+            new([new("c", "Synthetic", 0)], [], [], []),
+            [],
+            []);
+
+        public TaskCompletionSource ReadStarted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        public ManualResetEventSlim ReleaseRead { get; } = new(false);
+
+        public ProposalWorkspaceState Read()
+        {
+            ReadStarted.TrySetResult();
+            ReleaseRead.Wait(TestContext.Current.CancellationToken);
+            return State;
+        }
+    }
+
+    private sealed class StaticProposalClipboardReader(string? text) : IProposalClipboardReader
+    {
+        public Task<string?> ReadTextAsync() => Task.FromResult(text);
+    }
+
+    private sealed class StaticProposalFilePicker(string path) : IProposalFilePicker
+    {
+        public Task<string?> PickAsync(Window owner) => Task.FromResult<string?>(path);
+    }
+
+    private sealed class BlockingProposalFileIntake : IProposalFileIntake
+    {
+        private readonly TaskCompletionSource<ProposalFileIntakeResult> _completion = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Started { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        public bool ObservedCancellation { get; private set; }
+
+        public async Task<ProposalFileIntakeResult> ReadAsync(
+            string localPath,
+            CancellationToken cancellationToken = default)
+        {
+            using var registration = cancellationToken.Register(() => ObservedCancellation = true);
+            Started.TrySetResult();
+            return await _completion.Task;
+        }
+
+        public void Complete(ProposalFileIntakeResult result) => _completion.TrySetResult(result);
+    }
+
+    private static string ProposalJson(ProposalWorkspaceState state, string title)
+    {
+        var content = PlanningSnapshotProjection.Create(state.Revision, state.Workspace);
+        using var snapshot = JsonDocument.Parse(
+            PlanningSnapshotJsonGenerator.Generate(content).Payload!.Value);
+        return JsonSerializer.Serialize(new
+        {
+            format = "dot-orbit-change-proposal",
+            schemaVersion = 1,
+            sourceSnapshotId = snapshot.RootElement.GetProperty("snapshotId").GetString(),
+            sourceWorkspaceRevision = "1",
+            operations = new[]
+            {
+                new
+                {
+                    operation = "createTask",
+                    operationId = "create-synthetic-task",
+                    localId = "new-task",
+                    title,
+                    description = string.Empty,
+                    project = (object?)null,
+                    category = new { mode = "explicit", category = new { existingId = "c" } },
+                    dueDate = (string?)null,
+                    participants = Array.Empty<object>(),
+                },
+            },
+        });
     }
 
     private sealed class BlockingInspectorSaveWriter(IWorkspaceWork work)

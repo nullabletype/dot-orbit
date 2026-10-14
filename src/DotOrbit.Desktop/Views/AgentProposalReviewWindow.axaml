@@ -1,0 +1,134 @@
+<Window
+    x:Class="DotOrbit.Desktop.Views.AgentProposalReviewWindow"
+    x:DataType="vm:AgentProposalReviewViewModel"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:DotOrbit.Desktop.ViewModels"
+    xmlns:views="using:DotOrbit.Desktop.Views"
+    Title="dot-orbit Change proposal review"
+    Width="860"
+    Height="720"
+    MinWidth="660"
+    MinHeight="520"
+    Background="{DynamicResource BackgroundBrush}"
+    WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="Auto,*,Auto">
+    <StackPanel x:Name="ProposalReviewHeader" Grid.Row="0" Margin="32,28,32,16" Spacing="10"
+        IsEnabled="{Binding !NeedsConfirmation}">
+      <TextBlock Classes="eyebrow" Text="AGENT INTERCHANGE" />
+      <TextBlock FontSize="28" FontWeight="Bold" Text="Review proposed changes" />
+      <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
+          Text="This is the complete authoritative preview. Nothing is selected individually and nothing changes until the whole proposal is confirmed." />
+      <Border Classes="list-panel" Margin="0,4,0,0">
+        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="5">
+          <TextBlock FontWeight="SemiBold" Text="Source revision" />
+          <TextBlock Grid.Column="1" Text="{Binding SourceWorkspaceRevision}" />
+          <TextBlock Grid.Row="1" FontWeight="SemiBold" Text="Source identity" />
+          <TextBlock Grid.Row="1" Grid.Column="1" FontFamily="monospace" FontSize="11"
+              Text="{Binding SourceSnapshotId}" TextWrapping="Wrap" />
+          <TextBlock Grid.Row="2" FontWeight="SemiBold" Text="Complete preview" />
+          <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding CountSummary}" />
+        </Grid>
+      </Border>
+      <Border Classes="attention-panel" AutomationProperties.Name="Excluded proposal powers">
+        <TextBlock Text="{Binding ExcludedPowers}" TextWrapping="Wrap" />
+      </Border>
+    </StackPanel>
+
+    <TabControl x:Name="ProposalReviewTabs" Grid.Row="1" Margin="32,0,32,16"
+        IsEnabled="{Binding !NeedsConfirmation}">
+      <TabItem Header="Ordered operations">
+        <ListBox x:Name="ProposalOperationsList" ItemsSource="{Binding Operations}"
+            AutomationProperties.Name="Proposal operations in application order">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:ProposalOperationReviewRow">
+              <Border Classes="list-panel" Margin="0,0,0,8">
+                <StackPanel Spacing="4">
+                  <TextBlock FontWeight="SemiBold" Text="{Binding Kind}" />
+                  <TextBlock Foreground="{DynamicResource MutedTextBrush}" Text="{Binding Detail}" TextWrapping="Wrap" />
+                  <TextBlock FontFamily="monospace" FontSize="11" Foreground="{DynamicResource QuietTextBrush}"
+                      Text="{Binding OperationId}" TextWrapping="Wrap" />
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </TabItem>
+      <TabItem Header="All effects">
+        <ListBox x:Name="ProposalEffectsList" ItemsSource="{Binding Effects}"
+            AutomationProperties.Name="Complete direct and derived proposal effects">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:ProposalEffectReviewRow">
+              <Border Classes="list-panel" Classes.attention-panel="{Binding IsExplanation}" Margin="0,0,0,8">
+                <StackPanel Spacing="7">
+                  <TextBlock FontWeight="SemiBold" Text="{Binding Kind}" />
+                  <TextBlock Foreground="{DynamicResource MutedTextBrush}" Text="{Binding Target}" TextWrapping="Wrap" />
+                  <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+                    <StackPanel Spacing="3">
+                      <TextBlock Classes="inspector-label" Text="BEFORE" />
+                      <TextBlock Text="{Binding Before}" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Spacing="3">
+                      <TextBlock Classes="inspector-label" Text="AFTER" />
+                      <TextBlock Text="{Binding After}" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </Grid>
+                  <TextBlock FontSize="11" Foreground="{DynamicResource QuietTextBrush}"
+                      Text="{Binding OrderProject, StringFormat='Project order reference: {0}'}"
+                      IsVisible="{Binding HasOrderProject}"
+                      TextWrapping="Wrap" />
+                  <ItemsControl ItemsSource="{Binding Markdown}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:ProposalMarkdownReviewRow">
+                        <Border Classes="attention-panel" Margin="0,5,0,0">
+                          <StackPanel Spacing="5">
+                            <TextBlock FontWeight="SemiBold" Text="{Binding Label}" />
+                            <views:MarkdownPreview Document="{Binding Document}" />
+                          </StackPanel>
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </TabItem>
+    </TabControl>
+
+    <Grid x:Name="ProposalReviewActions" Grid.Row="2" Margin="32,0,32,28" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="10"
+        IsEnabled="{Binding !NeedsConfirmation}">
+      <TextBlock VerticalAlignment="Center" Foreground="{DynamicResource MutedTextBrush}"
+          IsVisible="{Binding HasStatusMessage}" Text="{Binding StatusMessage}" TextWrapping="Wrap"
+          AutomationProperties.Name="Proposal review status" AutomationProperties.LiveSetting="Polite" />
+      <Button x:Name="RetryProposalMaintenanceButton" Grid.Column="1" Classes="view-action"
+          Content="Retry maintenance" IsVisible="{Binding CanRetryMaintenance}"
+          Click="OnRetryMaintenance" AutomationProperties.Name="Retry committed proposal maintenance without replaying operations" />
+      <Button x:Name="RequestProposalApplyButton" Grid.Column="2" Classes="primary-action"
+          Content="Apply whole proposal…" IsEnabled="{Binding CanRequestApply}"
+          Click="OnRequestApply" AutomationProperties.Name="Review final confirmation for the whole proposal" />
+      <Button x:Name="CloseProposalReviewButton" Grid.Column="3" Classes="view-action"
+          Content="Close" IsEnabled="{Binding CanClose}" IsCancel="True"
+          Click="OnClose" AutomationProperties.Name="Close proposal review" />
+    </Grid>
+
+    <Border Grid.RowSpan="3" Classes="decision-overlay" IsVisible="{Binding NeedsConfirmation}">
+      <StackPanel Width="560" Spacing="16" AutomationProperties.LiveSetting="Assertive">
+        <StackPanel Spacing="5">
+          <TextBlock FontSize="20" FontWeight="Bold" Text="Apply the whole displayed proposal?" />
+          <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
+              Text="The exact displayed plan applies atomically only after dot-orbit creates and validates an encrypted recovery point. This approval is single-use; no individual operation can be selected." />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Spacing="12">
+          <Button x:Name="ConfirmProposalApplyButton" Classes="primary-action"
+              Content="Apply proposal" IsEnabled="{Binding CanConfirmApply}" Click="OnConfirmApply"
+              AutomationProperties.Name="Confirm single-use whole proposal application after validated encrypted recovery" />
+          <Button x:Name="CancelProposalApplyButton" Classes="view-action"
+              Content="Cancel" IsEnabled="{Binding CanCancelConfirmation}" Click="OnCancelApply"
+              AutomationProperties.Name="Cancel proposal application" />
+        </StackPanel>
+      </StackPanel>
+    </Border>
+  </Grid>
+</Window>

@@ -339,8 +339,8 @@ public sealed class PlanningSnapshotCopyWindowTests
         Assert.Contains("does not contact an AI provider", introduction.Text, StringComparison.Ordinal);
         Assert.Contains("Copy planning context to an AI assistant", introduction.Text, StringComparison.Ordinal);
         Assert.Contains("review before anything is applied", introduction.Text, StringComparison.Ordinal);
-        Assert.Contains("Importing proposals is not available yet", introduction.Text, StringComparison.Ordinal);
-        Assert.Empty(aiRegion.GetVisualDescendants().OfType<TextBox>());
+        Assert.Contains("explicit whole-proposal approval", introduction.Text, StringComparison.Ordinal);
+        Assert.Single(aiRegion.GetVisualDescendants().OfType<BoundedProposalTextBox>());
 
         var preference = Assert.IsType<ToggleSwitch>(
             window.FindControl<ToggleSwitch>("AiIncludeAgentInstructionsToggle"));
