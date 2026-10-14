@@ -58,6 +58,18 @@ public sealed class BoundedMarkdownTests
         Assert.Equal("<p>[Remote image not loaded: label]</p>", safe.Document!.ToHtml());
     }
 
+    [Theory]
+    [InlineData(128)]
+    [InlineData(1000)]
+    public void ParserNestingGuardReturnsSafeBudgetFailure(int depth)
+    {
+        var result = SanitisedMarkdown.ParseBounded(new string('>', depth) + " private-marker", 65536, 65536);
+
+        Assert.Equal(MarkdownBudgetError.ContainerDepthExceeded, result.Error);
+        Assert.Null(result.Document);
+        Assert.DoesNotContain("private-marker", result.ToString(), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void CallerCanChooseBudgetsForExistingStateAndEmptyFields()
     {

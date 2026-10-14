@@ -387,7 +387,18 @@ public static class SanitisedMarkdownRenderer
         ArgumentOutOfRangeException.ThrowIfNegative(maxNodes);
         ArgumentOutOfRangeException.ThrowIfNegative(maxDepth);
         var normalised = NormaliseLowerAlphaLists(source);
-        var parsed = Markdig.Markdown.Parse(normalised.Source, Pipeline);
+        MarkdownDocument parsed;
+        try
+        {
+            parsed = Markdig.Markdown.Parse(normalised.Source, Pipeline);
+        }
+        catch (ArgumentException exception) when (exception.Message.StartsWith(
+            "Markdown elements in the input are too deeply nested", StringComparison.Ordinal))
+        {
+            // Markdig rejects pathological nesting before producing an AST. Keep
+            // its parser guard and translate it to a non-sensitive budget failure.
+            return new(0, Pipeline.MaximumNestingDepth, null, MarkdownBudgetError.ContainerDepthExceeded);
+        }
         var pending = new Stack<(MarkdownObject Node, int Depth)>();
         foreach (var block in parsed) pending.Push((block, 0));
         var nodeCount = 0;
