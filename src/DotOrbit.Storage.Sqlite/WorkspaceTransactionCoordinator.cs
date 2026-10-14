@@ -1,5 +1,6 @@
 using DotOrbit.Core.Workspaces;
 using DotOrbit.Core.Diagnostics;
+using DotOrbit.Core.Interchange;
 using System.Runtime.CompilerServices;
 using Microsoft.Data.Sqlite;
 
@@ -10,11 +11,15 @@ internal sealed class WorkspaceTransactionCoordinator
     private readonly object _gate;
     private readonly EncryptedWorkspaceRecovery _recovery;
     private readonly Action<EmptyBinCheckpoint>? _emptyBinCheckpoint;
+    private readonly Action<ProposalApplyCheckpoint, SqliteConnection, int?>? _proposalApplyCheckpoint;
     private readonly WorkspaceConnectionFactory _connectionFactory;
     private SqliteConnection? _readConnection;
     private SqliteConnection? _writeConnection;
     private WorkspacePassphrase? _passphrase;
     private readonly string _workspacePath;
+    private SqliteConnection? _proposalConnection;
+    private SqliteTransaction? _proposalTransaction;
+    private TimeProvider? _proposalTimeProvider;
 
     internal WorkspaceTransactionCoordinator(
         string workspacePath,
@@ -24,7 +29,8 @@ internal sealed class WorkspaceTransactionCoordinator
         WorkspaceConnectionFactory connectionFactory,
         EncryptedWorkspaceRecovery recovery,
         object gate,
-        Action<EmptyBinCheckpoint>? emptyBinCheckpoint = null)
+        Action<EmptyBinCheckpoint>? emptyBinCheckpoint = null,
+        Action<ProposalApplyCheckpoint, SqliteConnection, int?>? proposalApplyCheckpoint = null)
     {
         _workspacePath = workspacePath;
         _passphrase = passphrase;
@@ -34,6 +40,7 @@ internal sealed class WorkspaceTransactionCoordinator
         _recovery = recovery;
         _gate = gate;
         _emptyBinCheckpoint = emptyBinCheckpoint;
+        _proposalApplyCheckpoint = proposalApplyCheckpoint;
         WorkspaceRevisionStorage.InstallChangeTracking(writeConnection);
     }
 
@@ -47,6 +54,12 @@ internal sealed class WorkspaceTransactionCoordinator
         lock (_gate)
         {
             wait.Dispose();
+            if (_proposalConnection is not null && _proposalTransaction is not null)
+            {
+                var effects = change(_proposalConnection, _proposalTransaction);
+                ArchiveSearchIndex.Apply(_proposalConnection, _proposalTransaction, effects);
+                return AutomaticRecoveryAttempt.Ignored;
+            }
             var connection = GetWriteConnection();
             var changed = false;
             using (var transaction = BeginTransaction(connection))
@@ -78,6 +91,10 @@ internal sealed class WorkspaceTransactionCoordinator
         lock (_gate)
         {
             wait.Dispose();
+            if (_proposalConnection is not null && _proposalTransaction is not null)
+            {
+                return read(_proposalConnection, _proposalTransaction);
+            }
             T result;
             var connection = GetReadConnection();
             using (var transaction = BeginTransaction(connection))
@@ -172,6 +189,165 @@ internal sealed class WorkspaceTransactionCoordinator
         }
     }
 
+    internal ProposalStorageApplyStatus ExecuteProposal(
+        ProposalExecutionPlan plan,
+        Action apply,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(apply);
+
+        lock (_gate)
+        {
+            var passphrase = _passphrase
+                ?? throw new ObjectDisposedException(nameof(IWorkspaceSession));
+            SqliteConnection? connection = null;
+            try
+            {
+                connection = _connectionFactory.OpenConfigured(
+                    _workspacePath,
+                    passphrase,
+                    SqliteOpenMode.ReadWrite);
+                WorkspaceRevisionStorage.InstallChangeTracking(connection);
+            }
+            catch (Exception error) when (IsExpectedApplyFailure(error))
+            {
+                connection?.Dispose();
+                return ProposalStorageApplyStatus.Failed;
+            }
+
+            if (connection is null)
+            {
+                return ProposalStorageApplyStatus.Failed;
+            }
+
+            using (connection)
+            {
+                var inspectionTransactionActive = false;
+                var committed = false;
+                try
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    EnterExclusiveLock(connection);
+                    inspectionTransactionActive = true;
+                    if (!plan.MatchesCurrentSource(SqliteProposalWorkspaceSource.Read(connection, null)))
+                    {
+                        return ProposalStorageApplyStatus.StaleSource;
+                    }
+
+                    _proposalApplyCheckpoint?.Invoke(ProposalApplyCheckpoint.FirstSourceValidated, connection, null);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    ExecuteNonQuery(connection, "ROLLBACK;");
+                    inspectionTransactionActive = false;
+                    _proposalApplyCheckpoint?.Invoke(
+                        ProposalApplyCheckpoint.ExclusiveLockRetainedForRecovery,
+                        connection,
+                        null);
+
+                    var recovery = _recovery.CreateProposalImportRecoveryPoint(connection);
+                    if (recovery.Status != RecoveryPointCreationStatus.Created)
+                    {
+                        return ProposalStorageApplyStatus.RecoveryPointCreationFailed;
+                    }
+
+                    _proposalApplyCheckpoint?.Invoke(ProposalApplyCheckpoint.RecoveryPointValidated, connection, null);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    using var transaction = BeginTransaction(connection);
+                    if (!plan.MatchesCurrentSource(SqliteProposalWorkspaceSource.Read(connection, transaction)))
+                    {
+                        return ProposalStorageApplyStatus.StaleSource;
+                    }
+
+                    _proposalApplyCheckpoint?.Invoke(ProposalApplyCheckpoint.SecondSourceValidated, connection, null);
+                    WorkspaceRevisionStorage.ResetChangeTracking(connection, transaction);
+                    _proposalConnection = connection;
+                    _proposalTransaction = transaction;
+                    _proposalTimeProvider = new ProposalTimeProvider(
+                        plan.ExecutionInstant,
+                        plan.ExecutionTimeZone);
+                    try
+                    {
+                        apply();
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (!WorkspaceRevisionStorage.HasTrackedChanges(connection, transaction))
+                        {
+                            return ProposalStorageApplyStatus.Failed;
+                        }
+
+                        WorkspaceRevisionStorage.AdvanceChecked(connection, transaction);
+                        _proposalApplyCheckpoint?.Invoke(ProposalApplyCheckpoint.BeforeCommit, connection, null);
+                        cancellationToken.ThrowIfCancellationRequested();
+                        transaction.Commit();
+                        committed = true;
+                    }
+                    finally
+                    {
+                        _proposalTimeProvider = null;
+                        _proposalTransaction = null;
+                        _proposalConnection = null;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    return ProposalStorageApplyStatus.Cancelled;
+                }
+                catch (Exception error) when (IsExpectedApplyFailure(error))
+                {
+                    return ProposalStorageApplyStatus.Failed;
+                }
+                finally
+                {
+                    if (inspectionTransactionActive)
+                    {
+                        TryRollback(connection);
+                    }
+                }
+
+                if (!committed)
+                {
+                    return ProposalStorageApplyStatus.Failed;
+                }
+
+                try
+                {
+                    _proposalApplyCheckpoint?.Invoke(ProposalApplyCheckpoint.AfterCommit, connection, null);
+                }
+                catch (Exception error) when (IsExpectedApplyFailure(error))
+                {
+                    connection.Dispose();
+                    return ProposalStorageApplyStatus.CommittedMaintenanceRequired;
+                }
+
+                // Commit is the success boundary. Release the operation-scoped exclusive
+                // connection before automatic recovery inspects the committed database.
+                connection.Dispose();
+                try
+                {
+                    return _recovery.StoredDataChangeCompleted(StoredDataChangeOutcome.Committed)
+                        == AutomaticRecoveryAttempt.Failed
+                            ? ProposalStorageApplyStatus.CommittedMaintenanceRequired
+                            : ProposalStorageApplyStatus.Committed;
+                }
+                catch (Exception error) when (IsExpectedApplyFailure(error))
+                {
+                    return ProposalStorageApplyStatus.CommittedMaintenanceRequired;
+                }
+            }
+        }
+    }
+
+    internal TimeProvider EffectiveTimeProvider(TimeProvider fallback) =>
+        _proposalTimeProvider ?? fallback;
+
+    internal void ProposalOperationCompleted(int operationIndex) =>
+        _proposalApplyCheckpoint?.Invoke(
+            ProposalApplyCheckpoint.OperationCompleted,
+            _proposalConnection ?? throw new InvalidOperationException(),
+            operationIndex);
+
+    internal bool RetryProposalRecoveryMaintenance() =>
+        _recovery.ReconcilePendingStoredDataChange() != AutomaticRecoveryAttempt.Failed;
+
     private static SqliteTransaction BeginTransaction(SqliteConnection connection)
     {
         using var timing = PerformanceTrace.Measure(PerformanceStage.TransactionBegin);
@@ -205,6 +381,16 @@ internal sealed class WorkspaceTransactionCoordinator
             // Connection disposal still closes any unfinished transaction and releases the exclusive lock.
         }
     }
+
+    private static bool IsExpectedApplyFailure(Exception error) => error is
+        SqliteException
+        or WorkspaceWorkException
+        or IOException
+        or UnauthorizedAccessException
+        or InvalidOperationException
+        or ArgumentException
+        or FormatException
+        or OverflowException;
 
     internal void CloseConnections()
     {
@@ -259,4 +445,34 @@ internal enum EmptyBinCheckpoint
 {
     RecoveryPointValidated,
     BeforeCommit,
+}
+
+internal enum ProposalApplyCheckpoint
+{
+    FirstSourceValidated,
+    ExclusiveLockRetainedForRecovery,
+    RecoveryPointValidated,
+    SecondSourceValidated,
+    OperationCompleted,
+    BeforeCommit,
+    AfterCommit,
+}
+
+internal enum ProposalStorageApplyStatus
+{
+    Committed,
+    CommittedMaintenanceRequired,
+    StaleSource,
+    RecoveryPointCreationFailed,
+    Cancelled,
+    Failed,
+}
+
+internal sealed class ProposalTimeProvider(
+    DateTimeOffset instant,
+    TimeZoneInfo timeZone) : TimeProvider
+{
+    public override DateTimeOffset GetUtcNow() => instant;
+
+    public override TimeZoneInfo LocalTimeZone => timeZone;
 }

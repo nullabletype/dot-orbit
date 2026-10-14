@@ -28,6 +28,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
     private readonly Func<SqliteConnection, string>? _passphraseRotationIntegrityCheck;
     private readonly Func<WorkspacePassphrase, bool>? _passphraseRotationReopenBlocked;
     private readonly Action<EmptyBinCheckpoint>? _emptyBinCheckpoint;
+    private readonly Action<ProposalApplyCheckpoint, SqliteConnection, int?>? _proposalApplyCheckpoint;
     private readonly WorkspaceConnectionFactory _connectionFactory;
 
     public EncryptedWorkspaceStore()
@@ -64,6 +65,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         Func<SqliteConnection, string>? passphraseRotationIntegrityCheck = null,
         Func<WorkspacePassphrase, bool>? passphraseRotationReopenBlocked = null,
         Action<EmptyBinCheckpoint>? emptyBinCheckpoint = null,
+        Action<ProposalApplyCheckpoint, SqliteConnection, int?>? proposalApplyCheckpoint = null,
         Func<string, WorkspacePassphrase, SqliteOpenMode, SqliteConnection>? connectionOpener = null)
     {
         ArgumentNullException.ThrowIfNull(identifierGenerator);
@@ -78,6 +80,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         _passphraseRotationIntegrityCheck = passphraseRotationIntegrityCheck;
         _passphraseRotationReopenBlocked = passphraseRotationReopenBlocked;
         _emptyBinCheckpoint = emptyBinCheckpoint;
+        _proposalApplyCheckpoint = proposalApplyCheckpoint;
         _connectionFactory = new WorkspaceConnectionFactory(connectionOpener);
         EnsureProviderInitialised();
     }
@@ -899,6 +902,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         private readonly object _gate = new();
         private readonly EncryptedWorkspaceRecovery _recovery;
         private readonly WorkspaceTransactionCoordinator _transactions;
+        private readonly SqliteProposalApplication _proposalApplication;
         private readonly EncryptedWorkspaceStore _store;
         private readonly string _workspacePath;
         private WorkspacePassphrase? _passphrase;
@@ -935,10 +939,15 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
                 store._connectionFactory,
                 _recovery,
                 _gate,
-                store._emptyBinCheckpoint);
-            Work = new SqliteWorkspaceWork(store, _transactions, store._timeProvider);
+                store._emptyBinCheckpoint,
+                store._proposalApplyCheckpoint);
+            var work = new SqliteWorkspaceWork(store, _transactions, store._timeProvider);
+            var proposalSource = new SqliteProposalWorkspaceSource(_transactions);
+            Work = work;
             Planning = new SqlitePlanningSnapshotSource(_transactions);
-            Proposals = new SqliteProposalWorkspaceSource(_transactions);
+            Proposals = proposalSource;
+            _proposalApplication = new SqliteProposalApplication(_transactions, work, proposalSource);
+            ProposalApplication = _proposalApplication;
         }
 
         public int SchemaVersion { get; }
@@ -950,6 +959,8 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         public IPlanningSnapshotSource Planning { get; }
 
         public IProposalWorkspaceSource Proposals { get; }
+
+        public IProposalApplication ProposalApplication { get; }
 
         public PassphraseRotationResult RotatePassphrase(
             WorkspacePassphrase currentPassphrase,
@@ -1010,6 +1021,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
 
                 try
                 {
+                    _proposalApplication.Close();
                     _transactions.CloseConnections();
                 }
                 finally

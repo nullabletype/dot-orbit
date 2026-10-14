@@ -31,6 +31,9 @@ public interface IWorkspaceSession : IDisposable
 
     IProposalWorkspaceSource Proposals { get; }
 
+    IProposalApplication ProposalApplication =>
+        throw new NotSupportedException("This workspace session does not support proposal application.");
+
     PassphraseRotationResult RotatePassphrase(
         WorkspacePassphrase currentPassphrase,
         WorkspacePassphrase newPassphrase);

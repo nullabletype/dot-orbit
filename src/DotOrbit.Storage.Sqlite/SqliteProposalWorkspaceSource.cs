@@ -11,11 +11,7 @@ internal sealed class SqliteProposalWorkspaceSource(
     {
         try
         {
-            return transactions.Read((connection, transaction) => new ProposalWorkspaceState(
-                WorkspaceRevisionStorage.Read(connection, transaction),
-                SqliteWorkspaceWork.ReadSnapshot(connection, transaction),
-                SqliteWorkspaceWork.ReadTaskBin(connection, transaction),
-                SqliteWorkspaceWork.ReadProjectBin(connection, transaction)));
+            return transactions.Read(Read);
         }
         catch (SqliteException) { throw new WorkspaceWorkException(); }
         catch (IOException) { throw new WorkspaceWorkException(); }
@@ -23,4 +19,12 @@ internal sealed class SqliteProposalWorkspaceSource(
         catch (FormatException) { throw new WorkspaceWorkException(); }
         catch (OverflowException) { throw new WorkspaceWorkException(); }
     }
+
+    internal static ProposalWorkspaceState Read(
+        SqliteConnection connection,
+        SqliteTransaction? transaction) => new(
+        WorkspaceRevisionStorage.Read(connection, transaction),
+        SqliteWorkspaceWork.ReadSnapshot(connection, transaction),
+        SqliteWorkspaceWork.ReadTaskBin(connection, transaction),
+        SqliteWorkspaceWork.ReadProjectBin(connection, transaction));
 }
