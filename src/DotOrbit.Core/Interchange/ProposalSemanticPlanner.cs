@@ -95,7 +95,18 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
                 Check(locals.TryGetValue(local, out var value) && value.Kind == kind, "invalid-local-reference");
                 key = value.Key;
             }
-            else { Check(reference.ExistingId is not null, "invalid-reference"); key = reference.ExistingId!; }
+            else
+            {
+                Check(reference.ExistingId is not null, "invalid-reference"); key = reference.ExistingId!;
+                Check(kind switch
+                {
+                    "category" => source.Workspace.Categories.Any(item => item.Id == key),
+                    "participant" => source.Workspace.Participants.Any(item => item.Id == key),
+                    "project" => source.Workspace.Projects.Any(item => item.Id == key),
+                    "task" => source.Workspace.Tasks.Any(item => item.Id == key),
+                    _ => false,
+                }, "invalid-reference");
+            }
             Check(kind switch { "category" => categories.ContainsKey(key), "participant" => participants.ContainsKey(key),
                 "project" => projects.ContainsKey(key) && !projects[key].IsArchived && !binnedProjects.Contains(key),
                 "task" => tasks.ContainsKey(key) && !tasks[key].IsArchived && !binnedTasks.Contains(key)
@@ -107,6 +118,7 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
         {
             Check(!locals.ContainsKey(local), "duplicate-local-id");
             var key = "\u0000local:" + local;
+            while (references.ContainsKey(key)) key = "\u0000" + key;
             locals.Add(local, (key, kind)); created.Add(key); references.Add(key, ProposalReference.Local(local));
             return key;
         }

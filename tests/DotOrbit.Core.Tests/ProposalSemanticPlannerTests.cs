@@ -314,4 +314,19 @@ public sealed class ProposalSemanticPlannerTests
             new MoveTaskToBinOperation("3", TaskA)).Failures[0].Code);
     }
 
+    [Fact]
+    public void ExistingReferenceCannotAddressEarlierCreateThroughSimulationKey()
+    {
+        var result = Validate(new CreateCategoryOperation("1", "new", "Fresh"),
+            new CreateProjectOperation("2", "project", "Created", "", ProposalReference.Existing("\u0000local:new"), null));
+        Assert.Null(result.Plan); Assert.Equal("invalid-reference", result.Failures[0].Code);
+    }
+    [Fact]
+    public void ExistingReferenceCannotResolveAnotherRecordKind()
+    {
+        var result = Validate(new SetTaskCategoryOperation("1", TaskA,
+            new(ProposedTaskCategoryMode.Explicit, ProposalReference.Existing("p"))));
+        Assert.Null(result.Plan); Assert.Equal("invalid-reference", result.Failures[0].Code);
+    }
+
 }

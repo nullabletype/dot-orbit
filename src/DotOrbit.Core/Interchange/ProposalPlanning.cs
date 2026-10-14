@@ -8,7 +8,16 @@ public sealed record ProposalWorkspaceState(WorkspaceRevision Revision, Workspac
 public interface IProposalWorkspaceSource { ProposalWorkspaceState Read(); }
 public sealed record ProposalMarkdownValidation(bool IsValid, int NodeCount, int ContainerDepth);
 public interface IProposalMarkdownValidator { ProposalMarkdownValidation Validate(string markdown); }
-public sealed record ProposalValidationFailure(string Code, int? OperationIndex = null);
+public sealed record ProposalValidationFailure(string Code, int? OperationIndex = null)
+{
+    public string Guidance => Code switch
+    {
+        "unsupported-version" => "Regenerate a version 1 proposal or update dot-orbit for a supported version.",
+        "stale-source" => "Copy a new planning snapshot and regenerate the proposal.",
+        _ when Code.Contains("limit", StringComparison.Ordinal) => "Supply a smaller proposal and review it again.",
+        _ => "Correct or regenerate the proposal and review it again.",
+    };
+}
 public sealed record ProposalPreviewEffect(string Kind, ProposalReference Target, string TargetLabel, string Before, string After, IReadOnlyList<string> MarkdownFields)
 { public override string ToString() => "Proposal preview effect"; }
 public sealed class ProposalExecutionPlan
