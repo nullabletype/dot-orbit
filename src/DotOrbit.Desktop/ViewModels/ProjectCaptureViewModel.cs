@@ -2814,6 +2814,19 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private void RefreshAvailableParticipants() => RefreshParticipantChoices();
 
     public void RefreshFromStore() => ResolveDraftBeforeAction(Reload);
+
+    internal bool CanApplyProposalNow() =>
+        !NeedsDecision
+        && !HasPendingWorkspaceActions
+        && !HasPendingPersistence
+        && !(_editingCategory && IsDirty);
+
+    internal bool RefreshAfterProposalApply()
+    {
+        Reload();
+        return true;
+    }
+
     private TaskRowViewModel ToTaskRow(TaskRecord task)
     {
         var inherited = task.ProjectId is not null && task.ExplicitCategoryId is null;

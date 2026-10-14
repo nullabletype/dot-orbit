@@ -9,10 +9,15 @@ using Avalonia.VisualTree;
 using System.ComponentModel;
 using Avalonia.Markup.Xaml;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
+using DotOrbit.Core.Interchange;
 using DotOrbit.Core.Workspaces;
 using DotOrbit.Desktop.Clipboard;
 using DotOrbit.Desktop.Markdown;
 using DotOrbit.Desktop.ViewModels;
+using DotOrbit.Interchange.Json;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace DotOrbit.Desktop.Views;
 
@@ -36,6 +41,7 @@ public sealed partial class MainWindow : Window
     private Border[]? _dragRows;
     private bool _markdownPointerStartedOutside;
     private DateTime? _calendarDateAtOpen;
+    private ShellViewModel? _subscribedShell;
     private ProjectCaptureViewModel? _subscribedWork;
     private SettingsViewModel? _subscribedSettings;
     private readonly DispatcherTimer _dateRefreshTimer = new() { Interval = TimeSpan.FromMinutes(1) };
@@ -43,11 +49,18 @@ public sealed partial class MainWindow : Window
     private readonly ITransientMessageScheduler _transientMessageScheduler;
     private readonly IMarkdownClipboard? _markdownClipboard;
     private readonly IPlainTextClipboard? _plainTextClipboard;
+    private readonly IProposalClipboardReader? _proposalClipboardReader;
+    private readonly IProposalFilePicker _proposalFilePicker;
+    private readonly IProposalFileIntake _proposalFileIntake;
     private readonly Action _workspaceUnavailable;
     private readonly IApplicationThemeService _applicationThemeService;
     private readonly IInterchangePreferenceService _interchangePreferenceService;
     private readonly TimeProvider _timeProvider;
     private readonly Func<IWorkspaceWork, IInspectorSaveWriter> _inspectorSaveWriterFactory;
+    private CancellationTokenSource? _proposalIntakeCancellation;
+    private AgentProposalReviewViewModel? _activeProposalReview;
+    private AgentProposalReviewWindow? _activeProposalReviewWindow;
+    private long _proposalReviewRevision;
     private long _transientMessageRevision;
 
     internal static TimeSpan TransientMessageDuration { get; } = TimeSpan.FromSeconds(5);
@@ -77,11 +90,16 @@ public sealed partial class MainWindow : Window
         TimeProvider? timeProvider = null,
         Func<IWorkspaceWork, IInspectorSaveWriter>? inspectorSaveWriterFactory = null,
         IPlainTextClipboard? plainTextClipboard = null,
-        IInterchangePreferenceService? interchangePreferenceService = null)
+        IInterchangePreferenceService? interchangePreferenceService = null,
+        IProposalClipboardReader? proposalClipboardReader = null,
+        IProposalFilePicker? proposalFilePicker = null,
+        IProposalFileIntake? proposalFileIntake = null)
     {
         _session = session;
         _markdownClipboard = markdownClipboard;
         _plainTextClipboard = plainTextClipboard;
+        _proposalClipboardReader = proposalClipboardReader;
+        _proposalFilePicker = proposalFilePicker ?? new AvaloniaProposalFilePicker();
         _autosaveScheduler = autosaveScheduler ?? new DispatcherInspectorAutosaveScheduler();
         _transientMessageScheduler = transientMessageScheduler ?? new DispatcherTransientMessageScheduler();
         _workspaceUnavailable = () => HandleWorkspaceUnavailable(workspaceUnavailable);
@@ -92,6 +110,7 @@ public sealed partial class MainWindow : Window
             ?? (Application.Current as App)?.InterchangePreferenceService
             ?? new TransientInterchangePreferenceService();
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _proposalFileIntake = proposalFileIntake ?? new ProposalFileIntake(_timeProvider);
         _inspectorSaveWriterFactory = inspectorSaveWriterFactory
             ?? (work => new SerializedWorkspacePersistenceExecutor(work, _timeProvider));
         AvaloniaXamlLoader.Load(this);
@@ -108,6 +127,11 @@ public sealed partial class MainWindow : Window
             OnMarkdownSourceKeyDown,
             RoutingStrategies.Tunnel,
             handledEventsToo: true);
+        if (this.FindControl<BoundedProposalTextBox>("AiProposalTextBox") is { } proposalTextBox)
+        {
+            proposalTextBox.ProposalTextAttempted += OnProposalTextAttempted;
+            proposalTextBox.PastingFromClipboard += OnProposalPastingFromClipboard;
+        }
         AddHandler(
             PointerCaptureLostEvent,
             OnPointerCaptureLost,
@@ -128,6 +152,8 @@ public sealed partial class MainWindow : Window
             snapshotButton.IsVisible = session is not null;
         if (this.FindControl<Button>("AiReusableInstructionsButton") is { } instructionsButton)
             instructionsButton.IsVisible = session is not null;
+        if (this.FindControl<Border>("AiProposalDropSurface") is { } proposalSurface)
+            proposalSurface.IsVisible = session is not null;
         Closed += OnClosed;
         Closing += OnClosing;
     }
@@ -251,6 +277,298 @@ public sealed partial class MainWindow : Window
         await ai.CopyReusableInstructionsAsync(clipboard);
     }
 
+    private void OnProposalTextAttempted(object? sender, ProposalTextAttemptedEventArgs e)
+    {
+        _proposalIntakeCancellation?.Cancel();
+        InvalidateActiveProposalReview();
+        if (DataContext is ShellViewModel { Ai: { } ai })
+        {
+            ai.ReportProposalTextAttempt(e.Accepted, e.ByteCount);
+        }
+    }
+
+    private void OnProposalPastingFromClipboard(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        _ = PasteProposalAsync(sender as BoundedProposalTextBox, sender as Control);
+    }
+
+    private async void OnPasteProposal(object? sender, RoutedEventArgs e) =>
+        await PasteProposalAsync(
+            this.FindControl<BoundedProposalTextBox>("AiProposalTextBox"),
+            sender as Control);
+
+    private async Task PasteProposalAsync(BoundedProposalTextBox? editor, Control? failureFocus)
+    {
+        if (editor is null || DataContext is not ShellViewModel { Ai: { } ai })
+        {
+            return;
+        }
+
+        InvalidateActiveProposalReview();
+        var clipboard = _proposalClipboardReader
+            ?? (Clipboard is null ? null : new AvaloniaProposalClipboardReader(Clipboard));
+        if (clipboard is null)
+        {
+            ai.ReportProposalStatus("The system clipboard is unavailable. Proposal text was not changed.");
+            (failureFocus ?? editor).Focus();
+            return;
+        }
+
+        string? text;
+        try
+        {
+            text = await clipboard.ReadTextAsync();
+        }
+        catch (Exception)
+        {
+            ai.ReportProposalStatus("The clipboard could not be read. Proposal text was not changed.");
+            (failureFocus ?? editor).Focus();
+            return;
+        }
+
+        if (text is null)
+        {
+            ai.ReportProposalStatus("The clipboard does not contain text. Proposal text was not changed.");
+            (failureFocus ?? editor).Focus();
+            return;
+        }
+
+        if (editor.TryReplaceSelection(text))
+        {
+            editor.Focus();
+        }
+        else
+        {
+            (failureFocus ?? editor).Focus();
+        }
+    }
+
+    private async void OnLoadProposal(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not ShellViewModel { Ai: { } ai })
+        {
+            return;
+        }
+
+        InvalidateActiveProposalReview();
+        string? path;
+        try
+        {
+            path = await _proposalFilePicker.PickAsync(this);
+        }
+        catch (Exception)
+        {
+            ai.ReportProposalStatus("The file picker could not be opened. Proposal text was not changed.");
+            (sender as Control)?.Focus();
+            return;
+        }
+
+        if (path is null)
+        {
+            ai.ReportProposalStatus("File loading was cancelled. Proposal text was not changed.");
+            (sender as Control)?.Focus();
+            return;
+        }
+
+        await LoadProposalFileAsync(path, sender as Control);
+    }
+
+    private void OnProposalDragOver(object? sender, DragEventArgs e)
+    {
+        var files = e.DataTransfer.TryGetFiles()?.ToArray();
+        e.DragEffects = files?.Length == 1 ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private async void OnProposalDrop(object? sender, DragEventArgs e)
+    {
+        e.Handled = true;
+        if (DataContext is not ShellViewModel { Ai: { } ai })
+        {
+            return;
+        }
+
+        InvalidateActiveProposalReview();
+        var previousFocus = this.GetVisualDescendants()
+            .OfType<Control>()
+            .FirstOrDefault(control => control.IsFocused);
+        var files = e.DataTransfer.TryGetFiles()?.ToArray();
+        if (files is null || files.Length != 1 || files[0].TryGetLocalPath() is not { } path)
+        {
+            ai.ReportProposalStatus("Drop exactly one local regular file. Proposal text was not changed.");
+            previousFocus?.Focus();
+            return;
+        }
+
+        await LoadProposalFileAsync(path, previousFocus);
+    }
+
+    private async Task LoadProposalFileAsync(string path, Control? launcher)
+    {
+        if (DataContext is not ShellViewModel { Ai: { } ai })
+        {
+            return;
+        }
+
+        var proposalInputRevision = _proposalReviewRevision;
+        _proposalIntakeCancellation?.Cancel();
+        _proposalIntakeCancellation?.Dispose();
+        var cancellation = new CancellationTokenSource();
+        _proposalIntakeCancellation = cancellation;
+        ai.SetProposalActionInFlight(true);
+        ProposalFileIntakeResult result;
+        try
+        {
+            result = await _proposalFileIntake.ReadAsync(path, cancellation.Token);
+        }
+        finally
+        {
+            if (ReferenceEquals(_proposalIntakeCancellation, cancellation))
+            {
+                _proposalIntakeCancellation = null;
+                ai.SetProposalActionInFlight(false);
+            }
+
+            cancellation.Dispose();
+        }
+
+        if (DataContext is not ShellViewModel { Ai: { } currentAi }
+            || !ReferenceEquals(ai, currentAi))
+        {
+            return;
+        }
+
+        if (proposalInputRevision != _proposalReviewRevision)
+        {
+            ai.ReportProposalStatus(
+                "File loading was superseded by a newer proposal input. Proposal text was not changed.");
+            launcher?.Focus();
+            return;
+        }
+
+        var editor = this.FindControl<BoundedProposalTextBox>("AiProposalTextBox");
+        if (result.Status == ProposalFileIntakeStatus.Loaded && result.Text is { } text)
+        {
+            _ = editor?.TryReplaceAll(text);
+            ai.ReportProposalStatus("Proposal text loaded from one local file. Review is required before anything can be applied.");
+        }
+        else if (result.Status == ProposalFileIntakeStatus.Cancelled)
+        {
+            ai.ReportProposalStatus("File loading was cancelled. Proposal text was not changed.");
+        }
+        else
+        {
+            ai.ReportProposalStatus("That file was rejected. Choose one readable local regular file containing at most 4 MiB of strict UTF-8 JSON.");
+        }
+
+        (launcher ?? editor)?.Focus();
+    }
+
+    private async void OnReviewProposal(object? sender, RoutedEventArgs e)
+    {
+        var launcher = sender as Control;
+        if (_session is null || DataContext is not ShellViewModel { Ai: { }, Work: { } work })
+        {
+            return;
+        }
+
+        await work.NavigateAsync(() => _ = CompleteProposalReviewAsync(launcher));
+    }
+
+    internal async Task CompleteProposalReviewAsync(Control? launcher)
+    {
+        if (_session is not { } session
+            || DataContext is not ShellViewModel { Ai: { } ai, Work: { } work }
+            || !ai.CanReviewProposal)
+        {
+            return;
+        }
+
+        InvalidateActiveProposalReview();
+        var proposalReviewRevision = _proposalReviewRevision;
+        ai.SetProposalActionInFlight(true);
+        byte[]? payload = null;
+        ProposalPlanResult result;
+        try
+        {
+            payload = ProposalTextRules.Encode(ai.ProposalText);
+            var boundary = new ProposalReviewBoundary(session.Proposals, _timeProvider);
+            result = await Task.Run(() => boundary.Review(payload));
+        }
+        catch (Exception exception) when (exception is EncoderFallbackException
+                                          or InvalidOperationException
+                                          or ObjectDisposedException)
+        {
+            ai.ReportProposalStatus("The proposal could not be reviewed. Nothing was applied.");
+            launcher?.Focus();
+            return;
+        }
+        finally
+        {
+            if (payload is not null)
+            {
+                CryptographicOperations.ZeroMemory(payload);
+            }
+
+            ai.SetProposalActionInFlight(false);
+        }
+
+        if (!ReferenceEquals(session, _session)
+            || proposalReviewRevision != _proposalReviewRevision
+            || DataContext is not ShellViewModel currentShell
+            || !ReferenceEquals(ai, currentShell.Ai)
+            || !currentShell.ShowAI)
+        {
+            ai.ReportProposalStatus(
+                "Proposal review was invalidated by an input, navigation, or workspace change. Nothing was applied.");
+            launcher?.Focus();
+            return;
+        }
+
+        if (result.Plan is not { } plan)
+        {
+            var guidance = result.Failures
+                .Take(20)
+                .Select(failure => failure.OperationIndex is { } operationIndex
+                    ? $"Operation {operationIndex + 1}: {failure.Guidance}"
+                    : failure.Guidance)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            ai.ReportProposalStatus(guidance.Length == 0
+                ? "The proposal is invalid, unsupported, stale, or incomplete. Nothing was applied."
+                : string.Join(" ", guidance));
+            launcher?.Focus();
+            return;
+        }
+
+        var viewModel = new AgentProposalReviewViewModel(plan, session.ProposalApplication);
+        var review = new AgentProposalReviewWindow(viewModel, new DesktopProposalApplicationHost(work));
+        _activeProposalReview = viewModel;
+        _activeProposalReviewWindow = review;
+        review.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_activeProposalReview, viewModel))
+            {
+                _activeProposalReview = null;
+                _activeProposalReviewWindow = null;
+            }
+
+            ai.ReportProposalStatus(viewModel.HasStatusMessage
+                ? viewModel.StatusMessage
+                : "Proposal review closed. Review is required again before Apply.");
+            Dispatcher.UIThread.Post(() => launcher?.Focus());
+        };
+        ai.ReportProposalStatus("Proposal validated. Review every ordered operation and direct or derived effect before Apply.");
+        _ = review.ShowDialog(this);
+    }
+
+    private void InvalidateActiveProposalReview()
+    {
+        _proposalReviewRevision++;
+        _activeProposalReview?.Discard();
+    }
+
     private IPlainTextClipboard? PlainTextClipboard() =>
         _plainTextClipboard ?? (Clipboard is null ? null : new AvaloniaPlainTextClipboard(Clipboard));
 
@@ -324,6 +642,7 @@ public sealed partial class MainWindow : Window
 
     internal async Task ReplaceSessionAsync(IWorkspaceSession session)
     {
+        DiscardProposalStateForSessionEnd();
         if (DataContext is ShellViewModel { Work: { } work })
             await work.DrainWorkspaceActionsAsync();
         if (_inspectorSaveWriter is not null)
@@ -356,6 +675,8 @@ public sealed partial class MainWindow : Window
         ResetPointerGesture();
         _autosaveScheduler.Cancel();
         CancelTransientMessageDismissal();
+        if (_subscribedShell is not null)
+            _subscribedShell.PropertyChanged -= OnShellChanged;
         if (_subscribedWork is not null)
         {
             _subscribedWork.PropertyChanged -= OnWorkChanged;
@@ -363,8 +684,11 @@ public sealed partial class MainWindow : Window
         }
         if (_subscribedSettings is not null)
             _subscribedSettings.PropertyChanged -= OnSettingsChanged;
-        _subscribedWork = (DataContext as ShellViewModel)?.Work;
-        _subscribedSettings = (DataContext as ShellViewModel)?.Settings;
+        _subscribedShell = DataContext as ShellViewModel;
+        _subscribedWork = _subscribedShell?.Work;
+        _subscribedSettings = _subscribedShell?.Settings;
+        if (_subscribedShell is not null)
+            _subscribedShell.PropertyChanged += OnShellChanged;
         if (_subscribedWork is not null)
         {
             _subscribedWork.PropertyChanged += OnWorkChanged;
@@ -373,6 +697,22 @@ public sealed partial class MainWindow : Window
         }
         if (_subscribedSettings is not null)
             _subscribedSettings.PropertyChanged += OnSettingsChanged;
+    }
+
+    private void OnShellChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(ShellViewModel.SelectedItem))
+        {
+            return;
+        }
+
+        var hadReview = _activeProposalReview is not null;
+        InvalidateActiveProposalReview();
+        if (hadReview && sender is ShellViewModel { Ai: { } ai })
+        {
+            ai.ReportProposalStatus(
+                "Proposal review was invalidated by navigation. Review the current proposal again before Apply.");
+        }
     }
 
     private void OnSettingsChanged(object? sender, PropertyChangedEventArgs e)
@@ -571,6 +911,7 @@ public sealed partial class MainWindow : Window
     private async void OnClosing(object? sender, WindowClosingEventArgs e)
     {
         if (_closingApproved) return;
+        DiscardProposalStateForSessionEnd();
         e.Cancel = true;
         if (DataContext is ShellViewModel { Work: { } work })
         {
@@ -1012,14 +1353,38 @@ public sealed partial class MainWindow : Window
         _dateRefreshTimer.Tick -= OnDateRefreshTick;
         _autosaveScheduler.Dispose();
         _transientMessageScheduler.Dispose();
+        DiscardProposalStateForSessionEnd();
+        if (this.FindControl<BoundedProposalTextBox>("AiProposalTextBox") is { } proposalTextBox)
+        {
+            proposalTextBox.ProposalTextAttempted -= OnProposalTextAttempted;
+            proposalTextBox.PastingFromClipboard -= OnProposalPastingFromClipboard;
+        }
         if (_subscribedWork is not null)
         {
             _subscribedWork.PropertyChanged -= OnWorkChanged;
             _subscribedWork.AutosaveRequested -= OnAutosaveRequested;
         }
+        if (_subscribedShell is not null)
+            _subscribedShell.PropertyChanged -= OnShellChanged;
         // Normal close and session-unavailable close drain the session executor before
         // reaching this event. Never synchronously wait for storage on the UI thread here.
         _session?.Dispose();
         _session = null;
+    }
+
+    private void DiscardProposalStateForSessionEnd()
+    {
+        _proposalReviewRevision++;
+        _proposalIntakeCancellation?.Cancel();
+        _proposalIntakeCancellation?.Dispose();
+        _proposalIntakeCancellation = null;
+        _activeProposalReview?.Discard();
+        if (_activeProposalReviewWindow?.DataContext is AgentProposalReviewViewModel { CanClose: true })
+        {
+            _activeProposalReviewWindow.Close();
+        }
+
+        _activeProposalReview = null;
+        _activeProposalReviewWindow = null;
     }
 }

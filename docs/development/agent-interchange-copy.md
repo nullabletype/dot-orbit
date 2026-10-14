@@ -26,4 +26,4 @@ Each complete final output—snapshot JSON, reusable instructions/schemas, or th
 
 Clipboard payloads are sensitive unencrypted plaintext. Payload content, labels, identifiers, digests, and clipboard values must not appear in logs, telemetry, exception messages, screenshots, test reports, CI output, or GitHub artifacts. Success, cancellation, unavailable clipboard, generation failure, and clipboard failure use fixed non-sensitive status text.
 
-This workflow does not import or apply a Change proposal and does not replace the complete plaintext workspace export. Proposal typing/paste/file intake, Review, and explicit Apply are separate follow-up work tracked by issue #81 under the same version 1 contract. The AI destination intentionally exposes no proposal input until that work is implemented.
+Copying a planning snapshot does not itself import or apply a Change proposal and does not replace the complete plaintext workspace export. Return to the AI destination with a proposal and follow [Agent proposal review](agent-proposal-review.md) for bounded intake, authoritative review, and explicit whole-proposal approval under the same version 1 contract.

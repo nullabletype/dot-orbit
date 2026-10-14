@@ -1316,7 +1316,7 @@
               AutomationProperties.Name="Current view" />
           <TextBlock x:Name="AiIntroductionText" MaxWidth="760" HorizontalAlignment="Left"
               FontSize="14" Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
-              Text="dot-orbit does not contact an AI provider. Copy planning context to an AI assistant, then bring proposed changes back to dot-orbit for review before anything is applied. Importing proposals is not available yet." />
+              Text="dot-orbit does not contact an AI provider. Copy planning context to an AI assistant, then bring a structured proposal back for review before anything is applied, with explicit whole-proposal approval." />
         </StackPanel>
 
         <StackPanel Spacing="10">
@@ -1379,6 +1379,50 @@
               TextWrapping="Wrap"
               AutomationProperties.Name="Agent interchange status"
               AutomationProperties.LiveSetting="Polite" />
+        </StackPanel>
+
+        <StackPanel Spacing="10">
+          <StackPanel Spacing="4">
+            <TextBlock FontSize="20" FontWeight="Bold" Text="Review proposed changes" />
+            <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
+                Text="Type, explicitly paste, load, or drop one local JSON proposal. Editing alone never validates or changes the workspace." />
+          </StackPanel>
+          <Border x:Name="AiProposalDropSurface" Classes="list-panel" DragDrop.AllowDrop="True"
+              DragDrop.DragOver="OnProposalDragOver" DragDrop.Drop="OnProposalDrop"
+              AutomationProperties.Name="Change proposal input and single local file drop target">
+            <StackPanel Spacing="10">
+              <desktop:BoundedProposalTextBox
+                  x:Name="AiProposalTextBox"
+                  Classes="inspector-field"
+                  MinHeight="210"
+                  MaxHeight="330"
+                  AcceptsReturn="True"
+                  TextWrapping="NoWrap"
+                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                  ScrollViewer.VerticalScrollBarVisibility="Auto"
+                  Text="{Binding Ai.ProposalText, Mode=TwoWay}"
+                  AutomationProperties.AutomationId="ai-proposal-text"
+                  AutomationProperties.Name="Change proposal JSON"
+                  AutomationProperties.HelpText="Sensitive untrusted plaintext. Maximum 4 MiB strict UTF-8. Review is required before Apply." />
+              <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="10">
+                <Button x:Name="AiProposalPasteButton" Classes="view-action" Content="Paste"
+                    Click="OnPasteProposal" AutomationProperties.AutomationId="ai-proposal-paste"
+                    AutomationProperties.Name="Paste Change proposal from the clipboard" />
+                <Button x:Name="AiProposalLoadButton" Grid.Column="1" Classes="view-action" Content="Load from file…"
+                    Click="OnLoadProposal" AutomationProperties.AutomationId="ai-proposal-load"
+                    AutomationProperties.Name="Load Change proposal from one local JSON file" />
+                <TextBlock Grid.Column="2" VerticalAlignment="Center" Foreground="{DynamicResource QuietTextBrush}"
+                    Text="{Binding Ai.ProposalByteCountText}" />
+                <Button x:Name="AiProposalReviewButton" Grid.Column="3" Classes="primary-action" Content="Review"
+                    IsEnabled="{Binding Ai.CanReviewProposal}" Click="OnReviewProposal"
+                    AutomationProperties.AutomationId="ai-proposal-review"
+                    AutomationProperties.Name="Review the complete Change proposal without applying it" />
+              </Grid>
+            </StackPanel>
+          </Border>
+          <TextBlock x:Name="AiProposalStatus" Foreground="{DynamicResource MutedTextBrush}"
+              IsVisible="{Binding Ai.HasProposalStatus}" Text="{Binding Ai.ProposalStatus}" TextWrapping="Wrap"
+              AutomationProperties.Name="Proposal intake status" AutomationProperties.LiveSetting="Polite" />
         </StackPanel>
       </StackPanel>
     </ScrollViewer>

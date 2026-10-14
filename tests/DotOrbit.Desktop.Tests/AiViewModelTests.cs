@@ -1,10 +1,49 @@
 using DotOrbit.Desktop.ViewModels;
+using DotOrbit.Interchange.Json;
+using System.Globalization;
 using Xunit;
 
 namespace DotOrbit.Desktop.Tests;
 
 public sealed class AiViewModelTests
 {
+    [Fact]
+    public void ProposalTextAcceptsExactUtf8LimitAndRejectsAdjacentOrInvalidUnicodeWithoutMutation()
+    {
+        var ai = new AiViewModel();
+        var exact = new string('a', ChangeProposalJsonParser.MaximumInputBytes);
+
+        ai.ProposalText = exact;
+
+        Assert.Equal(exact, ai.ProposalText);
+        Assert.True(ai.CanReviewProposal);
+        Assert.Contains(
+            ChangeProposalJsonParser.MaximumInputBytes.ToString("N0", CultureInfo.CurrentCulture),
+            ai.ProposalByteCountText,
+            StringComparison.Ordinal);
+
+        ai.ProposalText = exact + "b";
+        Assert.Equal(exact, ai.ProposalText);
+        Assert.Equal(AiViewModel.ProposalInputRejectedStatus, ai.ProposalStatus);
+
+        ai.ProposalText = "\ud800";
+        Assert.Equal(exact, ai.ProposalText);
+        Assert.Equal(AiViewModel.ProposalInputRejectedStatus, ai.ProposalStatus);
+    }
+
+    [Fact]
+    public void ProposalStatusDistinguishesAcceptedAndRejectedAttemptsWithoutIncludingInput()
+    {
+        var ai = new AiViewModel();
+
+        ai.ReportProposalTextAttempt(true, 17);
+        Assert.Contains("Review is required", ai.ProposalStatus, StringComparison.Ordinal);
+
+        ai.ReportProposalTextAttempt(false, 0);
+        Assert.Equal(AiViewModel.ProposalInputRejectedStatus, ai.ProposalStatus);
+        Assert.DoesNotContain("private proposal", ai.ProposalStatus, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void InterchangePreferenceDefaultsEnabledAndChangesOnlyAfterDevicePersistenceSucceeds()
     {
