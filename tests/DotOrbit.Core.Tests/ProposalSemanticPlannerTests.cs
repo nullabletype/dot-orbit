@@ -240,4 +240,78 @@ public sealed class ProposalSemanticPlannerTests
         Assert.Equal("new", explanation.Target.LocalId); Assert.Equal("Explanation", Assert.Single(explanation.MarkdownFields));
     }
 
+    [Theory]
+    [InlineData(1999, true)]
+    [InlineData(2000, false)]
+    public void ExpandedEffectsHaveExactTwoThousandBoundary(int childCount, bool valid)
+    {
+        var source = Source();
+        var tasks = Enumerable.Range(0, childCount).Select(i => new TaskRecord("t" + i, "p", "Task", "", null, null, i, i)).ToArray();
+        source = source with { Workspace = source.Workspace with { Tasks = tasks } };
+        var result = new ProposalSemanticPlanner(new FixedTime(), new Markdown()).Validate(
+            new(AgentInterchangeV1.ChangeProposalFormat, 1, Identity, new(1), [new SetProjectCategoryOperation("1", Project, ProposalReference.Existing("d"))]), source, Identity, "digest");
+        Assert.Equal(valid, result.Plan is not null);
+        if (valid) Assert.Equal(2000, result.Plan!.Preview.Count);
+        else Assert.Equal("preview-effect-limit", result.Failures[0].Code);
+    }
+    [Theory]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    public void RetainedPreviewTextHasExactFourMebibyteBoundary(int excess, bool valid)
+    {
+        const string before = "Incomplete; completion date: None";
+        const string after = "Complete; completion date: 2030-04-05";
+        var overhead = System.Text.Encoding.UTF8.GetByteCount("completion" + "a" + before + after);
+        var source = Source();
+        source = source with { Workspace = source.Workspace with { Projects = [], Tasks = [new("a", null,
+            new string('x', 4 * 1024 * 1024 - overhead + excess), "", "c", null, 0, null)] } };
+        var result = new ProposalSemanticPlanner(new FixedTime(), new Markdown()).Validate(
+            new(AgentInterchangeV1.ChangeProposalFormat, 1, Identity, new(1), [new CompleteTaskOperation("1", TaskA)]), source, Identity, "digest");
+        Assert.Equal(valid, result.Plan is not null);
+        if (!valid) Assert.Equal("preview-text-limit", result.Failures[0].Code);
+    }
+    [Theory]
+    [InlineData(32768, true)]
+    [InlineData(32769, false)]
+    public void RetainedMarkdownHasExactAggregateNodeBoundary(int nodeCount, bool valid)
+    {
+        var source = Source(); var tasks = source.Workspace.Tasks.ToArray();
+        tasks[0] = tasks[0] with { Description = new string('x', nodeCount) };
+        source = source with { Workspace = source.Workspace with { Tasks = tasks } };
+        var result = new ProposalSemanticPlanner(new FixedTime(), new CountMarkdown()).Validate(
+            new(AgentInterchangeV1.ChangeProposalFormat, 1, Identity, new(1), [Edit("1", "Changed")]), source, Identity, "digest");
+        Assert.Equal(valid, result.Plan is not null);
+        if (!valid) Assert.Equal("markdown-preview-limit", result.Failures[0].Code);
+    }
+    [Theory]
+    [InlineData(4096, true)]
+    [InlineData(4097, false)]
+    public void ProposedMarkdownHasExactFieldNodeBoundary(int nodeCount, bool valid)
+    {
+        var operation = new EditTaskOperation("1", TaskA, new(default, new(true, new string('x', nodeCount)), default));
+        var result = new ProposalSemanticPlanner(new FixedTime(), new CountMarkdown()).Validate(
+            new(AgentInterchangeV1.ChangeProposalFormat, 1, Identity, new(1), [operation]), Source(), Identity, "digest");
+        Assert.Equal(valid, result.Plan is not null);
+        if (!valid) Assert.Equal("markdown-limit", result.Failures[0].Code);
+    }
+    [Theory]
+    [InlineData(32, true)]
+    [InlineData(33, false)]
+    public void ProposedMarkdownHasExactContainerDepthBoundary(int depth, bool valid)
+    {
+        var result = new ProposalSemanticPlanner(new FixedTime(), new DepthMarkdown(depth)).Validate(
+            new(AgentInterchangeV1.ChangeProposalFormat, 1, Identity, new(1), [new CreateCategoryOperation("1", "new", "Fresh", "Explanation")]), Source(), Identity, "digest");
+        Assert.Equal(valid, result.Plan is not null);
+        if (!valid) Assert.Equal("markdown-limit", result.Failures[0].Code);
+    }
+    private sealed class DepthMarkdown(int depth) : IProposalMarkdownValidator
+    { public ProposalMarkdownValidation Validate(string markdown) => new(true, 1, depth); }
+    [Fact]
+    public void TerminalTaskRejectsAnySubsequentTargeting()
+    {
+        Assert.Equal("invalid-reference", Validate(new MoveTaskToBinOperation("1", TaskA), Edit("2", "Changed")).Failures[0].Code);
+        Assert.Equal("invalid-reference", Validate(new CompleteTaskOperation("1", TaskA), new ArchiveTaskOperation("2", TaskA),
+            new MoveTaskToBinOperation("3", TaskA)).Failures[0].Code);
+    }
+
 }
