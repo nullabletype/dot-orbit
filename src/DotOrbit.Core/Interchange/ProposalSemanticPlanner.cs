@@ -16,10 +16,11 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
         if (proposal.Format != AgentInterchangeV1.ChangeProposalFormat || proposal.SchemaVersion != 1)
             return Failed("unsupported-version");
         if (proposal.Operations.Count is < 1 or > 512) return Failed("operation-limit");
+        var operations = proposal.Operations.Select(Freeze).ToArray();
         var simulation = new Simulation(source, timeProvider, markdownValidator);
-        for (var index = 0; index < proposal.Operations.Count; index++)
+        for (var index = 0; index < operations.Length; index++)
         {
-            try { simulation.Execute(proposal.Operations[index]); }
+            try { simulation.Execute(operations[index]); }
             catch (InvalidProposalException error) { return Failed(error.Code, index); }
             catch (EncoderFallbackException) { return Failed("invalid-unicode", index); }
             catch (ArgumentException) { return Failed("invalid-domain-value", index); }
@@ -27,7 +28,6 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
         try
         {
             simulation.Finish();
-            var operations = proposal.Operations.Select(Freeze).ToArray();
             return new(new(proposal.SourceSnapshotId, source.Revision, proposalDigest,
                 Array.AsReadOnly(operations), Array.AsReadOnly(simulation.Effects.ToArray())), []);
         }
@@ -52,6 +52,7 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
         private readonly Dictionary<string, ParticipantRecord> participants;
         private readonly Dictionary<string, ProjectRecord> projects;
         private readonly Dictionary<string, TaskRecord> tasks;
+        private readonly Dictionary<string, TaskRecord> originalTasks;
         private readonly Dictionary<string, (string Key, string Kind)> locals = new(StringComparer.Ordinal);
         private readonly Dictionary<string, ProposalReference> references = new(StringComparer.Ordinal);
         private readonly HashSet<string> created = new(StringComparer.Ordinal);
@@ -83,6 +84,7 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
             projects = source.Workspace.Projects.ToDictionary(x => x.Id, StringComparer.Ordinal);
             tasks = source.Workspace.Tasks.ToDictionary(x => x.Id,
                 x => x with { ParticipantIds = Array.AsReadOnly(x.Participants.ToArray()) }, StringComparer.Ordinal);
+            originalTasks = new(tasks, StringComparer.Ordinal);
             originalParents = tasks.ToDictionary(x => x.Key, x => x.Value.ProjectId, StringComparer.Ordinal);
             foreach (var key in categories.Keys.Concat(participants.Keys).Concat(projects.Keys).Concat(tasks.Keys))
                 references[key] = ProposalReference.Existing(key);
@@ -107,10 +109,15 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
                     _ => false,
                 }, "invalid-reference");
             }
-            Check(kind switch { "category" => categories.ContainsKey(key), "participant" => participants.ContainsKey(key),
+            Check(kind switch
+            {
+                "category" => categories.ContainsKey(key),
+                "participant" => participants.ContainsKey(key),
                 "project" => projects.ContainsKey(key) && !projects[key].IsArchived && !binnedProjects.Contains(key),
                 "task" => tasks.ContainsKey(key) && !tasks[key].IsArchived && !binnedTasks.Contains(key)
-                    && (tasks[key].ProjectId is null || !projects[tasks[key].ProjectId!].IsArchived), _ => false }, "invalid-reference");
+                    && (tasks[key].ProjectId is null || !projects[tasks[key].ProjectId!].IsArchived),
+                _ => false
+            }, "invalid-reference");
             Check(!terminal.Contains(key), "terminal-target");
             return key;
         }
@@ -142,7 +149,7 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
         }
         private void Markdown(string value, bool proposed = true)
         {
-            var result = markdown.Validate(value);
+            var result = markdown.Validate(value, proposed);
             Check(result.IsValid && result.NodeCount <= (proposed ? 4096 : 65536) && (!proposed || result.ContainerDepth <= 32), "markdown-limit");
             nodes += result.NodeCount; Check(nodes <= 65536, "markdown-preview-limit");
         }
@@ -176,85 +183,91 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
             switch (operation)
             {
                 case CreateCategoryOperation x:
-                {
-                    var validation = CategoryName.Create(x.Name); Check(validation.IsValid, "invalid-category-name");
-                    var name = validation.CategoryName!.Value;
-                    Check(!categories.Values.Any(c => StringComparer.OrdinalIgnoreCase.Equals(c.Name, name)), "duplicate-category-name");
-                    var id = Create(x.LocalId, "category"); categories.Add(id, new(id, name, categories.Count)); Effect("create-category", id, "", name + "; appended to Category order; colour assigned by application"); break;
-                }
+                    {
+                        var validation = CategoryName.Create(x.Name); Check(validation.IsValid, "invalid-category-name");
+                        var name = validation.CategoryName!.Value;
+                        Check(!categories.Values.Any(c => StringComparer.OrdinalIgnoreCase.Equals(c.Name, name)), "duplicate-category-name");
+                        var id = Create(x.LocalId, "category"); categories.Add(id, new(id, name, categories.Count)); Effect("create-category", id, "", name + "; appended to Category order; colour assigned by application"); break;
+                    }
                 case CreateParticipantOperation x:
-                {
-                    var label = ParticipantLabel.Normalize(x.Label);
-                    Check(!participants.Values.Any(p => ParticipantLabel.ComparisonKey(p.Label) == ParticipantLabel.ComparisonKey(label)), "duplicate-participant-label");
-                    var id = Create(x.LocalId, "participant"); participants.Add(id, new(id, label)); Effect("create-participant", id, "", label); break;
-                }
+                    {
+                        var label = ParticipantLabel.Normalize(x.Label);
+                        Check(!participants.Values.Any(p => ParticipantLabel.ComparisonKey(p.Label) == ParticipantLabel.ComparisonKey(label)), "duplicate-participant-label");
+                        var id = Create(x.LocalId, "participant"); participants.Add(id, new(id, label)); Effect("create-participant", id, "", label); break;
+                    }
                 case CreateProjectOperation x:
-                {
-                    var category = Resolve(x.Category, "category"); Markdown(x.Description);
-                    var id = Create(x.LocalId, "project"); projects.Add(id, new(id, WorkTitle.Normalize(x.Title), x.Description, category, x.TargetDate, projects.Count));
-                    Effect("create-project", id, "", ProjectText(projects[id]) + "; appended to Project order; colour assigned by application", x.Description); break;
-                }
+                    {
+                        var category = Resolve(x.Category, "category"); Markdown(x.Description);
+                        var id = Create(x.LocalId, "project"); projects.Add(id, new(id, WorkTitle.Normalize(x.Title), x.Description, category, x.TargetDate, projects.Count));
+                        Effect("create-project", id, "", ProjectText(projects[id]) + "; appended to Project order; colour assigned by application", x.Description); break;
+                    }
                 case CreateTaskOperation x:
-                {
-                    var parent = x.Project is { } reference ? Resolve(reference, "project") : null;
-                    var category = Category(x.Category, parent); var associations = Associations(x.Participants); Markdown(x.Description);
-                    var position = parent is null ? (long?)null : EndPosition(parent);
-                    var id = Create(x.LocalId, "task"); foreach (var existing in tasks.Keys.ToArray()) tasks[existing] = tasks[existing] with { SharedPosition = tasks[existing].SharedPosition + 1 };
-                    tasks.Add(id, new(id, parent, WorkTitle.Normalize(x.Title), x.Description, category, x.DueDate, 0, position, ParticipantIds: associations));
-                    targetedTasks.Add(id); if (parent is not null) touchedParents.Add(parent); Effect("create-task", id, "", TaskText(tasks[id]), x.Description); break;
-                }
+                    {
+                        var parent = x.Project is { } reference ? Resolve(reference, "project") : null;
+                        var category = Category(x.Category, parent); var associations = Associations(x.Participants); Markdown(x.Description);
+                        var position = parent is null ? (long?)null : EndPosition(parent);
+                        var id = Create(x.LocalId, "task"); foreach (var existing in tasks.Keys.ToArray()) tasks[existing] = tasks[existing] with { SharedPosition = tasks[existing].SharedPosition + 1 };
+                        tasks.Add(id, new(id, parent, WorkTitle.Normalize(x.Title), x.Description, category, x.DueDate, 0, position, ParticipantIds: associations));
+                        targetedTasks.Add(id); if (parent is not null) touchedParents.Add(parent); Effect("create-task", id, "", TaskText(tasks[id]), x.Description); break;
+                    }
                 case EditProjectOperation x:
-                {
-                    var id = Resolve(x.Project, "project"); Write(id, "content"); var before = projects[id];
-                    Check(x.Changes.Title.IsSpecified || x.Changes.Description.IsSpecified || x.Changes.TargetDate.IsSpecified, "empty-change");
-                    var after = before with { Title = x.Changes.Title.IsSpecified ? WorkTitle.Normalize(x.Changes.Title.Value!) : before.Title,
-                        Description = x.Changes.Description.IsSpecified ? x.Changes.Description.Value! : before.Description,
-                        TargetDate = x.Changes.TargetDate.IsSpecified ? x.Changes.TargetDate.Value : before.TargetDate };
-                    Check(after != before, "no-op"); Markdown(before.Description, false); Markdown(after.Description, x.Changes.Description.IsSpecified); projects[id] = after;
-                    Effect("project-content", id, ProjectText(before), ProjectText(after), before.Description, after.Description); break;
-                }
+                    {
+                        var id = Resolve(x.Project, "project"); Write(id, "content"); var before = projects[id];
+                        Check(x.Changes.Title.IsSpecified || x.Changes.Description.IsSpecified || x.Changes.TargetDate.IsSpecified, "empty-change");
+                        var after = before with
+                        {
+                            Title = x.Changes.Title.IsSpecified ? WorkTitle.Normalize(x.Changes.Title.Value!) : before.Title,
+                            Description = x.Changes.Description.IsSpecified ? x.Changes.Description.Value! : before.Description,
+                            TargetDate = x.Changes.TargetDate.IsSpecified ? x.Changes.TargetDate.Value : before.TargetDate
+                        };
+                        Check(after != before, "no-op"); Markdown(before.Description, false); Markdown(after.Description, x.Changes.Description.IsSpecified); projects[id] = after;
+                        Effect("project-content", id, ProjectText(before), ProjectText(after), before.Description, after.Description); break;
+                    }
                 case EditTaskOperation x:
-                {
-                    var id = Resolve(x.Task, "task"); Write(id, "content"); var before = tasks[id];
-                    Check(x.Changes.Title.IsSpecified || x.Changes.Description.IsSpecified || x.Changes.DueDate.IsSpecified, "empty-change");
-                    var after = before with { Title = x.Changes.Title.IsSpecified ? WorkTitle.Normalize(x.Changes.Title.Value!) : before.Title,
-                        Description = x.Changes.Description.IsSpecified ? x.Changes.Description.Value! : before.Description,
-                        DueDate = x.Changes.DueDate.IsSpecified ? x.Changes.DueDate.Value : before.DueDate };
-                    Check(after != before, "no-op"); Markdown(before.Description, false); Markdown(after.Description, x.Changes.Description.IsSpecified); tasks[id] = after;
-                    Effect("task-content", id, TaskText(before), TaskText(after), before.Description, after.Description); break;
-                }
+                    {
+                        var id = Resolve(x.Task, "task"); Write(id, "content"); var before = tasks[id];
+                        Check(x.Changes.Title.IsSpecified || x.Changes.Description.IsSpecified || x.Changes.DueDate.IsSpecified, "empty-change");
+                        var after = before with
+                        {
+                            Title = x.Changes.Title.IsSpecified ? WorkTitle.Normalize(x.Changes.Title.Value!) : before.Title,
+                            Description = x.Changes.Description.IsSpecified ? x.Changes.Description.Value! : before.Description,
+                            DueDate = x.Changes.DueDate.IsSpecified ? x.Changes.DueDate.Value : before.DueDate
+                        };
+                        Check(after != before, "no-op"); Markdown(before.Description, false); Markdown(after.Description, x.Changes.Description.IsSpecified); tasks[id] = after;
+                        Effect("task-content", id, TaskText(before), TaskText(after), before.Description, after.Description); break;
+                    }
                 case SetProjectCategoryOperation x:
-                {
-                    var id = Resolve(x.Project, "project"); var category = Resolve(x.Category, "category"); Write(id, "category");
-                    Check(projects[id].CategoryId != category, "no-op"); var before = projects[id].CategoryId; projects[id] = projects[id] with { CategoryId = category };
-                    Effect("project-category", id, Name(before), Name(category));
-                    foreach (var child in tasks.Values.Where(t => t.ProjectId == id && t.ExplicitCategoryId is null))
-                        Effect(child.IsArchived ? "archived-child-category" : "inherited-task-category", child.Id, Name(before), Name(category));
-                    foreach (var child in source.TaskBin.Where(t => t.Task.ProjectId == id && t.Task.ExplicitCategoryId is null))
-                        HiddenEffect("binned-child-category", child.Task, Name(before), Name(category));
-                    break;
-                }
+                    {
+                        var id = Resolve(x.Project, "project"); var category = Resolve(x.Category, "category"); Write(id, "category");
+                        Check(projects[id].CategoryId != category, "no-op"); var before = projects[id].CategoryId; projects[id] = projects[id] with { CategoryId = category };
+                        Effect("project-category", id, Name(before), Name(category));
+                        foreach (var child in tasks.Values.Where(t => t.ProjectId == id && t.ExplicitCategoryId is null))
+                            Effect(child.IsArchived ? "archived-child-category" : "inherited-task-category", child.Id, Name(before), Name(category));
+                        foreach (var child in source.TaskBin.Where(t => t.Task.ProjectId == id && t.Task.ExplicitCategoryId is null))
+                            HiddenEffect("binned-child-category", child.Task, Name(before), Name(category));
+                        break;
+                    }
                 case SetTaskCategoryOperation x:
-                {
-                    var id = Resolve(x.Task, "task"); Write(id, "category"); var before = tasks[id]; var category = Category(x.Category, before.ProjectId);
-                    Check(before.ExplicitCategoryId != category, "no-op"); tasks[id] = before with { ExplicitCategoryId = category };
-                    Effect("task-category", id, CategoryText(before), CategoryText(tasks[id])); break;
-                }
+                    {
+                        var id = Resolve(x.Task, "task"); Write(id, "category"); var before = tasks[id]; var category = Category(x.Category, before.ProjectId);
+                        Check(before.ExplicitCategoryId != category, "no-op"); tasks[id] = before with { ExplicitCategoryId = category };
+                        Effect("task-category", id, CategoryText(before), CategoryText(tasks[id])); break;
+                    }
                 case ReplaceTaskParticipantsOperation x:
-                {
-                    var id = Resolve(x.Task, "task"); Write(id, "participants"); var next = Associations(x.Participants);
-                    Check(!tasks[id].Participants.ToHashSet(StringComparer.Ordinal).SetEquals(next), "no-op");
-                    var before = string.Join(", ", tasks[id].Participants.Select(p => participants[p].Label)); tasks[id] = tasks[id] with { ParticipantIds = next };
-                    Effect("participants", id, before, string.Join(", ", next.Select(p => participants[p].Label))); break;
-                }
+                    {
+                        var id = Resolve(x.Task, "task"); Write(id, "participants"); var next = Associations(x.Participants);
+                        Check(!tasks[id].Participants.ToHashSet(StringComparer.Ordinal).SetEquals(next), "no-op");
+                        var before = string.Join(", ", tasks[id].Participants.Select(p => participants[p].Label)); tasks[id] = tasks[id] with { ParticipantIds = next };
+                        Effect("participants", id, before, string.Join(", ", next.Select(p => participants[p].Label))); break;
+                    }
                 case AttachTaskOperation x: Relate(x.Task, x.Project, x.CategoryChoice, true); break;
                 case MoveTaskOperation x: Relate(x.Task, x.Project, x.CategoryChoice, false); break;
                 case DetachTaskOperation x:
-                {
-                    var id = Resolve(x.Task, "task"); Write(id, "relationship", "category"); var task = tasks[id]; Check(task.ProjectId is not null, "no-op");
-                    var parent = task.ProjectId!; tasks[id] = task with { ProjectId = null, ProjectPosition = null, ExplicitCategoryId = Effective(task) }; SetOrder(parent, Order(parent));
-                    Effect("relationship", id, projects[parent].Title + "; " + CategoryText(task), "Standalone; " + CategoryText(tasks[id])); break;
-                }
+                    {
+                        var id = Resolve(x.Task, "task"); Write(id, "relationship", "category"); var task = tasks[id]; Check(task.ProjectId is not null, "no-op");
+                        var parent = task.ProjectId!; tasks[id] = task with { ProjectId = null, ProjectPosition = null, ExplicitCategoryId = Effective(task) }; SetOrder(parent, Order(parent));
+                        Effect("relationship", id, projects[parent].Title + "; " + CategoryText(task), "Standalone; " + CategoryText(tasks[id])); break;
+                    }
                 case CompleteTaskOperation x: Completion(x.Task, true); break;
                 case ReopenTaskOperation x: Completion(x.Task, false); break;
                 case ReorderProjectTaskOperation x: Reorder(x); break;
@@ -274,13 +287,20 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
                 CreateParticipantOperation x => ProposalReference.Local(x.LocalId),
                 CreateProjectOperation x => ProposalReference.Local(x.LocalId),
                 CreateTaskOperation x => ProposalReference.Local(x.LocalId),
-                EditProjectOperation x => x.Project, SetProjectCategoryOperation x => x.Project,
-                ArchiveProjectOperation x => x.Project, MoveProjectToBinOperation x => x.Project,
-                EditTaskOperation x => x.Task, SetTaskCategoryOperation x => x.Task,
-                ReplaceTaskParticipantsOperation x => x.Task, AttachTaskOperation x => x.Task,
-                DetachTaskOperation x => x.Task, MoveTaskOperation x => x.Task,
-                CompleteTaskOperation x => x.Task, ReopenTaskOperation x => x.Task,
-                ReorderProjectTaskOperation x => x.Task, ArchiveTaskOperation x => x.Task,
+                EditProjectOperation x => x.Project,
+                SetProjectCategoryOperation x => x.Project,
+                ArchiveProjectOperation x => x.Project,
+                MoveProjectToBinOperation x => x.Project,
+                EditTaskOperation x => x.Task,
+                SetTaskCategoryOperation x => x.Task,
+                ReplaceTaskParticipantsOperation x => x.Task,
+                AttachTaskOperation x => x.Task,
+                DetachTaskOperation x => x.Task,
+                MoveTaskOperation x => x.Task,
+                CompleteTaskOperation x => x.Task,
+                ReopenTaskOperation x => x.Task,
+                ReorderProjectTaskOperation x => x.Task,
+                ArchiveTaskOperation x => x.Task,
                 MoveTaskToBinOperation x => x.Task,
                 _ => throw new InvalidProposalException("unsupported-operation"),
             };
@@ -296,16 +316,24 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
             Check(choice is null || Enum.IsDefined(choice.Value), "invalid-category-choice");
             var before = task.ProjectId is null ? "Standalone" : projects[task.ProjectId].Title;
             var oldParent = task.ProjectId; touchedParents.Add(parent);
-            tasks[id] = task with { ProjectId = parent, ProjectPosition = EndPosition(parent),
-                ExplicitCategoryId = match || choice == AttachmentCategoryChoice.AdoptProjectCategory ? null : category };
+            tasks[id] = task with
+            {
+                ProjectId = parent,
+                ProjectPosition = EndPosition(parent),
+                ExplicitCategoryId = match || choice == AttachmentCategoryChoice.AdoptProjectCategory ? null : category
+            };
             if (oldParent is not null) SetOrder(oldParent, Order(oldParent));
             Effect("relationship", id, before + "; " + CategoryText(task), projects[parent].Title + "; " + CategoryText(tasks[id]));
         }
         private void Completion(ProposalReference reference, bool complete)
         {
             var id = Resolve(reference, "task"); Write(id, "completion"); var task = tasks[id]; Check(task.IsComplete != complete, "no-op");
-            tasks[id] = task with { CompletedAt = complete ? instant : null, CompletionDate = complete ? date : null,
-                TodayLane = complete ? null : task.TodayLane };
+            tasks[id] = task with
+            {
+                CompletedAt = complete ? instant : null,
+                CompletionDate = complete ? date : null,
+                TodayLane = complete ? null : task.TodayLane
+            };
             Effect("completion", id, (task.IsComplete ? "Complete" : "Incomplete") + "; completion date: " + DateText(task.CompletionDate),
                 (complete ? "Complete" : "Incomplete") + "; completion date: " + DateText(tasks[id].CompletionDate));
             if (complete && task.IsInToday) Effect("today-removal", id, task.TodayLane!.Value.ToString(), "Not in Today");
@@ -386,19 +414,45 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
             foreach (var project in projects.Values)
             {
                 var order = Order(project.Id);
-                var original = source.Workspace.Tasks.Where(t => t.ProjectId == project.Id).OrderBy(t => t.ProjectPosition).Select(t => t.Id);
+                var original = source.Workspace.Tasks.Where(t => t.ProjectId == project.Id).OrderBy(t => t.ProjectPosition).Select(t => t.Id).ToArray();
                 if (!original.SequenceEqual(order, StringComparer.Ordinal))
-                    Effect("final-project-order", project.Id, string.Join("\n", original.Select(OrderText)), string.Join("\n", order.Select(OrderText)));
+                {
+                    Effect("final-project-order", project.Id, "Previous Project order", "Final Project order");
+                    OrderRows("final-project-order-row", original, order, project.Id);
+                }
             }
             var originalShared = source.Workspace.Tasks.OrderBy(t => t.SharedPosition).Select(t => t.Id).ToArray();
             var shared = snapshot.Tasks.OrderBy(t => t.SharedPosition).Select(t => t.Id).ToArray();
             if (!originalShared.SequenceEqual(shared, StringComparer.Ordinal))
             {
                 var target = shared.FirstOrDefault() ?? originalShared.FirstOrDefault();
-                if (target is not null) Effect("final-shared-order", target, string.Join("\n", originalShared.Select(OrderText)), string.Join("\n", shared.Select(OrderText)));
+                if (target is not null)
+                {
+                    Effect("final-shared-order", target, "Previous shared Task order", "Final shared Task order");
+                    OrderRows("final-shared-order-row", originalShared, shared);
+                }
             }
         }
-        private string OrderText(string id) => tasks[id].Title + (tasks[id].IsArchived ? " [Individually archived]" : " [Active]");
+        private void OrderRows(string kind, IReadOnlyList<string> before, IReadOnlyList<string> after, string? project = null)
+        {
+            var beforePositions = before.Select((id, index) => (id, index)).ToDictionary(item => item.id, item => item.index, StringComparer.Ordinal);
+            var afterPositions = after.Select((id, index) => (id, index)).ToDictionary(item => item.id, item => item.index, StringComparer.Ordinal);
+            foreach (var id in before.Concat(after).Distinct(StringComparer.Ordinal))
+            {
+                Effect(kind, id,
+                    beforePositions.TryGetValue(id, out var oldPosition) ? OrderPosition(id, oldPosition, before: true) : "Not included",
+                    afterPositions.TryGetValue(id, out var newPosition) ? OrderPosition(id, newPosition) : "Not included");
+                if (project is not null)
+                {
+                    var reference = references[project];
+                    bytes += new UTF8Encoding(false, true).GetByteCount(reference.ExistingId ?? reference.LocalId!);
+                    Check(bytes <= 4 * 1024 * 1024, "preview-text-limit");
+                    Effects[^1] = Effects[^1] with { OrderProject = reference };
+                }
+            }
+        }
+        private string OrderPosition(string id, int position, bool before = false) => "Position " + (position + 1).ToString(CultureInfo.InvariantCulture)
+            + ((before ? originalTasks[id] : tasks[id]).IsArchived ? "; individually archived" : "; active");
         private static string SummaryText(ProjectWorkSummary value) => value.Status + "; " + value.CompletedCount.ToString(CultureInfo.InvariantCulture)
             + "/" + value.TaskCount.ToString(CultureInfo.InvariantCulture) + "; completion date: " + DateText(value.CompletionDate);
         public WorkspaceWorkSnapshot Snapshot() => new(

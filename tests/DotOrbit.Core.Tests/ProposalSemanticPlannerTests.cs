@@ -21,7 +21,7 @@ public sealed class ProposalSemanticPlannerTests
         new ProposalSemanticPlanner(TimeProvider.System, new Markdown()).Validate(
             new(AgentInterchangeV1.ChangeProposalFormat, 1, Identity, new(1), operations), Source(), Identity, "digest");
     private sealed class Markdown : IProposalMarkdownValidator
-    { public ProposalMarkdownValidation Validate(string markdown) => new(true, markdown.Length == 0 ? 0 : 1, 0); }
+    { public ProposalMarkdownValidation Validate(string markdown, bool proposed) => new(true, markdown.Length == 0 ? 0 : 1, 0); }
 
     [Fact]
     public void OrderedLocalCreationAndPostCreateCompletionProduceTypedPlan()
@@ -51,9 +51,60 @@ public sealed class ProposalSemanticPlannerTests
         var result = Validate(new ReorderProjectTaskOperation("1", ProposalReference.Existing("b"),
             new(ProjectTaskPlacementKind.Before, TaskA)));
         Assert.NotNull(result.Plan);
-        var order = Assert.Single(result.Plan.Preview, effect => effect.Kind == "final-project-order");
-        Assert.Equal("Task B [Active]\nArchived task [Individually archived]\nTask A [Active]", order.After);
+        var rows = result.Plan.Preview.Where(effect => effect.Kind == "final-project-order-row").ToArray();
+        Assert.Equal("Position 1; active", rows.Single(row => row.Target.ExistingId == "b").After);
+        Assert.Equal("Position 2; individually archived", rows.Single(row => row.Target.ExistingId == "hidden").After);
+        Assert.Equal("Position 3; active", rows.Single(row => row.Target.ExistingId == "a").After);
     }
+    [Fact]
+    public void FinalOrderRowsRemainDistinctForDuplicateAndMultilineTitles()
+    {
+        var source = Source();
+        var tasks = source.Workspace.Tasks.Select(task => task with { Title = "Same\nsynthetic title" }).ToArray();
+        source = source with { Workspace = source.Workspace with { Tasks = tasks } };
+        var result = new ProposalSemanticPlanner(new FixedTime(), new Markdown()).Validate(
+            new(AgentInterchangeV1.ChangeProposalFormat, 1, Identity, new(1),
+                [new ReorderProjectTaskOperation("1", ProposalReference.Existing("b"), new(ProjectTaskPlacementKind.Before, TaskA))]),
+            source, Identity, "digest");
+        var rows = result.Plan!.Preview.Where(effect => effect.Kind == "final-project-order-row").ToArray();
+        Assert.Equal(3, rows.Length);
+        Assert.Equal(3, rows.Select(row => row.Target.ExistingId).Distinct().Count());
+        Assert.All(rows, row => Assert.Equal(Project, row.OrderProject));
+    }
+
+    [Fact]
+    public void ExpandedOrderRowsOverEffectBudgetRejectEntireProposal()
+    {
+        var source = Source();
+        var tasks = Enumerable.Range(0, 2_000).Select(index =>
+            new TaskRecord("synthetic-" + index, "p", "Synthetic task", "", null, null, index, index)).ToArray();
+        source = source with { Workspace = source.Workspace with { Tasks = tasks } };
+        var result = new ProposalSemanticPlanner(new FixedTime(), new Markdown()).Validate(
+            new(AgentInterchangeV1.ChangeProposalFormat, 1, Identity, new(1),
+                [new ReorderProjectTaskOperation("1", ProposalReference.Existing("synthetic-1999"), new(ProjectTaskPlacementKind.First))]),
+            source, Identity, "digest");
+        Assert.Null(result.Plan);
+        Assert.Equal("preview-effect-limit", Assert.Single(result.Failures).Code);
+    }
+
+    [Fact]
+    public void OrderRowsUseOriginalLifecycleBeforeAndProspectiveLifecycleAfter()
+    {
+        var source = Source();
+        var tasks = source.Workspace.Tasks.ToArray();
+        tasks[0] = tasks[0] with { CompletedAt = DateTimeOffset.UnixEpoch, CompletionDate = new(2020, 1, 1), TodayLane = null };
+        source = source with { Workspace = source.Workspace with { Tasks = tasks } };
+        var result = new ProposalSemanticPlanner(new FixedTime(), new Markdown()).Validate(
+            new(AgentInterchangeV1.ChangeProposalFormat, 1, Identity, new(1),
+                [new ArchiveTaskOperation("1", TaskA),
+                 new CreateTaskOperation("2", "new-task", "Synthetic new task", "", null,
+                     new(ProposedTaskCategoryMode.Explicit, ProposalReference.Existing("c")), null, [])]),
+            source, Identity, "digest");
+        var row = Assert.Single(result.Plan!.Preview, effect => effect.Kind == "final-shared-order-row" && effect.Target == TaskA);
+        Assert.Equal("Position 1; active", row.Before);
+        Assert.Equal("Position 2; individually archived", row.After);
+    }
+
     [Fact]
     public void ArchivedAnchorIsRejected() => Assert.Equal("invalid-reference", Validate(
         new ReorderProjectTaskOperation("1", TaskA, new(ProjectTaskPlacementKind.After, ProposalReference.Existing("hidden")))).Failures[0].Code);
@@ -105,12 +156,15 @@ public sealed class ProposalSemanticPlannerTests
         Assert.NotNull(result.Plan);
     }
     private sealed class CountMarkdown : IProposalMarkdownValidator
-    { public ProposalMarkdownValidation Validate(string markdown) => new(true, markdown.Length, 0); }
+    { public ProposalMarkdownValidation Validate(string markdown, bool proposed) => new(true, markdown.Length, 0); }
     [Fact]
     public void AggregateBinShowsAlreadyBinnedChildRestoreRestriction()
     {
-        var source = Source() with { TaskBin = [new(new("bin", "p", "Binned", "", null, null, 0, 0),
-            DateTimeOffset.UnixEpoch, "Project", "Category", true, null)] };
+        var source = Source() with
+        {
+            TaskBin = [new(new("bin", "p", "Binned", "", null, null, 0, 0),
+            DateTimeOffset.UnixEpoch, "Project", "Category", true, null)]
+        };
         var result = new ProposalSemanticPlanner(TimeProvider.System, new Markdown()).Validate(
             new(AgentInterchangeV1.ChangeProposalFormat, 1, Identity, new(1), [new MoveProjectToBinOperation("1", Project)]), source, Identity, "digest");
         Assert.NotNull(result.Plan);
@@ -263,8 +317,15 @@ public sealed class ProposalSemanticPlannerTests
         const string after = "Complete; completion date: 2030-04-05";
         var overhead = System.Text.Encoding.UTF8.GetByteCount("completion" + "a" + before + after);
         var source = Source();
-        source = source with { Workspace = source.Workspace with { Projects = [], Tasks = [new("a", null,
-            new string('x', 4 * 1024 * 1024 - overhead + excess), "", "c", null, 0, null)] } };
+        source = source with
+        {
+            Workspace = source.Workspace with
+            {
+                Projects = [],
+                Tasks = [new("a", null,
+            new string('x', 4 * 1024 * 1024 - overhead + excess), "", "c", null, 0, null)]
+            }
+        };
         var result = new ProposalSemanticPlanner(new FixedTime(), new Markdown()).Validate(
             new(AgentInterchangeV1.ChangeProposalFormat, 1, Identity, new(1), [new CompleteTaskOperation("1", TaskA)]), source, Identity, "digest");
         Assert.Equal(valid, result.Plan is not null);
@@ -305,7 +366,7 @@ public sealed class ProposalSemanticPlannerTests
         if (!valid) Assert.Equal("markdown-limit", result.Failures[0].Code);
     }
     private sealed class DepthMarkdown(int depth) : IProposalMarkdownValidator
-    { public ProposalMarkdownValidation Validate(string markdown) => new(true, 1, depth); }
+    { public ProposalMarkdownValidation Validate(string markdown, bool proposed) => new(true, 1, depth); }
     [Fact]
     public void TerminalTaskRejectsAnySubsequentTargeting()
     {

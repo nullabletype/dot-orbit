@@ -235,6 +235,8 @@ public sealed class PassphraseRotationViewModelTests
         public IWorkspaceRecovery Recovery { get; } =
             new RecoveryViewModelTests.StubWorkspaceRecovery();
 
+        public DotOrbit.Core.Interchange.IProposalWorkspaceSource Proposals => throw new NotSupportedException();
+
         public DotOrbit.Core.Interchange.IPlanningSnapshotSource Planning => throw new NotSupportedException();
 
         public IWorkspaceWork Work { get; } = new MemoryWorkspaceWork();

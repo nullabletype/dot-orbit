@@ -3,10 +3,14 @@
     <RuntimeIdentifiers>win-x64;linux-x64;osx-x64;osx-arm64</RuntimeIdentifiers>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="DotOrbit.Interchange.Json.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Bebop.JsonSchema" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../DotOrbit.Core/DotOrbit.Core.csproj" />
+    <ProjectReference Include="../DotOrbit.Markdown/DotOrbit.Markdown.csproj" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="../../schemas/interchange/v1/planning-snapshot.schema.json"

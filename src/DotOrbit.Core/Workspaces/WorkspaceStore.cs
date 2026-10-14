@@ -29,6 +29,8 @@ public interface IWorkspaceSession : IDisposable
 
     IPlanningSnapshotSource Planning { get; }
 
+    IProposalWorkspaceSource Proposals { get; }
+
     PassphraseRotationResult RotatePassphrase(
         WorkspacePassphrase currentPassphrase,
         WorkspacePassphrase newPassphrase);

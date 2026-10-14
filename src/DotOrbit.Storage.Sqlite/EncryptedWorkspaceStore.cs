@@ -938,6 +938,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
                 store._emptyBinCheckpoint);
             Work = new SqliteWorkspaceWork(store, _transactions, store._timeProvider);
             Planning = new SqlitePlanningSnapshotSource(_transactions);
+            Proposals = new SqliteProposalWorkspaceSource(_transactions);
         }
 
         public int SchemaVersion { get; }
@@ -947,6 +948,8 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         public IWorkspaceRecovery Recovery => _recovery;
 
         public IPlanningSnapshotSource Planning { get; }
+
+        public IProposalWorkspaceSource Proposals { get; }
 
         public PassphraseRotationResult RotatePassphrase(
             WorkspacePassphrase currentPassphrase,

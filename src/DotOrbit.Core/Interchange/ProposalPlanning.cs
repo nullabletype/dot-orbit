@@ -7,7 +7,7 @@ public sealed record ProposalWorkspaceState(WorkspaceRevision Revision, Workspac
 { public override string ToString() => "Proposal workspace state"; }
 public interface IProposalWorkspaceSource { ProposalWorkspaceState Read(); }
 public sealed record ProposalMarkdownValidation(bool IsValid, int NodeCount, int ContainerDepth);
-public interface IProposalMarkdownValidator { ProposalMarkdownValidation Validate(string markdown); }
+public interface IProposalMarkdownValidator { ProposalMarkdownValidation Validate(string markdown, bool proposed); }
 public sealed record ProposalValidationFailure(string Code, int? OperationIndex = null)
 {
     public string Guidance => Code switch
@@ -19,7 +19,10 @@ public sealed record ProposalValidationFailure(string Code, int? OperationIndex 
     };
 }
 public sealed record ProposalPreviewEffect(string Kind, ProposalReference Target, string TargetLabel, string Before, string After, IReadOnlyList<string> MarkdownFields)
-{ public override string ToString() => "Proposal preview effect"; }
+{
+    public ProposalReference? OrderProject { get; init; }
+    public override string ToString() => "Proposal preview effect";
+}
 public sealed class ProposalExecutionPlan
 {
     private readonly string proposalDigest;
