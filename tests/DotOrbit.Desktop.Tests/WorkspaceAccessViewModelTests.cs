@@ -425,6 +425,8 @@ public sealed class WorkspaceAccessViewModelTests
 
         public IWorkspaceRecovery Recovery => throw new NotSupportedException();
 
+        public DotOrbit.Core.Interchange.IProposalWorkspaceSource Proposals => throw new NotSupportedException();
+
         public DotOrbit.Core.Interchange.IPlanningSnapshotSource Planning => throw new NotSupportedException();
 
         public PassphraseRotationResult RotatePassphrase(

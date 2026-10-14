@@ -321,7 +321,8 @@
         "type": "Project",
         "dependencies": {
           "Bebop.JsonSchema": "[1.1.0, )",
-          "DotOrbit.Core": "[1.0.0, )"
+          "DotOrbit.Core": "[1.0.0, )",
+          "DotOrbit.Markdown": "[1.0.0, )"
         }
       },
       "dotorbit.markdown": {

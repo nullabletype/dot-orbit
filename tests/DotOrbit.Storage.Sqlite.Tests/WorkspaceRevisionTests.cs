@@ -22,6 +22,75 @@ public sealed class WorkspaceRevisionTests : IDisposable
     private string WorkspacePath => Path.Combine(_directory, "workspace.db");
 
     [Fact]
+    public void ReviewUsesCurrentAtomicIdentityAndNeverWritesIncludingAfterHiddenMutationOrRestart()
+    {
+        string input;
+        long revision;
+        using (var session = CreateWorkspace())
+        {
+            var category = Assert.Single(session.Work.Read().Categories);
+            var task = session.Work.CreateStandaloneTask("Synthetic task", "", category.Id, null);
+            var payload = PlanningSnapshotJsonGenerator.Generate(session.Planning.Read()).Payload!.Value;
+            using var snapshot = JsonDocument.Parse(payload);
+            revision = Revision(session);
+            input = JsonSerializer.Serialize(new
+            {
+                format = "dot-orbit-change-proposal",
+                schemaVersion = 1,
+                sourceSnapshotId = snapshot.RootElement.GetProperty("snapshotId").GetString(),
+                sourceWorkspaceRevision = revision.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                operations = new[] { new { operation = "completeTask", operationId = "synthetic-complete",
+                    task = new { existingId = task.Id } } },
+            });
+            var boundary = new ProposalReviewBoundary(session.Proposals, TimeProvider.System);
+            var result = boundary.Review(System.Text.Encoding.UTF8.GetBytes(input));
+            Assert.NotNull(result.Plan);
+            Assert.False(session.Work.Read().Tasks.Single().IsComplete);
+            Assert.Equal(revision, Revision(session));
+            Assert.Null(boundary.Review(new byte[] { 0xff }).Plan);
+            Assert.Equal(revision, Revision(session));
+            // A hidden mutation is absent from exported work but must invalidate the proposal.
+            var hidden = session.Work.CreateStandaloneTask("Synthetic hidden task", "", category.Id, null);
+            session.Work.MoveTaskToBin(hidden.Id);
+            var beforeRejectedReview = Revision(session);
+            var rejected = boundary.Review(System.Text.Encoding.UTF8.GetBytes(input));
+            Assert.Null(rejected.Plan);
+            Assert.Equal("stale-source", Assert.Single(rejected.Failures).Code);
+            Assert.Equal(beforeRejectedReview, Revision(session));
+        }
+        using var reopened = Assert.IsAssignableFrom<IWorkspaceSession>(_store.Open(WorkspacePath, _passphrase).Session);
+        Assert.True(Revision(reopened) > revision);
+        Assert.Null(new ProposalReviewBoundary(reopened.Proposals, TimeProvider.System)
+            .Review(System.Text.Encoding.UTF8.GetBytes(input)).Plan);
+        Assert.False(reopened.Work.Read().Tasks.Single().IsComplete);
+    }
+
+    [Fact]
+    public void ProposalSourceReadsHiddenStateAndRevisionWithoutWriting()
+    {
+        using var session = CreateWorkspace();
+        var category = Assert.Single(session.Work.Read().Categories);
+        var project = session.Work.CreateProject("Synthetic project", "", category.Id, null);
+        var archived = session.Work.CreateTask(project.Id, "Synthetic archived task");
+        session.Work.CompleteTask(archived.Id);
+        session.Work.ArchiveTask(archived.Id);
+        var binned = session.Work.CreateTask(project.Id, "Synthetic binned task");
+        session.Work.MoveTaskToBin(binned.Id);
+        var revision = Revision(session);
+
+        var state = session.Proposals.Read();
+        var projection = PlanningSnapshotProjection.Create(state.Revision, state.Workspace);
+        Assert.Equal(revision, state.Revision.Value);
+        Assert.Contains(state.Workspace.Tasks, task => task.Id == archived.Id && task.IsArchived);
+        Assert.Contains(state.TaskBin, task => task.Task.Id == binned.Id);
+        Assert.Empty(projection.Tasks);
+        var expected = PlanningSnapshotJsonGenerator.Generate(session.Planning.Read());
+        var actual = PlanningSnapshotJsonGenerator.Generate(projection);
+        Assert.True(expected.Payload!.Value.Span.SequenceEqual(actual.Payload!.Value.Span));
+        Assert.Equal(revision, Revision(session));
+    }
+
+    [Fact]
     public void NewWorkspaceStartsAtRevisionOneAndPersistsIt()
     {
         using (var session = CreateWorkspace())

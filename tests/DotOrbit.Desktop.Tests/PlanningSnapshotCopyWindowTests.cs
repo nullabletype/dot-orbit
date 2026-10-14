@@ -455,6 +455,8 @@ public sealed class PlanningSnapshotCopyWindowTests
         public int SchemaVersion => 14;
         public string FirstCategoryName => "Home";
         public IWorkspaceRecovery Recovery { get; } = new RecoveryViewModelTests.StubWorkspaceRecovery();
+        public DotOrbit.Core.Interchange.IProposalWorkspaceSource Proposals => throw new NotSupportedException();
+
         public IPlanningSnapshotSource Planning { get; } = planning;
         public IWorkspaceWork Work { get; } = work;
 

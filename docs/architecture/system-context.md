@@ -14,6 +14,7 @@ flowchart LR
     Storage --> Markdown
     Export --> Core
     Interchange --> Core
+    Interchange --> Markdown
     Storage --> Store[(Encrypted SQLite3MC store)]
     Storage --> Recovery[Encrypted recovery module]
     Recovery --> BackupFolder[Configured recovery directory]
@@ -27,7 +28,7 @@ flowchart LR
 - **`DotOrbit.Storage.Sqlite`** implements the encrypted persistence interface, migrations, search, and recovery behaviour. It depends on `DotOrbit.Core`.
 - **`DotOrbit.Markdown`** owns the single sanitised Markdown render model and plain-text projection used by preview, clipboard, and archive search.
 - **`DotOrbit.Export.Json`** maps one transactional workspace snapshot to the documented, deterministic plaintext JSON contract and atomically publishes it to the selected local file. It depends only on `DotOrbit.Core` and owns no file picker, recovery path, schedule, or database access.
-- **`DotOrbit.Interchange.Json`** generates deterministic JCS Planning snapshots, packages the immutable v1 schemas, and composes bounded provider-neutral instruction/snapshot output. It depends only on `DotOrbit.Core` and owns no clipboard, UI, workspace session, provider, or network access.
+- **`DotOrbit.Interchange.Json`** generates deterministic JCS Planning snapshots, packages the immutable v1 schemas, and composes bounded provider-neutral instruction/snapshot output. It depends on `DotOrbit.Core` and `DotOrbit.Markdown`, owns strict bounded proposal parsing and read-only review composition, and owns no clipboard, UI, mutation capability, provider, or network access.
 - **`DotOrbit.Desktop`** contains Avalonia views, view models, desktop integration, and the composition root. It owns destination selection, passes the selected local path to the export adapter, and wires production adapters into the application.
 - **Markdown and plaintext export adapters** are consumed at the desktop, persistence, or application edge. They may depend inward on core-owned contracts, but `DotOrbit.Core` remains BCL-only and never depends on a Markdown parser, renderer, or output adapter.
 - **Tests** align with the production projects: core unit tests, SQLite3MC integration tests using real temporary encrypted databases, and focused desktop tests plus supported-runtime verification.
@@ -43,13 +44,13 @@ No production module depends on the desktop presentation module. A future mobile
 - **Recovery** automatically creates encrypted, validated, cross-platform recovery points without a plaintext intermediate copy. Its destination is a user-selected filesystem directory that may be managed by an external sync service.
 - **Plaintext export** is a separate, explicit manual operation to a user-selected JSON file. It is unencrypted, follows the [versioned public contract](../data/plaintext-export-v3.md), does not use automatic-backup retention, and does not default to the configured recovery directory.
 - **Synchronisation** is outside the first-release system boundary. A synced backup folder does not provide live record synchronisation or conflict resolution.
-- **Interchange** currently implements the outbound copy slice: Core owns the snapshot model and source interface; SQLite owns atomic revision-bearing filtered reads; `DotOrbit.Interchange.Json` owns deterministic generation, JCS identity, immutable packaged schemas, transport-neutral instruction composition, and bounded failures; Desktop's dedicated AI destination owns the explicit plain-text clipboard write, scope review, accessibility, confirmation, and device-local composition preference. Proposal parsing, semantic simulation, preview, and recovery-backed apply remain planned in issue #81 within the same accepted ownership boundary; no proposal input is exposed yet. Meeting-material or transcript access and AI-provider integration remain outside the application boundary. Future MCP is a transport and authentication adapter only and cannot bypass in-app review and approval.
+- **Interchange** currently implements the outbound copy slice: Core owns the snapshot model and source interface; SQLite owns atomic revision-bearing filtered reads; `DotOrbit.Interchange.Json` owns deterministic generation, JCS identity, immutable packaged schemas, transport-neutral instruction composition, and bounded failures; Desktop's dedicated AI destination owns the explicit plain-text clipboard write, scope review, accessibility, confirmation, and device-local composition preference. Strict proposal parsing, prospective semantic planning, and authoritative previews are implemented as a transport-neutral read-only boundary. SQLite supplies one atomic full local state and revision, including hidden records; the same filtered snapshot projection recomputes source identity. Proposal input UI and recovery-backed apply remain follow-up work in issues #81 and #80; no proposal input is exposed in Desktop yet. Meeting-material or transcript access and AI-provider integration remain outside the application boundary. Future MCP is a transport and authentication adapter only and cannot bypass in-app review and approval.
 - **Markdown** treats all source as untrusted and produces one sanitised render model for preview, rich clipboard output, archive-search text, and plain-text fallback. Raw HTML and automatic remote-image loading are disabled.
 - **Search** indexes archived Project and Task content.
 
 ## Agent-interchange boundary
 
-The accepted version 1 boundary is described in [ADR 0011](../adr/0011-human-reviewed-agent-interchange-boundary.md) and the [agent-interchange contract](../planning/agent-interchange-v1-contract.md). Snapshot generation, reusable instruction/schema composition, and explicit desktop copy are implemented; proposal intake and application retain the responsibilities shown below but remain follow-up work in issue #81:
+The accepted version 1 boundary is described in [ADR 0011](../adr/0011-human-reviewed-agent-interchange-boundary.md) and the [agent-interchange contract](../planning/agent-interchange-v1-contract.md). Snapshot generation, reusable instruction/schema composition, explicit desktop copy, strict proposal validation, and read-only planning are implemented. Desktop proposal intake and recovery-backed application retain the responsibilities shown below but remain follow-up work in issues #81 and #80:
 
 ```mermaid
 flowchart LR

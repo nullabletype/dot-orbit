@@ -213,6 +213,8 @@ public sealed class MainWindowTests
         public string FirstCategoryName => "Home";
         public IWorkspaceRecovery Recovery { get; } = new RecoveryViewModelTests.StubWorkspaceRecovery();
 
+        public DotOrbit.Core.Interchange.IProposalWorkspaceSource Proposals => throw new NotSupportedException();
+
         public DotOrbit.Core.Interchange.IPlanningSnapshotSource Planning => throw new NotSupportedException();
         public bool IsDisposed { get; private set; }
         public Task Disposed => _disposed.Task;

@@ -349,6 +349,33 @@ public sealed class SanitisedMarkdownDocument
     private readonly record struct ListIdentity(MarkdownBlockKind Kind, int Group);
 }
 
+public enum MarkdownBudgetError
+{
+    None,
+    NodeLimitExceeded,
+    ContainerDepthExceeded,
+}
+
+public sealed record BoundedMarkdownResult(
+    int NodeCount,
+    int ContainerDepth,
+    SanitisedMarkdownDocument? Document,
+    MarkdownBudgetError Error);
+
+public sealed record MarkdownBudgetMeasurement(int NodeCount, int ContainerDepth, MarkdownBudgetError Error);
+
+public static class SanitisedMarkdown
+{
+    public static BoundedMarkdownResult ParseBounded(string source, int maxNodes = 4096, int maxDepth = 32)
+        => SanitisedMarkdownRenderer.ParseBounded(source, maxNodes, maxDepth);
+
+    public static MarkdownBudgetMeasurement MeasureBounded(string source, int maxNodes = 4096, int maxDepth = 32)
+    {
+        var result = SanitisedMarkdownRenderer.ParseBounded(source, maxNodes, maxDepth, renderDocument: false);
+        return new(result.NodeCount, result.ContainerDepth, result.Error);
+    }
+}
+
 public static class SanitisedMarkdownRenderer
 {
     private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder().Build();
@@ -359,10 +386,62 @@ public static class SanitisedMarkdownRenderer
         if (string.IsNullOrWhiteSpace(source)) return SanitisedMarkdownDocument.Empty;
 
         var normalised = NormaliseLowerAlphaLists(source);
+        return RenderParsed(Markdig.Markdown.Parse(normalised.Source, Pipeline), normalised.AlphaStarts);
+    }
+
+    internal static BoundedMarkdownResult ParseBounded(string source, int maxNodes, int maxDepth, bool renderDocument = true)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxNodes);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxDepth);
+        var normalised = NormaliseLowerAlphaLists(source);
+        MarkdownDocument parsed;
+        try
+        {
+            parsed = Markdig.Markdown.Parse(normalised.Source, Pipeline);
+        }
+        catch (ArgumentException exception) when (exception.Message.StartsWith(
+            "Markdown elements in the input are too deeply nested", StringComparison.Ordinal))
+        {
+            // Markdig rejects pathological nesting before producing an AST. Keep
+            // its parser guard and translate it to a non-sensitive budget failure.
+            return new(0, Pipeline.MaximumNestingDepth, null, MarkdownBudgetError.ContainerDepthExceeded);
+        }
+        var pending = new Stack<(MarkdownObject Node, int Depth)>();
+        foreach (var block in parsed) pending.Push((block, 0));
+        var nodeCount = 0;
+        var containerDepth = 0;
+        // The document and leaf inline collection roots are parser bookkeeping,
+        // not source nodes. Traverse actual blocks and inlines before rendering.
+        while (pending.TryPop(out var entry))
+        {
+            nodeCount++;
+            var depth = entry.Depth;
+            if (entry.Node is ContainerBlock or ContainerInline) depth++;
+            containerDepth = Math.Max(containerDepth, depth);
+            if (nodeCount > maxNodes)
+                return new(nodeCount, containerDepth, null, MarkdownBudgetError.NodeLimitExceeded);
+            if (containerDepth > maxDepth)
+                return new(nodeCount, containerDepth, null, MarkdownBudgetError.ContainerDepthExceeded);
+            if (entry.Node is ContainerBlock container)
+                foreach (var child in container) pending.Push((child, depth));
+            if (entry.Node is LeafBlock { Inline: { } inlineRoot })
+                for (var child = inlineRoot.FirstChild; child is not null; child = child.NextSibling)
+                    pending.Push((child, depth));
+            if (entry.Node is ContainerInline inlineContainer)
+                for (var child = inlineContainer.FirstChild; child is not null; child = child.NextSibling)
+                    pending.Push((child, depth));
+        }
+        return new(nodeCount, containerDepth,
+            renderDocument ? RenderParsed(parsed, normalised.AlphaStarts) : null,
+            MarkdownBudgetError.None);
+    }
+
+    private static SanitisedMarkdownDocument RenderParsed(MarkdownDocument parsed, IReadOnlyDictionary<int, int> alphaStarts)
+    {
         var blocks = new List<MarkdownBlock>();
         var nextListGroup = 0;
-        foreach (var block in Markdig.Markdown.Parse(normalised.Source, Pipeline))
-            AddBlock(blocks, block, ref nextListGroup, normalised.AlphaStarts);
+        foreach (var block in parsed) AddBlock(blocks, block, ref nextListGroup, alphaStarts);
         return blocks.Count == 0 ? SanitisedMarkdownDocument.Empty : new SanitisedMarkdownDocument(blocks);
     }
 

@@ -521,7 +521,10 @@ internal sealed class SqliteWorkspaceWork(
 
     public WorkspaceWorkSnapshot Read() => Guard(() => transactions.Read(ReadSnapshot));
 
-    public IReadOnlyList<TaskBinRecord> ReadTaskBin() => Guard(() => transactions.Read((connection, transaction) =>
+    public IReadOnlyList<TaskBinRecord> ReadTaskBin() => Guard(() => transactions.Read(ReadTaskBin));
+
+    internal static IReadOnlyList<TaskBinRecord> ReadTaskBin(
+        SqliteConnection connection, SqliteTransaction transaction)
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
@@ -540,9 +543,12 @@ internal sealed class SqliteWorkspaceWork(
         return (IReadOnlyList<TaskBinRecord>)metadata
             .Select(item => ReadTaskBinRecord(connection, transaction, item.Id, item.RemovedAt, item.TodayLane))
             .ToArray();
-    }));
+    }
 
-    public IReadOnlyList<ProjectBinRecord> ReadProjectBin() => Guard(() => transactions.Read((connection, transaction) =>
+    public IReadOnlyList<ProjectBinRecord> ReadProjectBin() => Guard(() => transactions.Read(ReadProjectBin));
+
+    internal static IReadOnlyList<ProjectBinRecord> ReadProjectBin(
+        SqliteConnection connection, SqliteTransaction transaction)
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
@@ -558,7 +564,7 @@ internal sealed class SqliteWorkspaceWork(
         return (IReadOnlyList<ProjectBinRecord>)metadata
             .Select(item => ReadProjectBinRecord(connection, transaction, item.Id, item.RemovedAt))
             .ToArray();
-    }));
+    }
 
     public EmptyBinPreview PreviewEmptyBin() => Guard(() => transactions.Read(ReadEmptyBinPreview));
 
