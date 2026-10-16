@@ -2946,14 +2946,37 @@ public sealed class ProjectCaptureViewModelTests
         await actions.ResultCaptured.WaitAsync(
             TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         model.MoveTaskToBinCommand.Execute(null);
+        var binProjected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var finishReload = new ManualResetEventSlim();
+        model.Bin.CollectionChanged += (_, _) =>
+        {
+            if (!model.Bin.Any(row => row.Task?.Id == task.Id)) return;
+            binProjected.TrySetResult();
+            finishReload.Wait(TestContext.Current.CancellationToken);
+        };
         actions.ReleaseResult();
-        await WaitUntilAsync(() => model.Bin.Any(row => row.Task?.Id == task.Id));
+        try
+        {
+            await binProjected.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
-        Assert.Equal(0, model.PendingWorkspaceActionCount);
-        Assert.Empty(model.Backlog);
-        Assert.Empty(model.TodayPlanned);
-        Assert.False(model.HasInspector);
-        Assert.Equal("Task moved to Bin. You can restore it from Bin.", model.Message);
+            // Reload publishes the Bin collection before the action finishes its other UI updates.
+            var drain = model.DrainWorkspaceActionsAsync();
+            Assert.False(drain.IsCompleted);
+            finishReload.Set();
+            await drain.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+            Assert.Equal(0, model.PendingWorkspaceActionCount);
+            Assert.Empty(model.Backlog);
+            Assert.Empty(model.TodayPlanned);
+            Assert.False(model.HasInspector);
+            Assert.Equal("Task moved to Bin. You can restore it from Bin.", model.Message);
+        }
+        finally
+        {
+            finishReload.Set();
+            await model.DrainWorkspaceActionsAsync().WaitAsync(
+                TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        }
     }
 
     [Fact]
