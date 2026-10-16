@@ -75,14 +75,21 @@
                 <TextBlock Grid.Column="3" Margin="8,0" Foreground="{DynamicResource MutedTextBrush}" Text="2 Oct" />
               </Grid>
             </Border>
-            <Border x:Name="ReferenceLastRow" Classes="interactive-row separated-row last reorder-target drag-target" MinHeight="{StaticResource StandardRowHeight}">
+            <Border x:Name="ReferenceReorderPlaceholder" Classes="reorder-placeholder" Height="{StaticResource StandardRowHeight}"
+                IsHitTestVisible="False" AutomationProperties.Name="Drop Reference task here, position 2 of 3">
+              <Grid RowDefinitions="Auto,Auto" VerticalAlignment="Center">
+                <TextBlock Text="Drop here: Reference task" TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Row="1" Text="Position 2 of 3" FontSize="11" />
+              </Grid>
+            </Border>
+            <Border x:Name="ReferenceLastRow" Classes="interactive-row separated-row last reorder-target" MinHeight="{StaticResource StandardRowHeight}">
               <Grid ColumnDefinitions="34,34,*,Auto" VerticalAlignment="Center">
                 <Button Classes="drag-handle" AutomationProperties.Name="Move completed reference task" />
                 <ToggleButton Grid.Column="1" x:Name="ReferenceCheckedCompletion" Classes="completion-toggle" IsChecked="True"
                     Tag="reference task" IsCheckedChanged="OnReferenceCompletionStateChanged"
                     AutomationProperties.Name="Reopen reference task" />
-                <Button Grid.Column="2" Classes="task-title row-title" Content="Checked with insertion rule"
-                    AutomationProperties.Name="Checked with insertion rule" />
+                <Button Grid.Column="2" Classes="task-title row-title" Content="Checked below insertion placeholder"
+                    AutomationProperties.Name="Checked below insertion placeholder" />
                 <ToggleButton Grid.Column="3" x:Name="ReferenceDisclosure" Classes="disclosure" IsChecked="True"
                     Tag="reference details" IsCheckedChanged="OnReferenceDisclosureStateChanged"
                     AutomationProperties.Name="Collapse reference details" />

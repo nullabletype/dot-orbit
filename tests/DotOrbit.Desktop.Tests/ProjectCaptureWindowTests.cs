@@ -720,8 +720,8 @@ public sealed class ProjectCaptureWindowTests
 
         handle = ButtonByAutomationId(window, $"today-reorder-{second.Id}");
         var target = ButtonByAutomationId(window, $"today-reorder-{first.Id}");
-        DragToTarget(window, handle, target);
-        window.MouseUp(CentreInWindow(target, window), MouseButton.Left, RawInputModifiers.None);
+        var todayDrop = DragToTarget(window, handle, target);
+        window.MouseUp(todayDrop, MouseButton.Left, RawInputModifiers.None);
         await shell.Work.WaitForWorkspaceActionsAsync();
         Dispatcher.UIThread.RunJobs();
         Assert.Equal([first.Id, second.Id], shell.Work.TodayPlanned.Select(row => row.Task.Id));
@@ -1572,12 +1572,12 @@ public sealed class ProjectCaptureWindowTests
         window.MouseMove(end, RawInputModifiers.LeftMouseButton);
         var targetRow = target.GetVisualAncestors().OfType<Border>().First(border => border.Classes.Contains("backlog-row"));
         Assert.Contains("drag-target", targetRow.Classes);
-        AssertInsertionLine(targetRow);
+        AssertInsertionPlaceholder(targetRow);
         window.MouseUp(end, MouseButton.Left, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
         targetRow = NamedButton(window, "Two").GetVisualAncestors().OfType<Border>()
             .First(border => border.Classes.Contains("backlog-row"));
-        AssertNoInsertionLine(targetRow, new Thickness(0, 0, 0, 1), Color.Parse("#1D222C"));
+        AssertNoInsertionPlaceholder(targetRow, new Thickness(0, 0, 0, 1), Color.Parse("#1D222C"));
         Assert.Equal([otherSameTitle.Id, middleTask.Id, movedTask.Id], shell.Work.Backlog.Select(task => task.Id));
         Assert.Equal(shell.Work.Backlog.Select(task => task.Id), work.Read().Tasks.Select(task => task.Id));
         window.Close();
@@ -3913,13 +3913,13 @@ public sealed class ProjectCaptureWindowTests
         var projectTarget = ButtonByAutomationId(window, $"project-reorder-{firstProject.Id}");
         var projectTargetRow = projectTarget.GetVisualAncestors().OfType<Border>()
             .First(border => border.Classes.Contains("project-row"));
-        DragToTarget(window, projectHandle, projectTarget);
-        AssertInsertionLine(projectTargetRow);
-        window.MouseUp(CentreInWindow(projectTarget, window), MouseButton.Left, RawInputModifiers.None);
+        var projectDrop = DragToTarget(window, projectHandle, projectTarget);
+        AssertInsertionPlaceholder(projectTargetRow);
+        window.MouseUp(projectDrop, MouseButton.Left, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
         projectTargetRow = ButtonByAutomationId(window, $"project-reorder-{firstProject.Id}")
             .GetVisualAncestors().OfType<Border>().First(border => border.Classes.Contains("project-row"));
-        AssertNoInsertionLine(projectTargetRow, new Thickness(1), Color.Parse("#272D39"));
+        AssertNoInsertionPlaceholder(projectTargetRow, new Thickness(1), Color.Parse("#272D39"));
         Assert.Equal([firstProject.Id, secondProject.Id], work.Read().Projects.Select(project => project.Id));
         Assert.True(ButtonByAutomationId(window, $"project-reorder-{secondProject.Id}").IsFocused);
 
@@ -3927,13 +3927,13 @@ public sealed class ProjectCaptureWindowTests
         var taskTarget = ButtonByAutomationId(window, $"project-task-reorder-{firstTask.Id}");
         var taskTargetRow = taskTarget.GetVisualAncestors().OfType<Border>()
             .First(border => border.Classes.Contains("project-task-row"));
-        DragToTarget(window, taskHandle, taskTarget);
-        AssertInsertionLine(taskTargetRow);
-        window.MouseUp(CentreInWindow(taskTarget, window), MouseButton.Left, RawInputModifiers.None);
+        var taskDrop = DragToTarget(window, taskHandle, taskTarget);
+        AssertInsertionPlaceholder(taskTargetRow);
+        window.MouseUp(taskDrop, MouseButton.Left, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
         taskTargetRow = ButtonByAutomationId(window, $"project-task-reorder-{firstTask.Id}")
             .GetVisualAncestors().OfType<Border>().First(border => border.Classes.Contains("project-task-row"));
-        AssertNoInsertionLine(taskTargetRow, new Thickness(0, 0, 0, 1), Color.Parse("#1D222C"));
+        AssertNoInsertionPlaceholder(taskTargetRow, new Thickness(0, 0, 0, 1), Color.Parse("#1D222C"));
         Assert.Equal([firstTask.Id, secondTask.Id], work.Read().Tasks.Where(task => task.ProjectId == firstProject.Id)
             .OrderBy(task => task.ProjectPosition).Select(task => task.Id));
         Assert.True(ButtonByAutomationId(window, $"project-task-reorder-{secondTask.Id}").IsFocused);
@@ -3942,13 +3942,177 @@ public sealed class ProjectCaptureWindowTests
         var crossProjectTarget = ButtonByAutomationId(window, $"project-task-reorder-{otherTask.Id}");
         var before = work.Read().Tasks.Where(task => task.ProjectId == firstProject.Id)
             .OrderBy(task => task.ProjectPosition).Select(task => task.Id).ToArray();
-        DragToTarget(window, taskHandle, crossProjectTarget);
+        var crossDrop = DragToTarget(window, taskHandle, crossProjectTarget);
         Assert.DoesNotContain(window.GetVisualDescendants().OfType<Border>(),
             border => border.Classes.Contains("drag-target"));
-        window.MouseUp(CentreInWindow(crossProjectTarget, window), MouseButton.Left, RawInputModifiers.None);
+        window.MouseUp(crossDrop, MouseButton.Left, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(before, work.Read().Tasks.Where(task => task.ProjectId == firstProject.Id)
             .OrderBy(task => task.ProjectPosition).Select(task => task.Id));
+        window.Close();
+    }
+
+    [AvaloniaTheory]
+    [InlineData("Escape")]
+    [InlineData("Outside release")]
+    [InlineData("Resize")]
+    [InlineData("Scroll")]
+    [InlineData("Navigation")]
+    [InlineData("Projection")]
+    public void ReorderCancellationRemovesPlaceholderAndPreservesOrder(string cancellation)
+    {
+        var work = new MemoryWorkspaceWork();
+        for (var index = 0; index < 20; index++) work.CreateProject($"Project {index}", "", "home", null);
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Projects").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+        var original = work.Read().Projects.Select(project => project.Id).ToArray();
+        var handles = window.GetVisualDescendants().OfType<Button>().Where(button =>
+            button.IsEffectivelyVisible && AutomationProperties.GetAutomationId(button)?.StartsWith("project-reorder-", StringComparison.Ordinal) == true)
+            .OrderBy(button => button.TranslatePoint(default, window)!.Value.Y).ToArray();
+        var end = DragToTarget(window, handles[1], handles[0]);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Single(window.GetVisualDescendants().OfType<Border>(), border => border.Classes.Contains("reorder-placeholder"));
+        switch (cancellation)
+        {
+            case "Escape":
+                window.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+                break;
+            case "Outside release":
+                end = new Point(2, 2);
+                break;
+            case "Resize":
+                window.Width += 100;
+                break;
+            case "Scroll":
+                var viewer = handles[0].GetVisualAncestors().OfType<ScrollViewer>().First();
+                viewer.Offset = new Vector(0, 100);
+                break;
+            case "Navigation":
+                shell.PrimaryNavigation.Single(item => item.Title == "Backlog").SelectCommand.Execute(null);
+                break;
+            case "Projection":
+                shell.Work!.Projects[0].MoveToBottomCommand.Execute(null);
+                // The independent accepted action changes order; the stale pointer
+                // gesture must not apply a second reorder afterwards.
+                original = work.Read().Projects.Select(project => project.Id).ToArray();
+                break;
+        }
+        Dispatcher.UIThread.RunJobs();
+        window.MouseUp(end, MouseButton.Left, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(original, work.Read().Projects.Select(project => project.Id));
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<Border>(), border =>
+            border.Classes.Contains("reorder-placeholder") || border.Classes.Contains("drag-source") || border.Classes.Contains("drag-target"));
+        window.Close();
+    }
+
+    [AvaloniaTheory]
+    [InlineData("Projects", "project-reorder-", true)]
+    [InlineData("Projects", "project-reorder-", false)]
+    [InlineData("Projects", "project-task-reorder-", true)]
+    [InlineData("Projects", "project-task-reorder-", false)]
+    [InlineData("Backlog", "backlog-reorder-", true)]
+    [InlineData("Backlog", "backlog-reorder-", false)]
+    [InlineData("Today", "today-reorder-", true)]
+    [InlineData("Today", "today-reorder-", false)]
+    [InlineData("Today active", "today-reorder-", true)]
+    [InlineData("Today active", "today-reorder-", false)]
+    [InlineData("Categories", "category-reorder-", true)]
+    [InlineData("Categories", "category-reorder-", false)]
+    public void EveryReorderScopePreviewsAndCommitsTheDisplayedFirstOrLastBoundary(string view, string prefix, bool before)
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("First project", "", "home", null);
+        work.CreateProject("Second project", "", "home", null);
+        var firstTask = work.CreateTask(project.Id, "First task");
+        var secondTask = work.CreateTask(project.Id, "Second task");
+        if (view.StartsWith("Today", StringComparison.Ordinal))
+        {
+            work.ToggleTaskToday(firstTask.Id);
+            work.ToggleTaskToday(secondTask.Id);
+            if (view == "Today active")
+            {
+                work.ToggleTaskTodayLane(firstTask.Id);
+                work.ToggleTaskTodayLane(secondTask.Id);
+            }
+        }
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == (view == "Today active" ? "Today" : view)).SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+        var handles = window.GetVisualDescendants().OfType<Button>()
+            .Where(button => button.IsEffectivelyVisible && AutomationProperties.GetAutomationId(button)?.StartsWith(prefix, StringComparison.Ordinal) == true)
+            .OrderBy(button => button.TranslatePoint(default, window)!.Value.Y).ToArray();
+        Assert.Equal(2, handles.Length);
+        var source = handles[before ? 1 : 0];
+        var target = handles[before ? 0 : 1];
+        var sourceId = AutomationProperties.GetAutomationId(source);
+        var targetId = AutomationProperties.GetAutomationId(target);
+        var row = target.GetVisualAncestors().OfType<Border>().First(border => border.Classes.Contains("reorder-target"));
+        var heading = row.GetVisualDescendants().OfType<Border>().FirstOrDefault(border =>
+            border.Classes.Contains("project-header-row") || border.Classes.Contains("category-header-row")) ?? row;
+        var end = new Point(CentreInWindow(target, window).X,
+            heading.TranslatePoint(default, window)!.Value.Y + heading.Bounds.Height * (before ? 0.2 : 0.8));
+        var originalTasks = work.Read().Tasks.Select(task => task.Id).ToArray();
+        var originalProjects = work.Read().Projects.Select(item => item.Id).ToArray();
+        window.MouseDown(CentreInWindow(source, window), MouseButton.Left, RawInputModifiers.LeftMouseButton);
+        window.MouseMove(end, RawInputModifiers.LeftMouseButton);
+        Dispatcher.UIThread.RunJobs();
+        var placeholder = Assert.Single(window.GetVisualDescendants().OfType<Border>(), border => border.Classes.Contains("reorder-placeholder"));
+        var host = Assert.IsType<StackPanel>(row.Parent);
+        Assert.Equal(before ? 0 : 1, host.Children.IndexOf(placeholder));
+        Assert.Contains(before ? "position 1 of 2" : "position 2 of 2", AutomationProperties.GetName(placeholder));
+        Assert.Equal(originalTasks, work.Read().Tasks.Select(task => task.Id));
+        Assert.Equal(originalProjects, work.Read().Projects.Select(item => item.Id));
+        // Move through the entire opened gap, including its opposite half. The
+        // destination must remain stable until the pointer leaves that gap.
+        end = placeholder.TranslatePoint(new Point(8, placeholder.Bounds.Height * 0.8), window)!.Value;
+        window.MouseMove(end, RawInputModifiers.LeftMouseButton);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Same(placeholder, Assert.Single(window.GetVisualDescendants().OfType<Border>(), border => border.Classes.Contains("reorder-placeholder")));
+        window.MouseUp(end, MouseButton.Left, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        handles = window.GetVisualDescendants().OfType<Button>()
+            .Where(button => button.IsEffectivelyVisible && AutomationProperties.GetAutomationId(button)?.StartsWith(prefix, StringComparison.Ordinal) == true)
+            .OrderBy(button => button.TranslatePoint(default, window)!.Value.Y).ToArray();
+        Assert.Equal(before ? new[] { sourceId, targetId } : [targetId, sourceId], handles.Select(AutomationProperties.GetAutomationId));
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<Border>(), border => border.Classes.Contains("reorder-placeholder"));
+        Assert.True(ButtonByAutomationId(window, sourceId!).IsFocused);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void DragAboveFirstProjectShowsAHeadingHeightPlaceholderBeforeTheFirstItem()
+    {
+        var work = new MemoryWorkspaceWork();
+        var first = work.CreateProject("First", "", "home", null);
+        var second = work.CreateProject("Second", "", "home", null);
+        work.CreateTask(first.Id, "Expanded content");
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Projects").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+        var source = ButtonByAutomationId(window, $"project-reorder-{second.Id}");
+        var target = ButtonByAutomationId(window, $"project-reorder-{first.Id}");
+        var heading = target.GetVisualAncestors().OfType<Border>().First(row => row.Classes.Contains("project-header-row"));
+        var targetTop = heading.TranslatePoint(default, window)!.Value;
+        var headingHeight = heading.Bounds.Height;
+        var end = new Point(CentreInWindow(target, window).X, targetTop.Y + 4);
+        window.MouseDown(CentreInWindow(source, window), MouseButton.Left, RawInputModifiers.LeftMouseButton);
+        window.MouseMove(end, RawInputModifiers.LeftMouseButton);
+        Dispatcher.UIThread.RunJobs();
+
+        var placeholder = Assert.Single(window.GetVisualDescendants().OfType<Border>(), row => row.Classes.Contains("reorder-placeholder"));
+        Assert.Equal(headingHeight, placeholder.Bounds.Height);
+        Assert.True(placeholder.TranslatePoint(default, window)!.Value.Y < heading.TranslatePoint(default, window)!.Value.Y);
+        Assert.Contains("Drop here", placeholder.GetVisualDescendants().OfType<TextBlock>().First().Text);
+        Assert.Equal([first.Id, second.Id], work.Read().Projects.Select(project => project.Id));
+        window.MouseUp(end, MouseButton.Left, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal([second.Id, first.Id], work.Read().Projects.Select(project => project.Id));
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<Border>(), row => row.Classes.Contains("reorder-placeholder"));
         window.Close();
     }
 
@@ -3971,11 +4135,11 @@ public sealed class ProjectCaptureWindowTests
         window.MouseDown(start, MouseButton.Left, RawInputModifiers.LeftMouseButton);
         window.MouseMove(end, RawInputModifiers.LeftMouseButton);
         Assert.Contains("drag-target", targetRow.Classes);
-        AssertInsertionLine(targetRow);
+        AssertInsertionPlaceholder(targetRow);
 
         var cancellationTarget = NamedButton(window, "New project");
         window.MouseDown(CentreInWindow(cancellationTarget, window), MouseButton.Left, RawInputModifiers.LeftMouseButton);
-        AssertNoInsertionLine(targetRow, new Thickness(1), Color.Parse("#272D39"));
+        AssertNoInsertionPlaceholder(targetRow, new Thickness(1), Color.Parse("#272D39"));
         window.MouseUp(end, MouseButton.Left, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
 
@@ -3985,7 +4149,7 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
-    public void CaptureLossAndWindowDeactivationClearTheInsertionRule()
+    public void CaptureLossAndWindowDeactivationClearTheInsertionPlaceholder()
     {
         var work = new MemoryWorkspaceWork();
         var first = work.CreateProject("First", "", "home", null);
@@ -3999,7 +4163,7 @@ public sealed class ProjectCaptureWindowTests
         var target = ButtonByAutomationId(window, $"project-reorder-{second.Id}");
         var targetRow = target.GetVisualAncestors().OfType<Border>().First(border => border.Classes.Contains("project-row"));
         DragToTarget(window, source, target);
-        AssertInsertionLine(targetRow);
+        AssertInsertionPlaceholder(targetRow);
 
         var pointer = new Pointer(1, PointerType.Mouse, isPrimary: true);
         window.RaiseEvent(new PointerCaptureLostEventArgs(window, pointer)
@@ -4007,13 +4171,13 @@ public sealed class ProjectCaptureWindowTests
             RoutedEvent = InputElement.PointerCaptureLostEvent,
         });
         Dispatcher.UIThread.RunJobs();
-        AssertNoInsertionLine(targetRow, new Thickness(1), Color.Parse("#272D39"));
+        AssertNoInsertionPlaceholder(targetRow, new Thickness(1), Color.Parse("#272D39"));
 
         DragToTarget(window, source, target);
-        AssertInsertionLine(targetRow);
+        AssertInsertionPlaceholder(targetRow);
         window.Hide();
         Dispatcher.UIThread.RunJobs();
-        AssertNoInsertionLine(targetRow, new Thickness(1), Color.Parse("#272D39"));
+        AssertNoInsertionPlaceholder(targetRow, new Thickness(1), Color.Parse("#272D39"));
         Assert.Equal([first.Id, second.Id], work.Read().Projects.Select(project => project.Id));
         window.Close();
     }
@@ -4241,9 +4405,9 @@ public sealed class ProjectCaptureWindowTests
         workHandle = ButtonByAutomationId(window, "category-reorder-work");
         var homeHandle = ButtonByAutomationId(window, "category-reorder-home");
         var homeRow = homeHandle.GetVisualAncestors().OfType<Border>().First(border => border.Classes.Contains("category-row"));
-        DragToTarget(window, workHandle, homeHandle);
-        AssertInsertionLine(homeRow);
-        window.MouseUp(CentreInWindow(homeHandle, window), MouseButton.Left, RawInputModifiers.None);
+        var categoryDrop = DragToTarget(window, workHandle, homeHandle);
+        AssertInsertionPlaceholder(homeRow);
+        window.MouseUp(categoryDrop, MouseButton.Left, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(["Home", "Work"], shell.Work.CategoryGroups.Select(category => category.Name));
         Assert.True(ButtonByAutomationId(window, "category-reorder-work").IsFocused);
@@ -4553,14 +4717,17 @@ public sealed class ProjectCaptureWindowTests
         Assert.Equal(0, box.BoxShadow.Count);
     }
 
-    private static void AssertInsertionLine(Border targetRow)
+    private static void AssertInsertionPlaceholder(Border targetRow)
     {
         Assert.Contains("drag-target", targetRow.Classes);
-        Assert.Equal(new Thickness(0, 0, 0, 2), targetRow.BorderThickness);
-        Assert.Equal(Color.Parse("#FF4FA3"), Assert.IsAssignableFrom<ISolidColorBrush>(targetRow.BorderBrush).Color);
+        var host = Assert.IsType<StackPanel>(targetRow.Parent);
+        var placeholder = Assert.Single(host.Children.OfType<Border>(), row => row.Classes.Contains("reorder-placeholder"));
+        Assert.Equal(new Thickness(2), placeholder.BorderThickness);
+        Assert.Equal(Color.Parse("#FF4FA3"), Assert.IsAssignableFrom<ISolidColorBrush>(placeholder.BorderBrush).Color);
+        Assert.False(placeholder.IsHitTestVisible);
     }
 
-    private static void AssertNoInsertionLine(Border targetRow, Thickness expectedThickness, Color expectedColour)
+    private static void AssertNoInsertionPlaceholder(Border targetRow, Thickness expectedThickness, Color expectedColour)
     {
         Assert.DoesNotContain("drag-target", targetRow.Classes);
         Assert.Equal(expectedThickness, targetRow.BorderThickness);
@@ -4596,15 +4763,19 @@ public sealed class ProjectCaptureWindowTests
 
     private static void Drag(Window window, Control source, Control target)
     {
-        DragToTarget(window, source, target);
-        window.MouseUp(CentreInWindow(target, window), MouseButton.Left, RawInputModifiers.None);
+        var end = DragToTarget(window, source, target);
+        window.MouseUp(end, MouseButton.Left, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
     }
 
-    private static void DragToTarget(Window window, Control source, Control target)
+    private static Point DragToTarget(Window window, Control source, Control target)
     {
-        window.MouseDown(CentreInWindow(source, window), MouseButton.Left, RawInputModifiers.LeftMouseButton);
-        window.MouseMove(CentreInWindow(target, window), RawInputModifiers.LeftMouseButton);
+        var start = CentreInWindow(source, window);
+        var centre = CentreInWindow(target, window);
+        var end = new Point(centre.X, centre.Y + (start.Y < centre.Y ? 4 : -4));
+        window.MouseDown(start, MouseButton.Left, RawInputModifiers.LeftMouseButton);
+        window.MouseMove(end, RawInputModifiers.LeftMouseButton);
+        return end;
     }
 
     private static void ClickTaskRowSurface(Window window, string rowClass, string taskTitle)
