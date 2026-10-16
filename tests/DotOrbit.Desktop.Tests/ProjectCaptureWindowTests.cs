@@ -190,7 +190,8 @@ public sealed class ProjectCaptureWindowTests
                     themeLabelOrigin.X
                     - themePanelOrigin.X
                     - themePanel.BorderThickness.Left
-                    - themePanel.Padding.Left),
+                    - themePanel.Padding.Left
+                    - themeRow.Padding.Left),
                 0,
                 0.01);
             Assert.InRange(
@@ -198,6 +199,7 @@ public sealed class ProjectCaptureWindowTests
                     themePanelOrigin.X + themePanel.Bounds.Width
                     - themePanel.BorderThickness.Right
                     - themePanel.Padding.Right
+                    - themeRow.Padding.Right
                     - pickerOrigin.X - picker.Bounds.Width),
                 0,
                 0.01);
@@ -2413,7 +2415,7 @@ public sealed class ProjectCaptureWindowTests
         var toggle = ToggleByAutomationId(window, $"task-completion-{task.Id}");
         var completionBox = Assert.Single(toggle.GetVisualDescendants().OfType<Border>(),
             border => border.Name == "CompletionBox");
-        var projectOrigin = OriginInWindow(child, window);
+        var projectOrigin = OriginInWindow(child, window) + new Vector(child.Padding.Left, 0);
         var projectTitleOrigin = OriginInWindow(taskTitle, window) - projectOrigin;
         var projectMetadataOrigin = OriginInWindow(taskMetadata, window) - projectOrigin;
         var projectDotsCentre = CentreInWindow(dots, window) - projectOrigin;
@@ -2432,7 +2434,7 @@ public sealed class ProjectCaptureWindowTests
             button => AutomationProperties.GetAutomationId(button) == $"task-completion-{task.Id}");
         var backlogCompletionBox = Assert.Single(backlogToggle.GetVisualDescendants().OfType<Border>(),
             border => border.Name == "CompletionBox");
-        var backlogOrigin = OriginInWindow(backlogRow, window);
+        var backlogOrigin = OriginInWindow(backlogRow, window) + new Vector(backlogRow.Padding.Left, 0);
         var backlogTitleOrigin = OriginInWindow(backlogTitle, window) - backlogOrigin;
         var backlogMetadataOrigin = OriginInWindow(backlogMetadata, window) - backlogOrigin;
         var backlogDotsCentre = CentreInWindow(backlogDots, window) - backlogOrigin;
@@ -2447,6 +2449,54 @@ public sealed class ProjectCaptureWindowTests
         Assert.InRange(Math.Abs((projectDotsCentre.Y - projectTitleOrigin.Y) - (backlogDotsCentre.Y - backlogTitleOrigin.Y)), 0, 1);
         Assert.InRange(Math.Abs((projectCompletionCentre.Y - projectTitleOrigin.Y) - (backlogCompletionCentre.Y - backlogTitleOrigin.Y)), 0, 1);
         window.Close();
+    }
+
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CompletedHoverReachesPanelEdgesWithoutAnInsetRectangle(bool lightTheme)
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Filed receipt", "", "home", null);
+        work.CompleteTask(task.Id);
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Completed").SelectCommand.Execute(null);
+        var window = new MainWindow
+        {
+            DataContext = shell,
+            RequestedThemeVariant = lightTheme ? ThemeVariant.Light : ThemeVariant.Dark,
+        };
+        window.Show();
+        try
+        {
+            var row = Assert.Single(window.GetVisualDescendants().OfType<Border>(),
+                border => border.Classes.Contains("completed-row"));
+            var panel = row.GetVisualAncestors().OfType<Border>()
+                .First(border => border.Classes.Contains("list-panel"));
+            var origin = panel.TranslatePoint(default, window)!.Value;
+            var rowOrigin = row.TranslatePoint(default, window)!.Value;
+            Assert.Equal(origin.X + panel.BorderThickness.Left, rowOrigin.X, 2);
+            Assert.Equal(origin.Y + panel.BorderThickness.Top, rowOrigin.Y, 2);
+            Assert.Equal(panel.Bounds.Width - panel.BorderThickness.Left - panel.BorderThickness.Right, row.Bounds.Width, 2);
+            Assert.Equal(panel.Bounds.Height - panel.BorderThickness.Top - panel.BorderThickness.Bottom, row.Bounds.Height, 2);
+            Assert.True(panel.ClipToBounds);
+            foreach (var point in new[]
+            {
+                new Point(origin.X + 2, rowOrigin.Y + row.Bounds.Height / 2),
+                new Point(origin.X + panel.Bounds.Width - 2, rowOrigin.Y + row.Bounds.Height / 2),
+                new Point(origin.X + panel.Bounds.Width / 2, origin.Y + 2),
+                new Point(origin.X + panel.Bounds.Width / 2, origin.Y + panel.Bounds.Height - 2),
+            })
+            {
+                window.MouseMove(point, RawInputModifiers.None);
+                Assert.True(row.IsPointerOver);
+                Assert.Equal(Color.Parse(lightTheme ? "#F4EFF2" : "#151923"), Assert.IsAssignableFrom<ISolidColorBrush>(row.Background).Color);
+            }
+        }
+        finally
+        {
+            window.Close();
+        }
     }
 
     [AvaloniaFact]
@@ -2510,7 +2560,7 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
-    public void BacklogListPanelUsesEqualOuterPadding()
+    public void BacklogListPanelLeavesHoverSurfaceFlushWithItsEdges()
     {
         var work = new MemoryWorkspaceWork();
         var shell = new ShellViewModel(work);
@@ -2520,7 +2570,7 @@ public sealed class ProjectCaptureWindowTests
 
         var panel = Assert.IsType<Border>(window.FindControl<Border>("BacklogListPanel"));
 
-        Assert.Equal(new Thickness(10), panel.Padding);
+        Assert.Equal(new Thickness(0), panel.Padding);
         window.Close();
     }
 
@@ -3205,16 +3255,21 @@ public sealed class ProjectCaptureWindowTests
         window.Close();
     }
 
-    [AvaloniaFact]
-    public void CompactArchivedProjectKeepsLongRelationshipMetadataBeforeItsStateAndAction()
+    [AvaloniaTheory]
+    [InlineData(1120, false)]
+    [InlineData(1120, true)]
+    [InlineData(1440, false)]
+    public void ArchivedProjectKeepsTwoLineIdentityAndSeparateTrailingSummary(int width, bool complete)
     {
         var work = new MemoryWorkspaceWork();
         var category = work.CreateCategory("A deliberately long archived category name that must truncate");
-        var project = work.CreateProject("A compact archived project", "", category.Id, null);
+        var project = work.CreateProject("A compact archived project", "", category.Id, new DateOnly(2026, 10, 13));
+        var task = work.CreateTask(project.Id, "Plant bulbs");
+        if (complete) work.CompleteTask(task.Id);
         work.ArchiveProject(project.Id);
         var shell = new ShellViewModel(work);
         shell.PrimaryNavigation.Single(item => item.Title == "Archive").SelectCommand.Execute(null);
-        var window = new MainWindow { DataContext = shell, Width = 760, Height = 600 };
+        var window = new MainWindow { DataContext = shell, Width = width, Height = 600 };
         window.Show();
 
         var row = Assert.Single(window.GetVisualDescendants().OfType<Border>(), border =>
@@ -3228,8 +3283,11 @@ public sealed class ProjectCaptureWindowTests
         var pill = Assert.Single(identity.GetVisualDescendants().OfType<CategoryProjectPill>());
         var categoryName = Assert.Single(pill.GetVisualDescendants().OfType<TextBlock>(), text =>
             text.Text == category.Name);
-        var metadata = Assert.Single(identity.GetVisualDescendants().OfType<TextBlock>(), text =>
-            text.Text == ((ArchivedWorkRowViewModel)row.DataContext!).Project!.MetadataText);
+        var presentation = ((ArchivedWorkRowViewModel)row.DataContext!).Project!;
+        var metadata = Assert.Single(row.GetVisualDescendants().OfType<TextBlock>(), text =>
+            text.Text == presentation.StatusText);
+        var target = Assert.Single(row.GetVisualDescendants().OfType<TextBlock>(), text =>
+            text.Text == presentation.TargetText);
         var state = Assert.Single(row.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Archived Project");
         var restore = ButtonByAutomationId(window, $"project-restore-{project.Id}");
 
@@ -3237,7 +3295,15 @@ public sealed class ProjectCaptureWindowTests
         Assert.Equal(category.Name, pill.CategoryName);
         Assert.Null(pill.ProjectName);
         Assert.Equal(TextTrimming.CharacterEllipsis, categoryName.TextTrimming);
-        Assert.Equal(TextTrimming.CharacterEllipsis, metadata.TextTrimming);
+        Assert.DoesNotContain(metadata, identity.GetVisualDescendants());
+        Assert.Equal(2, identity.Children.Count);
+        Assert.True(OriginInWindow(identity, window).Y - OriginInWindow(row, window).Y >= 6);
+        Assert.True(OriginInWindow(row, window).Y + row.Bounds.Height
+            - OriginInWindow(identity, window).Y - identity.Bounds.Height >= 6);
+        Assert.True(OriginInWindow(identity, window).X + identity.Bounds.Width <= OriginInWindow(metadata, window).X);
+        Assert.True(OriginInWindow(metadata, window).X + metadata.Bounds.Width <= OriginInWindow(state, window).X);
+        Assert.True(OriginInWindow(target, window).Y >= OriginInWindow(metadata, window).Y + metadata.Bounds.Height);
+        Assert.True(OriginInWindow(target, window).X + target.Bounds.Width <= OriginInWindow(state, window).X);
         Assert.True(
             OriginInWindow(identity, window).X + identity.Bounds.Width <= OriginInWindow(state, window).X,
             "Archived Project identity must end before its state column.");
@@ -4313,6 +4379,15 @@ public sealed class ProjectCaptureWindowTests
     private static void AssertInteractiveRowHover(Window window, Border row, Button title, params Control[] otherChildren)
     {
         Assert.Contains("interactive-row", row.Classes);
+        var panel = row.GetVisualAncestors().OfType<Border>().First(border =>
+            border.Classes.Contains("list-panel") || border.Classes.Contains("project-row") || border.Classes.Contains("category-row"));
+        var panelOrigin = OriginInWindow(panel, window);
+        var rowOrigin = OriginInWindow(row, window);
+        Assert.Equal(panelOrigin.X + panel.BorderThickness.Left, rowOrigin.X, 2);
+        Assert.Equal(panel.Bounds.Width - panel.BorderThickness.Left - panel.BorderThickness.Right, row.Bounds.Width, 2);
+        window.MouseMove(new Point(rowOrigin.X + 1, rowOrigin.Y + row.Bounds.Height / 2), RawInputModifiers.None);
+        Assert.True(row.IsPointerOver);
+        Assert.Equal(Color.Parse("#151923"), Assert.IsAssignableFrom<ISolidColorBrush>(row.Background).Color);
         Assert.Contains("row-title", title.Classes);
         window.MouseMove(RowSurfacePoint(row, window), RawInputModifiers.None);
         Assert.Equal(Color.Parse("#151923"), Assert.IsAssignableFrom<ISolidColorBrush>(row.Background).Color);
@@ -4387,7 +4462,7 @@ public sealed class ProjectCaptureWindowTests
         Assert.Equal(expectedGroups, panels.Length);
         Assert.All(panels, panel =>
         {
-            Assert.Equal(new Thickness(10), panel.Padding);
+            Assert.Equal(new Thickness(0), panel.Padding);
             var rows = panel.GetVisualDescendants().OfType<Border>()
                 .Where(border => border.Classes.Contains("completed-row"))
                 .ToArray();

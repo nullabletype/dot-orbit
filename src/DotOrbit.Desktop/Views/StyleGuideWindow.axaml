@@ -51,9 +51,9 @@
       </Border>
 
       <StackPanel Grid.Row="1" Grid.Column="2" Spacing="20">
-        <Border Classes="list-panel" AutomationProperties.Name="Reference list panel">
+        <Border Classes="list-panel row-list" AutomationProperties.Name="Reference list panel">
           <StackPanel Spacing="0">
-            <Grid Margin="4,2,4,10" ColumnDefinitions="*,Auto">
+            <Grid Margin="14,12,14,10" ColumnDefinitions="*,Auto">
               <TextBlock Classes="eyebrow" Text="ROWS AND CONTROLS" />
               <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
                 <ToggleButton x:Name="ReferenceTodayUnchecked" Classes="today-toggle" AutomationProperties.Name="Add reference task to Today" />
@@ -91,9 +91,9 @@
           </StackPanel>
         </Border>
 
-        <Border Classes="list-panel">
+        <Border Classes="list-panel row-list">
           <StackPanel Spacing="0">
-            <TextBlock Classes="eyebrow" Margin="4,2,4,10" Text="WORK IDENTITIES" />
+            <TextBlock Classes="eyebrow" Margin="14,12,14,10" Text="WORK IDENTITIES" />
             <Border Classes="interactive-row separated-row" MinHeight="{StaticResource StandardRowHeight}"
                 AutomationProperties.Name="Task Review planting plan. Project Garden. Category override Work">
               <StackPanel Margin="6,0" VerticalAlignment="Center" Spacing="3">

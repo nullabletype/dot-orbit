@@ -192,7 +192,7 @@ public sealed class StyleGuideWindowTests
             .Where(border => border.Classes.Contains("list-panel"))
             .ToArray();
         Assert.True(panels.Length >= 4);
-        Assert.All(panels, panel => Assert.Equal(new Thickness(10), panel.Padding));
+        Assert.All(panels, panel => Assert.Equal(new Thickness(panel.Classes.Contains("row-list") ? 0 : 10), panel.Padding));
 
         var peer = window.FindControl<Border>("ReferencePeerRow")!;
         var last = window.FindControl<Border>("ReferenceLastRow")!;

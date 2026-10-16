@@ -390,19 +390,19 @@
           </Border>
           <StackPanel Spacing="6" IsVisible="{Binding Work.HasTodayTasks}">
             <TextBlock Classes="eyebrow" Margin="6,0" Text="PLANNED" />
-            <Border x:Name="TodayPlannedPanel" Classes="list-panel">
+            <Border x:Name="TodayPlannedPanel" Classes="list-panel row-list">
               <ItemsControl ItemsSource="{Binding Work.TodayPlanned}" ItemTemplate="{StaticResource TodayTaskRowTemplate}" />
             </Border>
           </StackPanel>
           <StackPanel Spacing="6" IsVisible="{Binding Work.HasTodayTasks}">
             <TextBlock Classes="eyebrow" Margin="6,0" Text="IN PROGRESS" />
-            <Border x:Name="TodayInProgressPanel" Classes="list-panel">
+            <Border x:Name="TodayInProgressPanel" Classes="list-panel row-list">
               <ItemsControl ItemsSource="{Binding Work.TodayInProgress}" ItemTemplate="{StaticResource TodayTaskRowTemplate}" />
             </Border>
           </StackPanel>
           <StackPanel Spacing="6" IsVisible="{Binding Work.HasCompletedToday}">
             <TextBlock Classes="eyebrow" Margin="6,0" Text="COMPLETED TODAY" />
-            <Border x:Name="CompletedTodayPanel" Classes="list-panel">
+            <Border x:Name="CompletedTodayPanel" Classes="list-panel row-list">
               <ItemsControl ItemsSource="{Binding Work.CompletedToday}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:CompletedTaskRowViewModel">
@@ -447,7 +447,7 @@
               <DataTemplate x:DataType="vm:UpcomingTaskGroupViewModel">
                 <StackPanel Spacing="6">
                   <TextBlock Classes="eyebrow" Margin="6,0" Text="{Binding Heading}" />
-                  <Border Classes="list-panel">
+                  <Border Classes="list-panel row-list">
                     <ItemsControl ItemsSource="{Binding Rows}" ItemTemplate="{StaticResource UpcomingTaskRowTemplate}" />
                   </Border>
                 </StackPanel>
@@ -474,7 +474,7 @@
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:ProjectRowViewModel">
                 <Border
-                    Classes="project-row reorder-target"
+                    Classes="project-row reorder-target" ClipToBounds="True"
                     Background="{DynamicResource PanelBrush}"
                     CornerRadius="10">
                   <Grid RowDefinitions="Auto,Auto">
@@ -533,7 +533,7 @@
                         Background="{DynamicResource PanelBrush}"
                         BorderBrush="{DynamicResource LineSoftBrush}"
                         BorderThickness="0,1,0,0"
-                        Padding="14,7,10,10">
+                        Padding="0">
                       <StackPanel Spacing="0">
                         <ItemsControl ItemsSource="{Binding Tasks}">
                           <ItemsControl.ItemTemplate>
@@ -586,7 +586,7 @@
                             </DataTemplate>
                           </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                        <Border Margin="0,7,0,0" Background="{DynamicResource PanelInputBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="8">
+                        <Border Margin="14,7,10,10" Background="{DynamicResource PanelInputBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="8">
                           <Grid ColumnDefinitions="30,*">
                             <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource AccentBrush}" FontSize="17" Text="＋" />
                             <TextBox
@@ -638,7 +638,7 @@
                   KeyDown="OnBacklogQuickAddKeyDown" />
             </Grid>
           </Border>
-        <Border x:Name="BacklogListPanel" Classes="list-panel">
+        <Border x:Name="BacklogListPanel" Classes="list-panel row-list">
           <ItemsControl x:Name="BacklogItems" ItemsSource="{Binding Work.Backlog}">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:TaskRowViewModel">
@@ -694,7 +694,7 @@
             </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:CategoryGroupViewModel">
-                <Border Classes="category-row reorder-target" Background="{DynamicResource PanelBrush}" CornerRadius="10">
+                <Border Classes="category-row reorder-target" ClipToBounds="True" Background="{DynamicResource PanelBrush}" CornerRadius="10">
                   <Grid RowDefinitions="Auto,Auto">
                     <Border Classes="interactive-row expandable-header-row category-header-row selectable-row"
                         Classes.expanded="{Binding IsExpanded}" Padding="10,8,12,8">
@@ -723,9 +723,9 @@
                       </Grid>
                     </Border>
                     <Border Grid.Row="1" IsVisible="{Binding IsExpanded}" Background="{DynamicResource PanelBrush}"
-                        BorderBrush="{DynamicResource LineSoftBrush}" BorderThickness="0,1,0,0" Padding="10">
+                        BorderBrush="{DynamicResource LineSoftBrush}" BorderThickness="0,1,0,0" Padding="0">
                       <StackPanel Spacing="10">
-                        <TextBlock Classes="eyebrow" Text="PROJECTS" />
+                        <TextBlock Classes="eyebrow" Margin="10,10,10,0" Text="PROJECTS" />
                         <ItemsControl ItemsSource="{Binding Projects}">
                           <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:CategoryProjectRowViewModel">
@@ -746,8 +746,8 @@
                             </DataTemplate>
                           </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                        <TextBlock IsVisible="{Binding !HasProjects}" Foreground="{DynamicResource QuietTextBrush}" Text="No projects" />
-                        <TextBlock Classes="eyebrow" Margin="0,6,0,0" Text="STANDALONE TASKS" />
+                        <TextBlock Margin="10,0" IsVisible="{Binding !HasProjects}" Foreground="{DynamicResource QuietTextBrush}" Text="No projects" />
+                        <TextBlock Classes="eyebrow" Margin="10,6,10,0" Text="STANDALONE TASKS" />
                         <ItemsControl ItemsSource="{Binding StandaloneTasks}">
                           <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:CategoryTaskRowViewModel">
@@ -776,7 +776,7 @@
                             </DataTemplate>
                           </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                        <TextBlock IsVisible="{Binding !HasStandaloneTasks}" Foreground="{DynamicResource QuietTextBrush}" Text="No standalone tasks" />
+                        <TextBlock Margin="10,0,10,10" IsVisible="{Binding !HasStandaloneTasks}" Foreground="{DynamicResource QuietTextBrush}" Text="No standalone tasks" />
                       </StackPanel>
                     </Border>
                   </Grid>
@@ -828,7 +828,7 @@
               <DataTemplate x:DataType="vm:CompletedTaskGroupViewModel">
                 <StackPanel Spacing="4">
                   <TextBlock Classes="eyebrow" Margin="6,4" Text="{Binding Heading}" />
-                  <Border Classes="list-panel">
+                  <Border Classes="list-panel row-list">
                     <ItemsControl ItemsSource="{Binding Rows}">
                       <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:CompletedTaskRowViewModel">
@@ -909,7 +909,7 @@
               <DataTemplate x:DataType="vm:ArchiveSearchResultGroupViewModel">
                 <StackPanel Spacing="4">
                   <TextBlock Classes="eyebrow" Margin="6,4" Text="{Binding Heading}" />
-                  <Border Classes="list-panel" Padding="0,10,10,10">
+                  <Border Classes="list-panel row-list">
                     <ItemsControl ItemsSource="{Binding Rows}">
                       <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:ArchiveSearchResultViewModel">
@@ -970,7 +970,7 @@
               <DataTemplate x:DataType="vm:ArchivedWorkGroupViewModel">
                 <StackPanel Spacing="4">
                   <TextBlock Classes="eyebrow" Margin="6,4" Text="{Binding Heading}" />
-                  <Border Classes="list-panel" Padding="0,10,10,10">
+                  <Border Classes="list-panel row-list">
                     <ItemsControl ItemsSource="{Binding Rows}">
                       <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:ArchivedWorkRowViewModel">
@@ -979,7 +979,7 @@
                               Classes.last="{Binding IsLast}"
                               MinHeight="{StaticResource StandardRowHeight}">
                             <Grid ColumnDefinitions="*,Auto,Auto,Auto">
-                              <StackPanel IsVisible="{Binding IsProject}" Margin="6,0" Spacing="3"
+                              <StackPanel IsVisible="{Binding IsProject}" Margin="6,0" Spacing="6" VerticalAlignment="Center"
                                   AutomationProperties.Name="{Binding Project.AccessibleName}">
                                   <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
                                     <views:IdentityTypeIcon WorkType="Project" ColourKey="{Binding Project.ColourKey}" />
@@ -989,8 +989,6 @@
                                   <views:CategoryProjectPill HorizontalAlignment="Left"
                                       CategoryName="{Binding Project.CategoryName}" CategoryColourKey="{Binding Project.CategoryColourKey}"
                                       ProjectColourKey="{Binding Project.ColourKey}" />
-                                  <TextBlock FontSize="11" Foreground="{DynamicResource MutedTextBrush}"
-                                      Text="{Binding Project.MetadataText}" TextTrimming="CharacterEllipsis" />
                               </StackPanel>
                               <Button IsVisible="{Binding IsTask}" Classes="task-title row-title" Command="{Binding Task.SelectCommand}"
                                   AutomationProperties.Name="{Binding Task.AccessibleName}">
@@ -998,6 +996,13 @@
                               </Button>
                               <TextBlock Grid.Column="1" Classes="task-completion-date" IsVisible="{Binding IsTask}"
                                   Text="{Binding Task.CompletionDateText}" />
+                              <StackPanel Grid.Column="1" Margin="8,0" VerticalAlignment="Center" Spacing="3"
+                                  IsVisible="{Binding IsProject}">
+                                <TextBlock HorizontalAlignment="Right" FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
+                                    Text="{Binding Project.StatusText}" />
+                                <TextBlock HorizontalAlignment="Right" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
+                                    Text="{Binding Project.TargetText}" />
+                              </StackPanel>
                               <TextBlock Grid.Column="2" Margin="8,0,0,0" VerticalAlignment="Center" FontSize="12"
                                   Foreground="{DynamicResource MutedTextBrush}"
                                   Text="Archived Project" IsVisible="{Binding IsProject}" />
@@ -1045,7 +1050,7 @@
                   TextAlignment="Center" TextWrapping="Wrap" />
             </StackPanel>
           </Border>
-          <Border x:Name="BinListPanel" Classes="list-panel" Padding="0,10,10,10" IsVisible="{Binding Work.HasBinnedWork}">
+          <Border x:Name="BinListPanel" Classes="list-panel row-list" IsVisible="{Binding Work.HasBinnedWork}">
             <ItemsControl ItemsSource="{Binding Work.Bin}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:BinRowViewModel">
@@ -1110,7 +1115,7 @@
             <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
                 Text="Choose the colour theme used across dot-orbit, including the workspace unlock and recovery windows." />
           </StackPanel>
-          <Border Classes="list-panel">
+          <Border Classes="list-panel row-list">
             <Border Classes="interactive-row separated-row last" MinHeight="54">
               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                 <StackPanel VerticalAlignment="Center" Spacing="2">
@@ -1150,7 +1155,7 @@
                   Text="Create one from a Task's Participant picker." TextAlignment="Center" TextWrapping="Wrap" />
             </StackPanel>
           </Border>
-          <Border x:Name="SettingsParticipantsList" Classes="list-panel"
+          <Border x:Name="SettingsParticipantsList" Classes="list-panel row-list"
               IsVisible="{Binding Settings.HasParticipants}">
               <ItemsControl ItemsSource="{Binding Settings.Participants}">
                 <ItemsControl.ItemTemplate>
@@ -1201,7 +1206,7 @@
             <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
                 Text="Create a manual unencrypted JSON copy of active and archived workspace data." />
           </StackPanel>
-          <Border Classes="list-panel">
+          <Border Classes="list-panel row-list">
             <Border Classes="interactive-row separated-row last" MinHeight="54">
               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                 <StackPanel VerticalAlignment="Center" Spacing="2">
@@ -1224,7 +1229,7 @@
             <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
                 Text="Create and restore portable encrypted recovery points." />
           </StackPanel>
-          <Border Classes="list-panel">
+          <Border Classes="list-panel row-list">
             <Border Classes="interactive-row separated-row last" MinHeight="54">
               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                 <StackPanel VerticalAlignment="Center" Spacing="2">
@@ -1261,7 +1266,7 @@
                 Text="{Binding Settings.SecurityConfirmation}"
                 TextWrapping="Wrap" />
           </Border>
-          <Border Classes="list-panel">
+          <Border Classes="list-panel row-list">
             <Border Classes="interactive-row separated-row last" MinHeight="54">
               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                 <StackPanel VerticalAlignment="Center" Spacing="2">
@@ -1310,7 +1315,7 @@
             <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
                 Text="Choose whether to copy a bounded Planning snapshot by itself or with reusable provider-neutral instructions and schemas." />
           </StackPanel>
-          <Border Classes="list-panel">
+          <Border Classes="list-panel row-list">
             <StackPanel>
               <Border Classes="interactive-row separated-row" MinHeight="54">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
