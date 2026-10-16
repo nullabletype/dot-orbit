@@ -36,7 +36,7 @@ If these disagree, stop and surface the conflict rather than silently choosing o
 - Choose the lowest-cost model that is capable of completing each delegated task reliably. Reserve premium models for work whose complexity or risk justifies them; do not use them for routine work such as drafting commit messages.
 - For decomposable work, the parent agent acts as the orchestrator: it defines task boundaries and acceptance criteria, delegates execution and independent review, evaluates the returned evidence, resolves conflicts, and makes the final integration decisions. It should not duplicate implementation already assigned to a sub-agent.
 - Keep each sub-agent's scope explicit and non-overlapping. The parent remains responsible for inspecting the integrated diff and ensuring the repository-wide result satisfies the issue.
-- Never let multiple mutating sub-agents work concurrently in the same checkout. Give each writer a separate worktree and branch, or designate one writer and keep every other concurrent agent read-only.
+- Before starting, resuming, integrating, or cleaning up concurrent issue work, follow `docs/development/parallel-work.md`. Each implementing chat or sub-agent needs its own directory and branch; concurrent agents in the same checkout must remain read-only except for one designated writer.
 - When changing agent instructions, skills, templates, evaluation cases, or orchestration, follow the reevaluation triggers and privacy boundary in `evaluations/agent-loop/README.md`.
 
 ## Testing
@@ -49,9 +49,9 @@ If these disagree, stop and surface the conflict rather than silently choosing o
 
 ## Implementation loop
 
-1. Select one issue labelled `ready-for-agent`.
+1. Select one issue labelled `ready-for-agent` and confirm its ownership under `docs/agents/issue-tracker.md`.
 2. Restate its acceptance criteria and non-goals.
-3. Work on an isolated branch or worktree.
+3. Work on a dedicated branch; concurrent implementation also requires a separate worktree or clone.
 4. Implement the smallest end-to-end slice.
 5. Run the relevant automated and manual checks.
 6. Record evidence against the exact tested commit.

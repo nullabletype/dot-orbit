@@ -2,7 +2,9 @@
 
 The sample-workspace tool creates a local encrypted dot-orbit workspace containing representative synthetic data for implementation, visual review, and screenshots. It uses the production encrypted store and domain operations, so it generates the current schema without duplicating persistence details in SQL or committing database bytes.
 
-From the repository root, run:
+For a new worktree or clone, first follow [`parallel-work.md`](parallel-work.md). Its setup command performs locked restore and generates this checkout's sample only when absent. Each checkout keeps its own sample and recovery companion.
+
+To generate just the sample from the repository root, run:
 
 ```sh
 dotnet run --project tools/DotOrbit.SampleWorkspace/DotOrbit.SampleWorkspace.csproj
@@ -19,7 +21,7 @@ This phrase protects no confidential data and must never be reused for a real wo
 Once generated, a desktop build launched from this repository automatically uses the repository-local sample without moving or replacing the normal application workspace:
 
 ```sh
-dotnet run --project src/DotOrbit.Desktop/DotOrbit.Desktop.csproj
+dotnet run --project src/DotOrbit.Desktop/DotOrbit.Desktop.csproj -- --sample-workspace
 ```
 
 Use local repository launches for implementation and visual testing. They keep the selected sample path when a workflow returns to the unlock screen. Normal packaged launches continue to use the platform application-data workspace. Pass `-- --default-workspace` only when you intentionally need a repository build to open the normal application workspace.
