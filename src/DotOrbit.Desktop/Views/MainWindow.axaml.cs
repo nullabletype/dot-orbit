@@ -30,6 +30,10 @@ public sealed partial class MainWindow : Window
     private string? _draggedProjectId;
     private Border? _pressedSelectableRow;
     private Border? _dragTarget;
+    private Border? _dragSource;
+    private Border? _dragPlaceholder;
+    private bool _dragAfter;
+    private Border[]? _dragRows;
     private bool _markdownPointerStartedOutside;
     private DateTime? _calendarDateAtOpen;
     private ProjectCaptureViewModel? _subscribedWork;
@@ -94,6 +98,9 @@ public sealed partial class MainWindow : Window
         DataContextChanged += OnDataContextChanged;
         AddHandler(PointerPressedEvent, OnWorkPointerPressed, RoutingStrategies.Bubble, handledEventsToo: true);
         AddHandler(PointerMovedEvent, OnWorkDragPointerMoved, RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(ScrollViewer.ScrollChangedEvent, OnDragScrollChanged, RoutingStrategies.Bubble);
+        SizeChanged += OnDragWindowSizeChanged;
+        LayoutUpdated += OnDragLayoutUpdated;
         AddHandler(PointerReleasedEvent, OnWorkPointerReleased, RoutingStrategies.Bubble, handledEventsToo: true);
         AddHandler(KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         this.FindControl<TextBox>("MarkdownSource")?.AddHandler(
@@ -346,6 +353,7 @@ public sealed partial class MainWindow : Window
 
     private void OnDataContextChanged(object? sender, EventArgs e)
     {
+        ResetPointerGesture();
         _autosaveScheduler.Cancel();
         CancelTransientMessageDismissal();
         if (_subscribedWork is not null)
@@ -446,6 +454,8 @@ public sealed partial class MainWindow : Window
 
     private void OnWorkChanged(object? sender, PropertyChangedEventArgs e)
     {
+        // Projection changes can replace rows while a pointer gesture is in progress.
+        if (_dragScope != DragScope.None) ResetPointerGesture();
         if (e.PropertyName is nameof(ProjectCaptureViewModel.Message)
                 or nameof(ProjectCaptureViewModel.PendingWorkspaceActionCount)
                 or nameof(ProjectCaptureViewModel.CanRetryWorkspaceRefresh)
@@ -694,6 +704,12 @@ public sealed partial class MainWindow : Window
 
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
+        if (e.Key == Key.Escape && _dragScope != DragScope.None)
+        {
+            ResetPointerGesture();
+            e.Handled = true;
+            return;
+        }
         if (e.Key != Key.Escape || DataContext is not ShellViewModel { Work: { } work }) return;
         if (work.NeedsArchiveConfirmation)
         {
@@ -765,7 +781,11 @@ public sealed partial class MainWindow : Window
     private void OnWorkDragPointerMoved(object? sender, PointerEventArgs e)
     {
         if (_dragScope == DragScope.None || _draggedId is null) return;
-        var hit = this.InputHitTest(e.GetPosition(this)) as Control;
+        UpdateDragTarget(e.GetPosition(this));
+    }
+
+    private void UpdateDragTarget(Point point)
+    {
         var targetClass = _dragScope switch
         {
             DragScope.Backlog => "backlog-row",
@@ -776,15 +796,88 @@ public sealed partial class MainWindow : Window
             DragScope.Categories => "category-row",
             _ => string.Empty,
         };
-        var target = FindRow(hit, targetClass);
-        if (_dragScope == DragScope.ProjectTasks
-            && target?.DataContext is TaskRowViewModel task
-            && task.ProjectId != _draggedProjectId)
-            target = null;
-        if (ReferenceEquals(target, _dragTarget)) return;
-        _dragTarget?.Classes.Remove("drag-target");
+        // The gap owns its entire displayed area: crossing its midpoint must not
+        // retarget the row which moved out from underneath the pointer.
+        if (_dragPlaceholder is { } placeholder && IsInsideDragViewport(placeholder, point)
+            && new Rect(placeholder.TranslatePoint(default, this)!.Value, placeholder.Bounds.Size).Contains(point)) return;
+        _dragRows ??= this.GetVisualDescendants().OfType<Border>()
+            .Where(row => row.IsEffectivelyVisible && row.Classes.Contains(targetClass)
+                && (_dragScope != DragScope.ProjectTasks
+                    || row.DataContext is TaskRowViewModel task && task.ProjectId == _draggedProjectId))
+            .ToArray();
+        _dragSource ??= _dragRows.FirstOrDefault(row => DragId(row) == _draggedId);
+        var candidate = _dragRows.FirstOrDefault(row => row.IsEffectivelyVisible && TopLevel.GetTopLevel(row) == this
+            && new Rect(row.TranslatePoint(default, this)!.Value, row.Bounds.Size).Contains(point)
+            && IsInsideDragViewport(row, point));
+        var target = candidate;
+        var after = target is not null && point.Y >= target.TranslatePoint(default, this)!.Value.Y + DragHeading(target).Bounds.Height / 2;
+        if (ReferenceEquals(target, _dragSource)) target = null;
+        if (ReferenceEquals(target, _dragTarget) && after == _dragAfter) return;
+        ClearDragPreview();
         _dragTarget = target;
-        _dragTarget?.Classes.Add("drag-target");
+        _dragAfter = after;
+        if (target?.Parent is not StackPanel host || _dragSource is null) return;
+        var sourceIndex = Array.FindIndex(_dragRows, row => ReferenceEquals(row, _dragSource));
+        var targetIndex = Array.FindIndex(_dragRows, row => ReferenceEquals(row, target));
+        var position = targetIndex - (sourceIndex < targetIndex ? 1 : 0) + (after ? 1 : 0) + 1;
+        var label = $"Drop here: {DragTitle(_dragSource)} · position {position} of {_dragRows.Length}";
+        var title = new TextBlock
+        {
+            Text = $"Drop here: {DragTitle(_dragSource)}",
+            TextTrimming = Avalonia.Media.TextTrimming.CharacterEllipsis,
+        };
+        var destination = new TextBlock { Text = $"Position {position} of {_dragRows.Length}", FontSize = 11 };
+        Grid.SetRow(destination, 1);
+        _dragPlaceholder = new Border
+        {
+            Classes = { "reorder-placeholder" },
+            Height = DragHeading(_dragSource).Bounds.Height,
+            IsHitTestVisible = false,
+            ClipToBounds = true,
+            Child = new Grid
+            {
+                RowDefinitions = new RowDefinitions("Auto,Auto"),
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                Children = { title, destination },
+            },
+        };
+        AutomationProperties.SetName(_dragPlaceholder, label);
+        host.Children.Insert(after ? 1 : 0, _dragPlaceholder);
+        target.Classes.Add("drag-target");
+        _dragSource.Classes.Add("drag-source");
+    }
+
+    private bool IsInsideDragViewport(Control control, Point point) =>
+        control.GetVisualAncestors().OfType<ScrollViewer>().All(viewer =>
+            new Rect(viewer.TranslatePoint(default, this)!.Value, viewer.Bounds.Size).Contains(point));
+
+    private static Border DragHeading(Border row) => row.GetVisualDescendants().OfType<Border>()
+        .FirstOrDefault(border => border.Classes.Contains("project-header-row") || border.Classes.Contains("category-header-row")) ?? row;
+
+    private static string? DragId(Border row) => row.DataContext switch
+    {
+        TaskRowViewModel task => task.Id,
+        TodayTaskRowViewModel today => today.Task.Id,
+        ProjectRowViewModel project => project.Id,
+        CategoryGroupViewModel category => category.Id,
+        _ => null,
+    };
+
+    private static string DragTitle(Border row) => row.DataContext switch
+    {
+        TaskRowViewModel task => task.Title,
+        TodayTaskRowViewModel today => today.Task.Title,
+        ProjectRowViewModel project => project.Title,
+        CategoryGroupViewModel category => category.Name,
+        _ => string.Empty,
+    };
+
+    private void ClearDragPreview()
+    {
+        if (_dragPlaceholder?.Parent is StackPanel host) host.Children.Remove(_dragPlaceholder);
+        _dragPlaceholder = null;
+        _dragTarget?.Classes.Remove("drag-target");
+        _dragSource?.Classes.Remove("drag-source");
     }
 
     private void OnWorkPointerReleased(object? sender, PointerReleasedEventArgs e)
@@ -816,29 +909,42 @@ public sealed partial class MainWindow : Window
             e.Handled = true;
             return;
         }
+        if (_dragRows is not null) UpdateDragTarget(e.GetPosition(this));
+        var after = _dragAfter;
         var target = _dragTarget?.DataContext as TaskRowViewModel;
         var targetToday = _dragTarget?.DataContext as TodayTaskRowViewModel;
         var targetProject = _dragTarget?.DataContext as ProjectRowViewModel;
         var targetCategory = _dragTarget?.DataContext as CategoryGroupViewModel;
-        _dragTarget?.Classes.Remove("drag-target");
-        _dragTarget = null;
         var draggedId = _draggedId;
         var draggedProjectId = _draggedProjectId;
         var dragScope = _dragScope;
         ResetPointerGesture();
         if (dragScope == DragScope.Backlog && target is not null)
-            work.DragTask(draggedId, target.Id);
+            work.DragTask(draggedId, target.Id, after);
         else if ((dragScope == DragScope.TodayPlanned || dragScope == DragScope.TodayInProgress) && targetToday is not null)
-            work.DragTodayTask(draggedId, targetToday.Task.Id);
+            work.DragTodayTask(draggedId, targetToday.Task.Id, after);
         else if (dragScope == DragScope.Projects && targetProject is not null)
-            work.DragProject(draggedId, targetProject.Id);
+            work.DragProject(draggedId, targetProject.Id, after);
         else if (dragScope == DragScope.ProjectTasks && target is not null && draggedProjectId is not null)
-            work.DragProjectTask(draggedProjectId, draggedId, target.Id);
+            work.DragProjectTask(draggedProjectId, draggedId, target.Id, after);
         else if (dragScope == DragScope.Categories && targetCategory is not null)
-            work.DragCategory(draggedId, targetCategory.Id);
+            work.DragCategory(draggedId, targetCategory.Id, after);
         else return;
         e.Handled = true;
     }
+
+    private void OnDragLayoutUpdated(object? sender, EventArgs e)
+    {
+        if (_dragSource is { } source && (!source.IsEffectivelyVisible || TopLevel.GetTopLevel(source) != this))
+            ResetPointerGesture();
+    }
+
+    private void OnDragScrollChanged(object? sender, ScrollChangedEventArgs e)
+    {
+        if (e.OffsetDelta != default) ResetPointerGesture();
+    }
+
+    private void OnDragWindowSizeChanged(object? sender, SizeChangedEventArgs e) => ResetPointerGesture();
 
     private void OnPointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
     {
@@ -854,8 +960,10 @@ public sealed partial class MainWindow : Window
 
     private void ResetPointerGesture()
     {
-        _dragTarget?.Classes.Remove("drag-target");
+        ClearDragPreview();
         _dragTarget = null;
+        _dragSource = null;
+        _dragRows = null;
         _dragScope = DragScope.None;
         _draggedId = null;
         _draggedProjectId = null;

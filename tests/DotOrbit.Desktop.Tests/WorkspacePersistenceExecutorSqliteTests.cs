@@ -12,6 +12,59 @@ public sealed class DesktopPerformanceTraceTestGroup;
 [Collection("Desktop performance trace")]
 public sealed class WorkspacePersistenceExecutorSqliteTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RelativeDropIntentsResolveAgainstCommittedOrderAndPreserveHiddenTodaySlots(bool today)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "orbit-relative-drop-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var passphrase = WorkspacePassphrase.Create("correct horse battery", "correct horse battery").Passphrase!;
+            using var session = new EncryptedWorkspaceStore().Create(Path.Combine(directory, "workspace.db"),
+                passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+            var category = Assert.Single(session.Work.Read().Categories);
+            var ids = Enumerable.Range(0, 7).Reverse()
+                .Select(index => (index, task: session.Work.CreateStandaloneTask($"Task {index}", "", category.Id, null)))
+                .OrderBy(item => item.index).Select(item => item.task.Id).ToArray();
+            foreach (var index in new[] { 0, 2, 4, 6 }) session.Work.ToggleTaskToday(ids[index]);
+            session.Work.ToggleTaskTodayLane(ids[6]);
+            var kind = today ? WorkspaceActionKind.MoveToday : WorkspaceActionKind.MoveBacklog;
+            await using var executor = new SerializedWorkspacePersistenceExecutor(session.Work);
+            var before = await executor.SubmitActionAsync(new(kind, ids[4], WorkspaceMoveKind.BeforeTargetTask, ids[0]));
+            Assert.Equal(WorkspaceActionOutcome.Committed, before.Outcome);
+            var expected = today ? new[] { 4, 1, 0, 3, 2, 5, 6 } : [4, 0, 1, 2, 3, 5, 6];
+            Assert.Equal(expected.Select(index => ids[index]), session.Work.Read().Tasks.Select(task => task.Id));
+            // These intents enter the same serialized queue together. The second anchor
+            // is resolved after the first move, rather than using a stale visible index.
+            var moves = await Task.WhenAll(
+                executor.SubmitActionAsync(new(kind, ids[4], WorkspaceMoveKind.AfterTargetTask, ids[2])),
+                executor.SubmitActionAsync(new(kind, ids[0], WorkspaceMoveKind.AfterTargetTask, ids[4])));
+            Assert.All(moves, result => Assert.Equal(WorkspaceActionOutcome.Committed, result.Outcome));
+            expected = today ? [2, 1, 4, 3, 0, 5, 6] : [1, 2, 4, 0, 3, 5, 6];
+            Assert.Equal(expected.Select(index => ids[index]), session.Work.Read().Tasks.Select(task => task.Id));
+            var revision = session.Planning.Read().WorkspaceRevision;
+            var noOp = await executor.SubmitActionAsync(new(kind, ids[0], WorkspaceMoveKind.AfterTargetTask, ids[4]));
+            Assert.Equal(WorkspaceActionOutcome.Committed, noOp.Outcome);
+            Assert.Empty(noOp.Effect!.PositionChanges);
+            var self = await executor.SubmitActionAsync(new(kind, ids[0], WorkspaceMoveKind.BeforeTargetTask, ids[0]));
+            Assert.Empty(self.Effect!.PositionChanges);
+            Assert.Equal(revision, session.Planning.Read().WorkspaceRevision);
+            if (today)
+            {
+                var invalid = await executor.SubmitActionAsync(new(kind, ids[0], WorkspaceMoveKind.BeforeTargetTask, ids[6]));
+                Assert.NotEqual(WorkspaceActionOutcome.Committed, invalid.Outcome);
+                Assert.Equal(revision, session.Planning.Read().WorkspaceRevision);
+                Assert.Equal(expected.Select(index => ids[index]), session.Work.Read().Tasks.Select(task => task.Id));
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task OrderedActionsPersistExactlyOnceAgainstTheRealEncryptedWorkspace()
     {

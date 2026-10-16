@@ -64,8 +64,9 @@ The implemented recipes live in `src/DotOrbit.Desktop/Styles/ComponentRecipes.ax
 
 - `drag-handle` renders one centred six-dot grid inside a 30px target. Scope-specific classes, commands, flyouts, names and help text stay at the caller.
 - Every reorderable scope also offers Move up, Move down, Move to top and Move to bottom through a keyboard-accessible action menu.
-- `reorder-target drag-target` renders the pink bottom insertion rule. Only a valid same-scope target may receive `drag-target`.
-- A completed drop, invalid target, cancellation, pointer-capture loss or window deactivation clears every insertion rule. The current order remains announced after an accessible move.
+- `reorder-host` opens a full `reorder-placeholder` before or after its `reorder-target`. The placeholder uses `AccentSurfaceBrush`, an accent outline, and a readable `TextBrush` label identifying the dragged item on a trimmed first line and its destination position on a separate always-visible second line. Its height matches the source Task row, or just the heading for an expanded Project or Category. A `drag-source` retains its original footprint with reduced opacity. Only a valid same-scope target receives `drag-target`; normal row/card borders stay unchanged.
+- The upper and lower halves select before and after the target. At the first and last boundaries the placeholder appears above the first row or below the complete last row/card. The entire opened gap retains its selected boundary until the pointer leaves it, so opening a gap cannot flip the destination beneath a stationary pointer. Preview never changes persisted order.
+- A completed drop, invalid target, Escape, pointer-capture loss, window deactivation, viewport scroll or window resize clears the placeholder. Scrolling cancels the current drag; this slice does not add drag auto-scroll. The current order remains announced after an accessible move.
 
 ### Completion and disclosure
 
@@ -106,7 +107,7 @@ The implemented recipes live in `src/DotOrbit.Desktop/Styles/ComponentRecipes.ax
 | Today toggle | 30px target with centred grey outlined star and no fill | stronger outline, still no fill | pink border | centred solid amber star with no background, plus checked state and “Remove …” name | Framework-disabled with name retained | N/A |
 | Disclosure | Quiet glyph | raised surface and strong border | pink border | readable expanded glyph and accessible name | Framework-disabled | N/A |
 | Reorder handle | centred six dots | raised surface and strong border | pink border | N/A | Framework-disabled | N/A |
-| Insertion rule | Absent | pink bottom rule only on valid target | N/A | cleared after drop/cancel/loss/deactivation | N/A | invalid targets remain absent |
+| Insertion placeholder | Absent | labelled row-height gap with an accent outline only on valid target | N/A | cleared after drop/cancel/loss/deactivation | N/A | invalid targets remain absent |
 | Status marker | neutral shape plus text | N/A | N/A | green completion or amber progress plus text | N/A | N/A |
 | Category marker / pill | named coloured Category grid plus visible Category name; pill adds raised bounded surface | N/A; non-actionable | no focus stop | fork inside pill only for explicit Task override, with textual relationship on containing row | N/A | invalid persisted keys fail workspace validation |
 | Transient status | quiet neutral capsule, small marker plus message | Retry refresh uses the secondary-button recipe only after a committed refresh failure | Retry action owns focus | ordinary feedback is visible for five seconds; pending and refresh-failed states persist until resolved | N/A | wording distinguishes mutation failure from committed-refresh failure; colour is supplementary |

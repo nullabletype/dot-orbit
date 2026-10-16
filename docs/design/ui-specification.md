@@ -52,7 +52,8 @@ Bin is a secondary utility item at the bottom of the sidebar, visually separated
 - Expanded Project subtasks expose their own per-Project order.
 - Category headings expose an independent Category order.
 - Within each Category, Projects and standalone Tasks appear in separate sections. Projects retain global Project order and standalone Tasks retain shared Backlog order; neither section adds a category-local order.
-- Drop position uses a pink insertion rule.
+- Drop position opens a full labelled placeholder at the exact before/after boundary. Its text identifies the dragged item and destination position; its accent outline and tinted surface provide a second cue. Task placeholders match the source row height; Project and Category placeholders use heading height, including when expanded. The source retains its footprint with reduced opacity until drop.
+- The pointer selects before or after a row using its heading midpoint. The top boundary appears above the first item, and the bottom boundary follows the complete last item. Moving inside an opened placeholder preserves its boundary. Reordering commits once on a valid release; preview leaves all order untouched. Escape, invalid or outside release, capture loss, deactivation, scrolling, resizing or a changed projection cancels the gesture. Existing keyboard reorder menus, restored handle focus and completion announcements remain available.
 - Every reorderable item exposes Move up, Move down, Move to top, and Move to bottom through an accessible action menu scoped to the current list.
 - Optional shortcuts such as Alt+Up and Alt+Down may accelerate reordering, but the action menu remains available and the new position is announced to assistive technology.
 

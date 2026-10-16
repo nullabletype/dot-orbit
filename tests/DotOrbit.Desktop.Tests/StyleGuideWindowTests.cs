@@ -164,6 +164,8 @@ public sealed class StyleGuideWindowTests
             Assert.True(ContrastRatio(light.Foreground, light.Background) >= 4.5);
             Assert.True(ContrastRatio(dark.Quiet, dark.Panel) >= 4.5);
             Assert.True(ContrastRatio(light.Quiet, light.Panel) >= 4.5);
+            Assert.True(ContrastRatio(dark.PlaceholderText, dark.PlaceholderSurface) >= 4.5);
+            Assert.True(ContrastRatio(light.PlaceholderText, light.PlaceholderSurface) >= 4.5);
         }
         finally
         {
@@ -199,8 +201,11 @@ public sealed class StyleGuideWindowTests
         Assert.Contains("interactive-row", peer.Classes);
         Assert.Equal(new Thickness(0, 0, 0, 1), peer.BorderThickness);
         Assert.Contains("last", last.Classes);
-        Assert.Equal(new Thickness(0, 0, 0, 2), last.BorderThickness);
-        Assert.Equal(Color.Parse("#FF4FA3"), Solid(last.BorderBrush).Color);
+        Assert.Equal(new Thickness(0), last.BorderThickness);
+        var placeholder = window.FindControl<Border>("ReferenceReorderPlaceholder")!;
+        Assert.Equal(new Thickness(2), placeholder.BorderThickness);
+        Assert.Equal(Color.Parse("#FF4FA3"), Solid(placeholder.BorderBrush).Color);
+        Assert.False(placeholder.IsHitTestVisible);
 
         var handle = window.FindControl<Button>("ReferenceDragHandle")!;
         Assert.Equal("Move reference task", AutomationProperties.GetName(handle));
@@ -389,7 +394,7 @@ public sealed class StyleGuideWindowTests
 
     private static ISolidColorBrush Solid(IBrush? brush) => Assert.IsAssignableFrom<ISolidColorBrush>(brush);
 
-    private static (Color Background, Color Foreground, Color Panel, Color Quiet) RenderTheme(ThemeVariant theme)
+    private static (Color Background, Color Foreground, Color Panel, Color Quiet, Color PlaceholderSurface, Color PlaceholderText) RenderTheme(ThemeVariant theme)
     {
         var window = new StyleGuideWindow { RequestedThemeVariant = theme };
         window.Show();
@@ -402,7 +407,16 @@ public sealed class StyleGuideWindowTests
         var panel = window.GetVisualDescendants().OfType<Border>().First(border => border.Classes.Contains("list-panel"));
         var icon = window.FindControl<WorkTypeIcon>("ReferenceTaskWorkTypeIcon")!;
         var quiet = icon.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>().Single(path => path.IsVisible);
-        var result = (Solid(window.Background).Color, Solid(foreground.Foreground).Color, Solid(panel.Background).Color, Solid(quiet.Stroke ?? quiet.Fill).Color);
+        var placeholder = window.FindControl<Border>("ReferenceReorderPlaceholder")!;
+        var labels = placeholder.GetVisualDescendants().OfType<TextBlock>().ToArray();
+        labels[0].Text = new string('W', 600);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("Position 2 of 3", labels[1].Text);
+        Assert.Equal(Avalonia.Media.TextTrimming.CharacterEllipsis, labels[0].TextTrimming);
+        Assert.True(labels[1].Bounds.Width > 0);
+        Assert.True(labels[1].TranslatePoint(default, placeholder)!.Value.Y + labels[1].Bounds.Height <= placeholder.Bounds.Height);
+        var result = (Solid(window.Background).Color, Solid(foreground.Foreground).Color, Solid(panel.Background).Color,
+            Solid(quiet.Stroke ?? quiet.Fill).Color, Solid(placeholder.Background).Color, Solid(labels[1].Foreground).Color);
         window.Close();
         return result;
     }

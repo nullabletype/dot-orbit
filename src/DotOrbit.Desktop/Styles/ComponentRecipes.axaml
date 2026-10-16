@@ -296,9 +296,19 @@
   </Style>
   <Style Selector="Border.expandable-header-row"><Setter Property="CornerRadius" Value="9" /></Style>
   <Style Selector="Border.expandable-header-row.expanded"><Setter Property="CornerRadius" Value="9,9,0,0" /></Style>
-  <Style Selector="Border.reorder-target.drag-target">
+  <Style Selector="Border.reorder-placeholder">
+    <Setter Property="Background" Value="{DynamicResource AccentSurfaceBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
-    <Setter Property="BorderThickness" Value="0,0,0,2" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="Padding" Value="14,0" />
+  </Style>
+  <Style Selector="Border.reorder-placeholder TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="Border.reorder-target.drag-source">
+    <Setter Property="Opacity" Value="0.45" />
   </Style>
   <Style Selector="Border.decision-overlay">
     <Setter Property="Padding" Value="24" />

@@ -203,6 +203,8 @@ public enum TaskOrderMoveKind
     Top,
     Bottom,
     TargetTask,
+    BeforeTargetTask,
+    AfterTargetTask,
 }
 public sealed record TaskOrderMove(TaskOrderMoveKind Kind, string? TargetTaskId = null);
 public sealed record TaskSharedPositionChange(string TaskId, long SharedPosition);
