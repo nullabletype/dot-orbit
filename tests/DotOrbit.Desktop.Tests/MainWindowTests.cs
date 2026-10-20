@@ -16,6 +16,7 @@ using DotOrbit.Desktop.Clipboard;
 using DotOrbit.Desktop.ViewModels;
 using DotOrbit.Desktop.Views;
 using DotOrbit.Interchange.Json;
+using DotOrbit.Storage.Sqlite;
 using System.Text;
 using System.Text.Json;
 using Xunit;
@@ -29,7 +30,7 @@ public sealed class MainWindowTests
     {
         var source = new BlockingProposalSource();
         var session = new ProposalWorkspaceSession(source);
-        var window = new MainWindow(session);
+        var window = new MainWindow(session, aiFeaturePreferenceService: EnabledAiFeatures());
         window.Show();
         var shell = Assert.IsType<ShellViewModel>(window.DataContext);
         shell.AiNavigation.SelectCommand.Execute(null);
@@ -60,7 +61,8 @@ public sealed class MainWindowTests
             new DisposalTrackingWorkspaceSession(),
             null,
             null,
-            proposalClipboardReader: new StaticProposalClipboardReader("\ud800"));
+            proposalClipboardReader: new StaticProposalClipboardReader("\ud800"),
+            aiFeaturePreferenceService: EnabledAiFeatures());
         window.Show();
         var shell = Assert.IsType<ShellViewModel>(window.DataContext);
         shell.AiNavigation.SelectCommand.Execute(null);
@@ -89,7 +91,8 @@ public sealed class MainWindowTests
             new DisposalTrackingWorkspaceSession(),
             null,
             null,
-            proposalClipboardReader: new StaticProposalClipboardReader("replacement"));
+            proposalClipboardReader: new StaticProposalClipboardReader("replacement"),
+            aiFeaturePreferenceService: EnabledAiFeatures());
         window.Show();
         var shell = Assert.IsType<ShellViewModel>(window.DataContext);
         shell.AiNavigation.SelectCommand.Execute(null);
@@ -121,7 +124,8 @@ public sealed class MainWindowTests
             null,
             null,
             proposalFilePicker: new StaticProposalFilePicker("/synthetic/proposal.json"),
-            proposalFileIntake: intake);
+            proposalFileIntake: intake,
+            aiFeaturePreferenceService: EnabledAiFeatures());
         window.Show();
         var shell = Assert.IsType<ShellViewModel>(window.DataContext);
         shell.AiNavigation.SelectCommand.Execute(null);
@@ -143,6 +147,198 @@ public sealed class MainWindowTests
         window.Close();
     }
 
+    [AvaloniaFact]
+    public async Task DisablingAiFeaturesCancelsPendingProposalIntakeAndDiscardsAiState()
+    {
+        var preferences = new TransientAiFeaturePreferenceService(aiFeaturesEnabled: true);
+        var intake = new BlockingProposalFileIntake();
+        var window = new MainWindow(
+            new DisposalTrackingWorkspaceSession(),
+            null,
+            null,
+            proposalFilePicker: new StaticProposalFilePicker("/synthetic/proposal.json"),
+            proposalFileIntake: intake,
+            aiFeaturePreferenceService: preferences);
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var editor = Assert.IsType<BoundedProposalTextBox>(
+            window.FindControl<BoundedProposalTextBox>("AiProposalTextBox"));
+        editor.Text = "sensitive in-memory proposal";
+
+        var operation = window.LoadProposalFromPickerAsync(editor);
+        await intake.Started.Task.WaitAsync(TestContext.Current.CancellationToken);
+        shell.SettingsNavigation.SelectCommand.Execute(null);
+        shell.Settings!.AiFeaturesEnabled = false;
+        Dispatcher.UIThread.RunJobs();
+        intake.Complete(ProposalFileIntakeResult.Loaded("late proposal"));
+        await operation;
+
+        Assert.True(intake.ObservedCancellation);
+        Assert.False(shell.AiFeaturesEnabled);
+        Assert.Null(shell.Ai);
+        Assert.True(shell.ShowSettings);
+        Assert.True(string.IsNullOrEmpty(editor.Text));
+        Assert.DoesNotContain(
+            window.GetVisualDescendants().OfType<RadioButton>(),
+            item => AutomationProperties.GetAutomationId(item) == "navigation-ai");
+
+        shell.Settings!.AiFeaturesEnabled = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.NotNull(shell.Ai);
+        Assert.Equal(string.Empty, shell.Ai.ProposalText);
+        Assert.True(string.IsNullOrEmpty(editor.Text));
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task DisabledAiFeaturesRejectDirectInterchangeHandlersBeforeAccessingDependencies()
+    {
+        var session = new DisposalTrackingWorkspaceSession();
+        var project = session.Work.CreateProject("Original", "", "home", null);
+        var window = new MainWindow(
+            session,
+            null,
+            null,
+            proposalClipboardReader: new ThrowingProposalClipboardReader(),
+            proposalFilePicker: new ThrowingProposalFilePicker(),
+            proposalFileIntake: new ThrowingProposalFileIntake(),
+            aiFeaturePreferenceService: new TransientAiFeaturePreferenceService());
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.Work!.SelectProject(project.Id);
+        shell.Work.Title = "Unsaved direct-handler draft";
+        Assert.True(shell.Work.IsDirty);
+        var editor = Assert.IsType<BoundedProposalTextBox>(
+            window.FindControl<BoundedProposalTextBox>("AiProposalTextBox"));
+        var dataTransferItem = new DataTransferItem();
+        dataTransferItem.Set(
+            DataFormat.File,
+            () => throw new InvalidOperationException("The disabled AI gate inspected dropped file data."));
+        var dataTransfer = new DataTransfer();
+        dataTransfer.Add(dataTransferItem);
+
+        await window.OpenPlanningSnapshotAsync();
+        await window.PasteProposalAsync(editor, null);
+        await window.LoadProposalFromPickerAsync(null);
+        await window.CompleteProposalReviewAsync(null);
+        Assert.Equal(DragDropEffects.None, window.ProposalDragEffects(dataTransfer));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(shell.AiFeaturesEnabled);
+        Assert.Null(shell.Ai);
+        Assert.False(shell.Work.NeedsDecision);
+        Assert.Equal("Original", session.Work.Read().Projects.Single().Title);
+        Assert.Empty(window.OwnedWindows);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task DisablingAiFeaturesConsumesAndClosesAnUnapprovedProposalReview()
+    {
+        var state = new ProposalWorkspaceState(
+            new(1),
+            new([new("c", "Synthetic", 0)], [], [], []),
+            [],
+            []);
+        var preferences = new TransientAiFeaturePreferenceService(aiFeaturesEnabled: true);
+        var application = new RecordingProposalApplication();
+        var window = new MainWindow(
+            new ProposalWorkspaceSession(new FixedProposalSource(state), application),
+            aiFeaturePreferenceService: preferences);
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var editor = Assert.IsType<BoundedProposalTextBox>(
+            window.FindControl<BoundedProposalTextBox>("AiProposalTextBox"));
+        editor.Text = ProposalJson(state, "Synthetic task");
+
+        await window.CompleteProposalReviewAsync(null);
+        Dispatcher.UIThread.RunJobs();
+        var review = Assert.Single(window.OwnedWindows.OfType<AgentProposalReviewWindow>());
+        var reviewModel = Assert.IsType<AgentProposalReviewViewModel>(review.DataContext);
+        Assert.True(reviewModel.CanRequestApply);
+        reviewModel.RequestApply();
+        Assert.True(reviewModel.CanConfirmApply);
+
+        shell.Settings!.AiFeaturesEnabled = false;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(reviewModel.CanRequestApply);
+        Assert.False(reviewModel.CanConfirmApply);
+        Assert.Equal(0, application.ApproveCount);
+        Assert.DoesNotContain(review, window.OwnedWindows);
+        Assert.Null(shell.Ai);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task DisablingAiFeaturesDoesNotInterruptOrReplayAnApprovedAtomicApply()
+    {
+        using var directory = new TemporaryDirectory();
+        const string passphraseText = "synthetic AI gate apply password";
+        var passphrase = WorkspacePassphrase.Create(passphraseText, passphraseText).Passphrase!;
+        var innerSession = Assert.IsAssignableFrom<IWorkspaceSession>(
+            new EncryptedWorkspaceStore().Create(
+                Path.Combine(directory.Path, "workspace.db"),
+                passphrase,
+                CategoryName.Create("Home").CategoryName!).Session);
+        Assert.Equal(
+            RecoveryDirectoryConfigurationStatus.Configured,
+            innerSession.Recovery.ConfigureAutomaticRecoveryDirectory(
+                Path.Combine(directory.Path, "recovery")).Status);
+        using var application = new BlockingProposalApplication(innerSession.ProposalApplication);
+        var preferences = new TransientAiFeaturePreferenceService(aiFeaturesEnabled: true);
+        var window = new MainWindow(
+            new ProposalApplicationWorkspaceSession(innerSession, application),
+            aiFeaturePreferenceService: preferences);
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var state = innerSession.Proposals.Read();
+        var editor = Assert.IsType<BoundedProposalTextBox>(
+            window.FindControl<BoundedProposalTextBox>("AiProposalTextBox"));
+        editor.Text = ProposalJson(state, "Approved synthetic task");
+        await window.CompleteProposalReviewAsync(null);
+        Dispatcher.UIThread.RunJobs();
+        var review = Assert.Single(window.OwnedWindows.OfType<AgentProposalReviewWindow>());
+        var reviewModel = Assert.IsType<AgentProposalReviewViewModel>(review.DataContext);
+        reviewModel.RequestApply();
+
+        var apply = reviewModel.ConfirmApplyAsync(new ReadyProposalApplicationHost());
+        await application.ApplyStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            shell.Settings!.AiFeaturesEnabled = false;
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.False(reviewModel.CanClose);
+            Assert.Contains(review, window.OwnedWindows);
+            Assert.Null(shell.Ai);
+            Assert.Equal(1, application.ApproveCount);
+            Assert.Equal(1, application.ApplyCount);
+        }
+        finally
+        {
+            application.ReleaseApply.Set();
+        }
+
+        await apply;
+        await reviewModel.ConfirmApplyAsync(new ReadyProposalApplicationHost());
+
+        Assert.True(reviewModel.CanClose);
+        Assert.Contains("applied atomically", reviewModel.StatusMessage, StringComparison.Ordinal);
+        Assert.Equal(1, application.ApproveCount);
+        Assert.Equal(1, application.ApplyCount);
+        Assert.Single(innerSession.Work.Read().Tasks, task => task.Title == "Approved synthetic task");
+        review.Close();
+        window.Close();
+    }
+
     [AvaloniaTheory]
     [InlineData(false, false)]
     [InlineData(false, true)]
@@ -159,7 +355,8 @@ public sealed class MainWindowTests
             null,
             proposalClipboardReader: pending,
             proposalFilePicker: pending,
-            proposalFileIntake: intake);
+            proposalFileIntake: intake,
+            aiFeaturePreferenceService: EnabledAiFeatures());
         window.Show();
         var shell = Assert.IsType<ShellViewModel>(window.DataContext);
         shell.AiNavigation.SelectCommand.Execute(null);
@@ -215,7 +412,9 @@ public sealed class MainWindowTests
     [AvaloniaFact]
     public void AiProposalInputExposesNamedKeyboardActionsAndBoundedScrollableEditor()
     {
-        var window = new MainWindow(new DisposalTrackingWorkspaceSession());
+        var window = new MainWindow(
+            new DisposalTrackingWorkspaceSession(),
+            aiFeaturePreferenceService: EnabledAiFeatures());
         window.Show();
         var shell = Assert.IsType<ShellViewModel>(window.DataContext);
 
@@ -250,7 +449,9 @@ public sealed class MainWindowTests
     [AvaloniaFact]
     public void AiProposalEditorAtReviewWindowSizeDoesNotDominatePage()
     {
-        var window = new MainWindow(new DisposalTrackingWorkspaceSession())
+        var window = new MainWindow(
+            new DisposalTrackingWorkspaceSession(),
+            aiFeaturePreferenceService: EnabledAiFeatures())
         {
             Width = 1180,
             Height = 760,
@@ -270,7 +471,9 @@ public sealed class MainWindowTests
     [AvaloniaFact]
     public void AiProposalEditorAcceptsAndRendersTypedText()
     {
-        var window = new MainWindow(new DisposalTrackingWorkspaceSession());
+        var window = new MainWindow(
+            new DisposalTrackingWorkspaceSession(),
+            aiFeaturePreferenceService: EnabledAiFeatures());
         window.Show();
         var shell = Assert.IsType<ShellViewModel>(window.DataContext);
         shell.AiNavigation.SelectCommand.Execute(null);
@@ -293,7 +496,9 @@ public sealed class MainWindowTests
     [AvaloniaFact]
     public async Task ReviewButtonExplainsPlanningSnapshotIsNotAProposal()
     {
-        var window = new MainWindow(new ProposalWorkspaceSession(new StaticProposalSource()));
+        var window = new MainWindow(
+            new ProposalWorkspaceSession(new StaticProposalSource()),
+            aiFeaturePreferenceService: EnabledAiFeatures());
         window.Show();
         var shell = Assert.IsType<ShellViewModel>(window.DataContext);
         shell.AiNavigation.SelectCommand.Execute(null);
@@ -321,7 +526,9 @@ public sealed class MainWindowTests
     [AvaloniaFact]
     public async Task RejectedProposalExplainsDuplicateCategoryAtTheFailingOperation()
     {
-        var window = new MainWindow(new ProposalWorkspaceSession(new StaticProposalSource()));
+        var window = new MainWindow(
+            new ProposalWorkspaceSession(new StaticProposalSource()),
+            aiFeaturePreferenceService: EnabledAiFeatures());
         window.Show();
         var shell = Assert.IsType<ShellViewModel>(window.DataContext);
         shell.AiNavigation.SelectCommand.Execute(null);
@@ -348,7 +555,9 @@ public sealed class MainWindowTests
     [AvaloniaFact]
     public async Task RejectedProposalExplainsRawJsonRequirement()
     {
-        var window = new MainWindow(new ProposalWorkspaceSession(new StaticProposalSource()));
+        var window = new MainWindow(
+            new ProposalWorkspaceSession(new StaticProposalSource()),
+            aiFeaturePreferenceService: EnabledAiFeatures());
         window.Show();
         var shell = Assert.IsType<ShellViewModel>(window.DataContext);
         shell.AiNavigation.SelectCommand.Execute(null);
@@ -376,7 +585,8 @@ public sealed class MainWindowTests
             new ProposalWorkspaceSession(new StaticProposalSource()),
             null,
             null,
-            plainTextClipboard: clipboard);
+            plainTextClipboard: clipboard,
+            aiFeaturePreferenceService: EnabledAiFeatures());
         window.Show();
         var shell = Assert.IsType<ShellViewModel>(window.DataContext);
         shell.AiNavigation.SelectCommand.Execute(null);
@@ -412,7 +622,9 @@ public sealed class MainWindowTests
                 [new("project", "Project", "", "category", null, 0)],
                 [], []),
             [], []);
-        var window = new MainWindow(new ProposalWorkspaceSession(new FixedProposalSource(state)));
+        var window = new MainWindow(
+            new ProposalWorkspaceSession(new FixedProposalSource(state)),
+            aiFeaturePreferenceService: EnabledAiFeatures());
         window.Show();
         var shell = Assert.IsType<ShellViewModel>(window.DataContext);
         shell.AiNavigation.SelectCommand.Execute(null);
@@ -610,6 +822,9 @@ public sealed class MainWindowTests
         Assert.Equal(TodayLane.Planned, session.Work.Read().Tasks.Single(item => item.Id == task.Id).TodayLane);
     }
 
+    private static TransientAiFeaturePreferenceService EnabledAiFeatures() =>
+        new TransientAiFeaturePreferenceService(aiFeaturesEnabled: true);
+
     private static async Task DrainUiUntilCompletedAsync(Task task)
     {
         while (!task.IsCompleted)
@@ -671,18 +886,93 @@ public sealed class MainWindowTests
         }
     }
 
-    private sealed class ProposalWorkspaceSession(IProposalWorkspaceSource source) : IWorkspaceSession
+    private sealed class ProposalWorkspaceSession(
+        IProposalWorkspaceSource source,
+        IProposalApplication? proposalApplication = null) : IWorkspaceSession
     {
         public IWorkspaceWork Work { get; } = new MemoryWorkspaceWork();
         public int SchemaVersion => 1;
         public string FirstCategoryName => "Home";
         public IWorkspaceRecovery Recovery { get; } = new RecoveryViewModelTests.StubWorkspaceRecovery();
         public IProposalWorkspaceSource Proposals { get; } = source;
+        public IProposalApplication ProposalApplication => proposalApplication
+            ?? throw new NotSupportedException("This test session does not support proposal application.");
         public IPlanningSnapshotSource Planning => throw new NotSupportedException();
         public PassphraseRotationResult RotatePassphrase(
             WorkspacePassphrase currentPassphrase,
             WorkspacePassphrase newPassphrase) => PassphraseRotationResult.Failed();
         public void Dispose() { }
+    }
+
+    private sealed class RecordingProposalApplication : IProposalApplication
+    {
+        public int ApproveCount { get; private set; }
+
+        public ProposalApproval? Approve(ProposalExecutionPlan plan)
+        {
+            ApproveCount++;
+            return null;
+        }
+
+        public ProposalApplyResult Apply(
+            ProposalApproval approval,
+            IProposalApplicationHost host,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("An unapproved proposal cannot be applied.");
+    }
+
+    private sealed class ProposalApplicationWorkspaceSession(
+        IWorkspaceSession inner,
+        IProposalApplication proposalApplication) : IWorkspaceSession
+    {
+        public int SchemaVersion => inner.SchemaVersion;
+        public string FirstCategoryName => inner.FirstCategoryName;
+        public IWorkspaceRecovery Recovery => inner.Recovery;
+        public IPlanningSnapshotSource Planning => inner.Planning;
+        public IProposalWorkspaceSource Proposals => inner.Proposals;
+        public IProposalApplication ProposalApplication => proposalApplication;
+        public IWorkspaceWork Work => inner.Work;
+
+        public PassphraseRotationResult RotatePassphrase(
+            WorkspacePassphrase currentPassphrase,
+            WorkspacePassphrase newPassphrase) =>
+            inner.RotatePassphrase(currentPassphrase, newPassphrase);
+
+        public void Dispose() => inner.Dispose();
+    }
+
+    private sealed class BlockingProposalApplication(IProposalApplication inner) : IProposalApplication, IDisposable
+    {
+        public TaskCompletionSource ApplyStarted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        public ManualResetEventSlim ReleaseApply { get; } = new(false);
+        public int ApproveCount { get; private set; }
+        public int ApplyCount { get; private set; }
+
+        public ProposalApproval? Approve(ProposalExecutionPlan plan)
+        {
+            ApproveCount++;
+            return inner.Approve(plan);
+        }
+
+        public ProposalApplyResult Apply(
+            ProposalApproval approval,
+            IProposalApplicationHost host,
+            CancellationToken cancellationToken = default)
+        {
+            ApplyCount++;
+            ApplyStarted.TrySetResult();
+            ReleaseApply.Wait(cancellationToken);
+            return inner.Apply(approval, host, cancellationToken);
+        }
+
+        public void Dispose() => ReleaseApply.Dispose();
+    }
+
+    private sealed class ReadyProposalApplicationHost : IProposalApplicationHost
+    {
+        public bool FlushPendingInspectorWork() => true;
+        public bool RefreshProjections() => true;
     }
 
     private sealed class BlockingProposalSource : IProposalWorkspaceSource
@@ -724,6 +1014,12 @@ public sealed class MainWindowTests
         public Task<string?> ReadTextAsync() => Task.FromResult(text);
     }
 
+    private sealed class ThrowingProposalClipboardReader : IProposalClipboardReader
+    {
+        public Task<string?> ReadTextAsync() =>
+            throw new InvalidOperationException("The disabled AI gate accessed the clipboard.");
+    }
+
     private sealed class RecordingPlainTextClipboard : IPlainTextClipboard
     {
         public string? Text { get; private set; }
@@ -738,6 +1034,20 @@ public sealed class MainWindowTests
     private sealed class StaticProposalFilePicker(string path) : IProposalFilePicker
     {
         public Task<string?> PickAsync(Window owner) => Task.FromResult<string?>(path);
+    }
+
+    private sealed class ThrowingProposalFilePicker : IProposalFilePicker
+    {
+        public Task<string?> PickAsync(Window owner) =>
+            throw new InvalidOperationException("The disabled AI gate opened the file picker.");
+    }
+
+    private sealed class ThrowingProposalFileIntake : IProposalFileIntake
+    {
+        public Task<ProposalFileIntakeResult> ReadAsync(
+            string localPath,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("The disabled AI gate read a proposal file.");
     }
 
     private sealed class BlockingProposalSelection : IProposalClipboardReader, IProposalFilePicker
@@ -792,6 +1102,7 @@ public sealed class MainWindowTests
     private static string ProposalJson(ProposalWorkspaceState state, string title)
     {
         var content = PlanningSnapshotProjection.Create(state.Revision, state.Workspace);
+        var categoryId = Assert.Single(state.Workspace.Categories).Id;
         using var snapshot = JsonDocument.Parse(
             PlanningSnapshotJsonGenerator.Generate(content).Payload!.Value);
         return JsonSerializer.Serialize(new
@@ -799,7 +1110,7 @@ public sealed class MainWindowTests
             format = "dot-orbit-change-proposal",
             schemaVersion = 1,
             sourceSnapshotId = snapshot.RootElement.GetProperty("snapshotId").GetString(),
-            sourceWorkspaceRevision = "1",
+            sourceWorkspaceRevision = state.Revision.ToString(),
             operations = new[]
             {
                 new
@@ -810,7 +1121,7 @@ public sealed class MainWindowTests
                     title,
                     description = string.Empty,
                     project = (object?)null,
-                    category = new { mode = "explicit", category = new { existingId = "c" } },
+                    category = new { mode = "explicit", category = new { existingId = categoryId } },
                     dueDate = (string?)null,
                     participants = Array.Empty<object>(),
                 },
@@ -929,7 +1240,7 @@ public sealed class MainWindowTests
 
         var navigation = window.GetVisualDescendants().OfType<RadioButton>().ToArray();
 
-        Assert.Equal(10, navigation.Length);
+        Assert.Equal(9, navigation.Length);
         Assert.Equal(
             [
                 "Open Today",
@@ -939,7 +1250,6 @@ public sealed class MainWindowTests
                 "Open Categories",
                 "Open Completed",
                 "Open Archive",
-                "Open AI",
                 "Open Bin",
                 "Open Settings",
             ],
@@ -953,7 +1263,6 @@ public sealed class MainWindowTests
                 "navigation-categories",
                 "navigation-completed",
                 "navigation-archive",
-                "navigation-ai",
                 "navigation-bin",
                 "navigation-settings",
             ],
@@ -976,6 +1285,65 @@ public sealed class MainWindowTests
         Assert.Equal(shell.ViewSubtitle, window.FindControl<TextBlock>("CurrentViewSubtitleText")?.Text);
         Assert.Equal(shell.EmptyStateHeading, window.FindControl<TextBlock>("EmptyStateHeadingText")?.Text);
         Assert.Equal(shell.EmptyStateBody, window.FindControl<TextBlock>("EmptyStateBodyText")?.Text);
+    }
+
+    [AvaloniaFact]
+    public void SettingsAiToggleControlsTheVisibleAccessibleNavigationDestination()
+    {
+        var preferences = new TransientAiFeaturePreferenceService();
+        var window = new MainWindow(
+            new DisposalTrackingWorkspaceSession(),
+            aiFeaturePreferenceService: preferences);
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.SettingsNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var toggle = Assert.IsType<ToggleSwitch>(
+            window.FindControl<ToggleSwitch>("SettingsAiFeaturesToggle"));
+        var announcement = Assert.IsType<TextBlock>(
+            window.FindControl<TextBlock>("SettingsAnnouncement"));
+
+        Assert.False(toggle.IsChecked);
+        Assert.Equal("settings-ai-features", AutomationProperties.GetAutomationId(toggle));
+        Assert.Equal("Enable AI features", AutomationProperties.GetName(toggle));
+        Assert.Equal("AI features disabled", AutomationProperties.GetItemStatus(toggle));
+        Assert.DoesNotContain(
+            window.GetVisualDescendants().OfType<RadioButton>(),
+            item => AutomationProperties.GetAutomationId(item) == "navigation-ai");
+        Assert.True(toggle.Focus(NavigationMethod.Tab));
+        Assert.True(toggle.IsKeyboardFocusWithin);
+        Assert.Equal("settings-announcement", AutomationProperties.GetAutomationId(announcement));
+        Assert.Equal("Settings status", AutomationProperties.GetName(announcement));
+        Assert.Equal(AutomationLiveSetting.Polite, AutomationProperties.GetLiveSetting(announcement));
+
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        var aiNavigation = Assert.Single(
+            window.GetVisualDescendants().OfType<RadioButton>(),
+            item => AutomationProperties.GetAutomationId(item) == "navigation-ai");
+        Assert.True(shell.AiFeaturesEnabled);
+        Assert.NotNull(shell.Ai);
+        Assert.Equal("Open AI", AutomationProperties.GetName(aiNavigation));
+        Assert.True(aiNavigation.Focusable);
+        Assert.Equal("AI features enabled", AutomationProperties.GetItemStatus(toggle));
+        Assert.Equal(
+            "AI features enabled. Manual agent interchange is now available.",
+            announcement.Text);
+
+        Assert.True(toggle.IsKeyboardFocusWithin);
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(shell.AiFeaturesEnabled);
+        Assert.Null(shell.Ai);
+        Assert.Equal(
+            "AI features disabled. Agent interchange is unavailable.",
+            announcement.Text);
+        Assert.DoesNotContain(
+            window.GetVisualDescendants().OfType<RadioButton>(),
+            item => AutomationProperties.GetAutomationId(item) == "navigation-ai");
+        window.Close();
     }
 
     [AvaloniaFact]
@@ -1267,6 +1635,27 @@ public sealed class MainWindowTests
         Assert.Equal(
             "Passphrase changed. Use the new passphrase the next time you unlock this workspace.",
             updatedShell.Settings?.SecurityConfirmation);
+    }
+
+    private sealed class TemporaryDirectory : IDisposable
+    {
+        public TemporaryDirectory()
+        {
+            Path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                "orbit-ai-gate-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Path);
+        }
+
+        public string Path { get; }
+
+        public void Dispose()
+        {
+            if (Directory.Exists(Path))
+            {
+                Directory.Delete(Path, recursive: true);
+            }
+        }
     }
 
     private sealed class ManualTransientMessageScheduler : ITransientMessageScheduler

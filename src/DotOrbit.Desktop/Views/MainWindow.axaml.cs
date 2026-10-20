@@ -55,6 +55,7 @@ public sealed partial class MainWindow : Window
     private readonly Action _workspaceUnavailable;
     private readonly IApplicationThemeService _applicationThemeService;
     private readonly IInterchangePreferenceService _interchangePreferenceService;
+    private readonly IAiFeaturePreferenceService _aiFeaturePreferenceService;
     private readonly TimeProvider _timeProvider;
     private readonly Func<IWorkspaceWork, IInspectorSaveWriter> _inspectorSaveWriterFactory;
     private CancellationTokenSource? _proposalIntakeCancellation;
@@ -82,8 +83,8 @@ public sealed partial class MainWindow : Window
 
     internal MainWindow(
         IWorkspaceSession? session,
-        IMarkdownClipboard? markdownClipboard,
-        IInspectorAutosaveScheduler? autosaveScheduler,
+        IMarkdownClipboard? markdownClipboard = null,
+        IInspectorAutosaveScheduler? autosaveScheduler = null,
         Action? workspaceUnavailable = null,
         ITransientMessageScheduler? transientMessageScheduler = null,
         IApplicationThemeService? applicationThemeService = null,
@@ -93,7 +94,8 @@ public sealed partial class MainWindow : Window
         IInterchangePreferenceService? interchangePreferenceService = null,
         IProposalClipboardReader? proposalClipboardReader = null,
         IProposalFilePicker? proposalFilePicker = null,
-        IProposalFileIntake? proposalFileIntake = null)
+        IProposalFileIntake? proposalFileIntake = null,
+        IAiFeaturePreferenceService? aiFeaturePreferenceService = null)
     {
         _session = session;
         _markdownClipboard = markdownClipboard;
@@ -109,6 +111,9 @@ public sealed partial class MainWindow : Window
         _interchangePreferenceService = interchangePreferenceService
             ?? (Application.Current as App)?.InterchangePreferenceService
             ?? new TransientInterchangePreferenceService();
+        _aiFeaturePreferenceService = aiFeaturePreferenceService
+            ?? (Application.Current as App)?.AiFeaturePreferenceService
+            ?? new TransientAiFeaturePreferenceService();
         _timeProvider = timeProvider ?? TimeProvider.System;
         _proposalFileIntake = proposalFileIntake ?? new ProposalFileIntake(_timeProvider);
         _inspectorSaveWriterFactory = inspectorSaveWriterFactory
@@ -195,7 +200,7 @@ public sealed partial class MainWindow : Window
 
     internal async Task OpenPlanningSnapshotAsync(Control? launcher = null)
     {
-        if (_session is null)
+        if (_session is null || DataContext is not ShellViewModel { Ai: { } })
         {
             return;
         }
@@ -424,9 +429,19 @@ public sealed partial class MainWindow : Window
 
     private void OnProposalDragOver(object? sender, DragEventArgs e)
     {
-        var files = e.DataTransfer.TryGetFiles()?.ToArray();
-        e.DragEffects = files?.Length == 1 ? DragDropEffects.Copy : DragDropEffects.None;
+        e.DragEffects = ProposalDragEffects(e.DataTransfer);
         e.Handled = true;
+    }
+
+    internal DragDropEffects ProposalDragEffects(IDataTransfer dataTransfer)
+    {
+        if (DataContext is not ShellViewModel { Ai: { } })
+        {
+            return DragDropEffects.None;
+        }
+
+        var files = dataTransfer.TryGetFiles()?.ToArray();
+        return files?.Length == 1 ? DragDropEffects.Copy : DragDropEffects.None;
     }
 
     private async void OnProposalDrop(object? sender, DragEventArgs e)
@@ -715,7 +730,8 @@ public sealed partial class MainWindow : Window
             inspectorSaveWriter: _inspectorSaveWriter,
             actionExecutor: _actionExecutor,
             uiDispatcher: new AvaloniaUiDispatcher(),
-            interchangePreferenceService: _interchangePreferenceService);
+            interchangePreferenceService: _interchangePreferenceService,
+            aiFeaturePreferenceService: _aiFeaturePreferenceService);
     }
 
     private void OnDataContextChanged(object? sender, EventArgs e)
@@ -749,6 +765,16 @@ public sealed partial class MainWindow : Window
 
     private void OnShellChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(ShellViewModel.AiFeaturesEnabled))
+        {
+            if (sender is ShellViewModel { AiFeaturesEnabled: false })
+            {
+                DiscardProposalStateForSessionEnd();
+            }
+
+            return;
+        }
+
         if (e.PropertyName != nameof(ShellViewModel.SelectedItem))
         {
             return;

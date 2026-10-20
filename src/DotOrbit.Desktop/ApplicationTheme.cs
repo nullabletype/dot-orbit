@@ -26,6 +26,13 @@ public interface IInterchangePreferenceService
     bool TrySetIncludeAgentInstructionsAndSchemaWithSnapshot(bool include);
 }
 
+public interface IAiFeaturePreferenceService
+{
+    bool AiFeaturesEnabled { get; }
+
+    bool TrySetAiFeaturesEnabled(bool enabled);
+}
+
 internal interface IApplicationThemePreferenceStore
 {
     ApplicationTheme Load();
@@ -38,6 +45,13 @@ internal interface IInterchangePreferenceStore
     bool LoadIncludeAgentInstructionsAndSchemaWithSnapshot();
 
     bool TrySaveIncludeAgentInstructionsAndSchemaWithSnapshot(bool include);
+}
+
+internal interface IAiFeaturePreferenceStore
+{
+    bool LoadAiFeaturesEnabled();
+
+    bool TrySaveAiFeaturesEnabled(bool enabled);
 }
 
 internal sealed class ApplicationThemeService : IApplicationThemeService
@@ -153,9 +167,40 @@ internal sealed class TransientInterchangePreferenceService(
     }
 }
 
+internal sealed class AiFeaturePreferenceService(
+    IAiFeaturePreferenceStore preferenceStore) : IAiFeaturePreferenceService
+{
+    public bool AiFeaturesEnabled { get; private set; } =
+        preferenceStore.LoadAiFeaturesEnabled();
+
+    public bool TrySetAiFeaturesEnabled(bool enabled)
+    {
+        if (!preferenceStore.TrySaveAiFeaturesEnabled(enabled))
+        {
+            return false;
+        }
+
+        AiFeaturesEnabled = enabled;
+        return true;
+    }
+}
+
+internal sealed class TransientAiFeaturePreferenceService(
+    bool aiFeaturesEnabled = false) : IAiFeaturePreferenceService
+{
+    public bool AiFeaturesEnabled { get; private set; } = aiFeaturesEnabled;
+
+    public bool TrySetAiFeaturesEnabled(bool enabled)
+    {
+        AiFeaturesEnabled = enabled;
+        return true;
+    }
+}
+
 internal sealed class JsonDevicePreferenceStore :
     IApplicationThemePreferenceStore,
-    IInterchangePreferenceStore
+    IInterchangePreferenceStore,
+    IAiFeaturePreferenceStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -197,31 +242,37 @@ internal sealed class JsonDevicePreferenceStore :
             IncludeAgentInstructionsAndSchemaWithSnapshot = include,
         });
 
+    public bool LoadAiFeaturesEnabled() =>
+        LoadDocument().AiFeaturesEnabled ?? false;
+
+    public bool TrySaveAiFeaturesEnabled(bool enabled) =>
+        TrySaveDocument(LoadDocument() with { AiFeaturesEnabled = enabled });
+
     private PreferenceDocument LoadDocument()
     {
         try
         {
             if (!File.Exists(_path))
             {
-                return new(null, null);
+                return new(null, null, null);
             }
 
             return JsonSerializer.Deserialize<PreferenceDocument>(
                        File.ReadAllText(_path),
                        JsonOptions)
-                   ?? new(null, null);
+                   ?? new(null, null, null);
         }
         catch (IOException)
         {
-            return new(null, null);
+            return new(null, null, null);
         }
         catch (UnauthorizedAccessException)
         {
-            return new(null, null);
+            return new(null, null, null);
         }
         catch (JsonException)
         {
-            return new(null, null);
+            return new(null, null, null);
         }
     }
 
@@ -271,5 +322,6 @@ internal sealed class JsonDevicePreferenceStore :
 
     private sealed record PreferenceDocument(
         string? Theme,
-        bool? IncludeAgentInstructionsAndSchemaWithSnapshot);
+        bool? IncludeAgentInstructionsAndSchemaWithSnapshot,
+        bool? AiFeaturesEnabled);
 }
