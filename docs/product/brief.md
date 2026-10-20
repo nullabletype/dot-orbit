@@ -34,7 +34,7 @@ One person managing their own work on a desktop. Collaboration, organisational a
 - Teams, permissions, assignees, comments, or activity feeds.
 - Real-time collaboration.
 - Mobile-first layouts.
-- AI task generation or automatic prioritisation.
+- In-app AI task generation or automatic prioritisation.
 - Recurring Tasks.
 - Operating-system notifications and reminders.
 - Calendar replacement, time tracking, or resource planning.
@@ -42,7 +42,7 @@ One person managing their own work on a desktop. Collaboration, organisational a
 
 ## Planned extension
 
-dot-orbit should later support tool-neutral, human-reviewed interchange for agent-assisted planning. A user can explicitly copy a bounded Planning snapshot of the current non-archived working set, ask an external tool to propose changes, then deliberately supply an untrusted structured Change proposal for validation, complete preview, and whole-proposal approval. dot-orbit does not ingest transcripts or meeting material, mutate autonomously, or integrate a provider-specific AI service.
+dot-orbit should later support tool-neutral, human-reviewed interchange for agent-assisted planning. An external tool can turn material supplied to it by the user into a creation-only New-work proposal without receiving dot-orbit data. When existing work must be changed or connected, the user can explicitly copy a bounded Planning snapshot and ask for a snapshot-bound Change proposal. Both routes require complete validation, a readable review of work directly added or changed, and whole-proposal approval; routine ordering and derived-state consequences are implied rather than expanded item by item. dot-orbit does not itself ingest transcripts or meeting material, mutate autonomously, or integrate a provider-specific AI service.
 
 ## Success signal
 

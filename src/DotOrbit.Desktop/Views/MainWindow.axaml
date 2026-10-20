@@ -1316,40 +1316,88 @@
               AutomationProperties.Name="Current view" />
           <TextBlock x:Name="AiIntroductionText" MaxWidth="760" HorizontalAlignment="Left"
               FontSize="14" Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
-              Text="dot-orbit does not contact an AI provider. Copy planning context to an AI assistant, then bring a structured proposal back for review before anything is applied, with explicit whole-proposal approval." />
+              Text="dot-orbit does not contact an AI provider. Bring a structured proposal from an agent into dot-orbit, review what it will do, then decide whether to apply it." />
         </StackPanel>
 
         <StackPanel Spacing="10">
           <StackPanel Spacing="4">
-            <TextBlock FontSize="20" FontWeight="Bold" Text="Copy planning context" />
+            <TextBlock FontSize="20" FontWeight="Bold" Text="Bring work into dot-orbit" />
             <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
-                Text="Choose whether to copy a bounded Planning snapshot by itself or with reusable provider-neutral instructions and schemas." />
+                Text="Paste a proposal from an agent. It can add entirely new work without seeing your workspace. To update or connect existing work, share workspace context below first." />
+          </StackPanel>
+          <Border x:Name="AiProposalDropSurface" Classes="list-panel" DragDrop.AllowDrop="True"
+              DragDrop.DragOver="OnProposalDragOver" DragDrop.Drop="OnProposalDrop"
+              AutomationProperties.Name="Agent proposal input and single local file drop target">
+            <StackPanel Spacing="10">
+              <desktop:BoundedProposalTextBox
+                  x:Name="AiProposalTextBox"
+                  Classes="inspector-field"
+                  Height="122"
+                  AcceptsReturn="True"
+                  PlaceholderText="Paste or type a proposal…"
+                  TextWrapping="NoWrap"
+                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                  ScrollViewer.VerticalScrollBarVisibility="Auto"
+                  Text="{Binding Ai.ProposalText, Mode=TwoWay}"
+                  AutomationProperties.AutomationId="ai-proposal-text"
+                  AutomationProperties.Name="Agent proposal"
+                  AutomationProperties.HelpText="Sensitive untrusted plaintext. Maximum 4 MiB strict UTF-8. Review is required before Apply." />
+              <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="10">
+                <Button x:Name="AiProposalPasteButton" Classes="view-action" Content="Paste"
+                    Click="OnPasteProposal" AutomationProperties.AutomationId="ai-proposal-paste"
+                    AutomationProperties.Name="Paste an agent proposal from the clipboard" />
+                <Button x:Name="AiProposalLoadButton" Grid.Column="1" Classes="view-action" Content="Load from file…"
+                    Click="OnLoadProposal" AutomationProperties.AutomationId="ai-proposal-load"
+                    AutomationProperties.Name="Load an agent proposal from one local JSON file" />
+                <TextBlock Grid.Column="2" VerticalAlignment="Center" Foreground="{DynamicResource QuietTextBrush}"
+                    Text="{Binding Ai.ProposalByteCountText}" />
+                <Button x:Name="AiProposalReviewButton" Grid.Column="3" Classes="primary-action" Content="Review"
+                    IsEnabled="{Binding Ai.CanReviewProposal}" Click="OnReviewProposal"
+                    AutomationProperties.AutomationId="ai-proposal-review"
+                    AutomationProperties.Name="Review the complete proposal without applying it" />
+              </Grid>
+            </StackPanel>
+          </Border>
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10" IsVisible="{Binding Ai.HasProposalStatus}">
+            <SelectableTextBlock x:Name="AiProposalStatus" Foreground="{DynamicResource MutedTextBrush}"
+                Text="{Binding Ai.ProposalStatus}" TextWrapping="Wrap"
+                AutomationProperties.Name="Proposal intake status"
+                AutomationProperties.HelpText="Select this feedback to copy part of it, or use Copy feedback to copy the complete message."
+                AutomationProperties.LiveSetting="Polite" />
+            <Button x:Name="AiProposalFeedbackCopyButton" Grid.Column="1" Classes="view-action"
+                VerticalAlignment="Top" Content="Copy feedback" Click="OnCopyProposalFeedback"
+                AutomationProperties.AutomationId="ai-proposal-feedback-copy"
+                AutomationProperties.Name="Copy complete proposal feedback" />
+          </Grid>
+        </StackPanel>
+
+        <StackPanel Spacing="10">
+          <StackPanel Spacing="4">
+            <TextBlock FontSize="20" FontWeight="Bold" Text="Share workspace context (optional)" />
+            <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
+                Text="Only needed when an agent must update or connect to work already in dot-orbit." />
           </StackPanel>
           <Border Classes="list-panel row-list">
             <StackPanel>
               <Border Classes="interactive-row separated-row" MinHeight="54">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                   <StackPanel VerticalAlignment="Center" Spacing="2">
-                    <TextBlock FontWeight="SemiBold" Text="Include agent instructions and schema with snapshot" />
+                    <TextBlock FontWeight="SemiBold" Text="Set up an agent" />
                     <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
-                        Text="Stored on this device. Turn off to copy only pretty-printed Planning snapshot JSON." />
+                        Text="Copy reusable instructions and exact schemas without including workspace content." />
                   </StackPanel>
-                  <ToggleSwitch
-                      x:Name="AiIncludeAgentInstructionsToggle"
-                      Grid.Column="1"
-                      VerticalAlignment="Center"
-                      IsChecked="{Binding Ai.IncludeAgentInstructionsAndSchemaWithSnapshot, Mode=TwoWay}"
-                      AutomationProperties.AutomationId="ai-interchange-include-instructions"
-                      AutomationProperties.Name="Include agent instructions and schema with snapshot"
-                      AutomationProperties.ItemStatus="{Binding Ai.InterchangePreferenceStatus}" />
+                  <Button x:Name="AiReusableInstructionsButton" Grid.Column="1" Classes="view-action"
+                      Content="Copy instructions" Click="OnCopyReusableInstructions"
+                      AutomationProperties.AutomationId="ai-interchange-instructions-copy"
+                      AutomationProperties.Name="Copy reusable agent instructions and schemas without workspace content" />
                 </Grid>
               </Border>
               <Border Classes="interactive-row separated-row" MinHeight="54">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                   <StackPanel VerticalAlignment="Center" Spacing="2">
-                    <TextBlock FontWeight="SemiBold" Text="Current Planning snapshot" />
+                    <TextBlock FontWeight="SemiBold" Text="Share current workspace" />
                     <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
-                        Text="Review included and excluded scope, catalogue disclosure, and plaintext warning before copying." />
+                        Text="Review what will be included before copying bounded plaintext context." />
                   </StackPanel>
                   <Button x:Name="AiPlanningSnapshotButton" Grid.Column="1" Classes="view-action"
                       Content="Review and copy…" Click="OnOpenPlanningSnapshot"
@@ -1360,14 +1408,18 @@
               <Border Classes="interactive-row separated-row last" MinHeight="54">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                   <StackPanel VerticalAlignment="Center" Spacing="2">
-                    <TextBlock FontWeight="SemiBold" Text="Reusable agent instructions and schemas" />
+                    <TextBlock FontWeight="SemiBold" Text="Include setup instructions with workspace context" />
                     <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
-                        Text="Copy provider-neutral guidance and exact v1 schemas without reading or including live workspace content." />
+                        Text="Stored on this device. Turn off to copy only the workspace JSON." />
                   </StackPanel>
-                  <Button x:Name="AiReusableInstructionsButton" Grid.Column="1" Classes="view-action"
-                      Content="Copy instructions" Click="OnCopyReusableInstructions"
-                      AutomationProperties.AutomationId="ai-interchange-instructions-copy"
-                      AutomationProperties.Name="Copy reusable agent instructions and schemas without workspace content" />
+                  <ToggleSwitch
+                      x:Name="AiIncludeAgentInstructionsToggle"
+                      Grid.Column="1"
+                      VerticalAlignment="Center"
+                      IsChecked="{Binding Ai.IncludeAgentInstructionsAndSchemaWithSnapshot, Mode=TwoWay}"
+                      AutomationProperties.AutomationId="ai-interchange-include-instructions"
+                      AutomationProperties.Name="Include agent instructions and schemas with workspace context"
+                      AutomationProperties.ItemStatus="{Binding Ai.InterchangePreferenceStatus}" />
                 </Grid>
               </Border>
             </StackPanel>
@@ -1379,50 +1431,6 @@
               TextWrapping="Wrap"
               AutomationProperties.Name="Agent interchange status"
               AutomationProperties.LiveSetting="Polite" />
-        </StackPanel>
-
-        <StackPanel Spacing="10">
-          <StackPanel Spacing="4">
-            <TextBlock FontSize="20" FontWeight="Bold" Text="Review proposed changes" />
-            <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
-                Text="Type, explicitly paste, load, or drop one local JSON proposal. Editing alone never validates or changes the workspace." />
-          </StackPanel>
-          <Border x:Name="AiProposalDropSurface" Classes="list-panel" DragDrop.AllowDrop="True"
-              DragDrop.DragOver="OnProposalDragOver" DragDrop.Drop="OnProposalDrop"
-              AutomationProperties.Name="Change proposal input and single local file drop target">
-            <StackPanel Spacing="10">
-              <desktop:BoundedProposalTextBox
-                  x:Name="AiProposalTextBox"
-                  Classes="inspector-field"
-                  MinHeight="210"
-                  MaxHeight="330"
-                  AcceptsReturn="True"
-                  TextWrapping="NoWrap"
-                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                  ScrollViewer.VerticalScrollBarVisibility="Auto"
-                  Text="{Binding Ai.ProposalText, Mode=TwoWay}"
-                  AutomationProperties.AutomationId="ai-proposal-text"
-                  AutomationProperties.Name="Change proposal JSON"
-                  AutomationProperties.HelpText="Sensitive untrusted plaintext. Maximum 4 MiB strict UTF-8. Review is required before Apply." />
-              <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="10">
-                <Button x:Name="AiProposalPasteButton" Classes="view-action" Content="Paste"
-                    Click="OnPasteProposal" AutomationProperties.AutomationId="ai-proposal-paste"
-                    AutomationProperties.Name="Paste Change proposal from the clipboard" />
-                <Button x:Name="AiProposalLoadButton" Grid.Column="1" Classes="view-action" Content="Load from file…"
-                    Click="OnLoadProposal" AutomationProperties.AutomationId="ai-proposal-load"
-                    AutomationProperties.Name="Load Change proposal from one local JSON file" />
-                <TextBlock Grid.Column="2" VerticalAlignment="Center" Foreground="{DynamicResource QuietTextBrush}"
-                    Text="{Binding Ai.ProposalByteCountText}" />
-                <Button x:Name="AiProposalReviewButton" Grid.Column="3" Classes="primary-action" Content="Review"
-                    IsEnabled="{Binding Ai.CanReviewProposal}" Click="OnReviewProposal"
-                    AutomationProperties.AutomationId="ai-proposal-review"
-                    AutomationProperties.Name="Review the complete Change proposal without applying it" />
-              </Grid>
-            </StackPanel>
-          </Border>
-          <TextBlock x:Name="AiProposalStatus" Foreground="{DynamicResource MutedTextBrush}"
-              IsVisible="{Binding Ai.HasProposalStatus}" Text="{Binding Ai.ProposalStatus}" TextWrapping="Wrap"
-              AutomationProperties.Name="Proposal intake status" AutomationProperties.LiveSetting="Polite" />
         </StackPanel>
       </StackPanel>
     </ScrollViewer>

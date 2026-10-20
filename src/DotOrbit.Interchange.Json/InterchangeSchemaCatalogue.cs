@@ -16,6 +16,8 @@ public static class InterchangeSchemaCatalogue
         "DotOrbit.Interchange.Json.Schemas.planning-snapshot.schema.json";
     private const string ProposalResourceName =
         "DotOrbit.Interchange.Json.Schemas.change-proposal.schema.json";
+    private const string NewWorkProposalResourceName =
+        "DotOrbit.Interchange.Json.Schemas.new-work-proposal.schema.json";
     private const string MetaSchemaResourcePrefix =
         "DotOrbit.Interchange.Json.MetaSchemas.draft2020-12.";
     private static readonly Dictionary<string, JsonDocument> MetaSchemaDocuments =
@@ -29,6 +31,7 @@ public static class InterchangeSchemaCatalogue
         {
             [AgentInterchangeV1.PlanningSnapshotSchemaId] = ReadResource(PlanningResourceName),
             [AgentInterchangeV1.ChangeProposalSchemaId] = ReadResource(ProposalResourceName),
+            [AgentInterchangeV1.NewWorkProposalSchemaId] = ReadResource(NewWorkProposalResourceName),
         };
 
     private static readonly JsonSchema Draft202012MetaSchema = LoadDraft202012MetaSchema();
@@ -38,6 +41,7 @@ public static class InterchangeSchemaCatalogue
     [
         AgentInterchangeV1.PlanningSnapshotSchemaId,
         AgentInterchangeV1.ChangeProposalSchemaId,
+        AgentInterchangeV1.NewWorkProposalSchemaId,
     ];
 
     public static ReadOnlyMemory<byte> GetApplicationSchema(string schemaId)

@@ -1,6 +1,5 @@
 using DotOrbit.Desktop.ViewModels;
 using DotOrbit.Interchange.Json;
-using System.Globalization;
 using Xunit;
 
 namespace DotOrbit.Desktop.Tests;
@@ -17,10 +16,7 @@ public sealed class AiViewModelTests
 
         Assert.Equal(exact, ai.ProposalText);
         Assert.True(ai.CanReviewProposal);
-        Assert.Contains(
-            ChangeProposalJsonParser.MaximumInputBytes.ToString("N0", CultureInfo.CurrentCulture),
-            ai.ProposalByteCountText,
-            StringComparison.Ordinal);
+        Assert.Equal("4 MB", ai.ProposalByteCountText);
 
         ai.ProposalText = exact + "b";
         Assert.Equal(exact, ai.ProposalText);

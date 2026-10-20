@@ -48,12 +48,30 @@ public static class ChangeProposalJsonParser
             if (!root.TryGetProperty("schemaVersion", out var version)
                 || version.ValueKind != JsonValueKind.Number || !version.TryGetInt32(out var number)
                 || number != AgentInterchangeV1.SchemaVersion) return Failure("unsupported-version");
-            if (!InterchangeSchemaCatalogue.Validate(AgentInterchangeV1.ChangeProposalSchemaId, root).IsValid)
+            if (!root.TryGetProperty("format", out var formatElement)
+                || formatElement.ValueKind != JsonValueKind.String
+                || formatElement.GetString() is not { } format)
+                return Failure("invalid-schema");
+            var kind = format switch
+            {
+                AgentInterchangeV1.ChangeProposalFormat => ProposalKind.WorkspaceChange,
+                AgentInterchangeV1.NewWorkProposalFormat => ProposalKind.NewWork,
+                _ => (ProposalKind?)null,
+            };
+            if (kind is null)
+                return Failure("invalid-schema");
+            var schemaId = kind == ProposalKind.NewWork
+                ? AgentInterchangeV1.NewWorkProposalSchemaId
+                : AgentInterchangeV1.ChangeProposalSchemaId;
+            if (!InterchangeSchemaCatalogue.Validate(schemaId, root).IsValid)
                 return Failure("invalid-schema");
             var operations = root.GetProperty("operations").EnumerateArray().Select(ReadOperation).ToArray();
             return new(new(
-                Text(root, "format"), number, Text(root, "sourceSnapshotId"),
-                new WorkspaceRevision(long.Parse(Text(root, "sourceWorkspaceRevision"), CultureInfo.InvariantCulture)),
+                kind.Value, format, number,
+                kind == ProposalKind.WorkspaceChange ? Text(root, "sourceSnapshotId") : null,
+                kind == ProposalKind.WorkspaceChange
+                    ? new WorkspaceRevision(long.Parse(Text(root, "sourceWorkspaceRevision"), CultureInfo.InvariantCulture))
+                    : null,
                 Array.AsReadOnly(operations)), null)
             {
                 CanonicalDigest = SHA256.HashData(Rfc8785Canonicalizer.Canonicalize(root)),

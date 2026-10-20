@@ -7,6 +7,51 @@ public sealed class ChangeProposalJsonParserTests
 {
     private const string Empty = "{\"format\":\"dot-orbit-change-proposal\",\"schemaVersion\":1,\"sourceSnapshotId\":\"sha256:" +
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sourceWorkspaceRevision\":\"1\",\"operations\":[]}";
+    private const string EmptyNewWork =
+        "{\"format\":\"dot-orbit-new-work-proposal\",\"schemaVersion\":1,\"operations\":[]}";
+
+    [Fact]
+    public void ParsesNewWorkWithoutAWorkspaceSource()
+    {
+        var path = Path.Combine(FindRoot(), "examples/interchange/v1/new-work-proposal.json");
+
+        var result = ChangeProposalJsonParser.Parse(File.ReadAllBytes(path));
+
+        Assert.True(result.IsValid, result.ErrorCode);
+        Assert.Equal(ProposalKind.NewWork, result.Proposal!.Kind);
+        Assert.Null(result.Proposal.SourceSnapshotId);
+        Assert.Null(result.Proposal.SourceWorkspaceRevision);
+        Assert.Collection(
+            result.Proposal.Operations,
+            operation => Assert.IsType<CreateCategoryOperation>(operation),
+            operation => Assert.IsType<CreateParticipantOperation>(operation),
+            operation => Assert.IsType<CreateProjectOperation>(operation),
+            operation => Assert.IsType<CreateTaskOperation>(operation));
+    }
+
+    [Theory]
+    [InlineData("\"sourceWorkspaceRevision\":\"1\",")]
+    [InlineData("\"sourceSnapshotId\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",")]
+    public void NewWorkRejectsWorkspaceSourceFields(string member) =>
+        Assert.Equal(
+            "invalid-schema",
+            ChangeProposalJsonParser.Parse("{" + member + EmptyNewWork[1..]).ErrorCode);
+
+    [Fact]
+    public void NewWorkRejectsExistingReferencesAndNonCreateOperations()
+    {
+        var existingReference = EmptyNewWork.Replace(
+            "[]",
+            "[{\"operationId\":\"o\",\"operation\":\"createProject\",\"localId\":\"p\",\"title\":\"P\",\"description\":\"\",\"category\":{\"existingId\":\"c\"},\"targetDate\":null}]",
+            StringComparison.Ordinal);
+        var edit = EmptyNewWork.Replace(
+            "[]",
+            "[{\"operationId\":\"o\",\"operation\":\"editTask\",\"task\":{\"localId\":\"t\"},\"changes\":{\"title\":\"Changed\"}}]",
+            StringComparison.Ordinal);
+
+        Assert.Equal("invalid-schema", ChangeProposalJsonParser.Parse(existingReference).ErrorCode);
+        Assert.Equal("invalid-schema", ChangeProposalJsonParser.Parse(edit).ErrorCode);
+    }
 
     [Fact]
     public void ParsesAllPublishedOperationTypes()
@@ -15,6 +60,7 @@ public sealed class ChangeProposalJsonParserTests
         var result = ChangeProposalJsonParser.Parse(File.ReadAllBytes(path));
         Assert.True(result.IsValid, result.ErrorCode);
         Assert.Equal(19, result.Proposal!.Operations.Count);
+        Assert.Equal(ProposalKind.WorkspaceChange, result.Proposal.Kind);
         Assert.Equal(19, result.Proposal.Operations.Select(operation => operation.GetType()).Distinct().Count());
     }
 
@@ -77,6 +123,15 @@ public sealed class ChangeProposalJsonParserTests
     [InlineData("{\"x\":1,}")]
     [InlineData("[]")]
     public void RejectsNonStrictDocuments(string input) => Assert.False(ChangeProposalJsonParser.Parse(input).IsValid);
+
+    [Fact]
+    public void RejectsMissingFormatWithoutThrowing()
+    {
+        var result = ChangeProposalJsonParser.Parse("{\"schemaVersion\":1,\"operations\":[]}");
+
+        Assert.Equal("invalid-schema", result.ErrorCode);
+        Assert.Null(result.Proposal);
+    }
 
     [Fact]
     public void DigestIsCanonicalAndResultFormattingIsSafe()

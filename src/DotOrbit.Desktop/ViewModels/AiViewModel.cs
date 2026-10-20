@@ -94,8 +94,12 @@ public sealed class AiViewModel : INotifyPropertyChanged
         }
     }
 
-    public string ProposalByteCountText =>
-        $"{_proposalByteCount:N0} of {ChangeProposalJsonParser.MaximumInputBytes:N0} UTF-8 bytes";
+    public string ProposalByteCountText => _proposalByteCount switch
+    {
+        < 1_024 => $"{_proposalByteCount:N0} bytes",
+        < 1_048_576 => $"{_proposalByteCount / 1_024d:0.#} KB",
+        _ => $"{_proposalByteCount / 1_048_576d:0.#} MB",
+    };
 
     public bool CanReviewProposal =>
         !_proposalActionInFlight && !string.IsNullOrWhiteSpace(ProposalText);

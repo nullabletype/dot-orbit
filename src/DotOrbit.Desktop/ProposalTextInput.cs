@@ -37,6 +37,8 @@ internal sealed class ProposalTextAttemptedEventArgs(bool accepted, int byteCoun
 
 internal sealed class BoundedProposalTextBox : TextBox
 {
+    protected override Type StyleKeyOverride => typeof(TextBox);
+
     public event EventHandler<ProposalTextAttemptedEventArgs>? ProposalTextAttempted;
 
     public bool TryReplaceSelection(string insertion)
@@ -117,7 +119,7 @@ internal sealed class AvaloniaProposalFilePicker : IProposalFilePicker
         ArgumentNullException.ThrowIfNull(owner);
         var files = await owner.StorageProvider.OpenFilePickerAsync(new()
         {
-            Title = "Load a dot-orbit Change proposal",
+            Title = "Load a dot-orbit proposal",
             AllowMultiple = false,
             FileTypeFilter =
             [

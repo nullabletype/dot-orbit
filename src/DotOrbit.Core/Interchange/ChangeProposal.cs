@@ -36,12 +36,36 @@ public readonly record struct ProposalReference
     }
 }
 
+public enum ProposalKind
+{
+    NewWork,
+    WorkspaceChange,
+}
+
 public sealed record ChangeProposal(
+    ProposalKind Kind,
     string Format,
     int SchemaVersion,
-    string SourceSnapshotId,
-    WorkspaceRevision SourceWorkspaceRevision,
-    IReadOnlyList<ChangeOperation> Operations);
+    string? SourceSnapshotId,
+    WorkspaceRevision? SourceWorkspaceRevision,
+    IReadOnlyList<ChangeOperation> Operations)
+{
+    public ChangeProposal(
+        string format,
+        int schemaVersion,
+        string sourceSnapshotId,
+        WorkspaceRevision sourceWorkspaceRevision,
+        IReadOnlyList<ChangeOperation> operations)
+        : this(
+            ProposalKind.WorkspaceChange,
+            format,
+            schemaVersion,
+            sourceSnapshotId,
+            sourceWorkspaceRevision,
+            operations)
+    {
+    }
+}
 
 public abstract record ChangeOperation(string OperationId, string? Explanation);
 

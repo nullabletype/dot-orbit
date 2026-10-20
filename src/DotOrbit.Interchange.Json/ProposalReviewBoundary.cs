@@ -18,16 +18,22 @@ public sealed class ProposalReviewBoundary(IProposalWorkspaceSource source, Time
         try { current = source.Read(); }
         catch (WorkspaceWorkException) { return Unavailable(); }
         catch (ObjectDisposedException) { return Unavailable(); }
-        var snapshot = PlanningSnapshotJsonGenerator.Generate(
-            PlanningSnapshotProjection.Create(current.Revision, current.Workspace));
-        if (!snapshot.Succeeded)
-            return new(null, Array.AsReadOnly(new[] { new ProposalValidationFailure(snapshot.ErrorCode!) }));
-        using var document = JsonDocument.Parse(snapshot.Payload!.Value);
-        var identity = document.RootElement.GetProperty("snapshotId").GetString()!;
+        string? identity = null;
+        IPlanningSnapshotIdentityVerifier? verifier = null;
+        if (parsed.Proposal!.Kind == ProposalKind.WorkspaceChange)
+        {
+            var snapshot = PlanningSnapshotJsonGenerator.Generate(
+                PlanningSnapshotProjection.Create(current.Revision, current.Workspace));
+            if (!snapshot.Succeeded)
+                return new(null, Array.AsReadOnly(new[] { new ProposalValidationFailure(snapshot.ErrorCode!) }));
+            using var document = JsonDocument.Parse(snapshot.Payload!.Value);
+            identity = document.RootElement.GetProperty("snapshotId").GetString()!;
+            verifier = PlanningSnapshotIdentityVerifier.Instance;
+        }
         var planner = new ProposalSemanticPlanner(timeProvider, new MarkdownValidator());
-        return planner.ValidateForApplication(parsed.Proposal!, source, current, identity,
+        return planner.ValidateForApplication(parsed.Proposal, source, current, identity,
             Convert.ToHexString(parsed.CanonicalDigest.Span).ToLowerInvariant(),
-            PlanningSnapshotIdentityVerifier.Instance);
+            verifier);
     }
 
     private static ProposalPlanResult Unavailable() => new(null,

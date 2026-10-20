@@ -51,7 +51,7 @@ public sealed partial class AgentProposalReviewWindow : Window
     }
 
     private void OnOpened(object? sender, EventArgs e) =>
-        this.FindControl<Button>("CloseProposalReviewButton")?.Focus();
+        this.FindControl<ScrollViewer>("ProposalReviewContent")?.Focus();
 
     private void OnConfirmationOpened(object? sender, EventArgs e) =>
         this.FindControl<Button>("CancelProposalApplyButton")?.Focus();

@@ -8,7 +8,7 @@ This contract resolves the product, domain, security, and transport questions th
 
 ## Boundary
 
-Version 1 is a provider-neutral, human-reviewed planning exchange. dot-orbit produces one immutable planning snapshot. An external tool may return one structured change proposal for that snapshot. dot-orbit treats the proposal as untrusted data, validates it into one immutable execution plan, previews the complete local effect, and applies it only after the user approves the whole proposal.
+Version 1 is a provider-neutral, human-reviewed planning exchange. An external tool may return a creation-only New-work proposal without receiving dot-orbit data. When existing work must be updated or connected, dot-orbit produces one immutable Planning snapshot and the external tool returns one Change proposal for that snapshot. dot-orbit treats either proposal as untrusted data, validates it into one immutable execution plan, previews the complete local effect, and applies it only after the user approves the whole proposal.
 
 dot-orbit does not read meeting material, call an AI provider, infer operations from prose, monitor the clipboard, approve changes, or expose an autonomous mutation route. A future MCP transport must reuse this boundary.
 
@@ -53,9 +53,9 @@ Snapshot data and its revision are read in one transaction under the unlocked se
 
 Apply uses the existing maintenance pattern rather than the ordinary in-process session gate alone: an operation-scoped SQLite connection retains an `EXCLUSIVE` lock across the final source check, validated recovery creation, repeated source check, proposal transaction, and commit. The connection may roll back the no-op inspection transaction when SQLite backup requires it, but it retains the database-level exclusive lock before starting the mutation transaction. This excludes another process as well as another in-process operation and closes the preview-to-apply race.
 
-## Proposal document
+## Proposal documents
 
-### Envelope and references
+### Change proposal envelope and references
 
 A proposal declares:
 
@@ -70,6 +70,14 @@ A proposal declares:
 Every operation has a unique bounded `operationId` used only within that proposal. Every create operation has a unique bounded `localId`. References are discriminated objects containing exactly one `existingId` or `localId`; a local reference must point to an earlier create operation of the required record kind. Forward references and caller-selected durable record identifiers are prohibited. dot-orbit generates durable identifiers at apply time.
 
 Array order defines proposal order and dependency order. There is no separate dependency language and no executable expression, URI, JSON Pointer, or remote reference supplied by a proposal.
+
+### New-work proposal envelope and references
+
+A New-work proposal declares `format: "dot-orbit-new-work-proposal"`, `schemaVersion: 1`, and an ordered `operations` array. It contains no `sourceSnapshotId` or `sourceWorkspaceRevision`.
+
+Only `createCategory`, `createParticipant`, `createProject`, and `createTask` are valid. Every relationship contains exactly one `localId` that points backward to an earlier create operation of the required kind. `existingId` and every non-create operation are rejected by the schema and independently by Core semantic validation. New-work therefore creates one entirely new graph and cannot silently update, reuse, or connect to an existing record.
+
+Review captures the current Workspace revision internally. Apply requires that revision still to be current under the same exclusive, recovery-backed boundary used for Change proposals. It does not require or recompute a Planning snapshot identity. All durable record identifiers remain application-generated.
 
 ### Version 1 operation vocabulary
 
@@ -114,14 +122,15 @@ Normal domain side effects still occur. Completing, archiving, or binning a Task
 
 Version 1 provides one dedicated proposal text surface with three equivalent, explicit ways to populate it: deliberate paste or typing, **Load from file…** through the platform file picker, and drag-and-drop of exactly one local regular file onto the surface. The picker remains the keyboard-accessible equivalent of drag-and-drop. Multiple items, directories, non-regular files, symbolic links or reparse points, and unreadable files are rejected. The file adapter opens the selected item exactly once without following links and in a mode that cannot wait for a pipe writer or device readiness (`O_NOFOLLOW | O_NONBLOCK` on Unix, or the platform equivalent), then classifies and size-checks that opened handle and performs one cancellable bounded read pass to end-of-file or the published limit plus one byte. Acquisition and reading run outside the UI thread under one cancellation and finite deadline; a late result is discarded. The adapter never classifies one path and reopens it for ingestion. dot-orbit never reads or monitors clipboard contents, files, or directories without that user action, and it never watches or automatically reloads a selected file.
 
-Every proposed text mutation is measured as strict UTF-8 before it reaches the control. Typing is checked incrementally; a paste is assembled and checked before atomic insertion; and file picker or drop reads at most the published input-byte limit plus one byte into a temporary buffer before requiring strict UTF-8 and no byte-order mark. An over-limit or invalid paste or file intake preserves the prior text and focus. A successful file intake atomically replaces the surface contents, after which the user may inspect or edit them. Fixed non-sensitive success, cancellation, and rejection statuses are announced accessibly. The source path is not retained in the proposal or preview. Populating or editing the surface changes no workspace data; syntax, schema, and domain validation begin only when the user activates **Review**.
+Every proposed text mutation is measured as strict UTF-8 before it reaches the control. Typing is checked incrementally; an explicit paste is assembled and checked before atomically replacing the complete surface contents; and file picker or drop reads at most the published input-byte limit plus one byte into a temporary buffer before requiring strict UTF-8 and no byte-order mark. An over-limit or invalid paste or file intake preserves the prior text and focus. A successful file intake also atomically replaces the surface contents, after which the user may inspect or edit them. Fixed non-sensitive success, cancellation, and rejection statuses are announced accessibly. The source path is not retained in the proposal or preview. Populating or editing the surface changes no workspace data; syntax, schema, and domain validation begin only when the user activates **Review**.
 
 Input is strict UTF-8 RFC 8259/I-JSON data: one top-level object; no byte-order mark, comments, trailing commas, unpaired surrogates, fractional or exponent-form numbers, non-finite values, or duplicate decoded member names. Duplicate members are rejected during tokenisation before object materialisation or schema validation. Unknown properties and operation discriminators are rejected.
 
-Version 1 uses JSON Schema 2020-12 and publishes exactly two application schema resources, with shared definitions embedded in their `$defs`:
+Version 1 uses JSON Schema 2020-12 and publishes exactly three application schema resources, with shared definitions embedded in their `$defs`:
 
-- `https://raw.githubusercontent.com/nullabletype/dot-orbit/main/schemas/interchange/v1/planning-snapshot.schema.json`; and
-- `https://raw.githubusercontent.com/nullabletype/dot-orbit/main/schemas/interchange/v1/change-proposal.schema.json`.
+- `https://raw.githubusercontent.com/nullabletype/dot-orbit/main/schemas/interchange/v1/planning-snapshot.schema.json`;
+- `https://raw.githubusercontent.com/nullabletype/dot-orbit/main/schemas/interchange/v1/change-proposal.schema.json`; and
+- `https://raw.githubusercontent.com/nullabletype/dot-orbit/main/schemas/interchange/v1/new-work-proposal.schema.json`.
 
 Those immutable schemas are checked in at the matching `schemas/interchange/v1/` paths and packaged with the application. Validation uses a closed in-memory catalogue containing only those schemas, the general 2020-12 meta-schema, and every vocabulary meta-schema it transitively references under its official identifier. Network and filesystem resolution are disabled in build tests and at runtime. The application never resolves HTTP, filesystem, proposal-supplied, or other remote references. Version 1 generates and accepts only version 1; compatibility conversion begins only when a real version 2 exists and explicitly retains version 1.
 
@@ -152,9 +161,11 @@ Snapshot and reusable-instruction generation has a separate 16 MiB strict-UTF-8 
 
 ## Review and approval
 
-After syntactic, schema, reference, stale-source, and domain validation, dot-orbit builds one immutable current-model execution plan. The authoritative preview is derived only from that plan and is visually separated from optional agent explanations.
+After syntactic, schema, reference, stale-source, and domain validation, dot-orbit builds one immutable current-model execution plan. Its complete effect model is derived only from that plan and is visually separated from optional agent explanations.
 
-The preview shows every direct change and every locally derived effect, including:
+The human review shows every record the proposal directly creates or changes. It does not expand routine derived mechanics into a potentially enormous list of otherwise untouched records. A short statement makes those knock-on changes explicit as a class, including ordering shifts, inherited Category values, Today removal, Project totals or status, and aggregate archive or Bin consequences.
+
+The retained plan still computes and bounds every direct and locally derived effect, including:
 
 - completion and archive transitions;
 - Today memberships cleared by normal domain rules;
@@ -164,13 +175,13 @@ The preview shows every direct change and every locally derived effect, includin
 - generated Category/Participant creation and record relationships; and
 - final relative Project Task ordering.
 
-Archived and Bin content remains local and is not copied back into the proposal or external snapshot. If a hidden effect cannot be described completely within the preview limit, validation rejects the proposal rather than presenting an incomplete preview.
+Archived and Bin content remains local and is not copied back into the proposal or external snapshot. If a derived effect cannot be represented completely within the internal preview-model limit, validation rejects the proposal rather than approving an incompletely validated plan.
 
 Approval is all-or-nothing. The user cannot select individual operations, because removing an operation would rewrite dependencies and create a different proposal. To change the set, the user rejects it and supplies a new proposal.
 
-The pending review retains the immutable execution plan, complete preview model, source snapshot identity and revision, and `SHA-256(JCS(validated proposal))` identity in memory. The digest is an internal integrity guard derived from sensitive content: it is not authentication and is never logged or exposed as diagnostic evidence. Navigating away, closing the workspace, locking, or restarting discards the pending plan, preview, and approval. After Review, any attempted content-changing interaction—typing, paste, file load, or drop, whether accepted or rejected—first destroys the pending plan, preview, and approval and disables Apply. A rejected mutation or replacement may leave the visible text unchanged, but it cannot leave the old plan actionable. Focus remains on or returns to the intake surface and invalidation is announced accessibly.
+The pending review retains the immutable execution plan, complete internal effect model, its review-bound source state, and `SHA-256(JCS(validated proposal))` identity in memory. A Change plan retains snapshot identity and revision; a New-work plan retains the current revision captured at Review. The digest is an internal integrity guard derived from sensitive content: it is not authentication and is never logged or exposed as diagnostic evidence. Navigating away, closing the workspace, locking, or restarting discards the pending plan, effect model, and approval. After Review, any attempted content-changing interaction—typing, paste, file load, or drop, whether accepted or rejected—first destroys the pending plan, effect model, and approval and disables Apply. A rejected mutation or replacement may leave the visible text unchanged, but it cannot leave the old plan actionable. Focus remains on or returns to the intake surface and invalidation is announced accessibly.
 
-Apply never reacquires or reparses the original text or reloads a source file. It flushes or blocks pending inspector changes under the existing editing contract, enters the retained database-level exclusive boundary described above, rechecks source identity and revision, creates and validates the required encrypted recovery point, rechecks again, and applies the retained plan in one transaction. Any stale state, changed preview, recovery failure, cancellation, domain failure, or transaction failure before commit applies nothing.
+Apply never reacquires or reparses the original text or reloads a source file. It flushes or blocks pending inspector changes under the existing editing contract and enters the retained database-level exclusive boundary described above. A Change proposal rechecks snapshot identity and revision; a New-work proposal rechecks the revision captured at Review. Apply creates and validates the required encrypted recovery point, repeats the applicable check, and applies the retained plan in one transaction. Any stale state, recovery failure, cancellation, domain failure, or transaction failure before commit applies nothing.
 
 Commit is the mutation success boundary. Once the transaction commits, the proposal is applied exactly once and the workspace revision has advanced. A later projection refresh or automatic-recovery scheduling failure is reported as committed-with-refresh-or-maintenance-failure; retry refreshes or reconciles only and never replays the proposal. Explicit approval is single-use on both committed and non-committed outcomes.
 
@@ -178,13 +189,14 @@ Commit is the mutation success boundary. Once the transaction commits, the propo
 
 | Exercise | Version 1 outcome |
 | --- | --- |
+| Supply notes to an external agent and return a New-work proposal containing a local Category, Project, and Tasks | Valid without a Planning snapshot; Review binds the plan to the current revision and Apply generates every durable ID. |
 | Create a Category, then create a standalone Task that references its local ID | Valid when the create appears first and the normalised Category name is unique; both durable IDs are application-generated. |
 | Edit one Task title twice, or move it twice | Invalid because the second operation writes an already-consumed content or relationship facet. |
-| Review a proposal, then commit an unrelated hidden-state mutation before Apply | Invalid at Apply because the Workspace revision and recomputed source identity are rechecked under the exclusive boundary; nothing from the proposal applies. |
+| Review a proposal, then commit an unrelated hidden-state mutation before Apply | Invalid at Apply because the Workspace revision is rechecked under the exclusive boundary; a Change proposal also recomputes source identity. Nothing from the proposal applies. |
 | Attach a Task whose effective Category differs from the destination Project | Invalid without an explicit `adoptProjectCategory` or `preserveAsOverride`; valid with exactly one choice, which consumes Category and relationship facets. |
 | Move an attached Task and place it after another Task in the destination Project | Valid when the move precedes the reorder and the anchor is included in that destination at that point in proposal order. |
-| Archive an active Project with incomplete, completed, and Today Tasks | Valid as the Project's terminal operation; local preview shows every Today removal and derived visibility effect without exporting archived child content. |
-| Move a Project to Bin when it has active, individually archived, and already-binned children | Valid as one aggregate terminal action only when no child is separately targeted; preview shows moved children and the restore constraint on already-binned children. |
+| Archive an active Project with incomplete, completed, and Today Tasks | Valid as the Project's terminal operation; Review shows the direct Project archive and identifies ordinary child visibility and Today changes as implied without exporting archived child content. |
+| Move a Project to Bin when it has active, individually archived, and already-binned children | Valid as one aggregate terminal action only when no child is separately targeted; Review shows the direct Project action and identifies child movement and restore consequences as implied. |
 | Supply duplicate JSON members, depth 33, 513 operations, or more than 4 MiB | Invalid before planning; the whole proposal is rejected with bounded non-sensitive guidance. |
 | Supply schema version `0`, `2`, or an unknown format | Invalid without conversion or mutation; version 1 accepts only version 1. |
 

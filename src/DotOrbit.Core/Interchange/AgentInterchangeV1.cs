@@ -4,6 +4,7 @@ public static class AgentInterchangeV1
 {
     public const string PlanningSnapshotFormat = "dot-orbit-planning-snapshot";
     public const string ChangeProposalFormat = "dot-orbit-change-proposal";
+    public const string NewWorkProposalFormat = "dot-orbit-new-work-proposal";
     public const int SchemaVersion = 1;
     public const int MaximumOutputBytes = 16 * 1024 * 1024;
     public const int MaximumIdentifierScalars = 128;
@@ -16,6 +17,9 @@ public static class AgentInterchangeV1
 
     public const string ChangeProposalSchemaId =
         "https://raw.githubusercontent.com/nullabletype/dot-orbit/main/schemas/interchange/v1/change-proposal.schema.json";
+
+    public const string NewWorkProposalSchemaId =
+        "https://raw.githubusercontent.com/nullabletype/dot-orbit/main/schemas/interchange/v1/new-work-proposal.schema.json";
 }
 
 public readonly record struct WorkspaceRevision

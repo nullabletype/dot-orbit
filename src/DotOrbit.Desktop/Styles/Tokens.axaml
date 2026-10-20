@@ -107,5 +107,5 @@
   <Thickness x:Key="InspectorScrollContentInset">0,0,32,16</Thickness>
   <Thickness x:Key="ControlBorder">1</Thickness>
   <Thickness x:Key="FocusBorder">2</Thickness>
-  <StreamGeometry x:Key="CategoryOverrideIconData">M5,4 L5,9 C5,11 7,12 9,12 L17,12 M13,8 L17,12 L13,16</StreamGeometry>
+  <StreamGeometry x:Key="CategoryOverrideIconData">M3,2 L3,12 C3,14 5,15 7,15 L15,15 M3,7 L8,7 C10,7 11,6 11,4 L11,2</StreamGeometry>
 </ResourceDictionary>

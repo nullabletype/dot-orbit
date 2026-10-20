@@ -9,6 +9,30 @@ namespace DotOrbit.Interchange.Json.Tests;
 public sealed class ProposalReviewBoundaryTests
 {
     [Fact]
+    public void NewWorkReviewReadsCurrentWorkspaceOnceAndBindsThePlanInternally()
+    {
+        var source = Source("");
+        var input = """
+            {
+              "format": "dot-orbit-new-work-proposal",
+              "schemaVersion": 1,
+              "operations": [
+                { "operation": "createCategory", "operationId": "1", "localId": "category", "name": "Fresh" },
+                { "operation": "createTask", "operationId": "2", "localId": "task", "title": "Task", "description": "", "project": null, "category": { "mode": "explicit", "category": { "localId": "category" } }, "dueDate": null, "participants": [] }
+              ]
+            }
+            """;
+
+        var result = new ProposalReviewBoundary(source, TimeProvider.System)
+            .Review(Encoding.UTF8.GetBytes(input));
+
+        Assert.Equal(1, source.ReadCount);
+        Assert.Equal(ProposalKind.NewWork, result.Plan!.Kind);
+        Assert.Equal(source.State.Revision, result.Plan.SourceWorkspaceRevision);
+        Assert.Null(result.Plan.SourceSnapshotId);
+    }
+
+    [Fact]
     public void UnchangedStoredMarkdownMayExceedProposalFieldNodeLimit()
     {
         var source = Source(string.Join("\n\n", Enumerable.Repeat("synthetic", 2_049)));

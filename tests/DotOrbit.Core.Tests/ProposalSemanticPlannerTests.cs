@@ -20,8 +20,100 @@ public sealed class ProposalSemanticPlannerTests
     private static ProposalPlanResult Validate(params ChangeOperation[] operations) =>
         new ProposalSemanticPlanner(TimeProvider.System, new Markdown()).Validate(
             new(AgentInterchangeV1.ChangeProposalFormat, 1, Identity, new(1), operations), Source(), Identity, "digest");
+    private static ProposalPlanResult ValidateNewWork(params ChangeOperation[] operations) =>
+        new ProposalSemanticPlanner(TimeProvider.System, new Markdown()).Validate(
+            new(
+                ProposalKind.NewWork,
+                AgentInterchangeV1.NewWorkProposalFormat,
+                1,
+                null,
+                null,
+                operations),
+            Source(),
+            null,
+            "digest");
     private sealed class Markdown : IProposalMarkdownValidator
     { public ProposalMarkdownValidation Validate(string markdown, bool proposed) => new(true, markdown.Length == 0 ? 0 : 1, 0); }
+
+    [Fact]
+    public void NewWorkCreatesALocalGraphWithoutAWorkspaceSource()
+    {
+        var result = ValidateNewWork(
+            new CreateCategoryOperation("1", "category", "Fresh"),
+            new CreateParticipantOperation("2", "participant", "Person"),
+            new CreateProjectOperation("3", "project", "Project", "", ProposalReference.Local("category"), null),
+            new CreateTaskOperation("4", "task", "Task", "", ProposalReference.Local("project"),
+                new(ProposedTaskCategoryMode.Inherit), null, [ProposalReference.Local("participant")]));
+
+        Assert.Equal(ProposalKind.NewWork, result.Plan!.Kind);
+        Assert.Null(result.Plan.SourceSnapshotId);
+        Assert.Equal(new WorkspaceRevision(1), result.Plan.SourceWorkspaceRevision);
+        Assert.Contains(result.Plan.Preview, effect => effect.Kind == "create-task" && effect.Target.LocalId == "task");
+    }
+
+    [Fact]
+    public void CoreRejectsNewWorkThatSmugglesExistingReferencesOrMutationOperations()
+    {
+        var existingReference = ValidateNewWork(
+            new CreateProjectOperation("1", "project", "Project", "", ProposalReference.Existing("c"), null));
+        var existingTaskReferences = ValidateNewWork(
+            new CreateTaskOperation("1", "task", "Task", "", ProposalReference.Existing("p"),
+                new(ProposedTaskCategoryMode.Explicit, ProposalReference.Existing("c")), null,
+                [ProposalReference.Existing("participant")]));
+        var mutation = ValidateNewWork(new CompleteTaskOperation("1", TaskA));
+
+        Assert.Equal("invalid-new-work", Assert.Single(existingReference.Failures).Code);
+        Assert.Equal("invalid-new-work", Assert.Single(existingTaskReferences.Failures).Code);
+        Assert.Equal("invalid-new-work", Assert.Single(mutation.Failures).Code);
+    }
+
+    [Fact]
+    public void NewWorkKeepsCatalogueNamesUniqueButAllowsDuplicateWorkTitles()
+    {
+        var duplicateCategory = ValidateNewWork(
+            new CreateCategoryOperation("1", "category", " category "));
+        var duplicateParticipant = ValidateNewWork(
+            new CreateParticipantOperation("1", "first", "Person"),
+            new CreateParticipantOperation("2", "second", " person "));
+        var duplicateWorkTitles = ValidateNewWork(
+            new CreateCategoryOperation("1", "category", "Fresh"),
+            new CreateProjectOperation("2", "project", "Project", "", ProposalReference.Local("category"), null),
+            new CreateTaskOperation("3", "task", "Task A", "", ProposalReference.Local("project"),
+                new(ProposedTaskCategoryMode.Inherit), null, []));
+
+        Assert.Equal("duplicate-category-name", Assert.Single(duplicateCategory.Failures).Code);
+        Assert.Equal("duplicate-participant-label", Assert.Single(duplicateParticipant.Failures).Code);
+        Assert.NotNull(duplicateWorkTitles.Plan);
+    }
+
+    [Fact]
+    public void CreatedProjectPreviewUsesThePersistedPositionAcrossBinnedProjects()
+    {
+        var binnedProject = new ProjectRecord("binned", "Binned", "", "c", null, 4, ColourKey: "lime");
+        var source = Source() with
+        {
+            ProjectBin = [new(binnedProject, DateTimeOffset.UnixEpoch, "Category", 0)],
+        };
+        var result = new ProposalSemanticPlanner(TimeProvider.System, new Markdown()).Validate(
+            new(
+                AgentInterchangeV1.ChangeProposalFormat,
+                1,
+                Identity,
+                new(1),
+                [new CreateProjectOperation(
+                    "create",
+                    "created",
+                    "Created",
+                    "",
+                    ProposalReference.Existing("c"),
+                    null)]),
+            source,
+            Identity,
+            "digest");
+
+        var created = Assert.Single(result.Plan!.Preview, effect => effect.Kind == "create-project");
+        Assert.Equal(IdentityColourPalette.KeyForProjectPosition(5), created.Identity.TargetColourKey);
+    }
 
     [Fact]
     public void OrderedLocalCreationAndPostCreateCompletionProduceTypedPlan()
@@ -33,6 +125,27 @@ public sealed class ProposalSemanticPlannerTests
         Assert.NotNull(result.Plan);
         Assert.Contains(result.Plan.Preview, effect => effect.Target.LocalId == "task" && effect.Kind == "completion");
         Assert.All(result.Plan.Preview, effect => Assert.DoesNotContain("\u0000", effect.ToString(), StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void PreviewIdentityUsesFinalCrossRecordProjectNameAndInheritedCategory()
+    {
+        var result = Validate(
+            new CreateProjectOperation("1", "project", "Created", "", ProposalReference.Existing("c"), null),
+            new CreateTaskOperation("2", "task", "Task", "", ProposalReference.Local("project"),
+                new(ProposedTaskCategoryMode.Inherit), null, []),
+            new EditProjectOperation("3", ProposalReference.Local("project"),
+                new(new(true, "Renamed"), default, default)),
+            new SetProjectCategoryOperation("4", ProposalReference.Local("project"), ProposalReference.Existing("d")));
+
+        var taskEffects = result.Plan!.Preview.Where(effect => effect.Target.LocalId == "task").ToArray();
+        Assert.NotEmpty(taskEffects);
+        Assert.All(taskEffects, effect =>
+        {
+            Assert.Equal("Renamed", effect.Identity.ProjectName);
+            Assert.Equal("Other", effect.Identity.CategoryName);
+            Assert.Equal("Other", effect.Identity.ProjectCategoryName);
+        });
     }
     [Fact]
     public void ForwardLocalReferenceIsRejected() => Assert.Equal("invalid-local-reference", Validate(
@@ -51,6 +164,9 @@ public sealed class ProposalSemanticPlannerTests
         var result = Validate(new ReorderProjectTaskOperation("1", ProposalReference.Existing("b"),
             new(ProjectTaskPlacementKind.Before, TaskA)));
         Assert.NotNull(result.Plan);
+        var direct = Assert.Single(result.Plan.Preview, effect => effect.Kind == "task-reorder");
+        Assert.Equal("Position 2", direct.Before);
+        Assert.Equal("Position 1", direct.After);
         var rows = result.Plan.Preview.Where(effect => effect.Kind == "final-project-order-row").ToArray();
         Assert.Equal("Position 1; active", rows.Single(row => row.Target.ExistingId == "b").After);
         Assert.Equal("Position 2; individually archived", rows.Single(row => row.Target.ExistingId == "hidden").After);
@@ -315,7 +431,8 @@ public sealed class ProposalSemanticPlannerTests
     {
         const string before = "Incomplete; completion date: None";
         const string after = "Complete; completion date: 2030-04-05";
-        var overhead = System.Text.Encoding.UTF8.GetByteCount("completion" + "a" + before + after);
+        var overhead = System.Text.Encoding.UTF8.GetByteCount(
+            "completion" + "a" + before + after + "Category" + IdentityColourPalette.DefaultKey);
         var source = Source();
         source = source with
         {

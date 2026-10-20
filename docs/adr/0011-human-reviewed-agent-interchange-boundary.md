@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-12
+- Amended by: [ADR 0012 — Context-free New-work proposals](0012-context-free-new-work-proposals.md), which adds a creation-only proposal alongside the snapshot-bound Change proposal.
 
 ## Context
 
@@ -18,11 +19,11 @@ Adopt the [agent-interchange version 1 contract](../planning/agent-interchange-v
 Version 1 is one provider-neutral, human-reviewed exchange:
 
 - dot-orbit generates an immutable Planning snapshot of all reusable Categories and Participants, active Projects, and non-archived, non-binned standalone or active-Project Tasks, including completed Tasks;
-- an external tool returns one strict, versioned JSON Change proposal tied to that snapshot;
-- dot-orbit validates the ordered proposal prospectively into one immutable execution plan and derives the complete authoritative preview only from that plan; and
+- an external tool returns one strict, versioned JSON proposal, tied to that snapshot when it updates or connects existing work;
+- dot-orbit validates the ordered proposal prospectively into one immutable execution plan, derives its complete authoritative effect model only from that plan, and presents the directly added or changed work while treating routine derived mechanics as implied; and
 - the user approves the whole proposal, which applies once as one recovery-backed transaction or not at all.
 
-Archived and binned Project and Task content is not disclosed externally. The local preview still expands every affected aggregate, including archived and already-binned Project children, so approval never hides a local lifecycle consequence. Category and Participant catalogue labels are included for stable references, and the copy preview discloses that they may reveal context used only by hidden work.
+Archived and binned Project and Task content is not disclosed externally. The complete internal effect model still validates every affected aggregate, including archived and already-binned Project children. Human review shows the direct aggregate action and identifies normal child lifecycle consequences as implied rather than expanding every child into a row. Category and Participant catalogue labels are included for stable references, and the copy preview discloses that they may reveal context used only by hidden work.
 
 Version 1 may create Categories and Participants and may reference or associate them. It cannot rename, merge, recolour, reorder, or delete those global reusable records. It cannot directly change Today or global order, restore hidden work, duplicate, permanently delete, or empty Bin. Existing domain validation and aggregate behaviour remain authoritative.
 
@@ -30,9 +31,9 @@ Use JSON Schema 2020-12 with immutable packaged version-1 schemas and a closed o
 
 Identify a snapshot with `sha256:` plus SHA-256 of RFC 8785 JCS over the snapshot without its identity property. The digest binds content but does not establish provenance or authentication. Store a durable positive signed-64-bit Workspace revision that starts at `1` and advances exactly once with every transaction that actually changes user data. A recovery restore rebases restored data to a checked successor greater than both the pre-restore and recovered revisions, carrying that successor through migration when necessary, so an old proposal cannot become current again. Workspace revision does not reuse automatic-recovery generations or desktop autosave request revisions.
 
-Read snapshot state and revision atomically. Review checks both the source revision and recomputed snapshot identity. Apply repeats both checks through an operation-scoped SQLite connection that retains a database-level exclusive lock across validated recovery creation, the final source check, proposal transaction, and commit. If commit succeeds, later projection-refresh or recovery-scheduling failure is maintenance failure after a successful apply and must never replay the proposal.
+Read workspace state and revision atomically. Change-proposal Review checks both source revision and recomputed snapshot identity; New-work Review captures the current revision internally. Apply repeats the applicable checks through an operation-scoped SQLite connection that retains a database-level exclusive lock across validated recovery creation, the final source check, proposal transaction, and commit. If commit succeeds, later projection-refresh or recovery-scheduling failure is maintenance failure after a successful apply and must never replay the proposal.
 
-Provide one desktop proposal text surface with three explicit input paths: typing or paste, **Load from file…**, and a single local file dropped onto the surface. Every path converges on the same bounded strict-UTF-8 text boundary. The file picker is the keyboard-accessible equivalent of drop. The application never monitors clipboard or filesystem state, follows a proposal-file link, watches or reloads a file, retains its path, or reads meeting material. Any attempted input change after Review invalidates the retained plan, preview, and approval.
+Provide one desktop proposal text surface with three explicit input paths: typing or paste, **Load from file…**, and a single local file dropped onto the surface. Every path converges on the same bounded strict-UTF-8 text boundary. The file picker is the keyboard-accessible equivalent of drop. The application never monitors clipboard or filesystem state, follows a proposal-file link, watches or reloads a file, retains its path, or reads meeting material. Any attempted input change after Review invalidates the retained plan, effect model, and approval.
 
 Assign module responsibilities without scaffolding an unused module:
 

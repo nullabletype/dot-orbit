@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/nullabletype/dot-orbit/main/schemas/interchange/v1/new-work-proposal.schema.json",
+  "title": "dot-orbit new-work proposal v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "schemaVersion", "operations"],
+  "properties": {
+    "format": { "const": "dot-orbit-new-work-proposal" },
+    "schemaVersion": { "const": 1 },
+    "operations": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/createCategory" },
+          { "$ref": "#/$defs/createParticipant" },
+          { "$ref": "#/$defs/createProject" },
+          { "$ref": "#/$defs/createTask" }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "identifier": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "title": { "type": "string", "minLength": 1, "maxLength": 1024 },
+    "description": { "type": "string", "maxLength": 65536 },
+    "explanation": { "type": "string", "maxLength": 65536 },
+    "date": { "type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])$" },
+    "nullableDate": { "oneOf": [{ "$ref": "#/$defs/date" }, { "type": "null" }] },
+    "localReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["localId"],
+      "properties": { "localId": { "$ref": "#/$defs/identifier" } }
+    },
+    "operationBase": {
+      "type": "object",
+      "required": ["operationId"],
+      "properties": {
+        "operationId": { "$ref": "#/$defs/identifier" },
+        "explanation": { "$ref": "#/$defs/explanation" }
+      }
+    },
+    "taskCategory": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": { "mode": { "const": "inherit" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "category"],
+          "properties": {
+            "mode": { "const": "explicit" },
+            "category": { "$ref": "#/$defs/localReference" }
+          }
+        }
+      ]
+    },
+    "participantReferences": {
+      "type": "array",
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/localReference" }
+    },
+    "createCategory": {
+      "allOf": [{ "$ref": "#/$defs/operationBase" }, { "type": "object", "required": ["operation", "localId", "name"], "properties": { "operation": { "const": "createCategory" }, "localId": { "$ref": "#/$defs/identifier" }, "name": { "$ref": "#/$defs/title" } } }],
+      "unevaluatedProperties": false
+    },
+    "createParticipant": {
+      "allOf": [{ "$ref": "#/$defs/operationBase" }, { "type": "object", "required": ["operation", "localId", "label"], "properties": { "operation": { "const": "createParticipant" }, "localId": { "$ref": "#/$defs/identifier" }, "label": { "$ref": "#/$defs/title" } } }],
+      "unevaluatedProperties": false
+    },
+    "createProject": {
+      "allOf": [{ "$ref": "#/$defs/operationBase" }, { "type": "object", "required": ["operation", "localId", "title", "description", "category", "targetDate"], "properties": { "operation": { "const": "createProject" }, "localId": { "$ref": "#/$defs/identifier" }, "title": { "$ref": "#/$defs/title" }, "description": { "$ref": "#/$defs/description" }, "category": { "$ref": "#/$defs/localReference" }, "targetDate": { "$ref": "#/$defs/nullableDate" } } }],
+      "unevaluatedProperties": false
+    },
+    "createTask": {
+      "allOf": [{ "$ref": "#/$defs/operationBase" }, { "type": "object", "required": ["operation", "localId", "title", "description", "project", "category", "dueDate", "participants"], "properties": { "operation": { "const": "createTask" }, "localId": { "$ref": "#/$defs/identifier" }, "title": { "$ref": "#/$defs/title" }, "description": { "$ref": "#/$defs/description" }, "project": { "oneOf": [{ "$ref": "#/$defs/localReference" }, { "type": "null" }] }, "category": { "$ref": "#/$defs/taskCategory" }, "dueDate": { "$ref": "#/$defs/nullableDate" }, "participants": { "$ref": "#/$defs/participantReferences" } } }],
+      "unevaluatedProperties": false
+    }
+  }
+}
