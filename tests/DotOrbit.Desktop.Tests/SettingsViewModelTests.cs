@@ -101,6 +101,39 @@ public sealed class SettingsViewModelTests
         Assert.Contains("previous theme is still active", settings.Announcement, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void AiFeatureToggleAppliesAndAnnouncesOnlyAfterPersistenceSucceeds()
+    {
+        var preferences = new RecordingAiFeaturePreferenceService();
+        var observed = new List<bool>();
+        var settings = new SettingsViewModel(
+            new MemoryWorkspaceWork(),
+            () => { },
+            aiFeaturePreferenceService: preferences,
+            aiFeaturesChanged: observed.Add);
+
+        Assert.False(settings.AiFeaturesEnabled);
+        Assert.Equal("AI features disabled", settings.AiFeaturesStatus);
+
+        settings.AiFeaturesEnabled = true;
+
+        Assert.True(preferences.AiFeaturesEnabled);
+        Assert.True(settings.AiFeaturesEnabled);
+        Assert.Equal("AI features enabled", settings.AiFeaturesStatus);
+        Assert.Equal([true], observed);
+        Assert.Equal(
+            "AI features enabled. Manual agent interchange is now available.",
+            settings.Announcement);
+
+        preferences.AllowChange = false;
+        settings.AiFeaturesEnabled = false;
+
+        Assert.True(preferences.AiFeaturesEnabled);
+        Assert.True(settings.AiFeaturesEnabled);
+        Assert.Equal([true], observed);
+        Assert.Contains("previous setting is still active", settings.Announcement, StringComparison.Ordinal);
+    }
+
     private sealed class RecordingThemeService(ApplicationTheme theme) : IApplicationThemeService
     {
         public ApplicationTheme CurrentTheme { get; private set; } = theme;
@@ -115,6 +148,24 @@ public sealed class SettingsViewModelTests
             }
 
             CurrentTheme = theme;
+            return true;
+        }
+    }
+
+    private sealed class RecordingAiFeaturePreferenceService : IAiFeaturePreferenceService
+    {
+        public bool AiFeaturesEnabled { get; private set; }
+
+        public bool AllowChange { get; set; } = true;
+
+        public bool TrySetAiFeaturesEnabled(bool enabled)
+        {
+            if (!AllowChange)
+            {
+                return false;
+            }
+
+            AiFeaturesEnabled = enabled;
             return true;
         }
     }

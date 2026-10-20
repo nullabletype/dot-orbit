@@ -10,6 +10,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private readonly IWorkspaceWork _work;
     private readonly Action _participantsChanged;
     private readonly IApplicationThemeService _applicationThemeService;
+    private readonly IAiFeaturePreferenceService _aiFeaturePreferenceService;
+    private readonly Action<bool> _aiFeaturesChanged;
     private string _announcement = string.Empty;
     private string _focusAutomationId = string.Empty;
     private string _securityConfirmation = string.Empty;
@@ -17,11 +19,16 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     public SettingsViewModel(
         IWorkspaceWork work,
         Action participantsChanged,
-        IApplicationThemeService? applicationThemeService = null)
+        IApplicationThemeService? applicationThemeService = null,
+        IAiFeaturePreferenceService? aiFeaturePreferenceService = null,
+        Action<bool>? aiFeaturesChanged = null)
     {
         _work = work;
         _participantsChanged = participantsChanged;
         _applicationThemeService = applicationThemeService ?? new TransientApplicationThemeService();
+        _aiFeaturePreferenceService = aiFeaturePreferenceService
+            ?? new TransientAiFeaturePreferenceService();
+        _aiFeaturesChanged = aiFeaturesChanged ?? (_ => { });
         ThemeOptions =
         [
             new(ApplicationTheme.Dark, "Dark"),
@@ -61,6 +68,35 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         }
     }
     public string ThemeStatus => $"{SelectedTheme.Name} theme selected";
+    public bool AiFeaturesEnabled
+    {
+        get => _aiFeaturePreferenceService.AiFeaturesEnabled;
+        set
+        {
+            if (value == AiFeaturesEnabled)
+            {
+                return;
+            }
+
+            if (!_aiFeaturePreferenceService.TrySetAiFeaturesEnabled(value))
+            {
+                Announcement =
+                    "Could not save the AI features preference. The previous setting is still active.";
+                Notify();
+                return;
+            }
+
+            Notify();
+            Notify(nameof(AiFeaturesStatus));
+            _aiFeaturesChanged(value);
+            Announcement = value
+                ? "AI features enabled. Manual agent interchange is now available."
+                : "AI features disabled. Agent interchange is unavailable.";
+        }
+    }
+    public string AiFeaturesStatus => AiFeaturesEnabled
+        ? "AI features enabled"
+        : "AI features disabled";
     public bool HasParticipants => Participants.Count > 0;
     public bool HasNoParticipants => !HasParticipants;
     public string Announcement

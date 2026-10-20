@@ -257,20 +257,13 @@
             Padding="0,12,0,0"
             BorderBrush="{DynamicResource LineSoftBrush}"
             BorderThickness="0,1,0,0">
-          <StackPanel Spacing="4">
-            <ContentControl
-                HorizontalContentAlignment="Stretch"
-                Content="{Binding AiNavigation}"
-                ContentTemplate="{StaticResource NavigationItemTemplate}" />
-            <ContentControl
-                HorizontalContentAlignment="Stretch"
-                Content="{Binding BinNavigation}"
-                ContentTemplate="{StaticResource NavigationItemTemplate}" />
-            <ContentControl
-                HorizontalContentAlignment="Stretch"
-                Content="{Binding SettingsNavigation}"
-                ContentTemplate="{StaticResource NavigationItemTemplate}" />
-          </StackPanel>
+          <ItemsControl
+              ItemTemplate="{StaticResource NavigationItemTemplate}"
+              ItemsSource="{Binding UtilityNavigation}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate><StackPanel Spacing="4" /></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+          </ItemsControl>
         </Border>
       </Grid>
     </Border>
@@ -1121,6 +1114,33 @@
 
         <StackPanel Spacing="10">
           <StackPanel Spacing="4">
+            <TextBlock FontSize="20" FontWeight="Bold" Text="AI features" />
+            <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
+                Text="Off by default. Enable the local, provider-neutral tools for sharing planning context and reviewing agent proposals." />
+          </StackPanel>
+          <Border Classes="list-panel row-list">
+            <Border Classes="interactive-row separated-row last" MinHeight="54">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <StackPanel VerticalAlignment="Center" Spacing="2">
+                  <TextBlock FontWeight="SemiBold" Text="Enable AI features" />
+                  <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
+                      Text="Stored on this device. Enabling does not contact an AI provider or share workspace data." TextWrapping="Wrap" />
+                </StackPanel>
+                <ToggleSwitch
+                    x:Name="SettingsAiFeaturesToggle"
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    IsChecked="{Binding Settings.AiFeaturesEnabled, Mode=TwoWay}"
+                    AutomationProperties.AutomationId="settings-ai-features"
+                    AutomationProperties.Name="Enable AI features"
+                    AutomationProperties.ItemStatus="{Binding Settings.AiFeaturesStatus}" />
+              </Grid>
+            </Border>
+          </Border>
+        </StackPanel>
+
+        <StackPanel Spacing="10">
+          <StackPanel Spacing="4">
             <TextBlock FontSize="20" FontWeight="Bold" Text="Appearance" />
             <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
                 Text="Choose the colour theme used across dot-orbit, including the workspace unlock and recovery windows." />
@@ -1133,7 +1153,8 @@
                   <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
                       Text="Applies immediately and is remembered on this device." TextWrapping="Wrap" />
                 </StackPanel>
-                <ComboBox x:Name="SettingsThemePicker" Grid.Column="1" Classes="inspector-field" HorizontalAlignment="Right"
+                <ComboBox x:Name="SettingsThemePicker" Grid.Column="1" Classes="inspector-field"
+                    HorizontalAlignment="Right" VerticalAlignment="Center"
                     ItemsSource="{Binding Settings.ThemeOptions}"
                     SelectedItem="{Binding Settings.SelectedTheme, Mode=TwoWay}"
                     AutomationProperties.AutomationId="settings-theme"
@@ -1297,7 +1318,13 @@
             </Border>
           </Border>
         </StackPanel>
-        <TextBlock Height="1" Opacity="0" Text="{Binding Settings.Announcement}"
+        <TextBlock
+            x:Name="SettingsAnnouncement"
+            Height="1"
+            Opacity="0"
+            Text="{Binding Settings.Announcement}"
+            AutomationProperties.AutomationId="settings-announcement"
+            AutomationProperties.Name="Settings status"
             AutomationProperties.LiveSetting="Polite" />
       </StackPanel>
     </ScrollViewer>
