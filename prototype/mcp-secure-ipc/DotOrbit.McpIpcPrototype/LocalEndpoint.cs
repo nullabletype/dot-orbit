@@ -581,7 +581,16 @@ internal static class LocalEndpoint
         {
             await pipe.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
             SecurityIdentifier? peerUser = null;
-            pipe.RunAsClient(() => peerUser = WindowsIdentity.GetCurrent(ifImpersonating: true)?.User);
+            try
+            {
+                pipe.RunAsClient(() => peerUser = WindowsIdentity.GetCurrent(ifImpersonating: true)?.User);
+            }
+            catch (Exception exception)
+                when ((exception is IOException or InvalidOperationException) && !pipe.IsConnected)
+            {
+                throw new IOException("peer-disconnected", exception);
+            }
+
             if (peerUser is null || !currentUser.Equals(peerUser))
             {
                 pipe.Disconnect();
