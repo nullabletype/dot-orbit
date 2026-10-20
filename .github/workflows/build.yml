@@ -64,11 +64,6 @@ jobs:
           --evidence
           --expected-sha "${{ github.sha }}"
       - name: Compare MCP prototype package shapes and redirected stdio
-        run: >-
-          dotnet run
-          --project prototype/mcp-secure-ipc/DotOrbit.McpIpcPrototype.PackageCheck/DotOrbit.McpIpcPrototype.PackageCheck.csproj
-          --configuration Release
-          --no-restore
-          --
-          --repository-root .
-          --runtime ${{ matrix.runtime }}
+        run: |
+          dotnet restore DotOrbit.slnx --locked-mode --configfile NuGet.Config
+          dotnet run --project prototype/mcp-secure-ipc/DotOrbit.McpIpcPrototype.PackageCheck/DotOrbit.McpIpcPrototype.PackageCheck.csproj --configuration Release --no-restore -- --repository-root . --runtime ${{ matrix.runtime }}
