@@ -37,14 +37,14 @@ No production module depends on the desktop presentation module. A future mobile
 
 ## Required boundaries
 
-- **Presentation** uses Avalonia MVVM to render the seven primary views, the Bin utility, and the inspector. View models expose presentation state and translate intent but do not own domain rules or SQL.
+- **Presentation** uses Avalonia MVVM to render the seven primary views, the Settings and Bin utilities, the conditional AI utility, and the inspector. View models expose presentation state and translate intent but do not own domain rules or SQL.
 - **Core** owns completion derivation, Category inheritance, Today membership, ordering invariants, and the application actions that change them atomically.
 - **Persistence** is a core-owned seam implemented by the SQLite3MC adapter. It stores records and every independent ordering scope atomically without exposing SQL records or query providers to callers.
 - **Encrypted store lifecycle** owns creation, opening, validation, migration, passphrase rotation, and closing while hiding cipher and key-derivation configuration from callers.
 - **Recovery** automatically creates encrypted, validated, cross-platform recovery points without a plaintext intermediate copy. Its destination is a user-selected filesystem directory that may be managed by an external sync service.
 - **Plaintext export** is a separate, explicit manual operation to a user-selected JSON file. It is unencrypted, follows the [versioned public contract](../data/plaintext-export-v3.md), does not use automatic-backup retention, and does not default to the configured recovery directory.
 - **Synchronisation** is outside the first-release system boundary. A synced backup folder does not provide live record synchronisation or conflict resolution.
-- **Interchange** implements outbound copy and explicit proposal review: Core owns the snapshot model and source interface; SQLite owns atomic revision-bearing filtered reads; `DotOrbit.Interchange.Json` owns deterministic generation, JCS identity, immutable packaged schemas, transport-neutral instruction composition, and bounded failures; Desktop's dedicated AI destination owns explicit plain-text clipboard writes, bounded proposal intake, a human presentation of directly added or changed work, accessibility, confirmation, and device-local composition preference. Strict proposal parsing, prospective semantic planning, complete internal effect modelling, single-use approval, and recovery-backed atomic application remain transport-neutral Core and SQLite boundaries. SQLite supplies one atomic full local state and revision, including hidden records; the same filtered snapshot projection recomputes source identity before and after recovery creation. Meeting-material or transcript access and AI-provider integration remain outside the application boundary. Future MCP is a transport and authentication adapter only and cannot bypass in-app review and approval.
+- **Interchange** implements outbound copy and explicit proposal review: Core owns the snapshot model and source interface; SQLite owns atomic revision-bearing filtered reads; `DotOrbit.Interchange.Json` owns deterministic generation, JCS identity, immutable packaged schemas, transport-neutral instruction composition, and bounded failures; Desktop owns an off-by-default device-local AI-features gate and, while enabled, the dedicated AI destination's explicit plain-text clipboard writes, bounded proposal intake, human presentation of directly added or changed work, accessibility, confirmation, and nested composition preference. Strict proposal parsing, prospective semantic planning, complete internal effect modelling, single-use approval, and recovery-backed atomic application remain transport-neutral Core and SQLite boundaries. SQLite supplies one atomic full local state and revision, including hidden records; the same filtered snapshot projection recomputes source identity before and after recovery creation. Meeting-material or transcript access and AI-provider integration remain outside the application boundary. Future local MCP uses standard stdio at the client seam and private same-user OS IPC to the unlocked desktop, is independently opt-in beneath the global gate, and cannot bypass in-app review and approval.
 - **Markdown** treats all source as untrusted and produces one sanitised render model for preview, rich clipboard output, archive-search text, and plain-text fallback. Raw HTML and automatic remote-image loading are disabled.
 - **Search** indexes archived Project and Task content.
 
@@ -62,11 +62,12 @@ flowchart LR
     Core --> Generator[Core snapshot source]
     Generator --> Json
     Json -->|snapshot and instructions| Desktop
-    MCP[Future local MCP transport] --> Json
+    MCP[Future standard MCP stdio adapter] --> IPC[Private same-user OS IPC]
+    IPC --> Json
     MCP -. cannot approve or apply .-> Desktop
 ```
 
-The desktop and a future MCP transport share the same JSON and Core-owned application contracts. Neither transport owns schema semantics, domain validation, preview calculation, recovery, or mutation authority.
+The desktop and a future MCP adapter share the same JSON and Core-owned application contracts. The app-scoped AI-features gate must be enabled before either manual interchange or MCP is available; MCP also has its own off-by-default lifecycle control. Neither transport owns schema semantics, domain validation, preview calculation, recovery, or mutation authority.
 
 ## Deferred architecture questions
 

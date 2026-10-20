@@ -7,13 +7,24 @@ namespace DotOrbit.Desktop.ViewModels;
 public sealed class ShellViewModel : INotifyPropertyChanged
 {
     private NavigationItemViewModel _selectedItem = null!;
+    private readonly IInterchangePreferenceService _interchangePreferenceService;
+    private readonly IAiFeaturePreferenceService _aiFeaturePreferenceService;
 
     public ShellViewModel(
         IWorkspaceWork? work = null,
         TimeProvider? timeProvider = null,
         IApplicationThemeService? applicationThemeService = null,
-        IInterchangePreferenceService? interchangePreferenceService = null)
-        : this(work, timeProvider, applicationThemeService, null, null, null, interchangePreferenceService)
+        IInterchangePreferenceService? interchangePreferenceService = null,
+        IAiFeaturePreferenceService? aiFeaturePreferenceService = null)
+        : this(
+            work,
+            timeProvider,
+            applicationThemeService,
+            null,
+            null,
+            null,
+            interchangePreferenceService,
+            aiFeaturePreferenceService)
     {
     }
 
@@ -24,9 +35,14 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         IInspectorSaveWriter? inspectorSaveWriter = null,
         IWorkspaceActionExecutor? actionExecutor = null,
         IUiDispatcher? uiDispatcher = null,
-        IInterchangePreferenceService? interchangePreferenceService = null)
+        IInterchangePreferenceService? interchangePreferenceService = null,
+        IAiFeaturePreferenceService? aiFeaturePreferenceService = null)
     {
         applicationThemeService ??= new TransientApplicationThemeService();
+        _interchangePreferenceService = interchangePreferenceService
+            ?? new TransientInterchangePreferenceService();
+        _aiFeaturePreferenceService = aiFeaturePreferenceService
+            ?? new TransientAiFeaturePreferenceService();
         Work = work is null
             ? null
             : inspectorSaveWriter is null
@@ -37,10 +53,12 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             : new SettingsViewModel(
                 work,
                 () => Work!.RefreshFromStore(),
-                applicationThemeService);
-        Ai = work is null
+                applicationThemeService,
+                _aiFeaturePreferenceService,
+                OnAiFeaturesChanged);
+        Ai = work is null || !AiFeaturesEnabled
             ? null
-            : new AiViewModel(interchangePreferenceService);
+            : new AiViewModel(_interchangePreferenceService);
         PrimaryNavigation =
         [
             CreateNavigationItem(
@@ -139,6 +157,9 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     public NavigationItemViewModel AiNavigation { get; }
     public NavigationItemViewModel BinNavigation { get; }
     public NavigationItemViewModel SettingsNavigation { get; }
+    public IReadOnlyList<NavigationItemViewModel> UtilityNavigation => AiFeaturesEnabled
+        ? [AiNavigation, BinNavigation, SettingsNavigation]
+        : [BinNavigation, SettingsNavigation];
 
     public NavigationItemViewModel SelectedItem
     {
@@ -173,7 +194,9 @@ public sealed class ShellViewModel : INotifyPropertyChanged
 
     public ProjectCaptureViewModel? Work { get; }
     public SettingsViewModel? Settings { get; }
-    public AiViewModel? Ai { get; }
+    public AiViewModel? Ai { get; private set; }
+
+    public bool AiFeaturesEnabled => _aiFeaturePreferenceService.AiFeaturesEnabled;
 
     public bool ShowProjects => Work is not null && ViewTitle == "Projects";
     public bool ShowToday => Work is not null && ViewTitle == "Today";
@@ -183,7 +206,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     public bool ShowArchive => Work is not null && ViewTitle == "Archive";
     public bool ShowBin => Work is not null && ViewTitle == "Bin";
     public bool ShowCategories => Work is not null && ViewTitle == "Categories";
-    public bool ShowAI => ViewTitle == "AI";
+    public bool ShowAI => AiFeaturesEnabled && ViewTitle == "AI";
     public bool ShowSettings => ViewTitle == "Settings";
     public bool ShowWorkspace => !ShowAI && !ShowSettings;
     public bool ShowEmpty => !ShowToday && !ShowUpcoming && !ShowProjects && !ShowBacklog && !ShowCompleted && !ShowArchive && !ShowBin && !ShowCategories && !ShowAI && !ShowSettings;
@@ -215,8 +238,33 @@ public sealed class ShellViewModel : INotifyPropertyChanged
 
     private void Select(NavigationItemViewModel item)
     {
+        if (ReferenceEquals(item, AiNavigation) && !AiFeaturesEnabled)
+        {
+            return;
+        }
+
         if (Work is null) SelectCore(item);
         else Work.Navigate(() => SelectCore(item));
+    }
+
+    private void OnAiFeaturesChanged(bool enabled)
+    {
+        Ai = enabled && Work is not null
+            ? new AiViewModel(_interchangePreferenceService)
+            : null;
+        OnPropertyChanged(nameof(Ai));
+        OnPropertyChanged(nameof(AiFeaturesEnabled));
+        OnPropertyChanged(nameof(UtilityNavigation));
+
+        if (!enabled && ReferenceEquals(SelectedItem, AiNavigation))
+        {
+            SelectCore(SettingsNavigation);
+            return;
+        }
+
+        OnPropertyChanged(nameof(ShowAI));
+        OnPropertyChanged(nameof(ShowWorkspace));
+        OnPropertyChanged(nameof(ShowEmpty));
     }
 
     private void SelectCore(NavigationItemViewModel item)

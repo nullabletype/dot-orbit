@@ -133,7 +133,12 @@ public sealed class PlanningSnapshotCopyWindowTests
             PlanningSnapshotCopyViewModelTests.CreateRepresentativeSnapshot());
         using var session = new StubWorkspaceSession(work, source);
         var clipboard = new PlanningSnapshotCopyViewModelTests.RecordingPlainTextClipboard();
-        var window = new MainWindow(session, null, null, plainTextClipboard: clipboard);
+        var window = new MainWindow(
+            session,
+            null,
+            null,
+            plainTextClipboard: clipboard,
+            aiFeaturePreferenceService: EnabledAiFeatures());
         window.Show();
         var shell = Assert.IsType<ShellViewModel>(window.DataContext);
         shell.Work!.SelectTask(task.Id);
@@ -161,7 +166,8 @@ public sealed class PlanningSnapshotCopyWindowTests
             session,
             null,
             null,
-            plainTextClipboard: new PlanningSnapshotCopyViewModelTests.RecordingPlainTextClipboard());
+            plainTextClipboard: new PlanningSnapshotCopyViewModelTests.RecordingPlainTextClipboard(),
+            aiFeaturePreferenceService: EnabledAiFeatures());
         window.Show();
         var shell = Assert.IsType<ShellViewModel>(window.DataContext);
         shell.Work!.SelectTask(task.Id);
@@ -183,13 +189,45 @@ public sealed class PlanningSnapshotCopyWindowTests
     }
 
     [AvaloniaFact]
+    public async Task DisabledAiFeaturesBlockDirectSnapshotLaunchWithoutReadingOrCopying()
+    {
+        var source = new RecordingPlanningSnapshotSource(
+            PlanningSnapshotCopyViewModelTests.CreateRepresentativeSnapshot());
+        using var session = new StubWorkspaceSession(new MemoryWorkspaceWork(), source);
+        var clipboard = new PlanningSnapshotCopyViewModelTests.RecordingPlainTextClipboard();
+        var window = new MainWindow(
+            session,
+            null,
+            null,
+            plainTextClipboard: clipboard,
+            aiFeaturePreferenceService: new TransientAiFeaturePreferenceService());
+        window.Show();
+
+        await window.OpenPlanningSnapshotAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        Assert.False(shell.AiFeaturesEnabled);
+        Assert.Null(shell.Ai);
+        Assert.Equal(0, source.ReadCount);
+        Assert.Equal(0, clipboard.WriteCount);
+        Assert.Empty(window.OwnedWindows);
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public async Task AiActionsRestoreSnapshotLauncherFocusAndInstructionsNeverReadWorkspace()
     {
         var source = new RecordingPlanningSnapshotSource(
             PlanningSnapshotCopyViewModelTests.CreateRepresentativeSnapshot());
         using var session = new StubWorkspaceSession(new MemoryWorkspaceWork(), source);
         var clipboard = new PlanningSnapshotCopyViewModelTests.RecordingPlainTextClipboard();
-        var window = new MainWindow(session, null, null, plainTextClipboard: clipboard);
+        var window = new MainWindow(
+            session,
+            null,
+            null,
+            plainTextClipboard: clipboard,
+            aiFeaturePreferenceService: EnabledAiFeatures());
         window.Show();
         var shell = Assert.IsType<ShellViewModel>(window.DataContext);
         shell.AiNavigation.SelectCommand.Execute(null);
@@ -239,7 +277,12 @@ public sealed class PlanningSnapshotCopyWindowTests
             new MemoryWorkspaceWork(),
             new ThrowingPlanningSnapshotSource());
         var clipboard = new PlanningSnapshotCopyViewModelTests.RecordingPlainTextClipboard();
-        var window = new MainWindow(session, null, null, plainTextClipboard: clipboard);
+        var window = new MainWindow(
+            session,
+            null,
+            null,
+            plainTextClipboard: clipboard,
+            aiFeaturePreferenceService: EnabledAiFeatures());
         window.Show();
 
         await window.OpenPlanningSnapshotAsync();
@@ -266,7 +309,8 @@ public sealed class PlanningSnapshotCopyWindowTests
             session,
             null,
             null,
-            plainTextClipboard: new PlanningSnapshotCopyViewModelTests.RecordingPlainTextClipboard())
+            plainTextClipboard: new PlanningSnapshotCopyViewModelTests.RecordingPlainTextClipboard(),
+            aiFeaturePreferenceService: EnabledAiFeatures())
         {
             Width = 1120,
             Height = 600,
@@ -310,7 +354,8 @@ public sealed class PlanningSnapshotCopyWindowTests
             session,
             null,
             null,
-            plainTextClipboard: new PlanningSnapshotCopyViewModelTests.RecordingPlainTextClipboard())
+            plainTextClipboard: new PlanningSnapshotCopyViewModelTests.RecordingPlainTextClipboard(),
+            aiFeaturePreferenceService: EnabledAiFeatures())
         {
             Width = 1120,
             Height = 600,
@@ -371,7 +416,7 @@ public sealed class PlanningSnapshotCopyWindowTests
             work,
             new RecordingPlanningSnapshotSource(
                 PlanningSnapshotCopyViewModelTests.CreateRepresentativeSnapshot()));
-        var window = new MainWindow(session);
+        var window = new MainWindow(session, aiFeaturePreferenceService: EnabledAiFeatures());
         window.Show();
         var shell = Assert.IsType<ShellViewModel>(window.DataContext);
         shell.Work!.SelectTask(task.Id);
@@ -404,6 +449,9 @@ public sealed class PlanningSnapshotCopyWindowTests
         Assert.Equal("Original", work.Read().Tasks.Single(item => item.Id == task.Id).Title);
         window.Close();
     }
+
+    private static TransientAiFeaturePreferenceService EnabledAiFeatures() =>
+        new TransientAiFeaturePreferenceService(aiFeaturesEnabled: true);
 
     private static async Task DecisionRequested(ProjectCaptureViewModel work)
     {

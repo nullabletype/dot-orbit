@@ -183,8 +183,15 @@ public sealed class ProjectCaptureWindowTests
             Assert.Contains("last", themeRow.Classes);
             Assert.Equal(54, themeRow.MinHeight);
             var themePanelOrigin = OriginInWindow(themePanel, window);
+            var themeRowOrigin = OriginInWindow(themeRow, window);
             var themeLabelOrigin = OriginInWindow(themeLabel, window);
             var pickerOrigin = OriginInWindow(picker, window);
+            Assert.InRange(
+                Math.Abs(
+                    pickerOrigin.Y + (picker.Bounds.Height / 2)
+                    - themeRowOrigin.Y - (themeRow.Bounds.Height / 2)),
+                0,
+                0.5);
             Assert.InRange(
                 Math.Abs(
                     themeLabelOrigin.X
