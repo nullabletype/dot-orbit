@@ -28,7 +28,7 @@ public sealed class McpStdioProcessTests
                 : PrototypeProcess.AdapterExecutablePath,
             Arguments = arguments,
             InheritEnvironmentVariables = false,
-            EnvironmentVariables = StdioClientTransportOptions.GetDefaultEnvironmentVariables(),
+            EnvironmentVariables = RuntimeEnvironment(),
             StandardErrorLines = diagnostics.Enqueue,
             ShutdownTimeout = TimeSpan.FromSeconds(5),
         });
@@ -74,7 +74,7 @@ public sealed class McpStdioProcessTests
                 "--client-name", "sdk-test", "--client-version", "1.0",
             ],
             InheritEnvironmentVariables = false,
-            EnvironmentVariables = StdioClientTransportOptions.GetDefaultEnvironmentVariables(),
+            EnvironmentVariables = RuntimeEnvironment(),
             ShutdownTimeout = TimeSpan.FromSeconds(5),
         });
         await using var client = await McpClient.CreateAsync(transport, cancellationToken: timeout.Token);
@@ -95,6 +95,20 @@ public sealed class McpStdioProcessTests
 
         Assert.NotEqual(true, next.IsError);
         Assert.NotEmpty(next.Content);
+    }
+
+    private static Dictionary<string, string?> RuntimeEnvironment()
+    {
+        var environment = StdioClientTransportOptions.GetDefaultEnvironmentVariables();
+        foreach (var name in new[] { "DOTNET_ROOT", "DOTNET_ROOT_X64", "DOTNET_ROOT_ARM64" })
+        {
+            if (Environment.GetEnvironmentVariable(name) is { Length: > 0 } value)
+            {
+                environment[name] = value;
+            }
+        }
+
+        return environment;
     }
 
     private sealed class TemporaryDirectory : IDisposable

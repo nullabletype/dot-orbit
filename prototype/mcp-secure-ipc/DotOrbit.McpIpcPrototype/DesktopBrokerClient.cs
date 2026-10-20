@@ -174,7 +174,10 @@ internal sealed class DesktopBrokerClient(
             _connection = session;
             _reader = ReadResponsesAsync(session, _lifetime.Token);
         }
-        catch (Exception exception) when (exception is IOException or SocketException or ProtocolException)
+        catch (Exception exception) when (exception is IOException
+                                          or SocketException
+                                          or TimeoutException
+                                          or ProtocolException)
         {
             throw new BrokerUnavailableException("broker-unavailable");
         }

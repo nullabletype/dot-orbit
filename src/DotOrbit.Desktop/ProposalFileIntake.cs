@@ -215,7 +215,9 @@ internal sealed class ProposalFileIntake : IProposalFileIntake
                 }
 
                 var mode = OperatingSystem.IsMacOS()
-                    ? unchecked((ushort)Marshal.ReadInt16(stat, 4))
+                    ? unchecked((ushort)Marshal.ReadInt16(
+                        stat,
+                        RuntimeInformation.ProcessArchitecture == Architecture.X64 ? 8 : 4))
                     : Marshal.ReadInt32(stat, 24);
                 if ((mode & UnixFileTypeMask) != UnixRegularFile)
                 {
