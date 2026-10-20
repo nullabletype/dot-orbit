@@ -143,6 +143,54 @@ public sealed class MainWindowTests
         window.Close();
     }
 
+    [AvaloniaTheory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task SupersededClipboardOrPickerCompletionPreservesCurrentProposal(
+        bool filePicker, bool replaceSession)
+    {
+        var pending = new BlockingProposalSelection();
+        var intake = new RecordingProposalFileIntake();
+        var window = new MainWindow(
+            new DisposalTrackingWorkspaceSession(),
+            null,
+            null,
+            proposalClipboardReader: pending,
+            proposalFilePicker: pending,
+            proposalFileIntake: intake);
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var editor = Assert.IsType<BoundedProposalTextBox>(
+            window.FindControl<BoundedProposalTextBox>("AiProposalTextBox"));
+        editor.Text = "original synthetic proposal";
+        var operation = filePicker
+            ? window.LoadProposalFromPickerAsync(editor)
+            : window.PasteProposalAsync(editor, editor);
+        await pending.Started.Task.WaitAsync(TestContext.Current.CancellationToken);
+
+        if (replaceSession)
+        {
+            await window.ReplaceSessionAsync(new DisposalTrackingWorkspaceSession());
+            shell = Assert.IsType<ShellViewModel>(window.DataContext);
+            shell.AiNavigation.SelectCommand.Execute(null);
+            Dispatcher.UIThread.RunJobs();
+        }
+        editor.Text = "newer synthetic proposal";
+        editor.Focus();
+        pending.Complete(filePicker ? "/synthetic/proposal.json" : "older clipboard proposal");
+        await operation;
+
+        Assert.Equal("newer synthetic proposal", editor.Text);
+        Assert.Equal("newer synthetic proposal", shell.Ai!.ProposalText);
+        Assert.True(editor.IsFocused);
+        Assert.Equal(0, intake.ReadCount);
+        window.Close();
+    }
+
     [AvaloniaFact]
     public void ProposalEditorAtomicallyAcceptsSelectionReplacementAndPreservesTextAndSelectionOnRejection()
     {
@@ -690,6 +738,34 @@ public sealed class MainWindowTests
     private sealed class StaticProposalFilePicker(string path) : IProposalFilePicker
     {
         public Task<string?> PickAsync(Window owner) => Task.FromResult<string?>(path);
+    }
+
+    private sealed class BlockingProposalSelection : IProposalClipboardReader, IProposalFilePicker
+    {
+        private readonly TaskCompletionSource<string?> _completion = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Started { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<string?> ReadTextAsync()
+        {
+            Started.TrySetResult();
+            return _completion.Task;
+        }
+
+        public Task<string?> PickAsync(Window owner) => ReadTextAsync();
+        public void Complete(string value) => _completion.TrySetResult(value);
+    }
+
+    private sealed class RecordingProposalFileIntake : IProposalFileIntake
+    {
+        public int ReadCount { get; private set; }
+        public Task<ProposalFileIntakeResult> ReadAsync(
+            string localPath, CancellationToken cancellationToken = default)
+        {
+            ReadCount++;
+            return Task.FromResult(ProposalFileIntakeResult.Loaded("older file proposal"));
+        }
     }
 
     private sealed class BlockingProposalFileIntake : IProposalFileIntake
