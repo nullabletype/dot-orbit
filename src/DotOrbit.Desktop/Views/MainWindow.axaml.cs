@@ -330,7 +330,7 @@ public sealed partial class MainWindow : Window
             this.FindControl<BoundedProposalTextBox>("AiProposalTextBox"),
             sender as Control);
 
-    private async Task PasteProposalAsync(BoundedProposalTextBox? editor, Control? failureFocus)
+    internal async Task PasteProposalAsync(BoundedProposalTextBox? editor, Control? failureFocus)
     {
         if (editor is null || DataContext is not ShellViewModel { Ai: { } ai })
         {
@@ -338,6 +338,7 @@ public sealed partial class MainWindow : Window
         }
 
         InvalidateActiveProposalReview();
+        var proposalInputRevision = _proposalReviewRevision;
         var clipboard = _proposalClipboardReader
             ?? (Clipboard is null ? null : new AvaloniaProposalClipboardReader(Clipboard));
         if (clipboard is null)
@@ -354,10 +355,13 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception)
         {
+            if (!IsCurrentProposalInput(ai, proposalInputRevision)) return;
             ai.ReportProposalStatus("The clipboard could not be read. Proposal text was not changed.");
             (failureFocus ?? editor).Focus();
             return;
         }
+
+        if (!IsCurrentProposalInput(ai, proposalInputRevision)) return;
 
         if (text is null)
         {
@@ -376,7 +380,10 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async void OnLoadProposal(object? sender, RoutedEventArgs e)
+    private async void OnLoadProposal(object? sender, RoutedEventArgs e) =>
+        await LoadProposalFromPickerAsync(sender as Control);
+
+    internal async Task LoadProposalFromPickerAsync(Control? launcher)
     {
         if (DataContext is not ShellViewModel { Ai: { } ai })
         {
@@ -384,6 +391,7 @@ public sealed partial class MainWindow : Window
         }
 
         InvalidateActiveProposalReview();
+        var proposalInputRevision = _proposalReviewRevision;
         string? path;
         try
         {
@@ -391,20 +399,28 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception)
         {
+            if (!IsCurrentProposalInput(ai, proposalInputRevision)) return;
             ai.ReportProposalStatus("The file picker could not be opened. Proposal text was not changed.");
-            (sender as Control)?.Focus();
+            launcher?.Focus();
             return;
         }
+
+        if (!IsCurrentProposalInput(ai, proposalInputRevision)) return;
 
         if (path is null)
         {
             ai.ReportProposalStatus("File loading was cancelled. Proposal text was not changed.");
-            (sender as Control)?.Focus();
+            launcher?.Focus();
             return;
         }
 
-        await LoadProposalFileAsync(path, sender as Control);
+        await LoadProposalFileAsync(path, launcher);
     }
+
+    private bool IsCurrentProposalInput(AiViewModel ai, long revision) =>
+        revision == _proposalReviewRevision
+        && DataContext is ShellViewModel { Ai: { } currentAi }
+        && ReferenceEquals(ai, currentAi);
 
     private void OnProposalDragOver(object? sender, DragEventArgs e)
     {
