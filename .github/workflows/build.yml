@@ -22,8 +22,13 @@ jobs:
       matrix:
         include:
           - os: ubuntu-24.04
+            runtime: linux-x64
           - os: windows-2025
+            runtime: win-x64
           - os: macos-26
+            runtime: osx-arm64
+          - os: macos-26-intel
+            runtime: osx-x64
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -49,6 +54,8 @@ jobs:
       - name: Test Orbit agent-evaluation cases
         run: node --test evaluations/agent-loop/cases.test.mjs
       - name: Run repository verification gate
+        env:
+          DOTORBIT_REQUIRE_OTHER_USER_TEST: ${{ matrix.os == 'ubuntu-24.04' && '1' || '0' }}
         run: >-
           dotnet run
           --project tools/DotOrbit.Verification/DotOrbit.Verification.csproj
@@ -56,3 +63,12 @@ jobs:
           --
           --evidence
           --expected-sha "${{ github.sha }}"
+      - name: Compare MCP prototype package shapes and redirected stdio
+        run: >-
+          dotnet run
+          --project prototype/mcp-secure-ipc/DotOrbit.McpIpcPrototype.PackageCheck/DotOrbit.McpIpcPrototype.PackageCheck.csproj
+          --configuration Release
+          --no-restore
+          --
+          --repository-root .
+          --runtime ${{ matrix.runtime }}
