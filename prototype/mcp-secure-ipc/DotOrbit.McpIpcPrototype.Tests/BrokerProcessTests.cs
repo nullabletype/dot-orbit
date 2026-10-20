@@ -106,10 +106,13 @@ public sealed class BrokerProcessTests
         await host.WaitForErrorAsync("broker=ready", timeout.Token);
         await using var client = new DesktopBrokerClient(directory.RuntimeRoot, "test-host", "1.0");
 
-        using var requestCancellation = new CancellationTokenSource();
-        var delayed = client.ReadAsync(5000, requestCancellation.Token);
+        var initial = client.ReadAsync(0, timeout.Token);
         await host.WaitForErrorAsync("consent=pending", timeout.Token);
         await host.SendControlAsync("approve");
+        _ = await initial;
+
+        using var requestCancellation = new CancellationTokenSource();
+        var delayed = client.ReadAsync(5000, requestCancellation.Token);
         requestCancellation.CancelAfter(TimeSpan.FromMilliseconds(100));
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await delayed);
