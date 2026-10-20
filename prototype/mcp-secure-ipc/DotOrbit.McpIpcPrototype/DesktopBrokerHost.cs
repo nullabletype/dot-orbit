@@ -141,6 +141,11 @@ internal static class DesktopBrokerHost
                 null,
                 awaitingConsent ? "consent-timeout" : "bootstrap-timeout");
         }
+        catch (Exception exception) when (exception is IOException or ObjectDisposedException)
+        {
+            Console.Error.WriteLine("mcp-prototype: bootstrap=closed reason=transport");
+            return;
+        }
         catch (ProtocolException exception)
         {
             response = new BootstrapResponse(

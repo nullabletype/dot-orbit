@@ -1,5 +1,6 @@
 using System.IO.Pipes;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security.AccessControl;
 using System.Security.Cryptography;
@@ -43,7 +44,7 @@ internal static class LocalEndpoint
     {
         if (OperatingSystem.IsWindows())
         {
-            return CreateWindowsListener(GetWindowsBootstrapName());
+            return await CreateWindowsBootstrapListenerAsync(cancellationToken).ConfigureAwait(false);
         }
 
         PrepareUnixRuntimeRoot(runtimeRoot);
@@ -272,7 +273,8 @@ internal static class LocalEndpoint
         RejectLink(endpoint.Address);
         if (File.GetUnixFileMode(descriptorPath) != PrivateFileMode
             || !File.Exists(endpoint.Address)
-            || File.GetUnixFileMode(endpoint.Address) != PrivateFileMode)
+            || File.GetUnixFileMode(endpoint.Address) != PrivateFileMode
+            || !IsUnixSocket(endpoint.Address))
         {
             throw new ProtocolException("stale-endpoint-untrusted");
         }
@@ -331,6 +333,73 @@ internal static class LocalEndpoint
         return Convert.ToHexStringLower(bytes);
     }
 
+    [UnsupportedOSPlatform("windows")]
+    private static bool IsUnixSocket(string path)
+    {
+        const int fileTypeMask = 0xf000;
+        const int socketFileType = 0xc000;
+        var status = Marshal.AllocHGlobal(256);
+        try
+        {
+            int result;
+            int mode;
+            if (OperatingSystem.IsLinux())
+            {
+                const int currentWorkingDirectory = -100;
+                const int doNotFollowLinks = 0x100;
+                const uint requestFileType = 0x1;
+                result = StatX(
+                    currentWorkingDirectory,
+                    path,
+                    doNotFollowLinks,
+                    requestFileType,
+                    status);
+                mode = unchecked((ushort)Marshal.ReadInt16(status, 28));
+            }
+            else if (OperatingSystem.IsMacOS())
+            {
+                result = LStat(path, status);
+                var modeOffset = RuntimeInformation.ProcessArchitecture == Architecture.X64 ? 8 : 4;
+                mode = unchecked((ushort)Marshal.ReadInt16(status, modeOffset));
+            }
+            else
+            {
+                throw new PlatformNotSupportedException();
+            }
+
+            if (result != 0)
+            {
+                throw new IOException("stale-endpoint-untrusted");
+            }
+
+            return (mode & fileTypeMask) == socketFileType;
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(status);
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static async Task<LocalEndpointListener> CreateWindowsBootstrapListenerAsync(
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; attempt < 40; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                return CreateWindowsListener(GetWindowsBootstrapName());
+            }
+            catch (IOException) when (attempt < 39)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(25), cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        throw new IOException("bootstrap-endpoint-unavailable");
+    }
+
     [SupportedOSPlatform("windows")]
     private static WindowsEndpointListener CreateWindowsListener(string pipeName)
     {
@@ -376,7 +445,10 @@ internal static class LocalEndpoint
             TokenImpersonationLevel.Identification);
         try
         {
-            await client.ConnectAsync(cancellationToken).ConfigureAwait(false);
+            await client.ConnectAsync(
+                    checked((int)PrototypeProtocol.BootstrapHandshakeLifetime.TotalMilliseconds),
+                    cancellationToken)
+                .ConfigureAwait(false);
             using var identity = WindowsIdentity.GetCurrent(TokenAccessLevels.Query);
             VerifyWindowsPipeAcl(client, identity.User!);
             return new LocalConnection(client);
@@ -429,6 +501,22 @@ internal static class LocalEndpoint
         return $"dot-orbit-mcp-bootstrap-{Convert.ToHexStringLower(digest.AsSpan(0, 8))}";
     }
 
+    [DllImport("libc", EntryPoint = "statx", SetLastError = true,
+        BestFitMapping = false, ThrowOnUnmappableChar = true)]
+    private static extern int StatX(
+        int directoryFileDescriptor,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string path,
+        int flags,
+        uint mask,
+        IntPtr status);
+
+    [DllImport("libc", EntryPoint = "lstat", SetLastError = true,
+        BestFitMapping = false, ThrowOnUnmappableChar = true)]
+    private static extern int LStat(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string path,
+        IntPtr status);
+
+    [UnsupportedOSPlatform("windows")]
     private sealed class UnixEndpointListener(
         Socket listener,
         string path,
@@ -472,7 +560,7 @@ internal static class LocalEndpoint
                 }
             }
 
-            if (File.Exists(path))
+            if (File.Exists(path) && IsUnixSocket(path))
             {
                 File.Delete(path);
             }
