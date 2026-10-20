@@ -277,6 +277,38 @@ public sealed partial class MainWindow : Window
         await ai.CopyReusableInstructionsAsync(clipboard);
     }
 
+    private async void OnCopyProposalFeedback(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not ShellViewModel { Ai: { HasProposalStatus: true } ai })
+        {
+            return;
+        }
+
+        var feedback = ai.ProposalStatus;
+        var clipboard = PlainTextClipboard();
+        if (clipboard is null)
+        {
+            ai.ReportProposalStatus(
+                $"The system clipboard is unavailable. Select and copy this feedback manually: {feedback}");
+            return;
+        }
+
+        var payload = Encoding.UTF8.GetBytes(feedback);
+        try
+        {
+            await clipboard.WriteTextAsync(payload);
+        }
+        catch (Exception)
+        {
+            ai.ReportProposalStatus(
+                $"The feedback could not be copied automatically. Select and copy it manually: {feedback}");
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(payload);
+        }
+    }
+
     private void OnProposalTextAttempted(object? sender, ProposalTextAttemptedEventArgs e)
     {
         _proposalIntakeCancellation?.Cancel();
@@ -334,7 +366,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (editor.TryReplaceSelection(text))
+        if (editor.TryReplaceAll(text))
         {
             editor.Focus();
         }
@@ -559,7 +591,7 @@ public sealed partial class MainWindow : Window
                 : "Proposal review closed. Review is required again before Apply.");
             Dispatcher.UIThread.Post(() => launcher?.Focus());
         };
-        ai.ReportProposalStatus("Proposal validated. Review every ordered operation and direct or derived effect before Apply.");
+        ai.ReportProposalStatus("Proposal ready to review. Check everything shown before deciding whether to apply it.");
         _ = review.ShowDialog(this);
     }
 

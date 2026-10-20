@@ -70,7 +70,11 @@ An immutable, provider-neutral plaintext view of the current planning boundary f
 
 ### Planned: Change proposal
 
-An untrusted, ordered JSON document containing typed operations against one Planning snapshot. It may describe one prospective change set, but it changes nothing until dot-orbit has validated the whole document, shown every direct and derived effect, received explicit whole-proposal approval, rechecked the source state, and applied the retained plan atomically after creating a validated encrypted recovery point.
+An untrusted, ordered JSON document containing typed operations against one Planning snapshot. It may describe one prospective change set, but it changes nothing until dot-orbit has validated the whole document and its derived effects, shown the work directly added or changed with routine knock-on behaviour identified as implied, received explicit whole-proposal approval, rechecked the source state, and applied the retained plan atomically after creating a validated encrypted recovery point.
+
+### Planned: New-work proposal
+
+An untrusted, ordered JSON document that creates an entirely new proposal-local graph of Categories, Participants, Projects, and Tasks without requiring a Planning snapshot or naming any durable workspace identity. It cannot update or connect to existing work. Review binds its immutable plan to the current Workspace revision; Apply rejects a changed workspace and otherwise uses the same direct-work review, explicit approval, recovery, and atomic transaction boundary as a Change proposal.
 
 ### Planned: Workspace revision
 
@@ -128,6 +132,7 @@ A durable, monotonically increasing identity for committed user-data state. Each
 ### Planned agent-interchange invariants
 
 48. Agent interchange uses the same domain actions and invariants as direct user actions; it is not a privileged mutation route.
-49. A Change proposal applies completely and atomically against its exact source Workspace revision or does not apply.
+49. A Change proposal applies completely and atomically against its exact source Workspace revision and snapshot identity or does not apply; a New-work proposal applies completely against the Workspace revision captured at Review or does not apply.
 50. Agent interchange cannot directly change Today membership or lanes, shared Task order, Project order, or Category order; ordinary side effects of approved domain actions still occur.
 51. Proposal-local references never become durable identity; every created record receives a fresh application-generated identity.
+52. A New-work proposal is creation-only and local-reference-only; updating or connecting existing work requires a snapshot-bound Change proposal.

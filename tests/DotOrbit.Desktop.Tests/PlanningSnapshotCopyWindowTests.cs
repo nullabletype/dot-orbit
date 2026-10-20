@@ -204,7 +204,7 @@ public sealed class PlanningSnapshotCopyWindowTests
         Assert.Equal("Review and copy current Planning snapshot", AutomationProperties.GetName(snapshotLauncher));
         Assert.Contains("without workspace content", AutomationProperties.GetName(instructions), StringComparison.Ordinal);
         Assert.Equal(
-            "Include agent instructions and schema with snapshot",
+            "Include agent instructions and schemas with workspace context",
             AutomationProperties.GetName(preference));
         Assert.Equal("Agent instructions and schemas included", AutomationProperties.GetItemStatus(preference));
         Assert.True(snapshotLauncher.Focus());
@@ -327,7 +327,7 @@ public sealed class PlanningSnapshotCopyWindowTests
         Assert.DoesNotContain(settingsRegion.GetVisualDescendants().OfType<Control>(), control =>
             AutomationProperties.GetAutomationId(control)?.StartsWith("ai-", StringComparison.Ordinal) == true);
         Assert.DoesNotContain(settingsRegion.GetVisualDescendants().OfType<TextBlock>(), text =>
-            text.Text is "Agent interchange" or "Copy planning context");
+            text.Text is "Agent interchange" or "Share workspace context (optional)");
 
         shell.AiNavigation.SelectCommand.Execute(null);
         Dispatcher.UIThread.RunJobs();
@@ -337,9 +337,8 @@ public sealed class PlanningSnapshotCopyWindowTests
         Assert.True(aiRegion.Viewport.Height > 0);
         var introduction = Assert.IsType<TextBlock>(window.FindControl<TextBlock>("AiIntroductionText"));
         Assert.Contains("does not contact an AI provider", introduction.Text, StringComparison.Ordinal);
-        Assert.Contains("Copy planning context to an AI assistant", introduction.Text, StringComparison.Ordinal);
-        Assert.Contains("review before anything is applied", introduction.Text, StringComparison.Ordinal);
-        Assert.Contains("explicit whole-proposal approval", introduction.Text, StringComparison.Ordinal);
+        Assert.Contains("Bring a structured proposal", introduction.Text, StringComparison.Ordinal);
+        Assert.Contains("review what it will do", introduction.Text, StringComparison.Ordinal);
         Assert.Single(aiRegion.GetVisualDescendants().OfType<BoundedProposalTextBox>());
 
         var preference = Assert.IsType<ToggleSwitch>(
@@ -351,7 +350,7 @@ public sealed class PlanningSnapshotCopyWindowTests
         Assert.Equal("ai-planning-snapshot-open", AutomationProperties.GetAutomationId(snapshot));
         Assert.Equal("ai-interchange-instructions-copy", AutomationProperties.GetAutomationId(instructions));
         Assert.Equal("Agent interchange status", AutomationProperties.GetName(status));
-        Assert.True(preference.Focus(NavigationMethod.Tab));
+        Assert.True(instructions.Focus(NavigationMethod.Tab));
         window.KeyPressQwerty(PhysicalKey.Tab, RawInputModifiers.None);
         window.KeyReleaseQwerty(PhysicalKey.Tab, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
@@ -359,7 +358,7 @@ public sealed class PlanningSnapshotCopyWindowTests
         window.KeyPressQwerty(PhysicalKey.Tab, RawInputModifiers.None);
         window.KeyReleaseQwerty(PhysicalKey.Tab, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
-        Assert.True(instructions.IsKeyboardFocusWithin);
+        Assert.True(preference.IsKeyboardFocusWithin);
         window.Close();
     }
 

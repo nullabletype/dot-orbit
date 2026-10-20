@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Controls.Presenters;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
@@ -11,9 +12,11 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using DotOrbit.Core.Interchange;
 using DotOrbit.Core.Workspaces;
+using DotOrbit.Desktop.Clipboard;
 using DotOrbit.Desktop.ViewModels;
 using DotOrbit.Desktop.Views;
 using DotOrbit.Interchange.Json;
+using System.Text;
 using System.Text.Json;
 using Xunit;
 
@@ -30,6 +33,7 @@ public sealed class MainWindowTests
         window.Show();
         var shell = Assert.IsType<ShellViewModel>(window.DataContext);
         shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
         Dispatcher.UIThread.RunJobs();
         var editor = Assert.IsType<BoundedProposalTextBox>(
             window.FindControl<BoundedProposalTextBox>("AiProposalTextBox"));
@@ -75,6 +79,36 @@ public sealed class MainWindowTests
         Assert.Equal("preserved", editor.Text);
         Assert.True(paste.IsFocused);
         Assert.Equal(AiViewModel.ProposalInputRejectedStatus, shell.Ai!.ProposalStatus);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void RepeatedExplicitPasteReplacesAndRendersTheWholeProposal()
+    {
+        var window = new MainWindow(
+            new DisposalTrackingWorkspaceSession(),
+            null,
+            null,
+            proposalClipboardReader: new StaticProposalClipboardReader("replacement"));
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var editor = Assert.IsType<BoundedProposalTextBox>(
+            window.FindControl<BoundedProposalTextBox>("AiProposalTextBox"));
+        editor.Text = "existing";
+        editor.SelectionStart = editor.Text.Length;
+        editor.SelectionEnd = editor.Text.Length;
+        var paste = Assert.IsType<Button>(window.FindControl<Button>("AiProposalPasteButton"));
+
+        paste.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        paste.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        Assert.Equal("replacement", editor.Text);
+        Assert.Equal(editor.Text.Length, editor.CaretIndex);
+        Assert.Contains(
+            editor.GetVisualDescendants().OfType<TextPresenter>(),
+            presenter => presenter.IsEffectivelyVisible && presenter.Text == "replacement");
         window.Close();
     }
 
@@ -138,11 +172,13 @@ public sealed class MainWindowTests
         var shell = Assert.IsType<ShellViewModel>(window.DataContext);
 
         shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
 
         var editor = Assert.IsType<BoundedProposalTextBox>(window.FindControl<BoundedProposalTextBox>("AiProposalTextBox"));
-        Assert.Equal("Change proposal JSON", AutomationProperties.GetName(editor));
+        Assert.Equal("Agent proposal", AutomationProperties.GetName(editor));
         Assert.True(editor.AcceptsReturn);
-        Assert.True(editor.MaxHeight > 0);
+        Assert.Equal(122, editor.Height);
+        Assert.Equal("Paste or type a proposal…", editor.PlaceholderText);
         var paste = Assert.IsType<Button>(window.FindControl<Button>("AiProposalPasteButton"));
         var load = Assert.IsType<Button>(window.FindControl<Button>("AiProposalLoadButton"));
         var review = Assert.IsType<Button>(window.FindControl<Button>("AiProposalReviewButton"));
@@ -150,6 +186,217 @@ public sealed class MainWindowTests
         Assert.Contains("one local", AutomationProperties.GetName(load), StringComparison.Ordinal);
         Assert.Contains("without applying", AutomationProperties.GetName(review), StringComparison.Ordinal);
         Assert.False(review.IsEnabled);
+        var copy = window.GetVisualDescendants()
+            .OfType<TextBlock>()
+            .Select(text => text.Text)
+            .Where(text => text is not null)
+            .ToArray();
+        var intakeIndex = Array.IndexOf(copy, "Bring work into dot-orbit");
+        var contextIndex = Array.IndexOf(copy, "Share workspace context (optional)");
+        Assert.InRange(intakeIndex, 0, copy.Length - 1);
+        Assert.True(contextIndex > intakeIndex);
+        Assert.Contains(copy, text => text!.Contains("add entirely new work without seeing your workspace", StringComparison.Ordinal));
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void AiProposalEditorAtReviewWindowSizeDoesNotDominatePage()
+    {
+        var window = new MainWindow(new DisposalTrackingWorkspaceSession())
+        {
+            Width = 1180,
+            Height = 760,
+        };
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+
+        var editor = Assert.IsType<BoundedProposalTextBox>(
+            window.FindControl<BoundedProposalTextBox>("AiProposalTextBox"));
+        Assert.Equal(122, editor.Bounds.Height);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void AiProposalEditorAcceptsAndRendersTypedText()
+    {
+        var window = new MainWindow(new DisposalTrackingWorkspaceSession());
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var editor = Assert.IsType<BoundedProposalTextBox>(
+            window.FindControl<BoundedProposalTextBox>("AiProposalTextBox"));
+
+        Assert.True(editor.Focus());
+        window.KeyTextInput("visible proposal text");
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.NotNull(editor.Template);
+        Assert.Equal("visible proposal text", editor.Text);
+        Assert.Contains(
+            editor.GetVisualDescendants().OfType<TextPresenter>(),
+            presenter => presenter.IsEffectivelyVisible && presenter.Text == "visible proposal text");
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task ReviewButtonExplainsPlanningSnapshotIsNotAProposal()
+    {
+        var window = new MainWindow(new ProposalWorkspaceSession(new StaticProposalSource()));
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var editor = Assert.IsType<BoundedProposalTextBox>(
+            window.FindControl<BoundedProposalTextBox>("AiProposalTextBox"));
+        editor.Text = "{\"format\":\"dot-orbit-planning-snapshot\",\"schemaVersion\":1}";
+        var initialStatus = shell.Ai!.ProposalStatus;
+        var review = Assert.IsType<Button>(window.FindControl<Button>("AiProposalReviewButton"));
+
+        review.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await DrainUiUntilAsync(() => shell.Ai.ProposalStatus != initialStatus);
+
+        var status = Assert.IsType<SelectableTextBlock>(
+            window.FindControl<SelectableTextBlock>("AiProposalStatus"));
+        Assert.True(status.IsVisible);
+        Assert.Equal(shell.Ai.ProposalStatus, status.Text);
+        Assert.Contains("Workspace context", status.Text, StringComparison.Ordinal);
+        Assert.Contains("New-work", status.Text, StringComparison.Ordinal);
+        Assert.Contains("Change proposal", status.Text, StringComparison.Ordinal);
+        Assert.True(review.IsFocused);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task RejectedProposalExplainsDuplicateCategoryAtTheFailingOperation()
+    {
+        var window = new MainWindow(new ProposalWorkspaceSession(new StaticProposalSource()));
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var editor = Assert.IsType<BoundedProposalTextBox>(
+            window.FindControl<BoundedProposalTextBox>("AiProposalTextBox"));
+        editor.Text = """
+            {
+              "format": "dot-orbit-new-work-proposal",
+              "schemaVersion": 1,
+              "operations": [
+                { "operation": "createCategory", "operationId": "1", "localId": "category", "name": "Synthetic" }
+              ]
+            }
+            """;
+        var review = Assert.IsType<Button>(window.FindControl<Button>("AiProposalReviewButton"));
+
+        await window.CompleteProposalReviewAsync(review);
+
+        Assert.Contains("already exists", shell.Ai!.ProposalStatus, StringComparison.OrdinalIgnoreCase);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task RejectedProposalExplainsRawJsonRequirement()
+    {
+        var window = new MainWindow(new ProposalWorkspaceSession(new StaticProposalSource()));
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var editor = Assert.IsType<BoundedProposalTextBox>(
+            window.FindControl<BoundedProposalTextBox>("AiProposalTextBox"));
+        editor.Text = """
+            ```json
+            {"format":"dot-orbit-new-work-proposal","schemaVersion":1,"operations":[]}
+            ```
+            """;
+        var review = Assert.IsType<Button>(window.FindControl<Button>("AiProposalReviewButton"));
+
+        await window.CompleteProposalReviewAsync(review);
+
+        Assert.Contains("Markdown", shell.Ai!.ProposalStatus, StringComparison.Ordinal);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task RejectedProposalFeedbackIsSelectableAndCopiesTheExactMessage()
+    {
+        var clipboard = new RecordingPlainTextClipboard();
+        var window = new MainWindow(
+            new ProposalWorkspaceSession(new StaticProposalSource()),
+            null,
+            null,
+            plainTextClipboard: clipboard);
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var editor = Assert.IsType<BoundedProposalTextBox>(
+            window.FindControl<BoundedProposalTextBox>("AiProposalTextBox"));
+        editor.Text = "not JSON";
+        var review = Assert.IsType<Button>(window.FindControl<Button>("AiProposalReviewButton"));
+
+        await window.CompleteProposalReviewAsync(review);
+
+        var status = Assert.IsType<SelectableTextBlock>(
+            window.FindControl<SelectableTextBlock>("AiProposalStatus"));
+        status.SelectAll();
+        Assert.Equal(shell.Ai!.ProposalStatus, status.SelectedText);
+        Assert.Contains("copy", AutomationProperties.GetHelpText(status), StringComparison.OrdinalIgnoreCase);
+        var copy = Assert.IsType<Button>(window.FindControl<Button>("AiProposalFeedbackCopyButton"));
+        Assert.Equal("Copy complete proposal feedback", AutomationProperties.GetName(copy));
+        Assert.True(copy.Focus());
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        await DrainUiUntilAsync(() => clipboard.Text is not null);
+        Assert.Equal(shell.Ai.ProposalStatus, clipboard.Text);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task RejectedProposalExplainsNoOpAtTheFailingOperation()
+    {
+        var state = new ProposalWorkspaceState(
+            new(1),
+            new(
+                [new("category", "Category", 0)],
+                [new("project", "Project", "", "category", null, 0)],
+                [], []),
+            [], []);
+        var window = new MainWindow(new ProposalWorkspaceSession(new FixedProposalSource(state)));
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var editor = Assert.IsType<BoundedProposalTextBox>(
+            window.FindControl<BoundedProposalTextBox>("AiProposalTextBox"));
+        var snapshot = PlanningSnapshotProjection.Create(state.Revision, state.Workspace);
+        using var snapshotDocument = JsonDocument.Parse(
+            PlanningSnapshotJsonGenerator.Generate(snapshot).Payload!.Value);
+        editor.Text = JsonSerializer.Serialize(new
+        {
+            format = AgentInterchangeV1.ChangeProposalFormat,
+            schemaVersion = 1,
+            sourceSnapshotId = snapshotDocument.RootElement.GetProperty("snapshotId").GetString(),
+            sourceWorkspaceRevision = "1",
+            operations = new[]
+            {
+                new
+                {
+                    operation = "setProjectCategory",
+                    operationId = "redundant-category",
+                    project = new { existingId = "project" },
+                    category = new { existingId = "category" },
+                },
+            },
+        });
+        var review = Assert.IsType<Button>(window.FindControl<Button>("AiProposalReviewButton"));
+
+        await window.CompleteProposalReviewAsync(review);
+
+        Assert.Contains("Operation 1", shell.Ai!.ProposalStatus, StringComparison.Ordinal);
+        Assert.Contains("would not change", shell.Ai.ProposalStatus, StringComparison.OrdinalIgnoreCase);
         window.Close();
     }
 
@@ -410,9 +657,34 @@ public sealed class MainWindowTests
         }
     }
 
+    private sealed class StaticProposalSource : IProposalWorkspaceSource
+    {
+        public ProposalWorkspaceState Read() => new(
+            new(1),
+            new([new("c", "Synthetic", 0)], [], [], []),
+            [],
+            []);
+    }
+
+    private sealed class FixedProposalSource(ProposalWorkspaceState state) : IProposalWorkspaceSource
+    {
+        public ProposalWorkspaceState Read() => state;
+    }
+
     private sealed class StaticProposalClipboardReader(string? text) : IProposalClipboardReader
     {
         public Task<string?> ReadTextAsync() => Task.FromResult(text);
+    }
+
+    private sealed class RecordingPlainTextClipboard : IPlainTextClipboard
+    {
+        public string? Text { get; private set; }
+
+        public ValueTask WriteTextAsync(ReadOnlyMemory<byte> strictUtf8Text)
+        {
+            Text = Encoding.UTF8.GetString(strictUtf8Text.Span);
+            return ValueTask.CompletedTask;
+        }
     }
 
     private sealed class StaticProposalFilePicker(string path) : IProposalFilePicker

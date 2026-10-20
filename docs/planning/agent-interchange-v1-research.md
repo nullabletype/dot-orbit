@@ -136,7 +136,7 @@ Approval should be session-bound rather than file-bound:
 1. Capture the explicitly supplied proposal once under the byte/depth limits.
 2. Reject duplicate names and the strict-profile violations before deserialisation.
 3. Validate against the locally bundled schema and then against the current domain state.
-4. Build one immutable, ordered execution plan and derive the complete preview solely from that plan.
+4. Build one immutable, ordered execution plan and derive the complete internal effect model solely from that plan; present directly added or changed work without expanding routine derived mechanics into separate review rows.
 5. Calculate `SHA-256(JCS(validated proposal))` as the proposal identity. This is safe if v1 follows the number restrictions in the next section.
 6. Associate the pending approval with the proposal digest, source snapshot ID, source workspace revision, the immutable execution plan, and every explicit user choice made during preview.
 7. On Apply, do not reacquire or reparse the original input. At the mutation transaction boundary, repeat the workspace revision/snapshot precondition and apply the retained plan atomically. If the session, plan, or revision changed, expire approval and require a fresh intake/preview.

@@ -1,0 +1,10 @@
+{
+  "format": "dot-orbit-new-work-proposal",
+  "schemaVersion": 1,
+  "operations": [
+    { "operation": "createCategory", "operationId": "op-01", "localId": "category-client", "name": "Client work" },
+    { "operation": "createParticipant", "operationId": "op-02", "localId": "participant-alex", "label": "Alex" },
+    { "operation": "createProject", "operationId": "op-03", "localId": "project-launch", "title": "Prepare the launch", "description": "Work captured from the supplied transcript.", "category": { "localId": "category-client" }, "targetDate": null },
+    { "operation": "createTask", "operationId": "op-04", "localId": "task-brief", "title": "Draft the launch brief", "description": "Summarise the agreed audience and outcomes.", "project": { "localId": "project-launch" }, "category": { "mode": "inherit" }, "dueDate": null, "participants": [{ "localId": "participant-alex" }] }
+  ]
+}

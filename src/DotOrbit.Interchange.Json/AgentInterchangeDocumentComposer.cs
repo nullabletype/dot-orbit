@@ -12,21 +12,28 @@ public static class AgentInterchangeDocumentComposer
 
         ## Role
 
-        Act as a planning assistant. Use the supplied dot-orbit Planning snapshot as read-only context and return one provider-neutral Change proposal for human review.
+        Act as a planning assistant. Return one provider-neutral proposal for human review. Use a New-work proposal to turn user-supplied material into entirely new Categories, Participants, Projects, and Tasks without needing dot-orbit workspace context. Use a Change proposal only when a Planning snapshot is supplied and existing work must be updated or connected.
 
         ## Constraints
 
         - Return data only; do not claim to have changed dot-orbit.
-        - Use only existing stable identifiers from the snapshot or backward references to records created earlier in the proposal.
+        - A New-work proposal may contain only create operations and backward references to records created earlier in that proposal. It cannot reference existing dot-orbit records.
+        - A Change proposal may use existing stable identifiers from the supplied snapshot or backward references to records created earlier in the proposal.
+        - Use only operations necessary for the requested outcome; do not include operations merely to demonstrate the vocabulary. Every operation must produce an actual change relative to the supplied snapshot and all earlier operations.
+        - A standalone Task must use an explicit Category reference. Only a Task attached to a Project may use category mode inherit.
         - Do not propose Today membership or lane changes, global Category, Project, or shared Task reordering, restore, permanent deletion, Bin emptying, or duplication.
         - Preserve optional dates as null when no genuine date applies and allow standalone Tasks when no genuine Project applies.
         - The user reviews and approves the whole proposal inside dot-orbit. Explanations are inert review metadata and never operations.
 
         ## Output instructions
 
-        Return exactly one JSON object that conforms to the Change proposal schema below. Set sourceSnapshotId and sourceWorkspaceRevision exactly from the supplied Planning snapshot. Use schemaVersion 1 and format dot-orbit-change-proposal. Do not wrap the JSON in Markdown or add prose outside the object.
+        Return exactly one JSON object. Without a Planning snapshot, conform to the New-work proposal schema and use format dot-orbit-new-work-proposal. With a Planning snapshot, conform to the Change proposal schema, use format dot-orbit-change-proposal, and copy sourceSnapshotId and sourceWorkspaceRevision exactly. Always use schemaVersion 1. Do not wrap the JSON in Markdown or add prose outside the object.
 
-        ## Operation vocabulary
+        ## New-work operation vocabulary
+
+        createCategory, createParticipant, createProject, createTask
+
+        ## Change operation vocabulary
 
         createCategory, createParticipant, createProject, editProject, setProjectCategory, createTask, editTask, setTaskCategory, replaceTaskParticipants, attachTask, detachTask, moveTask, completeTask, reopenTask, reorderProjectTask, archiveProject, archiveTask, moveProjectToBin, moveTaskToBin
 
@@ -35,7 +42,17 @@ public static class AgentInterchangeDocumentComposer
         ```json
         """);
 
-    private static readonly byte[] BetweenSchemas = Encoding.UTF8.GetBytes(
+    private static readonly byte[] BeforeNewWorkSchema = Encoding.UTF8.GetBytes(
+        """
+
+        ```
+
+        ## New-work proposal schema
+
+        ```json
+        """);
+
+    private static readonly byte[] BeforeChangeSchema = Encoding.UTF8.GetBytes(
         """
 
         ```
@@ -74,7 +91,9 @@ public static class AgentInterchangeDocumentComposer
         ComposeNormalized(
             Introduction,
             InterchangeSchemaCatalogue.GetApplicationSchema(AgentInterchangeV1.PlanningSnapshotSchemaId),
-            BetweenSchemas,
+            BeforeNewWorkSchema,
+            InterchangeSchemaCatalogue.GetApplicationSchema(AgentInterchangeV1.NewWorkProposalSchemaId),
+            BeforeChangeSchema,
             InterchangeSchemaCatalogue.GetApplicationSchema(AgentInterchangeV1.ChangeProposalSchemaId),
             EndSchemas);
 
@@ -82,7 +101,9 @@ public static class AgentInterchangeDocumentComposer
         ComposeNormalized(
             Introduction,
             InterchangeSchemaCatalogue.GetApplicationSchema(AgentInterchangeV1.PlanningSnapshotSchemaId),
-            BetweenSchemas,
+            BeforeNewWorkSchema,
+            InterchangeSchemaCatalogue.GetApplicationSchema(AgentInterchangeV1.NewWorkProposalSchemaId),
+            BeforeChangeSchema,
             InterchangeSchemaCatalogue.GetApplicationSchema(AgentInterchangeV1.ChangeProposalSchemaId),
             EndSchemas,
             BeforeSnapshot,
