@@ -7,6 +7,12 @@
     <Project Path="src/DotOrbit.Markdown/DotOrbit.Markdown.csproj" />
     <Project Path="src/DotOrbit.Storage.Sqlite/DotOrbit.Storage.Sqlite.csproj" />
   </Folder>
+  <Folder Name="/prototype/mcp-secure-ipc/">
+    <Project Path="prototype/mcp-secure-ipc/DotOrbit.McpIpcPrototype.Adapter/DotOrbit.McpIpcPrototype.Adapter.csproj" />
+    <Project Path="prototype/mcp-secure-ipc/DotOrbit.McpIpcPrototype.PackageCheck/DotOrbit.McpIpcPrototype.PackageCheck.csproj" />
+    <Project Path="prototype/mcp-secure-ipc/DotOrbit.McpIpcPrototype.Tests/DotOrbit.McpIpcPrototype.Tests.csproj" />
+    <Project Path="prototype/mcp-secure-ipc/DotOrbit.McpIpcPrototype/DotOrbit.McpIpcPrototype.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/DotOrbit.Core.Tests/DotOrbit.Core.Tests.csproj" />
     <Project Path="tests/DotOrbit.Desktop.Tests/DotOrbit.Desktop.Tests.csproj" />
