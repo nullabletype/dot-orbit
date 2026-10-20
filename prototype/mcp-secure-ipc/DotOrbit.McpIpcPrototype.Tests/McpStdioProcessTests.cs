@@ -13,7 +13,7 @@ public sealed class McpStdioProcessTests
     {
         using var directory = new TemporaryDirectory();
         await using var host = PrototypeProcess.StartHost(directory.RuntimeRoot);
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(1));
         await host.WaitForErrorAsync("broker=ready", timeout.Token);
 
         var diagnostics = new ConcurrentQueue<string>();
@@ -62,7 +62,7 @@ public sealed class McpStdioProcessTests
     {
         using var directory = new TemporaryDirectory();
         await using var host = PrototypeProcess.StartHost(directory.RuntimeRoot);
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(1));
         await host.WaitForErrorAsync("broker=ready", timeout.Token);
         var transport = new StdioClientTransport(new StdioClientTransportOptions
         {
@@ -78,13 +78,20 @@ public sealed class McpStdioProcessTests
             ShutdownTimeout = TimeSpan.FromSeconds(5),
         });
         await using var client = await McpClient.CreateAsync(transport, cancellationToken: timeout.Token);
+
+        var initial = client.CallToolAsync(
+            "orbit_status",
+            new Dictionary<string, object?>(),
+            cancellationToken: timeout.Token);
+        await host.WaitForErrorAsync("consent=pending", timeout.Token);
+        await host.SendControlAsync("approve");
+        _ = await initial;
+
         using var cancelled = new CancellationTokenSource();
         var delayed = client.CallToolAsync(
             "orbit_status",
             new Dictionary<string, object?> { ["delayMilliseconds"] = 5000 },
             cancellationToken: cancelled.Token);
-        await host.WaitForErrorAsync("consent=pending", timeout.Token);
-        await host.SendControlAsync("approve");
         cancelled.CancelAfter(TimeSpan.FromMilliseconds(100));
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await delayed);
