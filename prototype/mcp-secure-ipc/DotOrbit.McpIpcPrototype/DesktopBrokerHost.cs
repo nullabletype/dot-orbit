@@ -61,9 +61,16 @@ internal static class DesktopBrokerHost
             await using var listener = await LocalEndpoint.CreateBootstrapAsync(runtimeRoot, cancellationToken)
                 .ConfigureAwait(false);
             Console.Error.WriteLine("mcp-prototype: broker=ready");
-            await using var connection = await listener.AcceptAsync(cancellationToken).ConfigureAwait(false);
-            await HandleBootstrapAsync(connection.Stream, runtimeRoot, consent, sessions, cancellationToken)
-                .ConfigureAwait(false);
+            try
+            {
+                await using var connection = await listener.AcceptAsync(cancellationToken).ConfigureAwait(false);
+                await HandleBootstrapAsync(connection.Stream, runtimeRoot, consent, sessions, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is IOException or ObjectDisposedException)
+            {
+                Console.Error.WriteLine("mcp-prototype: bootstrap=closed reason=transport");
+            }
         }
     }
 
