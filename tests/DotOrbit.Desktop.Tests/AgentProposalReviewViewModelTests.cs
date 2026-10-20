@@ -695,7 +695,8 @@ public sealed class AgentProposalReviewViewModelTests
         var window = new AgentProposalReviewWindow(
             new AgentProposalReviewViewModel(
                 existingProject ? CreateExistingProjectTaskPlan() : CreateRichNewWorkPlan(), new UnavailableApplication()),
-            new ReadyHost()) { Height = 1100, RequestedThemeVariant = theme };
+            new ReadyHost())
+        { Height = 1100, RequestedThemeVariant = theme };
         window.Show();
         Dispatcher.UIThread.RunJobs();
         try
@@ -743,20 +744,20 @@ public sealed class AgentProposalReviewViewModelTests
                     var actualColours = new HashSet<SkiaSharp.SKColor>();
                     var expectedColours = new HashSet<SkiaSharp.SKColor>();
                     for (var y = 0; y < (int)(actual.Bounds.Height * scale); y++)
-                    for (var x = 0; x < (int)(actual.Bounds.Width * scale); x++)
-                    {
-                        var actualPixel = rendered.GetPixel(
-                            (int)(actualOrigin.X * scale) + x, (int)(actualOrigin.Y * scale) + y);
-                        var expectedPixel = referencePixels.GetPixel(
-                            (int)(expectedOrigin.X * scale) + x, (int)(expectedOrigin.Y * scale) + y);
-                        actualColours.Add(actualPixel);
-                        expectedColours.Add(expectedPixel);
-                        // Skia's curved-edge antialiasing can round a channel by one at different screen origins.
-                        if (Math.Abs(actualPixel.Red - expectedPixel.Red) > 1 ||
-                            Math.Abs(actualPixel.Green - expectedPixel.Green) > 1 ||
-                            Math.Abs(actualPixel.Blue - expectedPixel.Blue) > 1 ||
-                            actualPixel.Alpha != expectedPixel.Alpha) differences++;
-                    }
+                        for (var x = 0; x < (int)(actual.Bounds.Width * scale); x++)
+                        {
+                            var actualPixel = rendered.GetPixel(
+                                (int)(actualOrigin.X * scale) + x, (int)(actualOrigin.Y * scale) + y);
+                            var expectedPixel = referencePixels.GetPixel(
+                                (int)(expectedOrigin.X * scale) + x, (int)(expectedOrigin.Y * scale) + y);
+                            actualColours.Add(actualPixel);
+                            expectedColours.Add(expectedPixel);
+                            // Skia's curved-edge antialiasing can round a channel by one at different screen origins.
+                            if (Math.Abs(actualPixel.Red - expectedPixel.Red) > 1 ||
+                                Math.Abs(actualPixel.Green - expectedPixel.Green) > 1 ||
+                                Math.Abs(actualPixel.Blue - expectedPixel.Blue) > 1 ||
+                                actualPixel.Alpha != expectedPixel.Alpha) differences++;
+                        }
                     Assert.True(actualColours.Count > 1, "The proposal control must contain visible rendered ink.");
                     Assert.True(expectedColours.Count > 1, "The reference control must contain visible rendered ink.");
                     Assert.True(differences == 0,
