@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   assertNuGetPolicy,
+  assertNodeSupported,
   assertSupportReviewCurrent,
   assertActiveRunnerLabels,
   latestActionRelease,
@@ -94,4 +95,18 @@ test("Runner check accepts active table rows and rejects deprecated rows or link
   assert.doesNotThrow(() => assertActiveRunnerLabels(active, ["ubuntu-24.04"]));
   assert.throws(() => assertActiveRunnerLabels(deprecated, ["ubuntu-24.04"]), /not an active supported/u);
   assert.throws(() => assertActiveRunnerLabels(linkOnly, ["ubuntu-24.04"]), /not an active supported/u);
+});
+
+test("Node support gate retains maintenance support until the exact EOL boundary", () => {
+  const schedule = { lts: "2025-10-28", maintenance: "2026-10-20", end: "2028-04-30" };
+
+  for (const date of ["2026-10-19T23:59:59Z", "2026-10-20T00:00:00Z", "2028-04-29T23:59:59Z"]) {
+    assert.doesNotThrow(() => assertNodeSupported(schedule, new Date(date)));
+  }
+  assert.throws(
+    () => assertNodeSupported(schedule, new Date("2028-04-30T00:00:00Z")),
+    /end-of-life/u);
+  assert.throws(
+    () => assertNodeSupported(schedule, new Date("2025-10-27T23:59:59Z")),
+    /current/u);
 });

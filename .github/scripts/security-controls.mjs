@@ -64,6 +64,13 @@ export function nodeSupportPhase(schedule, today = new Date()) {
   return "current";
 }
 
+export function assertNodeSupported(schedule, today = new Date()) {
+  const phase = nodeSupportPhase(schedule, today);
+  if (phase !== "active-lts" && phase !== "maintenance") {
+    throw new Error(`Node 24 support phase changed to ${phase}`);
+  }
+}
+
 export function assertActiveRunnerLabels(catalogue, labels) {
   const start = catalogue.indexOf("## Available Images");
   const end = catalogue.indexOf("### Label scheme", start);
@@ -102,24 +109,29 @@ async function assertSupportDriftAbsent() {
 
   const node = await readJson("https://nodejs.org/download/release/index.json");
   const currentNode = node.find(release => release.version.startsWith("v24.") && release.lts);
-  if (currentNode?.version !== "v24.21.0") {
-    throw new Error(`Node 24 LTS changed from v24.21.0 to ${currentNode?.version ?? "unknown"}`);
+  if (currentNode?.version !== "v24.22.0") {
+    throw new Error(`Node 24 LTS changed from v24.22.0 to ${currentNode?.version ?? "unknown"}`);
   }
   const nodeSchedule = await readJson("https://raw.githubusercontent.com/nodejs/Release/main/schedule.json");
-  const nodePhase = nodeSupportPhase(nodeSchedule.v24);
-  if (nodePhase !== "active-lts") throw new Error(`Node 24 support phase changed to ${nodePhase}`);
+  assertNodeSupported(nodeSchedule.v24);
 
+  // Reviewed upstream catalogue snapshots; actual reproducible pins and review reasons
+  // are recorded separately in docs/development/dependency-baseline.md.
   const packages = new Map([
-    ["avalonia.desktop", "12.1.3"],
-    ["avalonia.fonts.inter", "12.1.3"],
-    ["avalonia.headless.xunit", "12.1.3"],
-    ["avalonia.themes.fluent", "12.1.3"],
+    ["bebop.jsonschema", "1.1.0"],
+    ["markdig", "1.4.2"],
+    ["microsoft.extensions.hosting", "10.0.13"],
+    ["modelcontextprotocol", "2.3.0"],
+    ["avalonia.desktop", "12.1.4"],
+    ["avalonia.fonts.inter", "12.1.4"],
+    ["avalonia.headless.xunit", "12.1.4"],
+    ["avalonia.themes.fluent", "12.1.4"],
     ["microsoft.data.sqlite.core", "10.0.13"],
     ["microsoft.testing.extensions.telemetry", "2.5.1"],
     ["microsoft.testing.extensions.trxreport.abstractions", "2.5.1"],
     ["microsoft.testing.platform", "2.5.1"],
     ["microsoft.testing.platform.msbuild", "2.5.1"],
-    ["sqlite3mc.pclraw.bundle", "2.4.0"],
+    ["sqlite3mc.pclraw.bundle", "2.6.1"],
     ["xunit.v3.mtp-v2", "4.0.2"],
   ]);
   for (const [packageId, expected] of packages) {
@@ -131,10 +143,10 @@ async function assertSupportDriftAbsent() {
   const actions = [
     ["actions/checkout", "v7.0.1"],
     ["actions/setup-dotnet", "v6.0.0"],
-    ["actions/setup-node", "v7.0.0"],
-    ["actions/upload-artifact", "v7.0.1"],
-    ["actions/download-artifact", "v8.0.1"],
-    ["github/codeql-action", "v4.38.2"],
+    ["actions/setup-node", "v7.1.0"],
+    ["actions/upload-artifact", "v7.0.2"],
+    ["actions/download-artifact", "v8.0.2"],
+    ["github/codeql-action", "v4.39.0"],
   ];
   for (const [repository, expected] of actions) {
     const releases = await readJson(
