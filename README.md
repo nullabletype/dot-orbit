@@ -32,7 +32,7 @@ The repository contains the first runnable Avalonia shell and the earlier intera
 
 ## Build and test
 
-The repository pins .NET SDK 10.0.401 in `global.json`. From the repository root, run the canonical repository gate:
+The repository pins .NET SDK 10.0.402 in `global.json`. From the repository root, run the canonical repository gate:
 
 ```sh
 dotnet run --project tools/DotOrbit.Verification/DotOrbit.Verification.csproj -p:RestoreLockedMode=true
