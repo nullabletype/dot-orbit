@@ -18,6 +18,9 @@ public sealed record ProposalValidationFailure(string Code, int? OperationIndex 
     {
         "unsupported-version" => "Regenerate a version 1 proposal or update dot-orbit for a supported version.",
         "stale-source" => "The workspace changed. Review the proposal again, or share fresh workspace context before regenerating a proposal that changes existing work.",
+        "source-conflict" => "Related work changed after this proposal arrived. Share fresh workspace context and regenerate it before applying these changes.",
+        "missing-review-basis" => "This earlier proposal cannot be safely refreshed. Discard it, share fresh workspace context, and ask the client to submit it again.",
+        "review-basis-limit" => "This proposal is too complex to retain safely for later review. Supply a smaller proposal.",
         "invalid-schema" => "Paste a complete New-work or Change proposal returned by the AI assistant. Workspace context is not itself a proposal.",
         "invalid-json" => "Paste one complete JSON object only, without Markdown fences or surrounding prose, and correct any JSON syntax errors.",
         "no-op" => "Remove this operation because it would not change the current workspace or an earlier result in this proposal.",
@@ -67,17 +70,20 @@ public sealed record ProposalPreviewEffect(
 public sealed class ProposalExecutionPlan
 {
     private readonly string proposalDigest;
+    private readonly string sourcePayloadDigest;
     private readonly IPlanningSnapshotIdentityVerifier? identityVerifier;
     private readonly IProposalWorkspaceSource? applicationSource;
     private int approvalIssued;
     internal ProposalExecutionPlan(ProposalKind kind, string? sourceSnapshotId, WorkspaceRevision sourceWorkspaceRevision,
-        string proposalDigest, IReadOnlyList<ChangeOperation> operations, IReadOnlyList<ProposalPreviewEffect> preview,
+        string proposalDigest, string sourcePayloadDigest,
+        IReadOnlyList<ChangeOperation> operations, IReadOnlyList<ProposalPreviewEffect> preview,
         DateTimeOffset executionInstant, TimeZoneInfo executionTimeZone,
         IPlanningSnapshotIdentityVerifier? identityVerifier,
         IProposalWorkspaceSource? applicationSource)
     {
         Kind = kind; SourceSnapshotId = sourceSnapshotId; SourceWorkspaceRevision = sourceWorkspaceRevision;
-        this.proposalDigest = proposalDigest; Operations = operations; Preview = preview;
+        this.proposalDigest = proposalDigest; this.sourcePayloadDigest = sourcePayloadDigest;
+        Operations = operations; Preview = preview;
         ExecutionInstant = executionInstant; ExecutionTimeZone = executionTimeZone;
         this.identityVerifier = identityVerifier;
         this.applicationSource = applicationSource;
@@ -88,6 +94,8 @@ public sealed class ProposalExecutionPlan
     public IReadOnlyList<ChangeOperation> Operations { get; }
     public IReadOnlyList<ProposalPreviewEffect> Preview { get; }
     public bool MatchesProposalDigest(string digest) => string.Equals(proposalDigest, digest, StringComparison.Ordinal);
+    public bool MatchesSourcePayloadDigest(string digest) =>
+        string.Equals(sourcePayloadDigest, digest, StringComparison.Ordinal);
     internal DateTimeOffset ExecutionInstant { get; }
     internal TimeZoneInfo ExecutionTimeZone { get; }
     internal bool MatchesCurrentSource(ProposalWorkspaceState current) =>

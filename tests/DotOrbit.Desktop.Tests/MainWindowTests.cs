@@ -7,6 +7,7 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Input.Raw;
 using Avalonia.Interactivity;
+using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -16,7 +17,9 @@ using DotOrbit.Desktop.Clipboard;
 using DotOrbit.Desktop.ViewModels;
 using DotOrbit.Desktop.Views;
 using DotOrbit.Interchange.Json;
+using DotOrbit.Mcp.Ipc;
 using DotOrbit.Storage.Sqlite;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Xunit;
@@ -260,15 +263,13 @@ public sealed class MainWindowTests
         Dispatcher.UIThread.RunJobs();
         var review = Assert.Single(window.OwnedWindows.OfType<AgentProposalReviewWindow>());
         var reviewModel = Assert.IsType<AgentProposalReviewViewModel>(review.DataContext);
-        Assert.True(reviewModel.CanRequestApply);
-        reviewModel.RequestApply();
-        Assert.True(reviewModel.CanConfirmApply);
+        Assert.Equal("Text / JSON import", reviewModel.SourceLabel);
+        Assert.True(reviewModel.CanApply);
 
         shell.Settings!.AiFeaturesEnabled = false;
         Dispatcher.UIThread.RunJobs();
 
-        Assert.False(reviewModel.CanRequestApply);
-        Assert.False(reviewModel.CanConfirmApply);
+        Assert.False(reviewModel.CanApply);
         Assert.Equal(0, application.ApproveCount);
         Assert.DoesNotContain(review, window.OwnedWindows);
         Assert.Null(shell.Ai);
@@ -307,9 +308,7 @@ public sealed class MainWindowTests
         Dispatcher.UIThread.RunJobs();
         var review = Assert.Single(window.OwnedWindows.OfType<AgentProposalReviewWindow>());
         var reviewModel = Assert.IsType<AgentProposalReviewViewModel>(review.DataContext);
-        reviewModel.RequestApply();
-
-        var apply = reviewModel.ConfirmApplyAsync(new ReadyProposalApplicationHost());
+        var apply = reviewModel.ApplyAsync(new ReadyProposalApplicationHost());
         await application.ApplyStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
         try
         {
@@ -328,13 +327,718 @@ public sealed class MainWindowTests
         }
 
         await apply;
-        await reviewModel.ConfirmApplyAsync(new ReadyProposalApplicationHost());
+        await reviewModel.ApplyAsync(new ReadyProposalApplicationHost());
 
         Assert.True(reviewModel.CanClose);
         Assert.Contains("applied atomically", reviewModel.StatusMessage, StringComparison.Ordinal);
         Assert.Equal(1, application.ApproveCount);
         Assert.Equal(1, application.ApplyCount);
         Assert.Single(innerSession.Work.Read().Tasks, task => task.Title == "Approved synthetic task");
+        review.Close();
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task PendingInboundProposalKeepsManualImportEditableAndRemainsReviewableAfterTheGlobalAiGate()
+    {
+        using var directory = new TemporaryDirectory();
+        const string passphraseText = "synthetic pending inbound password";
+        var passphrase = WorkspacePassphrase.Create(passphraseText, passphraseText).Passphrase!;
+        var session = Assert.IsAssignableFrom<IWorkspaceSession>(
+            new EncryptedWorkspaceStore().Create(
+                Path.Combine(directory.Path, "workspace.orb"),
+                passphrase,
+                CategoryName.Create("Home").CategoryName!).Session);
+        var payload = Encoding.UTF8.GetBytes(ProposalJson(session.Proposals.Read(), "Inbound synthetic task"));
+        var pending = new PendingAgentProposal(
+            "receipt-1",
+            "key-1",
+            "authorization-1",
+            new string('a', 64),
+            "Unverified test client",
+            DateTimeOffset.UnixEpoch,
+            ProposalKind.NewWork,
+            1,
+            1,
+            payload);
+        Assert.Equal(
+            PendingAgentProposalStoreStatus.Stored,
+            session.AgentIntegration.TryStorePendingProposal(pending).Status);
+        var preferences = new TransientAiFeaturePreferenceService(aiFeaturesEnabled: true);
+        var window = new MainWindow(session, aiFeaturePreferenceService: preferences);
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var editor = Assert.IsType<BoundedProposalTextBox>(
+            window.FindControl<BoundedProposalTextBox>("AiProposalTextBox"));
+        var paste = Assert.IsType<Button>(window.FindControl<Button>("AiProposalPasteButton"));
+        var load = Assert.IsType<Button>(window.FindControl<Button>("AiProposalLoadButton"));
+        Assert.False(editor.IsReadOnly);
+        Assert.True(paste.IsEnabled);
+        Assert.True(load.IsEnabled);
+        Assert.True(shell.Ai!.CanReplaceProposalText);
+        Assert.Empty(editor.Text ?? string.Empty);
+        Assert.Equal("Review 1", shell.AiNavigation.AttentionText);
+        Assert.Single(shell.Ai!.PendingProposals);
+
+        shell.Settings!.AiFeaturesEnabled = false;
+        Dispatcher.UIThread.RunJobs();
+        shell.Settings.AiFeaturesEnabled = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Single(session.AgentIntegration.ReadPendingProposals());
+        Assert.True(shell.Ai!.HasPendingInboundProposal);
+        Assert.Empty(shell.Ai.ProposalText);
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        await window.CompleteInboundProposalReviewAsync("receipt-1");
+        Dispatcher.UIThread.RunJobs();
+        var review = Assert.Single(window.OwnedWindows.OfType<AgentProposalReviewWindow>());
+        Assert.Equal(
+            "Unverified test client via local MCP",
+            Assert.IsType<AgentProposalReviewViewModel>(review.DataContext).SourceLabel);
+        review.Close();
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task StayingAfterACancelledCloseKeepsThePendingProposalReviewable()
+    {
+        using var directory = new TemporaryDirectory();
+        const string passphraseText = "synthetic cancelled close queue password";
+        var passphrase = WorkspacePassphrase.Create(passphraseText, passphraseText).Passphrase!;
+        var innerSession = Assert.IsAssignableFrom<IWorkspaceSession>(
+            new EncryptedWorkspaceStore().Create(
+                Path.Combine(directory.Path, "workspace.orb"),
+                passphrase,
+                CategoryName.Create("Home").CategoryName!).Session);
+        var session = new DecisionWorkspaceSession(innerSession);
+        var payload = Encoding.UTF8.GetBytes(ProposalJson(innerSession.Proposals.Read(), "Queued after close"));
+        Assert.Equal(
+            PendingAgentProposalStoreStatus.Stored,
+            session.AgentIntegration.TryStorePendingProposal(new PendingAgentProposal(
+                "receipt-close",
+                "key-close",
+                "authorization-close",
+                new string('a', 64),
+                "Codex",
+                DateTimeOffset.UnixEpoch,
+                ProposalKind.NewWork,
+                1,
+                1,
+                payload)).Status);
+        var window = new MainWindow(
+            session,
+            aiFeaturePreferenceService: new TransientAiFeaturePreferenceService(aiFeaturesEnabled: true));
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.Work!.NewProjectCommand.Execute(null);
+        shell.Work.Title = "Unsaved";
+        session.MemoryWork.FailWrites = true;
+
+        window.Close();
+        await DrainUiUntilAsync(() => shell.Work.NeedsDecision);
+        shell.Work.StayCommand.Execute(null);
+
+        Assert.True(window.IsVisible);
+        Assert.False(shell.Work.NeedsDecision);
+        session.MemoryWork.FailWrites = false;
+        shell.AiNavigation.SelectCommand.Execute(null);
+        await DrainUiUntilAsync(() => shell.ShowAI);
+        await window.CompleteInboundProposalReviewAsync("receipt-close");
+        Dispatcher.UIThread.RunJobs();
+        var review = Assert.Single(window.OwnedWindows.OfType<AgentProposalReviewWindow>());
+        Assert.Equal(
+            "Codex via local MCP",
+            Assert.IsType<AgentProposalReviewViewModel>(review.DataContext).SourceLabel);
+        review.Close();
+        window.Close();
+        await DrainUiUntilAsync(() => !window.IsVisible);
+    }
+
+    [AvaloniaFact]
+    public async Task InboundProposalRowUsesExistingModalWithSelfReportedSource()
+    {
+        using var directory = new TemporaryDirectory();
+        const string passphraseText = "synthetic inbound modal password";
+        var passphrase = WorkspacePassphrase.Create(passphraseText, passphraseText).Passphrase!;
+        var session = Assert.IsAssignableFrom<IWorkspaceSession>(
+            new EncryptedWorkspaceStore().Create(
+                Path.Combine(directory.Path, "workspace.orb"),
+                passphrase,
+                CategoryName.Create("Home").CategoryName!).Session);
+        var payload = Encoding.UTF8.GetBytes(ProposalJson(session.Proposals.Read(), "Inbound modal task"));
+        Assert.Equal(
+            PendingAgentProposalStoreStatus.Stored,
+            session.AgentIntegration.TryStorePendingProposal(new PendingAgentProposal(
+                "receipt-modal",
+                "key-modal",
+                "authorization-modal",
+                new string('c', 64),
+                "Codex",
+                DateTimeOffset.UnixEpoch,
+                ProposalKind.NewWork,
+                1,
+                1,
+                payload)).Status);
+        var window = new MainWindow(
+            session,
+            aiFeaturePreferenceService: new TransientAiFeaturePreferenceService(aiFeaturesEnabled: true));
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+
+        await window.CompleteInboundProposalReviewAsync("receipt-modal");
+        Dispatcher.UIThread.RunJobs();
+
+        var review = Assert.Single(window.OwnedWindows.OfType<AgentProposalReviewWindow>());
+        var reviewModel = Assert.IsType<AgentProposalReviewViewModel>(review.DataContext);
+        Assert.Equal("Codex via local MCP", reviewModel.SourceLabel);
+        Assert.Contains("Self-reported", reviewModel.SourceDetail, StringComparison.Ordinal);
+        Assert.Single(session.AgentIntegration.ReadPendingProposals());
+        review.Close();
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task ApplyingOneQueuedChangeProposalRefreshesAnUnrelatedProposalForReview()
+    {
+        using var directory = new TemporaryDirectory();
+        const string passphraseText = "synthetic stale inbound queue password";
+        var passphrase = WorkspacePassphrase.Create(passphraseText, passphraseText).Passphrase!;
+        var session = Assert.IsAssignableFrom<IWorkspaceSession>(
+            new EncryptedWorkspaceStore().Create(
+                Path.Combine(directory.Path, "workspace.orb"),
+                passphrase,
+                CategoryName.Create("Home").CategoryName!).Session);
+        Assert.Equal(
+            RecoveryDirectoryConfigurationStatus.Configured,
+            session.Recovery.ConfigureAutomaticRecoveryDirectory(
+                Path.Combine(directory.Path, "recovery")).Status);
+        var state = session.Proposals.Read();
+        var proposals = new[]
+        {
+            (Receipt: "receipt-first", Title: "First inbound task"),
+            (Receipt: "receipt-second", Title: "Second inbound task"),
+        };
+        foreach (var (receipt, title) in proposals)
+        {
+            var payload = Encoding.UTF8.GetBytes(ProposalJson(state, title));
+            var admitted = new ProposalReviewBoundary(session.Proposals, TimeProvider.System)
+                .PrepareQueued(payload);
+            Assert.NotNull(admitted.Plan);
+            Assert.Equal(
+                PendingAgentProposalStoreStatus.Stored,
+                session.AgentIntegration.TryStorePendingProposal(new PendingAgentProposal(
+                    receipt,
+                    $"key-{receipt}",
+                    "authorization-stale",
+                    new string(receipt == "receipt-first" ? 'd' : 'e', 64),
+                    "Codex",
+                    DateTimeOffset.UnixEpoch,
+                    ProposalKind.WorkspaceChange,
+                    1,
+                    1,
+                    admitted.ReviewBasis.Span,
+                    payload)).Status);
+        }
+
+        var window = new MainWindow(
+            session,
+            aiFeaturePreferenceService: new TransientAiFeaturePreferenceService(aiFeaturesEnabled: true));
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+
+        await window.CompleteInboundProposalReviewAsync("receipt-first");
+        Dispatcher.UIThread.RunJobs();
+        var firstReview = Assert.Single(window.OwnedWindows.OfType<AgentProposalReviewWindow>());
+        var firstReviewModel = Assert.IsType<AgentProposalReviewViewModel>(firstReview.DataContext);
+        await firstReviewModel.ApplyAsync(new ReadyProposalApplicationHost());
+        firstReview.Close();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.DoesNotContain(
+            session.AgentIntegration.ReadPendingProposals(),
+            proposal => proposal.Receipt == "receipt-first");
+        Assert.Contains(
+            session.AgentIntegration.ReadPendingProposals(),
+            proposal => proposal.Receipt == "receipt-second");
+
+        var secondReview = window.GetVisualDescendants().OfType<Button>().Single(button =>
+            button.DataContext is PendingProposalRowViewModel { Receipt: "receipt-second" }
+            && string.Equals(button.Content as string, "Review", StringComparison.Ordinal));
+        secondReview.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await DrainUiUntilAsync(() => window.OwnedWindows.OfType<AgentProposalReviewWindow>().Any());
+
+        var refreshedReview = Assert.Single(window.OwnedWindows.OfType<AgentProposalReviewWindow>());
+        var refreshedModel = Assert.IsType<AgentProposalReviewViewModel>(refreshedReview.DataContext);
+        Assert.True(refreshedModel.ProposalWasRefreshed);
+        Assert.True(refreshedModel.CanApply);
+        Assert.Equal("2", refreshedModel.SourceWorkspaceRevision);
+        await refreshedModel.ApplyAsync(new ReadyProposalApplicationHost());
+        refreshedReview.Close();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Empty(session.AgentIntegration.ReadPendingProposals());
+        Assert.Contains(session.Work.Read().Tasks, task => task.Title == "First inbound task");
+        Assert.Contains(session.Work.Read().Tasks, task => task.Title == "Second inbound task");
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task AddingTwoQueuedTasksLeavesAnExistingTaskEditReviewable()
+    {
+        using var directory = new TemporaryDirectory();
+        const string passphraseText = "synthetic mergeable inbound queue password";
+        var passphrase = WorkspacePassphrase.Create(passphraseText, passphraseText).Passphrase!;
+        var session = Assert.IsAssignableFrom<IWorkspaceSession>(
+            new EncryptedWorkspaceStore().Create(
+                Path.Combine(directory.Path, "workspace.orb"),
+                passphrase,
+                CategoryName.Create("Home").CategoryName!).Session);
+        Assert.Equal(
+            RecoveryDirectoryConfigurationStatus.Configured,
+            session.Recovery.ConfigureAutomaticRecoveryDirectory(
+                Path.Combine(directory.Path, "recovery")).Status);
+        var category = Assert.Single(session.Work.Read().Categories);
+        var existingTask = session.Work.CreateStandaloneTask(
+            "Existing task",
+            "",
+            category.Id,
+            null);
+        var state = session.Proposals.Read();
+        var proposals = new[]
+        {
+            (Receipt: "receipt-new-one", Payload: Encoding.UTF8.GetBytes(ProposalJson(state, "New task one"))),
+            (Receipt: "receipt-new-two", Payload: Encoding.UTF8.GetBytes(ProposalJson(state, "New task two"))),
+            (Receipt: "receipt-edit-existing", Payload: Encoding.UTF8.GetBytes(EditTaskProposalJson(
+                state,
+                existingTask.Id,
+                "Edited existing task"))),
+        };
+        foreach (var (receipt, payload) in proposals)
+        {
+            var admitted = new ProposalReviewBoundary(session.Proposals, TimeProvider.System)
+                .PrepareQueued(payload);
+            Assert.NotNull(admitted.Plan);
+            Assert.Equal(
+                PendingAgentProposalStoreStatus.Stored,
+                session.AgentIntegration.TryStorePendingProposal(new PendingAgentProposal(
+                    receipt,
+                    $"key-{receipt}",
+                    "authorization-mergeable",
+                    Convert.ToHexStringLower(SHA256.HashData(payload)),
+                    "Codex",
+                    DateTimeOffset.UnixEpoch,
+                    ProposalKind.WorkspaceChange,
+                    1,
+                    1,
+                    admitted.ReviewBasis.Span,
+                    payload)).Status);
+        }
+
+        var window = new MainWindow(
+            session,
+            aiFeaturePreferenceService: new TransientAiFeaturePreferenceService(aiFeaturesEnabled: true));
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+
+        foreach (var receipt in new[] { "receipt-new-one", "receipt-new-two" })
+        {
+            await window.CompleteInboundProposalReviewAsync(receipt);
+            Dispatcher.UIThread.RunJobs();
+            var review = Assert.Single(window.OwnedWindows.OfType<AgentProposalReviewWindow>());
+            var reviewModel = Assert.IsType<AgentProposalReviewViewModel>(review.DataContext);
+            await reviewModel.ApplyAsync(new ReadyProposalApplicationHost());
+            review.Close();
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        await window.CompleteInboundProposalReviewAsync("receipt-edit-existing");
+        Dispatcher.UIThread.RunJobs();
+
+        var refreshedReview = Assert.Single(window.OwnedWindows.OfType<AgentProposalReviewWindow>());
+        var refreshedModel = Assert.IsType<AgentProposalReviewViewModel>(refreshedReview.DataContext);
+        Assert.True(refreshedModel.ProposalWasRefreshed);
+        Assert.True(refreshedModel.CanApply);
+        await refreshedModel.ApplyAsync(new ReadyProposalApplicationHost());
+        refreshedReview.Close();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(
+            "Edited existing task",
+            session.Work.Read().Tasks.Single(task => task.Id == existingTask.Id).Title);
+        Assert.Empty(session.AgentIntegration.ReadPendingProposals());
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task ApplyingOneQueuedNewWorkProposalLeavesTheNextRowReviewable()
+    {
+        using var directory = new TemporaryDirectory();
+        const string passphraseText = "synthetic sequential inbound queue password";
+        var passphrase = WorkspacePassphrase.Create(passphraseText, passphraseText).Passphrase!;
+        var session = Assert.IsAssignableFrom<IWorkspaceSession>(
+            new EncryptedWorkspaceStore().Create(
+                Path.Combine(directory.Path, "workspace.orb"),
+                passphrase,
+                CategoryName.Create("Home").CategoryName!).Session);
+        Assert.Equal(
+            RecoveryDirectoryConfigurationStatus.Configured,
+            session.Recovery.ConfigureAutomaticRecoveryDirectory(
+                Path.Combine(directory.Path, "recovery")).Status);
+        var proposals = new[]
+        {
+            (Receipt: "receipt-first-new", Suffix: "first"),
+            (Receipt: "receipt-second-new", Suffix: "second"),
+        };
+        foreach (var (receipt, suffix) in proposals)
+        {
+            var payload = Encoding.UTF8.GetBytes(NewWorkProposalJson(suffix));
+            Assert.Equal(
+                PendingAgentProposalStoreStatus.Stored,
+                session.AgentIntegration.TryStorePendingProposal(new PendingAgentProposal(
+                    receipt,
+                    $"key-{receipt}",
+                    "authorization-sequential",
+                    new string(suffix == "first" ? 'f' : 'a', 64),
+                    "Codex",
+                    DateTimeOffset.UnixEpoch,
+                    ProposalKind.NewWork,
+                    2,
+                    2,
+                    payload)).Status);
+        }
+
+        var window = new MainWindow(
+            session,
+            aiFeaturePreferenceService: new TransientAiFeaturePreferenceService(aiFeaturesEnabled: true));
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+
+        await window.CompleteInboundProposalReviewAsync("receipt-first-new");
+        Dispatcher.UIThread.RunJobs();
+        var firstReview = Assert.Single(window.OwnedWindows.OfType<AgentProposalReviewWindow>());
+        var firstReviewModel = Assert.IsType<AgentProposalReviewViewModel>(firstReview.DataContext);
+        await firstReviewModel.ApplyAsync(new ReadyProposalApplicationHost());
+        firstReview.Close();
+        Dispatcher.UIThread.RunJobs();
+
+        var secondReviewButton = window.GetVisualDescendants().OfType<Button>().Single(button =>
+            button.DataContext is PendingProposalRowViewModel { Receipt: "receipt-second-new" }
+            && string.Equals(button.Content as string, "Review", StringComparison.Ordinal));
+        secondReviewButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await DrainUiUntilAsync(() => window.OwnedWindows.OfType<AgentProposalReviewWindow>().Any());
+
+        var secondReview = Assert.Single(window.OwnedWindows.OfType<AgentProposalReviewWindow>());
+        Assert.True(Assert.IsType<AgentProposalReviewViewModel>(secondReview.DataContext).CanApply);
+        secondReview.Close();
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task PendingReviewFailureAppearsInTheSummaryWithoutChangingRowHeight()
+    {
+        using var directory = new TemporaryDirectory();
+        const string passphraseText = "synthetic inbound review summary password";
+        var passphrase = WorkspacePassphrase.Create(passphraseText, passphraseText).Passphrase!;
+        var session = Assert.IsAssignableFrom<IWorkspaceSession>(
+            new EncryptedWorkspaceStore().Create(
+                Path.Combine(directory.Path, "workspace.orb"),
+                passphrase,
+                CategoryName.Create("Home").CategoryName!).Session);
+        var state = session.Proposals.Read();
+        var payload = Encoding.UTF8.GetBytes(ProposalJson(state, "Legacy queued task"));
+        Assert.Equal(
+            PendingAgentProposalStoreStatus.Stored,
+            session.AgentIntegration.TryStorePendingProposal(new PendingAgentProposal(
+                "receipt-summary-status",
+                "key-summary-status",
+                "authorization-summary-status",
+                new string('f', 64),
+                "Codex",
+                DateTimeOffset.UnixEpoch,
+                ProposalKind.WorkspaceChange,
+                1,
+                1,
+                payload)).Status);
+        var category = Assert.Single(session.Work.Read().Categories);
+        session.Work.CreateStandaloneTask("Unrelated task", string.Empty, category.Id, null);
+        var window = new MainWindow(
+            session,
+            aiFeaturePreferenceService: new TransientAiFeaturePreferenceService(aiFeaturesEnabled: true));
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var row = window.GetVisualDescendants().OfType<Border>().Single(border =>
+            border.DataContext is PendingProposalRowViewModel { Receipt: "receipt-summary-status" });
+        var originalHeight = row.Bounds.Height;
+
+        var review = row.GetVisualDescendants().OfType<Button>().Single(button =>
+            string.Equals(button.Content as string, "Review", StringComparison.Ordinal));
+        review.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await DrainUiUntilAsync(() => shell.Ai!.HasPendingProposalReviewStatus);
+
+        var summary = Assert.IsType<Border>(window.FindControl<Border>("AiPendingProposalSummary"));
+        var list = Assert.IsType<ItemsControl>(window.FindControl<ItemsControl>("AiPendingProposalList"));
+        Assert.Contains(
+            summary.GetVisualDescendants().OfType<TextBlock>(),
+            text => text.Text?.Contains("earlier proposal", StringComparison.OrdinalIgnoreCase) == true
+                    && text.IsEffectivelyVisible);
+        Assert.DoesNotContain(
+            list.GetVisualDescendants().OfType<TextBlock>(),
+            text => text.Text?.Contains("earlier proposal", StringComparison.OrdinalIgnoreCase) == true);
+        Assert.False(Assert.IsType<SelectableTextBlock>(
+            window.FindControl<SelectableTextBlock>("AiProposalStatus")).IsEffectivelyVisible);
+        Assert.Equal(originalHeight, row.Bounds.Height);
+        Assert.All(
+            row.GetVisualDescendants().OfType<Button>(),
+            button => Assert.Equal(VerticalAlignment.Center, button.VerticalAlignment));
+        Assert.Empty(window.OwnedWindows.OfType<AgentProposalReviewWindow>());
+        Assert.NotNull(session.AgentIntegration.FindPendingProposal("receipt-summary-status"));
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task ArrivalReviewWhenAiIsAlreadySelectedOpensTheOldestPendingProposal()
+    {
+        using var directory = new TemporaryDirectory();
+        const string passphraseText = "synthetic arrival review password";
+        var passphrase = WorkspacePassphrase.Create(passphraseText, passphraseText).Passphrase!;
+        var session = Assert.IsAssignableFrom<IWorkspaceSession>(
+            new EncryptedWorkspaceStore().Create(
+                Path.Combine(directory.Path, "workspace.orb"),
+                passphrase,
+                CategoryName.Create("Home").CategoryName!).Session);
+        var window = new MainWindow(
+            session,
+            aiFeaturePreferenceService: new TransientAiFeaturePreferenceService(aiFeaturesEnabled: true));
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var submission = await Assert.IsAssignableFrom<IInboundProposalSink>(window.PendingProposalSink)
+            .TrySubmitAsync(
+                new InboundProposalSubmission(
+                    "receipt-arrival",
+                    "key-arrival",
+                    "authorization-arrival",
+                    new string('b', 64),
+                    "Codex",
+                    DateTimeOffset.UnixEpoch,
+                    Encoding.UTF8.GetBytes(NewWorkProposalJson("arrival"))),
+                TestContext.Current.CancellationToken);
+        Assert.Equal(InboundProposalSubmissionStatus.Accepted, submission.Status);
+        await DrainUiUntilAsync(() => shell.HasProposalArrivalNotification);
+        var notification = Assert.IsType<Border>(
+            window.FindControl<Border>("ProposalArrivalNotification"));
+        Assert.True(notification.IsEffectivelyVisible);
+        var reviewButton = notification.GetVisualDescendants().OfType<Button>().Single(button =>
+            string.Equals(button.Content as string, "Review", StringComparison.Ordinal));
+
+        reviewButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await DrainUiUntilAsync(() => window.OwnedWindows.OfType<AgentProposalReviewWindow>().Any());
+
+        var review = Assert.Single(window.OwnedWindows.OfType<AgentProposalReviewWindow>());
+        Assert.Equal(
+            "Codex via local MCP",
+            Assert.IsType<AgentProposalReviewViewModel>(review.DataContext).SourceLabel);
+        Assert.False(shell.HasProposalArrivalNotification);
+        review.Close();
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task ArrivalReviewKeepsTheBannerWhenInspectorNavigationStaysPut()
+    {
+        using var directory = new TemporaryDirectory();
+        const string passphraseText = "synthetic deferred arrival review password";
+        var passphrase = WorkspacePassphrase.Create(passphraseText, passphraseText).Passphrase!;
+        var innerSession = Assert.IsAssignableFrom<IWorkspaceSession>(
+            new EncryptedWorkspaceStore().Create(
+                Path.Combine(directory.Path, "workspace.orb"),
+                passphrase,
+                CategoryName.Create("Home").CategoryName!).Session);
+        var session = new DecisionWorkspaceSession(innerSession);
+        var window = new MainWindow(
+            session,
+            aiFeaturePreferenceService: new TransientAiFeaturePreferenceService(aiFeaturesEnabled: true));
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.Work!.NewProjectCommand.Execute(null);
+        shell.Work.Title = "Unsaved";
+        session.MemoryWork.FailWrites = true;
+        var submission = await Assert.IsAssignableFrom<IInboundProposalSink>(window.PendingProposalSink)
+            .TrySubmitAsync(
+                new InboundProposalSubmission(
+                    "receipt-deferred-arrival",
+                    "key-deferred-arrival",
+                    "authorization-deferred-arrival",
+                    new string('c', 64),
+                    "Codex",
+                    DateTimeOffset.UnixEpoch,
+                    Encoding.UTF8.GetBytes(NewWorkProposalJson("deferred-arrival"))),
+                TestContext.Current.CancellationToken);
+        Assert.Equal(InboundProposalSubmissionStatus.Accepted, submission.Status);
+        await DrainUiUntilAsync(() => shell.HasProposalArrivalNotification);
+        var notification = Assert.IsType<Border>(
+            window.FindControl<Border>("ProposalArrivalNotification"));
+        var reviewButton = notification.GetVisualDescendants().OfType<Button>().Single(button =>
+            string.Equals(button.Content as string, "Review", StringComparison.Ordinal));
+
+        reviewButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await DrainUiUntilAsync(() => shell.Work.NeedsDecision);
+
+        Assert.True(shell.HasProposalArrivalNotification);
+        Assert.False(shell.ShowAI);
+        shell.Work.StayCommand.Execute(null);
+        Assert.True(shell.HasProposalArrivalNotification);
+        Assert.False(shell.ShowAI);
+        session.MemoryWork.FailWrites = false;
+        window.Close();
+        await DrainUiUntilAsync(() => !window.IsVisible);
+    }
+
+    [AvaloniaFact]
+    public async Task ArrivalReviewFromAnotherDestinationFocusesTheOldestPendingRow()
+    {
+        using var directory = new TemporaryDirectory();
+        const string passphraseText = "synthetic arrival focus password";
+        var passphrase = WorkspacePassphrase.Create(passphraseText, passphraseText).Passphrase!;
+        var session = Assert.IsAssignableFrom<IWorkspaceSession>(
+            new EncryptedWorkspaceStore().Create(
+                Path.Combine(directory.Path, "workspace.orb"),
+                passphrase,
+                CategoryName.Create("Home").CategoryName!).Session);
+        var window = new MainWindow(
+            session,
+            aiFeaturePreferenceService: new TransientAiFeaturePreferenceService(aiFeaturesEnabled: true));
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        var submission = await Assert.IsAssignableFrom<IInboundProposalSink>(window.PendingProposalSink)
+            .TrySubmitAsync(
+                new InboundProposalSubmission(
+                    "receipt-arrival-focus",
+                    "key-arrival-focus",
+                    "authorization-arrival-focus",
+                    new string('d', 64),
+                    "Codex",
+                    DateTimeOffset.UnixEpoch,
+                    Encoding.UTF8.GetBytes(NewWorkProposalJson("arrival-focus"))),
+                TestContext.Current.CancellationToken);
+        Assert.Equal(InboundProposalSubmissionStatus.Accepted, submission.Status);
+        await DrainUiUntilAsync(() => shell.HasProposalArrivalNotification);
+        var notification = Assert.IsType<Border>(
+            window.FindControl<Border>("ProposalArrivalNotification"));
+        var bannerReview = notification.GetVisualDescendants().OfType<Button>().Single(button =>
+            string.Equals(button.Content as string, "Review", StringComparison.Ordinal));
+
+        bannerReview.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await DrainUiUntilAsync(() => shell.ShowAI);
+        var rowReview = window.GetVisualDescendants().OfType<Button>().Single(button =>
+            button.DataContext is PendingProposalRowViewModel { Receipt: "receipt-arrival-focus" }
+            && string.Equals(button.Content as string, "Review", StringComparison.Ordinal));
+        await DrainUiUntilAsync(() => rowReview.IsFocused);
+
+        Assert.False(shell.HasProposalArrivalNotification);
+        Assert.True(rowReview.IsFocused);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void DiscardingAnInboundProposalFocusesTheFollowingRow()
+    {
+        using var directory = new TemporaryDirectory();
+        const string passphraseText = "synthetic inbound discard focus password";
+        var passphrase = WorkspacePassphrase.Create(passphraseText, passphraseText).Passphrase!;
+        var session = Assert.IsAssignableFrom<IWorkspaceSession>(
+            new EncryptedWorkspaceStore().Create(
+                Path.Combine(directory.Path, "workspace.orb"),
+                passphrase,
+                CategoryName.Create("Home").CategoryName!).Session);
+        var payload = Encoding.UTF8.GetBytes(ProposalJson(session.Proposals.Read(), "Inbound focus task"));
+        for (var index = 1; index <= 3; index++)
+        {
+            Assert.Equal(
+                PendingAgentProposalStoreStatus.Stored,
+                session.AgentIntegration.TryStorePendingProposal(new PendingAgentProposal(
+                    $"receipt-{index}",
+                    $"key-{index}",
+                    "authorization-focus",
+                    new string((char)('c' + index), 64),
+                    $"Client {index}",
+                    DateTimeOffset.UnixEpoch.AddMinutes(index),
+                    ProposalKind.NewWork,
+                    1,
+                    1,
+                    payload)).Status);
+        }
+
+        var window = new MainWindow(
+            session,
+            aiFeaturePreferenceService: new TransientAiFeaturePreferenceService(aiFeaturesEnabled: true));
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var list = Assert.IsType<ItemsControl>(window.FindControl<ItemsControl>("AiPendingProposalList"));
+        Assert.False(list.Focusable);
+        var discardSecond = window.GetVisualDescendants().OfType<Button>().Single(button =>
+            button.DataContext is PendingProposalRowViewModel { Receipt: "receipt-2" }
+            && string.Equals(button.Content as string, "Discard", StringComparison.Ordinal));
+        var reviewThird = window.GetVisualDescendants().OfType<Button>().Single(button =>
+            button.DataContext is PendingProposalRowViewModel { Receipt: "receipt-3" }
+            && string.Equals(button.Content as string, "Review", StringComparison.Ordinal));
+
+        Assert.True(discardSecond.Focus());
+        discardSecond.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(reviewThird.IsFocused);
+        Assert.DoesNotContain(
+            session.AgentIntegration.ReadPendingProposals(),
+            proposal => proposal.Receipt == "receipt-2");
+        Assert.True(Assert.IsType<PendingProposalRowViewModel>(reviewThird.DataContext).IsLast);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task FileLoadedProposalReviewIdentifiesJsonFileSourceWithoutPath()
+    {
+        var state = new StaticProposalSource().Read();
+        var intake = new BlockingProposalFileIntake();
+        var window = new MainWindow(
+            new ProposalWorkspaceSession(
+                new FixedProposalSource(state),
+                new RecordingProposalApplication()),
+            proposalFilePicker: new StaticProposalFilePicker("/synthetic/private/proposal.json"),
+            proposalFileIntake: intake,
+            aiFeaturePreferenceService: EnabledAiFeatures());
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var load = window.LoadProposalFromPickerAsync(null);
+        await intake.Started.Task.WaitAsync(TestContext.Current.CancellationToken);
+        intake.Complete(ProposalFileIntakeResult.Loaded(ProposalJson(state, "File proposal task")));
+        await load;
+
+        await window.CompleteProposalReviewAsync(null);
+        Dispatcher.UIThread.RunJobs();
+
+        var review = Assert.Single(window.OwnedWindows.OfType<AgentProposalReviewWindow>());
+        var reviewModel = Assert.IsType<AgentProposalReviewViewModel>(review.DataContext);
+        Assert.Equal("JSON file import", reviewModel.SourceLabel);
+        Assert.DoesNotContain("proposal.json", reviewModel.SourceDetail, StringComparison.Ordinal);
         review.Close();
         window.Close();
     }
@@ -848,13 +1552,15 @@ public sealed class MainWindowTests
     }
 
     [AvaloniaFact]
-    public void WorkspaceUnavailableShowsReplacementAndClosesTheShell()
+    public async Task WorkspaceUnavailableShowsReplacementAndClosesTheShell()
     {
         var replacementShown = 0;
         var window = new MainWindow();
         window.Show();
 
         window.HandleWorkspaceUnavailable(() => replacementShown++);
+
+        await DrainUiUntilAsync(() => replacementShown == 1 && !window.IsVisible);
 
         Assert.Equal(1, replacementShown);
         Assert.False(window.IsVisible);
@@ -932,6 +1638,26 @@ public sealed class MainWindowTests
         public IProposalWorkspaceSource Proposals => inner.Proposals;
         public IProposalApplication ProposalApplication => proposalApplication;
         public IWorkspaceWork Work => inner.Work;
+
+        public PassphraseRotationResult RotatePassphrase(
+            WorkspacePassphrase currentPassphrase,
+            WorkspacePassphrase newPassphrase) =>
+            inner.RotatePassphrase(currentPassphrase, newPassphrase);
+
+        public void Dispose() => inner.Dispose();
+    }
+
+    private sealed class DecisionWorkspaceSession(IWorkspaceSession inner) : IWorkspaceSession
+    {
+        public MemoryWorkspaceWork MemoryWork { get; } = new();
+        public IWorkspaceWork Work => MemoryWork;
+        public int SchemaVersion => inner.SchemaVersion;
+        public string FirstCategoryName => inner.FirstCategoryName;
+        public IWorkspaceRecovery Recovery => inner.Recovery;
+        public IPlanningSnapshotSource Planning => inner.Planning;
+        public IProposalWorkspaceSource Proposals => inner.Proposals;
+        public IAgentIntegrationStore AgentIntegration => inner.AgentIntegration;
+        public IProposalApplication ProposalApplication => inner.ProposalApplication;
 
         public PassphraseRotationResult RotatePassphrase(
             WorkspacePassphrase currentPassphrase,
@@ -1129,6 +1855,61 @@ public sealed class MainWindowTests
         });
     }
 
+    private static string EditTaskProposalJson(
+        ProposalWorkspaceState state,
+        string taskId,
+        string title)
+    {
+        var content = PlanningSnapshotProjection.Create(state.Revision, state.Workspace);
+        using var snapshot = JsonDocument.Parse(
+            PlanningSnapshotJsonGenerator.Generate(content).Payload!.Value);
+        return JsonSerializer.Serialize(new
+        {
+            format = "dot-orbit-change-proposal",
+            schemaVersion = 1,
+            sourceSnapshotId = snapshot.RootElement.GetProperty("snapshotId").GetString(),
+            sourceWorkspaceRevision = state.Revision.ToString(),
+            operations = new[]
+            {
+                new
+                {
+                    operation = "editTask",
+                    operationId = "edit-existing-task",
+                    task = new { existingId = taskId },
+                    changes = new { title },
+                },
+            },
+        });
+    }
+
+    private static string NewWorkProposalJson(string suffix) => JsonSerializer.Serialize(new
+    {
+        format = "dot-orbit-new-work-proposal",
+        schemaVersion = 1,
+        operations = new object[]
+        {
+            new
+            {
+                operation = "createCategory",
+                operationId = $"create-category-{suffix}",
+                localId = $"category-{suffix}",
+                name = $"Category {suffix}",
+            },
+            new
+            {
+                operation = "createTask",
+                operationId = $"create-task-{suffix}",
+                localId = $"task-{suffix}",
+                title = $"Task {suffix}",
+                description = string.Empty,
+                project = (object?)null,
+                category = new { mode = "explicit", category = new { localId = $"category-{suffix}" } },
+                dueDate = (string?)null,
+                participants = Array.Empty<object>(),
+            },
+        },
+    });
+
     private sealed class BlockingInspectorSaveWriter(IWorkspaceWork work)
         : IInspectorSaveWriter, IWorkspaceActionExecutor
     {
@@ -1300,6 +2081,8 @@ public sealed class MainWindowTests
         Dispatcher.UIThread.RunJobs();
         var toggle = Assert.IsType<ToggleSwitch>(
             window.FindControl<ToggleSwitch>("SettingsAiFeaturesToggle"));
+        var localMcpToggle = Assert.IsType<ToggleSwitch>(
+            window.FindControl<ToggleSwitch>("SettingsLocalMcpToggle"));
         var announcement = Assert.IsType<TextBlock>(
             window.FindControl<TextBlock>("SettingsAnnouncement"));
 
@@ -1310,6 +2093,7 @@ public sealed class MainWindowTests
         Assert.DoesNotContain(
             window.GetVisualDescendants().OfType<RadioButton>(),
             item => AutomationProperties.GetAutomationId(item) == "navigation-ai");
+        Assert.False(localMcpToggle.IsEffectivelyVisible);
         Assert.True(toggle.Focus(NavigationMethod.Tab));
         Assert.True(toggle.IsKeyboardFocusWithin);
         Assert.Equal("settings-announcement", AutomationProperties.GetAutomationId(announcement));
@@ -1330,12 +2114,24 @@ public sealed class MainWindowTests
         Assert.Equal(
             "AI features enabled. Manual agent interchange is now available.",
             announcement.Text);
+        Assert.True(localMcpToggle.IsEffectivelyVisible);
+        Assert.Equal("settings-local-mcp", AutomationProperties.GetAutomationId(localMcpToggle));
+        Assert.Equal("Enable local MCP", AutomationProperties.GetName(localMcpToggle));
+        Assert.Equal("Local MCP disabled", AutomationProperties.GetItemStatus(localMcpToggle));
 
-        Assert.True(toggle.IsKeyboardFocusWithin);
+        Assert.True(localMcpToggle.Focus(NavigationMethod.Tab));
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(preferences.LocalMcpEnabled);
+        Assert.True(localMcpToggle.IsChecked);
+
+        Assert.True(toggle.Focus(NavigationMethod.Tab));
         window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
 
         Assert.False(shell.AiFeaturesEnabled);
+        Assert.False(preferences.LocalMcpEnabled);
         Assert.Null(shell.Ai);
         Assert.Equal(
             "AI features disabled. Agent interchange is unavailable.",
@@ -1343,7 +2139,112 @@ public sealed class MainWindowTests
         Assert.DoesNotContain(
             window.GetVisualDescendants().OfType<RadioButton>(),
             item => AutomationProperties.GetAutomationId(item) == "navigation-ai");
+        Assert.False(localMcpToggle.IsEffectivelyVisible);
         window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task LocalMcpApprovalSeparatesIdentityEvidenceAndDefaultsFocusToDeny()
+    {
+        var request = new LocalMcpApprovalRequest(new LocalMcpClientIdentity(
+            "verified-user",
+            1234,
+            "self-asserted-client",
+            "1.2.3",
+            new string('a', 64),
+            LocalMcpScopes.ReadInterchangeContext | LocalMcpScopes.SubmitProposals));
+        var window = new LocalMcpApprovalWindow(request);
+
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var viewModel = Assert.IsType<LocalMcpApprovalViewModel>(window.DataContext);
+        var buttons = window.GetVisualDescendants()
+            .OfType<Button>()
+            .Where(button => AutomationProperties.GetAutomationId(button) is not null)
+            .ToDictionary(
+                button => AutomationProperties.GetAutomationId(button)!,
+                StringComparer.Ordinal);
+        var deny = buttons["local-mcp-deny"];
+        var allowOnce = buttons["local-mcp-allow-once"];
+        var alwaysAllow = buttons["local-mcp-always-allow"];
+        Assert.True(deny.IsFocused);
+        Assert.Equal("Deny this local MCP client", AutomationProperties.GetName(deny));
+        Assert.Equal(
+            "Allow requested scopes until disconnect or dot-orbit closes",
+            AutomationProperties.GetName(allowOnce));
+        Assert.Equal(
+            "Remember this exact local MCP client credential, OS account, and scope set",
+            AutomationProperties.GetName(alwaysAllow));
+        Assert.Contains("Verified same OS account: verified-user", viewModel.VerifiedAccount, StringComparison.Ordinal);
+        Assert.Contains("Verified local process ID: 1234", viewModel.VerifiedProcess, StringComparison.Ordinal);
+        Assert.Contains("Self-asserted client: self-asserted-client 1.2.3", viewModel.UnverifiedClient, StringComparison.Ordinal);
+        Assert.Contains("Read interchange", viewModel.RequestedScopes, StringComparison.Ordinal);
+        Assert.Contains("Submit proposals", viewModel.RequestedScopes, StringComparison.Ordinal);
+        Assert.Contains("cannot approve or apply", viewModel.Powers, StringComparison.Ordinal);
+
+        Assert.True(allowOnce.Focus(NavigationMethod.Tab));
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(LocalMcpApprovalChoice.AllowOnce, await request.Completion);
+    }
+
+    [AvaloniaFact]
+    public async Task ClosingLocalMcpApprovalDefaultsToDeny()
+    {
+        var request = new LocalMcpApprovalRequest(new LocalMcpClientIdentity(
+            "verified-user",
+            null,
+            "self-asserted-client",
+            "1.0",
+            new string('a', 64),
+            LocalMcpScopes.ReadInterchangeContext));
+        var window = new LocalMcpApprovalWindow(request);
+        window.Show();
+
+        window.Close();
+
+        Assert.Equal(LocalMcpApprovalChoice.Deny, await request.Completion);
+    }
+
+    [AvaloniaFact]
+    public async Task CancelledLocalMcpApprovalClosesItsStaleWindow()
+    {
+        var request = new LocalMcpApprovalRequest(new LocalMcpClientIdentity(
+            "verified-user",
+            null,
+            "self-asserted-client",
+            "1.0",
+            new string('a', 64),
+            LocalMcpScopes.ReadInterchangeContext));
+        var window = new LocalMcpApprovalWindow(request);
+        window.Show();
+
+        request.Cancel(new CancellationToken(canceled: true));
+        await DrainUiUntilAsync(() => !window.IsVisible);
+
+        Assert.False(window.IsVisible);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await request.Completion);
+    }
+
+    [AvaloniaFact]
+    public async Task QueuedLocalMcpTransitionReturnsToTheUiThread()
+    {
+        var prior = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var ranOnUiThread = false;
+        var transition = MainWindow.RunLocalMcpTransitionAsync(
+            prior.Task,
+            () =>
+            {
+                ranOnUiThread = Dispatcher.UIThread.CheckAccess();
+                return Task.CompletedTask;
+            });
+
+        await Task.Run(prior.SetResult, TestContext.Current.CancellationToken);
+        await transition;
+
+        Assert.True(ranOnUiThread);
     }
 
     [AvaloniaFact]
@@ -1515,6 +2416,25 @@ public sealed class MainWindowTests
             .ToArray();
         Assert.Equal(7, counts.Length);
         Assert.All(counts, count => Assert.Equal(counts[0].Bounds.Right, count.Bounds.Right, 1));
+    }
+
+    [AvaloniaFact]
+    public void SettingsDescriptionsKeepWrappedLinesLeftAligned()
+    {
+        var window = new MainWindow();
+        window.Show();
+
+        var aiDescription = Assert.IsType<TextBlock>(
+            window.FindControl<TextBlock>("SettingsAiFeaturesDescription"));
+        var mcpDescription = Assert.IsType<TextBlock>(
+            window.FindControl<TextBlock>("SettingsLocalMcpDescription"));
+
+        Assert.Equal(TextAlignment.Left, aiDescription.TextAlignment);
+        Assert.Equal(HorizontalAlignment.Stretch, aiDescription.HorizontalAlignment);
+        Assert.Equal(TextAlignment.Left, mcpDescription.TextAlignment);
+        Assert.Equal(HorizontalAlignment.Stretch, mcpDescription.HorizontalAlignment);
+
+        window.Close();
     }
 
     [AvaloniaFact]

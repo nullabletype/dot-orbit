@@ -12,6 +12,7 @@ dot-orbit packages include the .NET runtime and open-source libraries used by th
 - [SkiaSharp and HarfBuzzSharp](https://github.com/mono/SkiaSharp): Copyright Microsoft Corporation and contributors.
 - [Tmds.DBus.Protocol](https://github.com/tmds/Tmds.DBus): Copyright Tom Deseyn.
 - [MicroCom.Runtime](https://github.com/kekekeks/MicroCom): Copyright 2021 Nikita Tsukanov.
+- [Model Context Protocol C# SDK](https://github.com/modelcontextprotocol/csharp-sdk): Copyright Anthropic, PBC and contributors.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 

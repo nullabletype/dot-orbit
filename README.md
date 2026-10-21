@@ -13,6 +13,7 @@ The repository contains the first runnable Avalonia shell and the earlier intera
 - Read [`docs/data/plaintext-export-v3.md`](docs/data/plaintext-export-v3.md) for the implemented versioned unencrypted workspace-export contract.
 - Read [`docs/development/agent-interchange-copy.md`](docs/development/agent-interchange-copy.md) for the implemented Planning snapshot and reusable-instruction clipboard workflow.
 - Read [`docs/development/agent-proposal-review.md`](docs/development/agent-proposal-review.md) for bounded proposal intake, authoritative review, and explicit whole-proposal approval.
+- Read [`docs/development/local-mcp.md`](docs/development/local-mcp.md) for the complete local MCP setup, trust, security, and failure-behaviour guide.
 - Open `prototype/index.html` in a modern desktop browser to explore the broader product direction. It is self-contained and needs no build step.
 - Read `docs/product/brief.md` for the product boundary.
 - Read `docs/product/requirements.md` for the current behavioural specification.
@@ -27,8 +28,32 @@ The repository contains the first runnable Avalonia shell and the earlier intera
 - UI prototype: interactive and locally verified for the original six views; it predates the accepted Upcoming-view decision and must be updated before serving as evidence for that view.
 - Application platform: Avalonia UI on .NET, targeting macOS, Linux, and Windows.
 - Local persistence: encrypted workspace creation, unlock, automatic recovery and retention, manual recovery, and forward-only migration are implemented with SQLite3MC.
-- Production application: the cross-platform navigation shell, encrypted workspace access and recovery, Project and standalone Task workflows, Today, Upcoming, Completed, Archive, Bin, reusable Participants, persisted ordering, Markdown rendering, theme selection, explicit plaintext JSON export, and the dedicated AI destination for Planning snapshot copy plus explicit proposal review and apply are implemented.
+- Production application: the cross-platform navigation shell, encrypted workspace access and recovery, Project and standalone Task workflows, Today, Upcoming, Completed, Archive, Bin, reusable Participants, persisted ordering, Markdown rendering, theme selection, explicit plaintext JSON export, the dedicated AI destination for Planning snapshot copy plus explicit proposal review and apply, and opt-in local MCP through a packaged stdio adapter and same-user desktop broker are implemented.
 - Licence: MIT.
+
+## Set up local MCP
+
+Local MCP is off by default and works only while the desktop application is running with an unlocked workspace. In **Settings**, first enable **AI features**, then separately enable **local MCP** and wait for its status to show **Running**.
+
+Configure your MCP host to launch the `dot-orbit-mcp` executable from the same dot-orbit release archive as the desktop application. Use an absolute path, a stable profile name for this host installation, and one or both scopes:
+
+```json
+{
+  "command": "/absolute/path/to/dot-orbit-mcp",
+  "args": [
+    "--stdio",
+    "--profile", "personal",
+    "--client-name", "My MCP host",
+    "--client-version", "1.0",
+    "--scope", "read",
+    "--scope", "submit"
+  ]
+}
+```
+
+The `read` scope exposes the reusable proposal instructions and current Planning snapshot. The `submit` scope can place New-work or Change proposals into dot-orbit's encrypted review queue, but it cannot approve or apply them. On the first connection, dot-orbit shows the verified operating-system account separately from the host's unverified name and version and asks whether to allow the connection once or remember it. Remembered clients can be inspected and revoked from Settings.
+
+The adapter stores its per-profile credential in Windows Credential Manager, macOS Keychain, or Linux Secret Service; there is no plaintext fallback. dot-orbit does not install the adapter into third-party hosts or edit their configuration. See the [local MCP guide](docs/development/local-mcp.md) for profile rules, tools, proposal queue behaviour, revocation, platform security details, and troubleshooting.
 
 ## Build and test
 

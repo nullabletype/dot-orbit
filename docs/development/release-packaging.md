@@ -11,12 +11,13 @@ dotnet restore DotOrbit.slnx --locked-mode
 dotnet run --project tools/DotOrbit.Packaging/DotOrbit.Packaging.csproj --configuration Release --no-restore -- --repository-root . --runtime osx-arm64 --version 0.0.0-local --no-restore
 ```
 
-The packager requires a canonical SemVer value, passes it to the Release publish, publishes a self-contained single-file application, fails if the publish directory contains anything except the expected app executable and optional root-level PDBs, and assembles a separate archive containing only:
+The packager requires a canonical SemVer value, passes it to both Release publishes, publishes self-contained single-file desktop and MCP adapter applications, fails if either publish directory contains anything except its expected executable and optional root-level PDBs, and assembles one archive containing only:
 
 - the runtime-specific `dot-orbit` executable;
+- the matching runtime-specific `dot-orbit-mcp` stdio adapter executable;
 - `LICENSE.txt`;
 - `THIRD-PARTY-NOTICES.md` and the complete bundled .NET, Apache-2.0, Inter OFL-1.1, ANGLE, SkiaSharp, and HarfBuzzSharp licence/notice texts;
-- `package-manifest.json`, which records the version, runtime, Release configuration, self-contained status, size, and SHA-256 digest of every payload file.
+- `package-manifest.json` using schema 3, which records the version, runtime, Release configuration, self-contained status, size, and SHA-256 digest of every payload file, including both executables.
 
 The checked-in multi-resolution `src/DotOrbit.Desktop/Assets/dot-orbit.ico` is derived from the canonical `assets/orbit-mark.svg`. Its source hash, output hash, and required 16–256 pixel frame set are recorded in `assets/orbit-mark.native-icon.json`. Packaging validates that provenance, the icon structure, and the desktop project metadata before publishing. The icon is then embedded into the application single file: it is never a loose archive entry.
 
@@ -29,16 +30,21 @@ Run the self-contained apphost directly, matching the archive's target runtime a
 ```sh
 # macOS
 DOTORBIT_PACKAGE_SMOKE_VERSION=0.0.0-local ./artifacts/package-smoke/osx-arm64/dot-orbit --package-smoke
+DOTORBIT_PACKAGE_SMOKE_VERSION=0.0.0-local ./artifacts/package-smoke/osx-arm64/dot-orbit-mcp --package-smoke
 
 # Linux/X11
 DOTORBIT_PACKAGE_SMOKE_VERSION=0.0.0-local xvfb-run --auto-servernum --auth-file=artifacts/package-smoke/linux-x64/dot-orbit-xvfb.auth ./artifacts/package-smoke/linux-x64/dot-orbit --package-smoke
+DOTORBIT_PACKAGE_SMOKE_VERSION=0.0.0-local ./artifacts/package-smoke/linux-x64/dot-orbit-mcp --package-smoke
 
 # Windows PowerShell
 $env:DOTORBIT_PACKAGE_SMOKE_VERSION = "0.0.0-local"
 ./artifacts/package-smoke/win-x64/dot-orbit.exe --package-smoke
+./artifacts/package-smoke/win-x64/dot-orbit-mcp.exe --package-smoke
 ```
 
 The package smoke first requires `DOTORBIT_PACKAGE_SMOKE_VERSION` to equal the executable's informational version. It then creates a synthetic encrypted SQLite3MC `workspace.orb` in a temporary directory, closes it, reopens and validates it, restores the external portable recovery fixture when `DOTORBIT_PACKAGE_SMOKE_RECOVERY` names it, removes the temporary workspace, then exercises the real Avalonia Today-to-Archive keyboard journey and closes cleanly. Its diagnostics contain fixed phase and result metadata only.
+
+The adapter smoke independently checks that the extracted second executable starts and carries the same informational version without opening the credential store or a broker endpoint. The solution's MCP SDK integration test performs real initialization, exact three-tool discovery, and tool calls over redirected streams; the native IPC suites exercise the adapter-to-desktop broker protocol.
 
 These packages are portable archives rather than installers or platform application bundles. They have no installation hook or package identity with which to register the `.orb` file association, so opening a workspace by double-clicking it is not part of this packaging slice. No cosmetic MIME metadata is included in the archive.
 

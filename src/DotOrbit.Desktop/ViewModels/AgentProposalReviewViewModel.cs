@@ -169,6 +169,7 @@ internal sealed record ProposalChangedItemReviewGroup(
 internal sealed class AgentProposalReviewViewModel : INotifyPropertyChanged
 {
     private readonly IProposalApplication _application;
+    private readonly string? _pendingProposalReceipt;
     private readonly ProposalKind _kind;
     private ProposalExecutionPlan? _plan;
     private IProposalMaintenance? _maintenance;
@@ -177,12 +178,20 @@ internal sealed class AgentProposalReviewViewModel : INotifyPropertyChanged
 
     public AgentProposalReviewViewModel(
         ProposalExecutionPlan plan,
-        IProposalApplication application)
+        IProposalApplication application,
+        string? pendingProposalReceipt = null,
+        ProposalReviewSource? source = null,
+        bool proposalWasRefreshed = false)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(application);
         _plan = plan;
         _application = application;
+        _pendingProposalReceipt = pendingProposalReceipt;
+        source ??= ProposalReviewSource.TextImport;
+        SourceLabel = source.Label;
+        SourceDetail = source.Detail;
+        ProposalWasRefreshed = proposalWasRefreshed;
         _kind = plan.Kind;
         SourceSnapshotId = plan.SourceSnapshotId ?? string.Empty;
         SourceWorkspaceRevision = plan.SourceWorkspaceRevision.Value.ToString(CultureInfo.InvariantCulture);
@@ -261,12 +270,15 @@ internal sealed class AgentProposalReviewViewModel : INotifyPropertyChanged
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
-    public event EventHandler? ConfirmationOpened;
-    public event EventHandler? ConfirmationClosed;
     public event EventHandler? ApplyFinished;
 
     public string SourceSnapshotId { get; }
     public string SourceWorkspaceRevision { get; }
+    public string SourceLabel { get; }
+    public string SourceDetail { get; }
+    public bool ProposalWasRefreshed { get; }
+    public string RefreshedProposalNotice { get; } =
+        "The workspace changed after this proposal arrived. The work it depends on is unchanged, so this preview was recalculated against the current workspace. Check it again before applying.";
     public IReadOnlyList<ProposalOperationReviewRow> Operations { get; }
     public IReadOnlyList<ProposalEffectReviewRow> Effects { get; }
     public IReadOnlyList<ProposalEffectReviewRow> ReviewEffects { get; }
@@ -298,10 +310,10 @@ internal sealed class AgentProposalReviewViewModel : INotifyPropertyChanged
     public string ProposalKindSummary => _kind == ProposalKind.NewWork
         ? $"{CreatedItemsSummary()}. No existing item is referenced or edited directly, and no workspace context was required."
         : HasMixedReview
-            ? $"{CreatedItemsSummary()} and {AffectedExistingItemsSummary()}. Check both sections below; dot-orbit will make sure the workspace has not changed since it was shared."
+            ? $"{CreatedItemsSummary()} and {AffectedExistingItemsSummary()}. Check both sections below; dot-orbit will make sure the reviewed workspace state has not changed before Apply."
             : HasCreatedItems
-                ? $"{CreatedItemsSummary()}. Check the workspace context shown below; dot-orbit will make sure it has not changed since it was shared."
-                : $"{AffectedExistingItemsSummary()}. Check each item below; dot-orbit will make sure the workspace has not changed since it was shared.";
+                ? $"{CreatedItemsSummary()}. Check the workspace context shown below; dot-orbit will make sure the reviewed workspace state has not changed before Apply."
+                : $"{AffectedExistingItemsSummary()}. Check each item below; dot-orbit will make sure the reviewed workspace state has not changed before Apply.";
     public string ReviewHeading => HasMixedReview
         ? "What will be added and changed"
         : HasCreatedItems
@@ -323,33 +335,19 @@ internal sealed class AgentProposalReviewViewModel : INotifyPropertyChanged
     public string ImpliedChangesNote { get; } =
         "dot-orbit will handle routine knock-on changes automatically, including where items appear and any inherited details or project totals.";
     public string ApplyButtonText => _kind == ProposalKind.NewWork
-        ? "Add all new work…"
-        : "Apply all changes…";
-    public string ConfirmationTitle => _kind == ProposalKind.NewWork
-        ? "Add this new work?"
-        : "Apply these changes?";
-    public string ConfirmationBody => _kind == ProposalKind.NewWork
-        ? "dot-orbit will create and validate an encrypted recovery point first. All new items shown are added together; individual items cannot be selected."
-        : "dot-orbit will create and validate an encrypted recovery point first. All changes shown are applied together; individual items cannot be selected.";
-    public string ConfirmButtonText => _kind == ProposalKind.NewWork
         ? "Add new work"
         : "Apply changes";
     public string ApplyButtonAccessibleName => _kind == ProposalKind.NewWork
-        ? "Review final confirmation before adding all shown new work"
-        : "Review final confirmation before applying all shown changes";
-    public string ConfirmButtonAccessibleName => _kind == ProposalKind.NewWork
-        ? "Confirm adding all shown new work after creating a validated encrypted recovery point"
-        : "Confirm applying all shown changes after creating a validated encrypted recovery point";
+        ? "Add all shown new work after creating a validated encrypted recovery point"
+        : "Apply all shown changes after creating a validated encrypted recovery point";
     public string TechnicalCountSummary =>
         $"{OperationCount} proposal {Plural(OperationCount, "instruction", "instructions")} and {EffectCount} total {Plural(EffectCount, "effect", "effects")} were validated.";
     public string ExcludedPowers { get; } =
         "Excluded powers: no direct Today or lane changes, global ordering, hidden restore, duplication, Empty Bin, permanent deletion, or global Category or Participant mutation.";
-    public bool NeedsConfirmation => _state == ReviewState.Confirming;
-    public bool CanRequestApply => _state == ReviewState.Ready && _plan is not null;
-    public bool CanConfirmApply => _state == ReviewState.Confirming && _plan is not null;
-    public bool CanCancelConfirmation => _state == ReviewState.Confirming;
+    public bool CanApply => _state == ReviewState.Ready && _plan is not null;
     public bool CanClose => _state != ReviewState.Applying;
     public bool CanRetryMaintenance => _maintenance is not null && _state == ReviewState.Committed;
+    internal bool ProposalWasCommitted => _state == ReviewState.Committed;
 
     public string StatusMessage
     {
@@ -369,35 +367,10 @@ internal sealed class AgentProposalReviewViewModel : INotifyPropertyChanged
 
     public bool HasStatusMessage => !string.IsNullOrEmpty(StatusMessage);
 
-    public void RequestApply()
-    {
-        if (!CanRequestApply)
-        {
-            return;
-        }
-
-        _state = ReviewState.Confirming;
-        NotifyState();
-        ConfirmationOpened?.Invoke(this, EventArgs.Empty);
-    }
-
-    public void CancelConfirmation()
-    {
-        if (_state != ReviewState.Confirming)
-        {
-            return;
-        }
-
-        _state = ReviewState.Ready;
-        StatusMessage = "Apply cancelled. Nothing was changed.";
-        NotifyState();
-        ConfirmationClosed?.Invoke(this, EventArgs.Empty);
-    }
-
-    public async Task ConfirmApplyAsync(IProposalApplicationHost host)
+    public async Task ApplyAsync(IProposalApplicationHost host)
     {
         ArgumentNullException.ThrowIfNull(host);
-        if (_state != ReviewState.Confirming || _plan is not { } plan)
+        if (_state != ReviewState.Ready || _plan is not { } plan)
         {
             return;
         }
@@ -406,7 +379,6 @@ internal sealed class AgentProposalReviewViewModel : INotifyPropertyChanged
         _state = ReviewState.Applying;
         StatusMessage = "Applying the approved proposal after encrypted recovery validation…";
         NotifyState();
-        ConfirmationClosed?.Invoke(this, EventArgs.Empty);
 
         ProposalApproval? approval;
         try
@@ -431,7 +403,11 @@ internal sealed class AgentProposalReviewViewModel : INotifyPropertyChanged
         ProposalApplyResult result;
         try
         {
-            result = await Task.Run(() => _application.Apply(approval, host));
+            result = await Task.Run(() => _pendingProposalReceipt is null
+                ? _application.Apply(approval, host)
+                : _application is IInboundProposalApplication inbound
+                    ? inbound.ApplyInbound(approval, _pendingProposalReceipt, host)
+                    : new ProposalApplyResult(ProposalApplyStatus.Failed));
         }
         catch (Exception exception) when (exception is InvalidOperationException
                                           or ObjectDisposedException)
@@ -505,7 +481,7 @@ internal sealed class AgentProposalReviewViewModel : INotifyPropertyChanged
         }
 
         _plan = null;
-        if (_state is ReviewState.Ready or ReviewState.Confirming)
+        if (_state == ReviewState.Ready)
         {
             _state = ReviewState.Consumed;
             StatusMessage = "Proposal review invalidated. Review the current proposal again before Apply.";
@@ -740,10 +716,7 @@ internal sealed class AgentProposalReviewViewModel : INotifyPropertyChanged
 
     private void NotifyState()
     {
-        Notify(nameof(NeedsConfirmation));
-        Notify(nameof(CanRequestApply));
-        Notify(nameof(CanConfirmApply));
-        Notify(nameof(CanCancelConfirmation));
+        Notify(nameof(CanApply));
         Notify(nameof(CanClose));
         Notify(nameof(CanRetryMaintenance));
     }
@@ -754,7 +727,6 @@ internal sealed class AgentProposalReviewViewModel : INotifyPropertyChanged
     private enum ReviewState
     {
         Ready,
-        Confirming,
         Applying,
         Consumed,
         Committed,

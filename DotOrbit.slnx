@@ -5,19 +5,17 @@
     <Project Path="src/DotOrbit.Export.Json/DotOrbit.Export.Json.csproj" />
     <Project Path="src/DotOrbit.Interchange.Json/DotOrbit.Interchange.Json.csproj" />
     <Project Path="src/DotOrbit.Markdown/DotOrbit.Markdown.csproj" />
+    <Project Path="src/DotOrbit.Mcp.Adapter/DotOrbit.Mcp.Adapter.csproj" />
+    <Project Path="src/DotOrbit.Mcp.Ipc/DotOrbit.Mcp.Ipc.csproj" />
     <Project Path="src/DotOrbit.Storage.Sqlite/DotOrbit.Storage.Sqlite.csproj" />
-  </Folder>
-  <Folder Name="/prototype/mcp-secure-ipc/">
-    <Project Path="prototype/mcp-secure-ipc/DotOrbit.McpIpcPrototype.Adapter/DotOrbit.McpIpcPrototype.Adapter.csproj" />
-    <Project Path="prototype/mcp-secure-ipc/DotOrbit.McpIpcPrototype.PackageCheck/DotOrbit.McpIpcPrototype.PackageCheck.csproj" />
-    <Project Path="prototype/mcp-secure-ipc/DotOrbit.McpIpcPrototype.Tests/DotOrbit.McpIpcPrototype.Tests.csproj" />
-    <Project Path="prototype/mcp-secure-ipc/DotOrbit.McpIpcPrototype/DotOrbit.McpIpcPrototype.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/DotOrbit.Core.Tests/DotOrbit.Core.Tests.csproj" />
     <Project Path="tests/DotOrbit.Desktop.Tests/DotOrbit.Desktop.Tests.csproj" />
     <Project Path="tests/DotOrbit.Export.Json.Tests/DotOrbit.Export.Json.Tests.csproj" />
     <Project Path="tests/DotOrbit.Interchange.Json.Tests/DotOrbit.Interchange.Json.Tests.csproj" />
+    <Project Path="tests/DotOrbit.Mcp.Adapter.Tests/DotOrbit.Mcp.Adapter.Tests.csproj" />
+    <Project Path="tests/DotOrbit.Mcp.Ipc.Tests/DotOrbit.Mcp.Ipc.Tests.csproj" />
     <Project Path="tests/DotOrbit.Storage.Sqlite.Tests/DotOrbit.Storage.Sqlite.Tests.csproj" />
     <Project Path="tests/DotOrbit.Packaging.Tests/DotOrbit.Packaging.Tests.csproj" />
     <Project Path="tests/DotOrbit.Verification.Tests/DotOrbit.Verification.Tests.csproj" />

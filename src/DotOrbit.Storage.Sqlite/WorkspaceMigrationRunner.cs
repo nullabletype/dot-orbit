@@ -318,6 +318,9 @@ internal static class WorkspaceMigrationRunner
                 12 => ApplySchemaTwelveToThirteen(connection),
                 13 => ApplySchemaThirteenToFourteen(connection),
                 14 => ApplySchemaFourteenToFifteen(connection),
+                15 => ApplySchemaFifteenToSixteen(connection),
+                16 => ApplySchemaSixteenToSeventeen(connection),
+                17 => ApplySchemaSeventeenToEighteen(connection),
                 _ => throw new InvalidDataException(),
             };
 
@@ -484,6 +487,48 @@ internal static class WorkspaceMigrationRunner
     {
         ExecuteNonQuery(connection, WorkspaceRevisionStorage.Schema + "PRAGMA user_version = 15;");
         return 15;
+    }
+
+    private static int ApplySchemaFifteenToSixteen(SqliteConnection connection)
+    {
+        ExecuteNonQuery(connection, SqliteAgentIntegrationStore.SchemaSixteen + "PRAGMA user_version = 16;");
+        return 16;
+    }
+
+    private static int ApplySchemaSixteenToSeventeen(SqliteConnection connection)
+    {
+        ExecuteNonQuery(connection, """
+            ALTER TABLE pending_agent_proposal RENAME TO pending_agent_proposal_v16;
+            """ + SqliteAgentIntegrationStore.PendingProposalSchemaSeventeen + """
+            INSERT INTO pending_agent_proposal
+                (receipt,idempotency_key,authorization_id,client_identity,client_name,
+                 received_at,payload_digest,proposal_kind,operation_count,effect_count,strict_utf8)
+            SELECT receipt,idempotency_key,authorization_id,client_identity,client_name,
+                   received_at,payload_digest,NULL,0,0,strict_utf8
+            FROM pending_agent_proposal_v16
+            WHERE singleton=1;
+            DROP TABLE pending_agent_proposal_v16;
+            PRAGMA user_version = 17;
+            """);
+        return 17;
+    }
+
+    private static int ApplySchemaSeventeenToEighteen(SqliteConnection connection)
+    {
+        ExecuteNonQuery(connection, """
+            ALTER TABLE pending_agent_proposal RENAME TO pending_agent_proposal_v17;
+            """ + SqliteAgentIntegrationStore.PendingProposalSchema + """
+            INSERT INTO pending_agent_proposal
+                (queue_id,receipt,idempotency_key,authorization_id,client_identity,client_name,
+                 received_at,payload_digest,proposal_kind,operation_count,effect_count,review_basis,strict_utf8)
+            SELECT queue_id,receipt,idempotency_key,authorization_id,client_identity,client_name,
+                   received_at,payload_digest,proposal_kind,operation_count,effect_count,NULL,strict_utf8
+            FROM pending_agent_proposal_v17
+            ORDER BY queue_id;
+            DROP TABLE pending_agent_proposal_v17;
+            PRAGMA user_version = 18;
+            """);
+        return 18;
     }
 
     private static int ApplySchemaOneToTwo(SqliteConnection connection)

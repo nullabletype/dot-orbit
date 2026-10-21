@@ -1,5 +1,7 @@
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
+using DotOrbit.Core.Interchange;
 using DotOrbit.Core.Workspaces;
 using DotOrbit.Storage.Sqlite;
 using Microsoft.Data.Sqlite;
@@ -333,6 +335,85 @@ public sealed class WorkspaceMigrationTests
             Directory.GetFiles(
                 fixture.DirectoryPath,
                 "dot-orbit-pre-migration-*.dotorbit-recovery"));
+    }
+
+    [Fact]
+    public void OpenUpgradesSchemaSixteenAndPreservesItsPendingSingletonAsTheFirstQueueItem()
+    {
+        using var fixture = new MigrationFixture();
+        var identity = new string('d', 64);
+        using (var current = fixture.CreateCurrentWorkspace())
+        {
+            var pending = new PendingAgentProposal(
+                "receipt-v16",
+                "key-v16",
+                "authorization-v16",
+                identity,
+                "Legacy local client",
+                new DateTimeOffset(2026, 10, 21, 6, 0, 0, TimeSpan.Zero),
+                ProposalKind.WorkspaceChange,
+                3,
+                4,
+                Encoding.UTF8.GetBytes("legacy encrypted payload"));
+            Assert.Equal(
+                PendingAgentProposalStoreStatus.Stored,
+                current.AgentIntegration.TryStorePendingProposal(pending).Status);
+        }
+        fixture.DowngradeCurrentToSchemaSixteen();
+
+        var result = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase());
+        using var session = result.Session;
+
+        Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
+        Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, session?.SchemaVersion);
+        var migrated = Assert.Single(session!.AgentIntegration.ReadPendingProposals());
+        Assert.Equal("receipt-v16", migrated.Receipt);
+        Assert.Equal("Legacy local client", migrated.ClientName);
+        Assert.Null(migrated.ProposalKind);
+        Assert.Equal(0, migrated.OperationCount);
+        Assert.Equal(0, migrated.EffectCount);
+        Assert.Equal("legacy encrypted payload", Encoding.UTF8.GetString(migrated.StrictUtf8.Span));
+        Assert.Single(Directory.GetFiles(
+            fixture.DirectoryPath,
+            "dot-orbit-pre-migration-v16-*.dotorbit-recovery"));
+    }
+
+    [Fact]
+    public void OpenUpgradesSchemaSeventeenAndPreservesPendingRowsWithoutInventingAReviewBasis()
+    {
+        using var fixture = new MigrationFixture();
+        using (var current = fixture.CreateCurrentWorkspace())
+        {
+            var pending = new PendingAgentProposal(
+                "receipt-v17",
+                "key-v17",
+                "authorization-v17",
+                new string('e', 64),
+                "Legacy queued client",
+                new DateTimeOffset(2026, 10, 21, 6, 30, 0, TimeSpan.Zero),
+                ProposalKind.WorkspaceChange,
+                2,
+                3,
+                "discarded during downgrade"u8,
+                "legacy queued payload"u8);
+            Assert.Equal(
+                PendingAgentProposalStoreStatus.Stored,
+                current.AgentIntegration.TryStorePendingProposal(pending).Status);
+        }
+        fixture.DowngradeCurrentToSchemaSeventeen();
+
+        var result = fixture.Store.Open(fixture.WorkspacePath, UnlockPassphrase());
+        using var session = result.Session;
+
+        Assert.Equal(WorkspaceOpenStatus.Opened, result.Status);
+        var migrated = Assert.Single(session!.AgentIntegration.ReadPendingProposals());
+        Assert.Equal("receipt-v17", migrated.Receipt);
+        Assert.Equal(ProposalKind.WorkspaceChange, migrated.ProposalKind);
+        Assert.True(migrated.ReviewBasis.IsEmpty);
+        Assert.Equal("legacy queued payload", Encoding.UTF8.GetString(migrated.StrictUtf8.Span));
+        Assert.Single(Directory.GetFiles(
+            fixture.DirectoryPath,
+            "dot-orbit-pre-migration-v17-*.dotorbit-recovery"));
     }
 
     [Fact]
@@ -990,7 +1071,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; DROP TABLE today_tasks; PRAGMA user_version = 6;";
+            command.CommandText = "DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; DROP TABLE today_tasks; PRAGMA user_version = 6;";
             command.ExecuteNonQuery();
         }
 
@@ -998,7 +1079,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; DROP TABLE today_tasks; DROP TABLE task_participants; DROP TABLE participants; PRAGMA user_version = 5;";
+            command.CommandText = "DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; DROP TABLE today_tasks; DROP TABLE task_participants; DROP TABLE participants; PRAGMA user_version = 5;";
             command.ExecuteNonQuery();
         }
 
@@ -1006,7 +1087,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; PRAGMA user_version = 7;";
+            command.CommandText = "DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; PRAGMA user_version = 7;";
             command.ExecuteNonQuery();
         }
 
@@ -1014,7 +1095,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; PRAGMA user_version = 8;";
+            command.CommandText = "DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; PRAGMA user_version = 8;";
             command.ExecuteNonQuery();
         }
 
@@ -1022,7 +1103,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; PRAGMA user_version = 9;";
+            command.CommandText = "DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; PRAGMA user_version = 9;";
             command.ExecuteNonQuery();
         }
 
@@ -1030,7 +1111,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; PRAGMA user_version = 10;";
+            command.CommandText = "DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; PRAGMA user_version = 10;";
             command.ExecuteNonQuery();
         }
 
@@ -1038,7 +1119,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; PRAGMA user_version = 11;";
+            command.CommandText = "DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; PRAGMA user_version = 11;";
             command.ExecuteNonQuery();
         }
 
@@ -1046,7 +1127,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; PRAGMA user_version = 12;";
+            command.CommandText = "DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; PRAGMA user_version = 12;";
             command.ExecuteNonQuery();
         }
 
@@ -1054,11 +1135,63 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE workspace_revision; DROP TABLE project_identities; "
+            command.CommandText = "DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; DROP TABLE project_identities; "
                 + "ALTER TABLE category_identities RENAME TO category_identities_v14; "
                 + SqliteWorkspaceWork.CategoryIdentitySchemaThirteen
                 + "INSERT INTO category_identities (category_id, colour_key) SELECT category_id, colour_key FROM category_identities_v14; "
                 + "DROP TABLE category_identities_v14; PRAGMA user_version = 13;";
+            command.ExecuteNonQuery();
+        }
+
+        public void DowngradeCurrentToSchemaSixteen()
+        {
+            using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                ALTER TABLE pending_agent_proposal RENAME TO pending_agent_proposal_v17;
+                CREATE TABLE pending_agent_proposal (
+                    singleton INTEGER NOT NULL PRIMARY KEY CHECK(singleton = 1),
+                    receipt TEXT NOT NULL UNIQUE,
+                    idempotency_key TEXT NOT NULL,
+                    authorization_id TEXT NOT NULL,
+                    client_identity TEXT NOT NULL,
+                    client_name TEXT NOT NULL,
+                    received_at TEXT NOT NULL,
+                    payload_digest TEXT NOT NULL,
+                    strict_utf8 BLOB NOT NULL CHECK(length(strict_utf8) BETWEEN 1 AND 4194304),
+                    UNIQUE(client_identity, idempotency_key)
+                );
+                INSERT INTO pending_agent_proposal
+                    (singleton,receipt,idempotency_key,authorization_id,client_identity,client_name,
+                     received_at,payload_digest,strict_utf8)
+                SELECT 1,receipt,idempotency_key,authorization_id,client_identity,client_name,
+                       received_at,payload_digest,strict_utf8
+                FROM pending_agent_proposal_v17
+                ORDER BY queue_id
+                LIMIT 1;
+                DROP TABLE pending_agent_proposal_v17;
+                PRAGMA user_version = 16;
+                """;
+            command.ExecuteNonQuery();
+        }
+
+        public void DowngradeCurrentToSchemaSeventeen()
+        {
+            using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                ALTER TABLE pending_agent_proposal RENAME TO pending_agent_proposal_v18;
+                """ + SqliteAgentIntegrationStore.PendingProposalSchemaSeventeen + """
+                INSERT INTO pending_agent_proposal
+                    (queue_id,receipt,idempotency_key,authorization_id,client_identity,client_name,
+                     received_at,payload_digest,proposal_kind,operation_count,effect_count,strict_utf8)
+                SELECT queue_id,receipt,idempotency_key,authorization_id,client_identity,client_name,
+                       received_at,payload_digest,proposal_kind,operation_count,effect_count,strict_utf8
+                FROM pending_agent_proposal_v18
+                ORDER BY queue_id;
+                DROP TABLE pending_agent_proposal_v18;
+                PRAGMA user_version = 17;
+                """;
             command.ExecuteNonQuery();
         }
 

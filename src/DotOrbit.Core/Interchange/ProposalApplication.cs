@@ -10,6 +10,15 @@ public interface IProposalApplication
         CancellationToken cancellationToken = default);
 }
 
+public interface IInboundProposalApplication : IProposalApplication
+{
+    ProposalApplyResult ApplyInbound(
+        ProposalApproval approval,
+        string pendingProposalReceipt,
+        IProposalApplicationHost host,
+        CancellationToken cancellationToken = default);
+}
+
 public interface IProposalApplicationHost
 {
     bool FlushPendingInspectorWork();

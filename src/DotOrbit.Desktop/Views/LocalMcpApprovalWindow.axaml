@@ -1,0 +1,59 @@
+<Window
+    x:Class="DotOrbit.Desktop.Views.LocalMcpApprovalWindow"
+    x:DataType="vm:LocalMcpApprovalViewModel"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:DotOrbit.Desktop.ViewModels"
+    Title="Approve local MCP client"
+    Width="620"
+    Height="520"
+    MinWidth="520"
+    MinHeight="440"
+    Background="{DynamicResource BackgroundBrush}"
+    WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="*,Auto">
+    <ScrollViewer Margin="32,28,32,20" AutomationProperties.Name="Local MCP client approval details">
+      <StackPanel Spacing="16">
+        <StackPanel Spacing="7">
+          <TextBlock Classes="eyebrow" Text="LOCAL MCP ACCESS" />
+          <TextBlock FontSize="28" FontWeight="Bold" Text="Allow this local client?" />
+          <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
+              Text="The operating system proves which user and, where available, process connected. The client name and version below are self-asserted and are not identity proof." />
+        </StackPanel>
+        <Border Classes="list-panel">
+          <StackPanel Spacing="8">
+            <TextBlock FontWeight="SemiBold" Text="OS-verified connection" />
+            <TextBlock Text="{Binding VerifiedAccount}" TextWrapping="Wrap" />
+            <TextBlock Foreground="{DynamicResource MutedTextBrush}" Text="{Binding VerifiedProcess}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+        <Border Classes="list-panel">
+          <StackPanel Spacing="8">
+            <TextBlock FontWeight="SemiBold" Text="Unverified display metadata" />
+            <TextBlock Text="{Binding UnverifiedClient}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+        <Border Classes="list-panel">
+          <StackPanel Spacing="8">
+            <TextBlock FontWeight="SemiBold" Text="Requested scopes" />
+            <TextBlock Text="{Binding RequestedScopes}" TextWrapping="Wrap" />
+            <TextBlock Foreground="{DynamicResource MutedTextBrush}" Text="{Binding Powers}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+    <Border Grid.Row="1" Padding="24,16" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0">
+      <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+        <Button x:Name="DenyButton" Classes="view-action" Content="Deny" Click="OnDeny"
+            AutomationProperties.AutomationId="local-mcp-deny"
+            AutomationProperties.Name="Deny this local MCP client" />
+        <Button Grid.Column="2" Classes="view-action" Content="Allow once" Click="OnAllowOnce"
+            AutomationProperties.AutomationId="local-mcp-allow-once"
+            AutomationProperties.Name="Allow requested scopes until disconnect or dot-orbit closes" />
+        <Button Grid.Column="3" Classes="primary-action" Content="Always allow" Click="OnAlwaysAllow"
+            AutomationProperties.AutomationId="local-mcp-always-allow"
+            AutomationProperties.Name="Remember this exact local MCP client credential, OS account, and scope set" />
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

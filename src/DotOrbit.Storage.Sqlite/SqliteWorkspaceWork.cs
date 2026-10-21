@@ -507,7 +507,7 @@ internal sealed class SqliteWorkspaceWork(
         }
     }
 
-    private static void ValidateTableDefinition(SqliteCommand command, string table, string expected)
+    internal static void ValidateTableDefinition(SqliteCommand command, string table, string expected)
     {
         command.Parameters.Clear();
         command.CommandText = "SELECT sql FROM sqlite_schema WHERE type='table' AND name=$table;";

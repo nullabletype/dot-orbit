@@ -698,6 +698,198 @@ public sealed class ProposalApplicationTests : IDisposable
     }
 
     [Fact]
+    public void InboundProposalIsConsumedInTheSameCommitBeforePostCommitFailure()
+    {
+        var recoveryDirectory = Path.Combine(directory, "recovery");
+        var store = new EncryptedWorkspaceStore(
+            new SystemIdentifierGenerator(),
+            new WorkspaceFileOperations(),
+            proposalApplyCheckpoint: (checkpoint, _, _) =>
+            {
+                if (checkpoint == ProposalApplyCheckpoint.AfterCommit)
+                {
+                    throw new InvalidOperationException("Synthetic process-loss boundary after commit.");
+                }
+            });
+        const string receipt = "receipt-atomic-apply";
+        var identity = new string('d', 64);
+        byte[] proposalBytes;
+        using (var session = CreateWorkspace(store))
+        {
+            Assert.Equal(
+                RecoveryDirectoryConfigurationStatus.Configured,
+                session.Recovery.ConfigureAutomaticRecoveryDirectory(recoveryDirectory).Status);
+            var proposal = new JsonObject
+            {
+                ["format"] = AgentInterchangeV1.NewWorkProposalFormat,
+                ["schemaVersion"] = 1,
+                ["operations"] = new JsonArray
+                {
+                    new JsonObject
+                    {
+                        ["operation"] = "createCategory",
+                        ["operationId"] = "1",
+                        ["localId"] = "new",
+                        ["name"] = "Applied exactly once",
+                    },
+                },
+            };
+            proposalBytes = JsonSerializer.SerializeToUtf8Bytes(proposal);
+            var reviewed = new ProposalReviewBoundary(session.Proposals, TimeProvider.System)
+                .Review(proposalBytes);
+            Assert.Empty(reviewed.Failures);
+            var plan = Assert.IsType<ProposalExecutionPlan>(reviewed.Plan);
+            var pending = new PendingAgentProposal(
+                receipt,
+                "key-atomic-apply",
+                "authorization-1",
+                identity,
+                "Unverified client",
+                new DateTimeOffset(2026, 10, 21, 12, 0, 0, TimeSpan.Zero),
+                plan.Kind,
+                plan.Operations.Count,
+                plan.Preview.Count,
+                proposalBytes);
+            Assert.Equal(
+                PendingAgentProposalStoreStatus.Stored,
+                session.AgentIntegration.TryStorePendingProposal(pending).Status);
+            var other = new PendingAgentProposal(
+                "receipt-other",
+                "key-other",
+                "authorization-1",
+                identity,
+                "Unverified client",
+                new DateTimeOffset(2026, 10, 21, 12, 0, 30, TimeSpan.Zero),
+                ProposalKind.NewWork,
+                1,
+                1,
+                Encoding.UTF8.GetBytes("other pending proposal"));
+            Assert.Equal(
+                PendingAgentProposalStoreStatus.Stored,
+                session.AgentIntegration.TryStorePendingProposal(other).Status);
+            var approval = Assert.IsType<ProposalApproval>(session.ProposalApplication.Approve(plan));
+            var application = Assert.IsAssignableFrom<IInboundProposalApplication>(
+                session.ProposalApplication);
+
+            var result = application.ApplyInbound(
+                approval,
+                receipt,
+                new Host(),
+                TestContext.Current.CancellationToken);
+
+            Assert.Equal(ProposalApplyStatus.CommittedMaintenanceRequired, result.Status);
+            Assert.Null(session.AgentIntegration.FindPendingProposal(receipt));
+            Assert.Equal("receipt-other", Assert.Single(session.AgentIntegration.ReadPendingProposals()).Receipt);
+            Assert.Single(session.Work.Read().Categories, item => item.Name == "Applied exactly once");
+        }
+
+        using var reopened = Assert.IsAssignableFrom<IWorkspaceSession>(
+            store.Open(WorkspacePath, passphrase).Session);
+        Assert.Null(reopened.AgentIntegration.FindPendingProposal(receipt));
+        Assert.Equal("receipt-other", Assert.Single(reopened.AgentIntegration.ReadPendingProposals()).Receipt);
+        Assert.Single(reopened.Work.Read().Categories, item => item.Name == "Applied exactly once");
+        var replay = reopened.AgentIntegration.TryStorePendingProposal(new PendingAgentProposal(
+            "unused-receipt",
+            "key-atomic-apply",
+            "authorization-2",
+            identity,
+            "Unverified client",
+            new DateTimeOffset(2026, 10, 21, 12, 1, 0, TimeSpan.Zero),
+            ProposalKind.NewWork,
+            1,
+            1,
+            proposalBytes));
+        Assert.Equal(PendingAgentProposalStoreStatus.Duplicate, replay.Status);
+        Assert.Equal(receipt, replay.Receipt);
+        Assert.Null(reopened.AgentIntegration.FindPendingProposal(receipt));
+        Assert.Equal("receipt-other", Assert.Single(reopened.AgentIntegration.ReadPendingProposals()).Receipt);
+    }
+
+    [Fact]
+    public void InboundProposalAndItsSelectedReceiptBothRemainWhenTheApplyTransactionRollsBack()
+    {
+        var recoveryDirectory = Path.Combine(directory, "recovery");
+        var store = new EncryptedWorkspaceStore(
+            new SystemIdentifierGenerator(),
+            new WorkspaceFileOperations(),
+            TimeProvider.System,
+            proposalApplyCheckpoint: (checkpoint, _, _) =>
+            {
+                if (checkpoint == ProposalApplyCheckpoint.BeforeCommit)
+                {
+                    throw new IOException("Injected failure before commit.");
+                }
+            });
+        using var session = CreateWorkspace(store);
+        Assert.Equal(
+            RecoveryDirectoryConfigurationStatus.Configured,
+            session.Recovery.ConfigureAutomaticRecoveryDirectory(recoveryDirectory).Status);
+        var proposal = new JsonObject
+        {
+            ["format"] = AgentInterchangeV1.NewWorkProposalFormat,
+            ["schemaVersion"] = 1,
+            ["operations"] = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["operation"] = "createCategory",
+                    ["operationId"] = "1",
+                    ["localId"] = "new",
+                    ["name"] = "Must roll back",
+                },
+            },
+        };
+        var proposalBytes = JsonSerializer.SerializeToUtf8Bytes(proposal);
+        var reviewed = new ProposalReviewBoundary(session.Proposals, TimeProvider.System)
+            .Review(proposalBytes);
+        var plan = Assert.IsType<ProposalExecutionPlan>(reviewed.Plan);
+        Assert.Empty(reviewed.Failures);
+        var identity = new string('f', 64);
+        var selected = new PendingAgentProposal(
+            "receipt-selected",
+            "key-selected",
+            "authorization-1",
+            identity,
+            "Unverified client",
+            new DateTimeOffset(2026, 10, 21, 12, 0, 0, TimeSpan.Zero),
+            plan.Kind,
+            plan.Operations.Count,
+            plan.Preview.Count,
+            proposalBytes);
+        var other = new PendingAgentProposal(
+            "receipt-other",
+            "key-other",
+            "authorization-1",
+            identity,
+            "Unverified client",
+            new DateTimeOffset(2026, 10, 21, 12, 1, 0, TimeSpan.Zero),
+            ProposalKind.NewWork,
+            1,
+            1,
+            Encoding.UTF8.GetBytes("other pending proposal"));
+        Assert.Equal(
+            PendingAgentProposalStoreStatus.Stored,
+            session.AgentIntegration.TryStorePendingProposal(selected).Status);
+        Assert.Equal(
+            PendingAgentProposalStoreStatus.Stored,
+            session.AgentIntegration.TryStorePendingProposal(other).Status);
+        var approval = Assert.IsType<ProposalApproval>(session.ProposalApplication.Approve(plan));
+        var application = Assert.IsAssignableFrom<IInboundProposalApplication>(session.ProposalApplication);
+
+        var result = application.ApplyInbound(
+            approval,
+            selected.Receipt,
+            new Host(),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(ProposalApplyStatus.Failed, result.Status);
+        Assert.Equal(
+            [selected.Receipt, other.Receipt],
+            session.AgentIntegration.ReadPendingProposals().Select(item => item.Receipt));
+        Assert.DoesNotContain(session.Work.Read().Categories, item => item.Name == "Must roll back");
+    }
+
+    [Fact]
     public void RemainingOperationFamiliesCommitTogetherAndPreserveArchivedOrderSlots()
     {
         var store = new EncryptedWorkspaceStore();

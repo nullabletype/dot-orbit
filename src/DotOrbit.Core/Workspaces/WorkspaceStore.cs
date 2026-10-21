@@ -31,6 +31,9 @@ public interface IWorkspaceSession : IDisposable
 
     IProposalWorkspaceSource Proposals { get; }
 
+    IAgentIntegrationStore AgentIntegration =>
+        throw new NotSupportedException("This workspace session does not support local agent integration state.");
+
     IProposalApplication ProposalApplication =>
         throw new NotSupportedException("This workspace session does not support proposal application.");
 
