@@ -1,6 +1,11 @@
 # Secure local MCP/IPC prototype
 
-This throwaway slice tests the boundary selected by issue #125. It uses synthetic data only and does not reference the real desktop, encrypted workspace, proposal parser, or persistence projects.
+> Historical design evidence. The accepted implementation was promoted into
+> `src/DotOrbit.Mcp.Ipc`, `src/DotOrbit.Mcp.Adapter`, and their production test
+> projects. The throwaway prototype executables and duplicate test harness were
+> removed so there is only one maintained implementation.
+
+This throwaway slice tested the boundary selected by issue #125. Its surviving `consent-state.html` is historical interaction evidence only. The executable projects and duplicate test harness were removed when issue #92 promoted the design into production.
 
 ## What it proves
 
@@ -15,47 +20,7 @@ This throwaway slice tests the boundary selected by issue #125. It uses syntheti
 
 The prototype deliberately does not prove real workspace reads, real proposal ingress, application-identity authentication, remote MCP, or host configuration editing.
 
-## Run locally
-
-Restore and build from the repository root:
-
-```sh
-dotnet restore DotOrbit.slnx --configfile NuGet.Config
-dotnet build prototype/mcp-secure-ipc/DotOrbit.McpIpcPrototype.Tests/DotOrbit.McpIpcPrototype.Tests.csproj --configuration Release --no-restore
-```
-
-Run the focused suite:
-
-```sh
-dotnet test --project prototype/mcp-secure-ipc/DotOrbit.McpIpcPrototype.Tests/DotOrbit.McpIpcPrototype.Tests.csproj --configuration Release --no-build
-```
-
-Compare the two self-contained single-file shapes for the current runtime, for example:
-
-```sh
-dotnet run --project prototype/mcp-secure-ipc/DotOrbit.McpIpcPrototype.PackageCheck/DotOrbit.McpIpcPrototype.PackageCheck.csproj --configuration Release --no-restore -- --repository-root . --runtime osx-arm64
-```
-
-The package check writes only ignored local build output below `artifacts/mcp-prototype-package-check/`. It launches each packaged binary first with immediate EOF, then through the official C# MCP client to initialize and list exactly the two synthetic tools. CI runs it on `win-x64`, `linux-x64`, `osx-x64`, and `osx-arm64` and uploads nothing.
-
-## Manual broker exercise
-
-Choose a short private temporary location and start the desktop-shaped host:
-
-```sh
-dotnet run --project prototype/mcp-secure-ipc/DotOrbit.McpIpcPrototype/DotOrbit.McpIpcPrototype.csproj -- host --runtime-root /tmp/dot-orbit-mcp --ai-on --mcp-on
-```
-
-The control input accepts `approve`, `deny`, `revoke`, `lock`, `disable`, and `exit`. The test client and MCP process intentionally cannot approve themselves.
-
-Launch either stdio shape from an MCP host:
-
-```text
-dot-orbit-mcp-prototype --mcp-stdio --runtime-root /tmp/dot-orbit-mcp
-dot-orbit-mcp-adapter-prototype --stdio --runtime-root /tmp/dot-orbit-mcp
-```
-
-No environment secret is required or supported. A host configuration should contain only an absolute command path and these arguments. Do not commit a machine-specific path or MCP enablement to the repository.
+For current build, test, packaging, configuration, and security instructions, use [`docs/development/local-mcp.md`](../../docs/development/local-mcp.md) and [`docs/development/release-packaging.md`](../../docs/development/release-packaging.md).
 
 ## Security boundary
 

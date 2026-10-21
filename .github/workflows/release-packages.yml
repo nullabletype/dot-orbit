@@ -67,18 +67,22 @@ jobs:
             runtime: win-x64
             archive: dot-orbit-win-x64.zip
             smoke-command: ./artifacts/package-smoke/win-x64/dot-orbit.exe --package-smoke
+            adapter-smoke-command: ./artifacts/package-smoke/win-x64/dot-orbit-mcp.exe --package-smoke
           - os: ubuntu-24.04
             runtime: linux-x64
             archive: dot-orbit-linux-x64.tar.gz
             smoke-command: xvfb-run --auto-servernum --auth-file=artifacts/package-smoke/linux-x64/dot-orbit-xvfb.auth ./artifacts/package-smoke/linux-x64/dot-orbit --package-smoke
+            adapter-smoke-command: ./artifacts/package-smoke/linux-x64/dot-orbit-mcp --package-smoke
           - os: macos-26-intel
             runtime: osx-x64
             archive: dot-orbit-osx-x64.tar.gz
             smoke-command: ./artifacts/package-smoke/osx-x64/dot-orbit --package-smoke
+            adapter-smoke-command: ./artifacts/package-smoke/osx-x64/dot-orbit-mcp --package-smoke
           - os: macos-26
             runtime: osx-arm64
             archive: dot-orbit-osx-arm64.tar.gz
             smoke-command: ./artifacts/package-smoke/osx-arm64/dot-orbit --package-smoke
+            adapter-smoke-command: ./artifacts/package-smoke/osx-arm64/dot-orbit-mcp --package-smoke
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -118,6 +122,12 @@ jobs:
           DOTORBIT_PACKAGE_SMOKE_RECOVERY: ${{ github.workspace }}/tests/DotOrbit.Storage.Sqlite.Tests/Fixtures/portable-current-v13.dotorbit-recovery
           DOTORBIT_PACKAGE_SMOKE_VERSION: ${{ needs.admit-source.outputs.version }}
         run: ${{ matrix.smoke-command }}
+      - name: Run packaged MCP adapter smoke
+        timeout-minutes: 1
+        shell: bash
+        env:
+          DOTORBIT_PACKAGE_SMOKE_VERSION: ${{ needs.admit-source.outputs.version }}
+        run: ${{ matrix.adapter-smoke-command }}
       - name: Upload approved release package
         if: needs.admit-source.outputs.upload == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

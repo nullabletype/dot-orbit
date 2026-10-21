@@ -30,7 +30,11 @@ public interface IAiFeaturePreferenceService
 {
     bool AiFeaturesEnabled { get; }
 
+    bool LocalMcpEnabled { get; }
+
     bool TrySetAiFeaturesEnabled(bool enabled);
+
+    bool TrySetLocalMcpEnabled(bool enabled);
 }
 
 internal interface IApplicationThemePreferenceStore
@@ -51,7 +55,11 @@ internal interface IAiFeaturePreferenceStore
 {
     bool LoadAiFeaturesEnabled();
 
+    bool LoadLocalMcpEnabled();
+
     bool TrySaveAiFeaturesEnabled(bool enabled);
+
+    bool TrySaveLocalMcpEnabled(bool enabled);
 }
 
 internal sealed class ApplicationThemeService : IApplicationThemeService
@@ -167,32 +175,82 @@ internal sealed class TransientInterchangePreferenceService(
     }
 }
 
-internal sealed class AiFeaturePreferenceService(
-    IAiFeaturePreferenceStore preferenceStore) : IAiFeaturePreferenceService
+internal sealed class AiFeaturePreferenceService : IAiFeaturePreferenceService
 {
-    public bool AiFeaturesEnabled { get; private set; } =
-        preferenceStore.LoadAiFeaturesEnabled();
+    private readonly IAiFeaturePreferenceStore _preferenceStore;
+
+    public AiFeaturePreferenceService(IAiFeaturePreferenceStore preferenceStore)
+    {
+        ArgumentNullException.ThrowIfNull(preferenceStore);
+        _preferenceStore = preferenceStore;
+        AiFeaturesEnabled = preferenceStore.LoadAiFeaturesEnabled();
+        LocalMcpEnabled = AiFeaturesEnabled && preferenceStore.LoadLocalMcpEnabled();
+    }
+
+    public bool AiFeaturesEnabled { get; private set; }
+
+    public bool LocalMcpEnabled { get; private set; }
 
     public bool TrySetAiFeaturesEnabled(bool enabled)
     {
-        if (!preferenceStore.TrySaveAiFeaturesEnabled(enabled))
+        if (!_preferenceStore.TrySaveAiFeaturesEnabled(enabled))
         {
             return false;
         }
 
         AiFeaturesEnabled = enabled;
+        if (!enabled)
+        {
+            LocalMcpEnabled = false;
+        }
+
+        return true;
+    }
+
+    public bool TrySetLocalMcpEnabled(bool enabled)
+    {
+        if (enabled && !AiFeaturesEnabled)
+        {
+            return false;
+        }
+
+        if (!_preferenceStore.TrySaveLocalMcpEnabled(enabled))
+        {
+            return false;
+        }
+
+        LocalMcpEnabled = enabled;
         return true;
     }
 }
 
 internal sealed class TransientAiFeaturePreferenceService(
-    bool aiFeaturesEnabled = false) : IAiFeaturePreferenceService
+    bool aiFeaturesEnabled = false,
+    bool localMcpEnabled = false) : IAiFeaturePreferenceService
 {
     public bool AiFeaturesEnabled { get; private set; } = aiFeaturesEnabled;
+
+    public bool LocalMcpEnabled { get; private set; } = aiFeaturesEnabled && localMcpEnabled;
 
     public bool TrySetAiFeaturesEnabled(bool enabled)
     {
         AiFeaturesEnabled = enabled;
+        if (!enabled)
+        {
+            LocalMcpEnabled = false;
+        }
+
+        return true;
+    }
+
+    public bool TrySetLocalMcpEnabled(bool enabled)
+    {
+        if (enabled && !AiFeaturesEnabled)
+        {
+            return false;
+        }
+
+        LocalMcpEnabled = enabled;
         return true;
     }
 }
@@ -245,8 +303,29 @@ internal sealed class JsonDevicePreferenceStore :
     public bool LoadAiFeaturesEnabled() =>
         LoadDocument().AiFeaturesEnabled ?? false;
 
-    public bool TrySaveAiFeaturesEnabled(bool enabled) =>
-        TrySaveDocument(LoadDocument() with { AiFeaturesEnabled = enabled });
+    public bool LoadLocalMcpEnabled() =>
+        LoadDocument().LocalMcpEnabled ?? false;
+
+    public bool TrySaveAiFeaturesEnabled(bool enabled)
+    {
+        var document = LoadDocument();
+        return TrySaveDocument(document with
+        {
+            AiFeaturesEnabled = enabled,
+            LocalMcpEnabled = enabled ? document.LocalMcpEnabled : false,
+        });
+    }
+
+    public bool TrySaveLocalMcpEnabled(bool enabled)
+    {
+        var document = LoadDocument();
+        if (enabled && document.AiFeaturesEnabled is not true)
+        {
+            return false;
+        }
+
+        return TrySaveDocument(document with { LocalMcpEnabled = enabled });
+    }
 
     private PreferenceDocument LoadDocument()
     {
@@ -254,25 +333,25 @@ internal sealed class JsonDevicePreferenceStore :
         {
             if (!File.Exists(_path))
             {
-                return new(null, null, null);
+                return new(null, null, null, null);
             }
 
             return JsonSerializer.Deserialize<PreferenceDocument>(
                        File.ReadAllText(_path),
                        JsonOptions)
-                   ?? new(null, null, null);
+                   ?? new(null, null, null, null);
         }
         catch (IOException)
         {
-            return new(null, null, null);
+            return new(null, null, null, null);
         }
         catch (UnauthorizedAccessException)
         {
-            return new(null, null, null);
+            return new(null, null, null, null);
         }
         catch (JsonException)
         {
-            return new(null, null, null);
+            return new(null, null, null, null);
         }
     }
 
@@ -323,5 +402,6 @@ internal sealed class JsonDevicePreferenceStore :
     private sealed record PreferenceDocument(
         string? Theme,
         bool? IncludeAgentInstructionsAndSchemaWithSnapshot,
-        bool? AiFeaturesEnabled);
+        bool? AiFeaturesEnabled,
+        bool? LocalMcpEnabled);
 }

@@ -61,6 +61,12 @@ public sealed partial class MainWindow : Window
     private CancellationTokenSource? _proposalIntakeCancellation;
     private AgentProposalReviewViewModel? _activeProposalReview;
     private AgentProposalReviewWindow? _activeProposalReviewWindow;
+    private PendingProposalCoordinator? _pendingProposalCoordinator;
+    private string? _pendingProposalFocusReceipt;
+    private readonly object _localMcpTransitionGate = new();
+    private Task _localMcpTransition = Task.CompletedTask;
+    private LocalMcpDesktopService? _localMcpService;
+    private LocalMcpApprovalWindow? _localMcpApprovalWindow;
     private long _proposalReviewRevision;
     private long _transientMessageRevision;
 
@@ -342,6 +348,13 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        if (!ai.CanReplaceProposalText)
+        {
+            ai.ReportProposalStatus("Wait for the current proposal action to finish before replacing its text.");
+            (failureFocus ?? editor).Focus();
+            return;
+        }
+
         InvalidateActiveProposalReview();
         var proposalInputRevision = _proposalReviewRevision;
         var clipboard = _proposalClipboardReader
@@ -395,6 +408,13 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        if (!ai.CanReplaceProposalText)
+        {
+            ai.ReportProposalStatus("Wait for the current proposal action to finish before replacing its text.");
+            launcher?.Focus();
+            return;
+        }
+
         InvalidateActiveProposalReview();
         var proposalInputRevision = _proposalReviewRevision;
         string? path;
@@ -424,6 +444,7 @@ public sealed partial class MainWindow : Window
 
     private bool IsCurrentProposalInput(AiViewModel ai, long revision) =>
         revision == _proposalReviewRevision
+        && ai.CanReplaceProposalText
         && DataContext is ShellViewModel { Ai: { } currentAi }
         && ReferenceEquals(ai, currentAi);
 
@@ -435,7 +456,7 @@ public sealed partial class MainWindow : Window
 
     internal DragDropEffects ProposalDragEffects(IDataTransfer dataTransfer)
     {
-        if (DataContext is not ShellViewModel { Ai: { } })
+        if (DataContext is not ShellViewModel { Ai: { CanReplaceProposalText: true } })
         {
             return DragDropEffects.None;
         }
@@ -447,7 +468,7 @@ public sealed partial class MainWindow : Window
     private async void OnProposalDrop(object? sender, DragEventArgs e)
     {
         e.Handled = true;
-        if (DataContext is not ShellViewModel { Ai: { } ai })
+        if (DataContext is not ShellViewModel { Ai: { CanReplaceProposalText: true } ai })
         {
             return;
         }
@@ -469,7 +490,7 @@ public sealed partial class MainWindow : Window
 
     private async Task LoadProposalFileAsync(string path, Control? launcher)
     {
-        if (DataContext is not ShellViewModel { Ai: { } ai })
+        if (DataContext is not ShellViewModel { Ai: { CanReplaceProposalText: true } ai })
         {
             return;
         }
@@ -514,6 +535,7 @@ public sealed partial class MainWindow : Window
         if (result.Status == ProposalFileIntakeStatus.Loaded && result.Text is { } text)
         {
             _ = editor?.TryReplaceAll(text);
+            ai.MarkManualProposalSource(ProposalReviewSource.JsonFileImport);
             ai.ReportProposalStatus("Proposal text loaded from one local file. Review is required before anything can be applied.");
         }
         else if (result.Status == ProposalFileIntakeStatus.Cancelled)
@@ -539,31 +561,170 @@ public sealed partial class MainWindow : Window
         await work.NavigateAsync(() => _ = CompleteProposalReviewAsync(launcher));
     }
 
-    internal async Task CompleteProposalReviewAsync(Control? launcher)
+    private async void OnOpenPendingProposals(object? sender, RoutedEventArgs e)
     {
-        if (_session is not { } session
-            || DataContext is not ShellViewModel { Ai: { } ai, Work: { } work }
-            || !ai.CanReviewProposal)
+        _ = e;
+        if (DataContext is not ShellViewModel { Ai: { } ai } shell)
         {
             return;
+        }
+
+        var wasShowingAi = shell.ShowAI;
+        var oldestReceipt = ai.PendingProposals.FirstOrDefault()?.Receipt;
+        if (!wasShowingAi && oldestReceipt is not null)
+        {
+            _pendingProposalFocusReceipt = oldestReceipt;
+        }
+        if (!wasShowingAi)
+        {
+            shell.OpenPendingProposals();
+        }
+        else
+        {
+            shell.DismissProposalArrivalNotification();
+        }
+        if (oldestReceipt is null)
+        {
+            return;
+        }
+
+        if (!wasShowingAi)
+        {
+            return;
+        }
+
+        var launcher = FindPendingProposalReviewButton(oldestReceipt) ?? sender as Control;
+        if (_session is not null && shell.Work is { } work)
+        {
+            Task review = Task.CompletedTask;
+            await work.NavigateAsync(() => review = CompleteProposalReviewAsync(launcher, oldestReceipt));
+            await review;
+        }
+    }
+
+    private void OnDismissProposalArrival(object? sender, RoutedEventArgs e)
+    {
+        _ = sender;
+        _ = e;
+        if (DataContext is ShellViewModel shell)
+        {
+            shell.DismissProposalArrivalNotification();
+        }
+    }
+
+    private async void OnReviewInboundProposal(object? sender, RoutedEventArgs e)
+    {
+        _ = e;
+        if (sender is not Control { DataContext: PendingProposalRowViewModel row } launcher
+            || _session is null
+            || DataContext is not ShellViewModel { Work: { } work })
+        {
+            return;
+        }
+
+        await work.NavigateAsync(() => _ = CompleteProposalReviewAsync(launcher, row.Receipt));
+    }
+
+    private void OnDiscardInboundProposal(object? sender, RoutedEventArgs e)
+    {
+        _ = e;
+        if (sender is not Control { DataContext: PendingProposalRowViewModel row } launcher
+            || DataContext is not ShellViewModel { Ai: { } ai })
+        {
+            return;
+        }
+
+        var nextReceipt = ai.PendingProposals
+            .SkipWhile(proposal => !string.Equals(proposal.Receipt, row.Receipt, StringComparison.Ordinal))
+            .Skip(1)
+            .FirstOrDefault()?.Receipt;
+        if (ai.DiscardInboundProposal(row.Receipt))
+        {
+            Dispatcher.UIThread.Post(() => FocusPendingProposalOrManual(nextReceipt));
+        }
+        else
+        {
+            launcher.Focus();
+        }
+    }
+
+    internal Task CompleteProposalReviewAsync(Control? launcher) =>
+        CompleteProposalReviewAsync(launcher, null);
+
+    internal Task CompleteInboundProposalReviewAsync(string receipt, Control? launcher = null) =>
+        CompleteProposalReviewAsync(launcher, receipt);
+
+    internal IInboundProposalSink? PendingProposalSink => _pendingProposalCoordinator;
+
+    private async Task CompleteProposalReviewAsync(Control? launcher, string? pendingReceipt)
+    {
+        if (_session is not { } session
+            || DataContext is not ShellViewModel { Ai: { } ai, Work: { } work })
+        {
+            return;
+        }
+
+        PendingAgentProposal? pending = null;
+        string? nextPendingReceipt = null;
+        if (pendingReceipt is null)
+        {
+            if (!ai.CanReviewProposal)
+            {
+                return;
+            }
+        }
+        else
+        {
+            pending = _pendingProposalCoordinator?.FindPendingProposal(pendingReceipt);
+            if (pending is null)
+            {
+                ai.ReportProposalStatus("That inbound proposal is no longer waiting for review.");
+                launcher?.Focus();
+                return;
+            }
+
+            ai.ClearPendingProposalReviewStatus(pendingReceipt);
+
+            nextPendingReceipt = ai.PendingProposals
+                .SkipWhile(proposal => !string.Equals(proposal.Receipt, pendingReceipt, StringComparison.Ordinal))
+                .Skip(1)
+                .FirstOrDefault()?.Receipt;
         }
 
         InvalidateActiveProposalReview();
         var proposalReviewRevision = _proposalReviewRevision;
         ai.SetProposalActionInFlight(true);
         byte[]? payload = null;
+        var source = pending is null
+            ? ai.ManualProposalSource
+            : ProposalReviewSource.LocalMcp(pending.ClientName);
         ProposalPlanResult result;
+        var proposalWasRefreshed = false;
         try
         {
-            payload = ProposalTextRules.Encode(ai.ProposalText);
+            payload = pending is null
+                ? ProposalTextRules.Encode(ai.ProposalText)
+                : pending.StrictUtf8.ToArray();
             var boundary = new ProposalReviewBoundary(session.Proposals, _timeProvider);
-            result = await Task.Run(() => boundary.Review(payload));
+            if (pending is null)
+            {
+                result = await Task.Run(() => boundary.Review(payload));
+            }
+            else
+            {
+                var queuedResult = await Task.Run(() => boundary.ReviewQueued(payload, pending.ReviewBasis));
+                result = new(queuedResult.Plan, queuedResult.Failures);
+                proposalWasRefreshed = queuedResult.WasRefreshed;
+            }
         }
         catch (Exception exception) when (exception is EncoderFallbackException
                                           or InvalidOperationException
                                           or ObjectDisposedException)
         {
-            ai.ReportProposalStatus("The proposal could not be reviewed. Nothing was applied.");
+            ReportProposalReviewStatus(
+                ai,
+                pendingReceipt,
+                "The proposal could not be reviewed. Nothing was applied.");
             launcher?.Focus();
             return;
         }
@@ -583,7 +744,9 @@ public sealed partial class MainWindow : Window
             || !ReferenceEquals(ai, currentShell.Ai)
             || !currentShell.ShowAI)
         {
-            ai.ReportProposalStatus(
+            ReportProposalReviewStatus(
+                ai,
+                pendingReceipt,
                 "Proposal review was invalidated by an input, navigation, or workspace change. Nothing was applied.");
             launcher?.Focus();
             return;
@@ -598,19 +761,44 @@ public sealed partial class MainWindow : Window
                     : failure.Guidance)
                 .Distinct(StringComparer.Ordinal)
                 .ToArray();
-            ai.ReportProposalStatus(guidance.Length == 0
+            var status = guidance.Length == 0
                 ? "The proposal is invalid, unsupported, stale, or incomplete. Nothing was applied."
-                : string.Join(" ", guidance));
+                : string.Join(" ", guidance);
+            ReportProposalReviewStatus(ai, pendingReceipt, status);
             launcher?.Focus();
             return;
         }
 
-        var viewModel = new AgentProposalReviewViewModel(plan, session.ProposalApplication);
+        var viewModel = new AgentProposalReviewViewModel(
+            plan,
+            session.ProposalApplication,
+            pendingReceipt,
+            source,
+            proposalWasRefreshed);
         var review = new AgentProposalReviewWindow(viewModel, new DesktopProposalApplicationHost(work));
         _activeProposalReview = viewModel;
         _activeProposalReviewWindow = review;
+        void OnApplyFinished(object? sender, EventArgs e)
+        {
+            if (!viewModel.ProposalWasCommitted)
+            {
+                return;
+            }
+
+            if (pendingReceipt is not null)
+            {
+                _pendingProposalCoordinator?.CompleteApplied(pendingReceipt);
+            }
+            else
+            {
+                ai.ClearAppliedProposal();
+            }
+        }
+
+        viewModel.ApplyFinished += OnApplyFinished;
         review.Closed += (_, _) =>
         {
+            viewModel.ApplyFinished -= OnApplyFinished;
             if (ReferenceEquals(_activeProposalReview, viewModel))
             {
                 _activeProposalReview = null;
@@ -620,10 +808,50 @@ public sealed partial class MainWindow : Window
             ai.ReportProposalStatus(viewModel.HasStatusMessage
                 ? viewModel.StatusMessage
                 : "Proposal review closed. Review is required again before Apply.");
-            Dispatcher.UIThread.Post(() => launcher?.Focus());
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (pendingReceipt is not null
+                    && _pendingProposalCoordinator?.FindPendingProposal(pendingReceipt) is null)
+                {
+                    FocusPendingProposalOrManual(nextPendingReceipt);
+                }
+                else
+                {
+                    launcher?.Focus();
+                }
+            });
         };
         ai.ReportProposalStatus("Proposal ready to review. Check everything shown before deciding whether to apply it.");
         _ = review.ShowDialog(this);
+    }
+
+    private void FocusPendingProposalOrManual(string? receipt)
+    {
+        var nextReview = receipt is null ? null : FindPendingProposalReviewButton(receipt);
+        (nextReview as Control
+            ?? this.FindControl<BoundedProposalTextBox>("AiProposalTextBox"))?.Focus();
+    }
+
+    private Button? FindPendingProposalReviewButton(string receipt) =>
+        this.GetVisualDescendants()
+            .OfType<Button>()
+            .FirstOrDefault(button => button.DataContext is PendingProposalRowViewModel row
+                && string.Equals(row.Receipt, receipt, StringComparison.Ordinal)
+                && string.Equals(button.Content as string, "Review", StringComparison.Ordinal));
+
+    private static void ReportProposalReviewStatus(
+        AiViewModel ai,
+        string? pendingReceipt,
+        string status)
+    {
+        if (pendingReceipt is null)
+        {
+            ai.ReportProposalStatus(status);
+        }
+        else
+        {
+            ai.ReportPendingProposalReviewStatus(pendingReceipt, status);
+        }
     }
 
     private void InvalidateActiveProposalReview()
@@ -668,6 +896,12 @@ public sealed partial class MainWindow : Window
 
     internal void HandleWorkspaceUnavailable(Action? showWorkspaceAccess = null)
     {
+        _ = CompleteUnavailableCloseAsync(showWorkspaceAccess);
+    }
+
+    private async Task CompleteUnavailableCloseAsync(Action? showWorkspaceAccess)
+    {
+        await StopLocalMcpAsync();
         if (showWorkspaceAccess is not null)
         {
             showWorkspaceAccess();
@@ -683,12 +917,6 @@ public sealed partial class MainWindow : Window
 
             access.Show();
         }
-
-        _ = CompleteUnavailableCloseAsync();
-    }
-
-    private async Task CompleteUnavailableCloseAsync()
-    {
         if (DataContext is ShellViewModel { Work: { } work })
             await work.DrainWorkspaceActionsAsync();
         if (_inspectorSaveWriter is not null)
@@ -705,6 +933,7 @@ public sealed partial class MainWindow : Window
 
     internal async Task ReplaceSessionAsync(IWorkspaceSession session)
     {
+        await StopLocalMcpAsync();
         DiscardProposalStateForSessionEnd();
         if (DataContext is ShellViewModel { Work: { } work })
             await work.DrainWorkspaceActionsAsync();
@@ -719,10 +948,236 @@ public sealed partial class MainWindow : Window
         SetSessionContext();
     }
 
+    private Task ReconcileLocalMcpAsync() => QueueLocalMcpTransition(ReconcileLocalMcpCoreAsync);
+
+    private async Task ReconcileLocalMcpCoreAsync()
+    {
+        var shouldRun = _session is not null
+                        && _pendingProposalCoordinator is not null
+                        && _aiFeaturePreferenceService.AiFeaturesEnabled
+                        && _aiFeaturePreferenceService.LocalMcpEnabled;
+        if (!shouldRun)
+        {
+            await StopLocalMcpCoreAsync();
+            return;
+        }
+
+        if (_localMcpService is not null)
+        {
+            return;
+        }
+
+        LocalMcpDesktopService? service = null;
+        try
+        {
+            service = new LocalMcpDesktopService(
+                _session!.Planning,
+                _session.AgentIntegration,
+                _pendingProposalCoordinator!,
+                _timeProvider);
+            service.StatusChanged += OnLocalMcpStatusChanged;
+            service.ApprovalRequested += OnLocalMcpApprovalRequested;
+            service.AuthorizationsChanged += OnLocalMcpAuthorizationsChanged;
+            _localMcpService = service;
+            await service.StartAsync();
+            ReportLocalMcpStatus(service.Status);
+        }
+        catch (Exception exception) when (exception is IOException
+                                          or InvalidOperationException
+                                          or UnauthorizedAccessException
+                                          or NotSupportedException)
+        {
+            if (service is not null)
+            {
+                _ = Interlocked.CompareExchange(ref _localMcpService, null, service);
+                service.StatusChanged -= OnLocalMcpStatusChanged;
+                service.ApprovalRequested -= OnLocalMcpApprovalRequested;
+                service.AuthorizationsChanged -= OnLocalMcpAuthorizationsChanged;
+                await service.DisposeAsync();
+            }
+
+            ReportLocalMcpStatus(LocalMcpServiceStatus.Error);
+        }
+    }
+
+    private Task StopLocalMcpAsync()
+    {
+        _localMcpService?.CloseAdmission();
+        return QueueLocalMcpTransition(StopLocalMcpCoreAsync);
+    }
+
+    private Task QueueLocalMcpTransition(Func<Task> transition)
+    {
+        lock (_localMcpTransitionGate)
+        {
+            _localMcpTransition = RunLocalMcpTransitionAsync(_localMcpTransition, transition);
+            return _localMcpTransition;
+        }
+    }
+
+    internal static async Task RunLocalMcpTransitionAsync(Task prior, Func<Task> transition)
+    {
+        try
+        {
+            await prior.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception) when (exception is IOException
+                                          or InvalidOperationException
+                                          or UnauthorizedAccessException
+                                          or NotSupportedException)
+        {
+        }
+
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            await transition();
+            return;
+        }
+
+        await Dispatcher.UIThread.InvokeAsync(transition);
+    }
+
+    private async Task StopLocalMcpCoreAsync()
+    {
+        if (_localMcpApprovalWindow is { } approvalWindow)
+        {
+            _localMcpApprovalWindow = null;
+            approvalWindow.Close();
+        }
+
+        if (_localMcpService is not { } service)
+        {
+            ReportLocalMcpStatus(LocalMcpServiceStatus.Stopped);
+            return;
+        }
+
+        _localMcpService = null;
+        service.StatusChanged -= OnLocalMcpStatusChanged;
+        service.ApprovalRequested -= OnLocalMcpApprovalRequested;
+        service.AuthorizationsChanged -= OnLocalMcpAuthorizationsChanged;
+        await service.DisposeAsync();
+        ReportLocalMcpStatus(LocalMcpServiceStatus.Stopped);
+    }
+
+    private void OnLocalMcpStatusChanged(object? sender, EventArgs e)
+    {
+        if (sender is not LocalMcpDesktopService service)
+        {
+            return;
+        }
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (ReferenceEquals(service, _localMcpService))
+            {
+                ReportLocalMcpStatus(service.Status);
+            }
+        });
+    }
+
+    private void OnLocalMcpApprovalRequested(object? sender, LocalMcpApprovalRequest request) =>
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!ReferenceEquals(sender, _localMcpService)
+                || !_aiFeaturePreferenceService.AiFeaturesEnabled
+                || !_aiFeaturePreferenceService.LocalMcpEnabled)
+            {
+                _ = request.Resolve(LocalMcpApprovalChoice.Deny);
+                return;
+            }
+
+            if (_localMcpApprovalWindow is not null)
+            {
+                _ = request.Resolve(LocalMcpApprovalChoice.Deny);
+                return;
+            }
+
+            var window = new LocalMcpApprovalWindow(request);
+            _localMcpApprovalWindow = window;
+            window.Closed += (_, _) =>
+            {
+                if (ReferenceEquals(_localMcpApprovalWindow, window))
+                {
+                    _localMcpApprovalWindow = null;
+                }
+            };
+            _ = window.ShowDialog(this);
+        });
+
+    private void OnLocalMcpAuthorizationsChanged(object? sender, EventArgs e) =>
+        Dispatcher.UIThread.Post(RefreshAuthorizedMcpClients);
+
+    private void RefreshAuthorizedMcpClients()
+    {
+        if (DataContext is not ShellViewModel { Settings: { } settings })
+        {
+            return;
+        }
+
+        try
+        {
+            var authorizations = _session?.AgentIntegration.ReadAuthorizations() ?? [];
+            settings.ReportAuthorizedMcpClients(
+                authorizations,
+                authorizationId => _ = RevokeLocalMcpAuthorizationAsync(authorizationId));
+        }
+        catch (Exception exception) when (exception is NotSupportedException
+                                          or WorkspaceWorkException
+                                          or IOException
+                                          or UnauthorizedAccessException
+                                          or InvalidOperationException
+                                          or ObjectDisposedException)
+        {
+            settings.ReportAuthorizedMcpClients([], _ => { });
+        }
+    }
+
+    private async Task RevokeLocalMcpAuthorizationAsync(string authorizationId)
+    {
+        var removed = false;
+        try
+        {
+            if (_localMcpService is { } service)
+            {
+                removed = await service.RevokeAsync(authorizationId);
+            }
+            else
+            {
+                removed = _session?.AgentIntegration.RevokeAuthorization(authorizationId) == true;
+            }
+        }
+        catch (Exception exception) when (exception is WorkspaceWorkException
+                                          or IOException
+                                          or UnauthorizedAccessException
+                                          or InvalidOperationException
+                                          or ObjectDisposedException)
+        {
+        }
+
+        RefreshAuthorizedMcpClients();
+        if (DataContext is ShellViewModel { Settings: { } settings })
+        {
+            var focus = removed
+                ? settings.AuthorizedMcpClients.FirstOrDefault()?.RevokeAutomationId
+                    ?? "settings-local-mcp"
+                : settings.AuthorizedMcpClients
+                    .FirstOrDefault(client => client.Id == authorizationId)?.RevokeAutomationId
+                    ?? "settings-local-mcp";
+            settings.ReportLocalMcpRevocation(removed, focus);
+        }
+    }
+
+    private void ReportLocalMcpStatus(LocalMcpServiceStatus status) =>
+        (DataContext as ShellViewModel)?.Settings?.ReportLocalMcpRuntimeStatus(status);
+
     private void SetSessionContext()
     {
         _inspectorSaveWriter = _session is null ? null : _inspectorSaveWriterFactory(_session.Work);
         _actionExecutor = _inspectorSaveWriter as IWorkspaceActionExecutor;
+        _pendingProposalCoordinator = CreatePendingProposalCoordinator(_session);
         DataContext = new ShellViewModel(
             _session?.Work,
             _timeProvider,
@@ -731,7 +1186,32 @@ public sealed partial class MainWindow : Window
             actionExecutor: _actionExecutor,
             uiDispatcher: new AvaloniaUiDispatcher(),
             interchangePreferenceService: _interchangePreferenceService,
-            aiFeaturePreferenceService: _aiFeaturePreferenceService);
+            aiFeaturePreferenceService: _aiFeaturePreferenceService,
+            pendingProposalCoordinator: _pendingProposalCoordinator);
+        RefreshAuthorizedMcpClients();
+        _ = ReconcileLocalMcpAsync();
+    }
+
+    private PendingProposalCoordinator? CreatePendingProposalCoordinator(IWorkspaceSession? session)
+    {
+        if (session is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return new PendingProposalCoordinator(session.AgentIntegration, session.Proposals, _timeProvider);
+        }
+        catch (Exception exception) when (exception is NotSupportedException
+                                          or WorkspaceWorkException
+                                          or IOException
+                                          or UnauthorizedAccessException
+                                          or InvalidOperationException
+                                          or ObjectDisposedException)
+        {
+            return null;
+        }
     }
 
     private void OnDataContextChanged(object? sender, EventArgs e)
@@ -769,9 +1249,20 @@ public sealed partial class MainWindow : Window
         {
             if (sender is ShellViewModel { AiFeaturesEnabled: false })
             {
-                DiscardProposalStateForSessionEnd();
+                _ = StopLocalMcpAsync();
+                InvalidateProposalReviewState();
+                return;
             }
 
+            _ = ReconcileLocalMcpAsync();
+            return;
+        }
+
+        if (e.PropertyName == nameof(ShellViewModel.LocalMcpEnabled))
+        {
+            _ = sender is ShellViewModel { LocalMcpEnabled: false }
+                ? StopLocalMcpAsync()
+                : ReconcileLocalMcpAsync();
             return;
         }
 
@@ -786,6 +1277,18 @@ public sealed partial class MainWindow : Window
         {
             ai.ReportProposalStatus(
                 "Proposal review was invalidated by navigation. Review the current proposal again before Apply.");
+        }
+
+        if (_pendingProposalFocusReceipt is { } pendingReceipt
+            && sender is ShellViewModel shell)
+        {
+            _pendingProposalFocusReceipt = null;
+            if (shell.ShowAI)
+            {
+                Dispatcher.UIThread.Post(
+                    () => FindPendingProposalReviewButton(pendingReceipt)?.Focus(),
+                    DispatcherPriority.ApplicationIdle);
+            }
         }
     }
 
@@ -985,11 +1488,16 @@ public sealed partial class MainWindow : Window
     private async void OnClosing(object? sender, WindowClosingEventArgs e)
     {
         if (_closingApproved) return;
-        DiscardProposalStateForSessionEnd();
         e.Cancel = true;
+        await StopLocalMcpAsync();
+        InvalidateProposalReviewState();
         if (DataContext is ShellViewModel { Work: { } work })
         {
             await work.NavigateAsync(() => _ = CompleteCloseAsync());
+            if (!_closeCompletionStarted)
+            {
+                _ = ReconcileLocalMcpAsync();
+            }
             return;
         }
         await CompleteCloseAsync();
@@ -999,6 +1507,7 @@ public sealed partial class MainWindow : Window
     {
         if (_closeCompletionStarted) return;
         _closeCompletionStarted = true;
+        await StopLocalMcpAsync();
         if (_inspectorSaveWriter is not null)
         {
             await _inspectorSaveWriter.DisposeAsync();
@@ -1427,6 +1936,11 @@ public sealed partial class MainWindow : Window
         _dateRefreshTimer.Tick -= OnDateRefreshTick;
         _autosaveScheduler.Dispose();
         _transientMessageScheduler.Dispose();
+        if (_localMcpService is { } localMcpService)
+        {
+            _localMcpService = null;
+            _ = localMcpService.DisposeAsync().AsTask();
+        }
         DiscardProposalStateForSessionEnd();
         if (this.FindControl<BoundedProposalTextBox>("AiProposalTextBox") is { } proposalTextBox)
         {
@@ -1447,6 +1961,14 @@ public sealed partial class MainWindow : Window
     }
 
     private void DiscardProposalStateForSessionEnd()
+    {
+        _localMcpService?.CloseAdmission();
+        InvalidateProposalReviewState();
+        _pendingProposalCoordinator?.Dispose();
+        _pendingProposalCoordinator = null;
+    }
+
+    private void InvalidateProposalReviewState()
     {
         _proposalReviewRevision++;
         _proposalIntakeCancellation?.Cancel();

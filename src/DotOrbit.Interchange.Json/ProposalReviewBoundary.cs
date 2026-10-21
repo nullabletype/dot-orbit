@@ -10,9 +10,52 @@ public sealed class ProposalReviewBoundary(IProposalWorkspaceSource source, Time
 {
     public ProposalPlanResult Review(ReadOnlyMemory<byte> strictUtf8)
     {
+        var reviewed = ReviewCore(strictUtf8, queuedBasis: null, allowRefresh: false);
+        return new(reviewed.Plan, reviewed.Failures);
+    }
+
+    public QueuedProposalAdmissionResult PrepareQueued(ReadOnlyMemory<byte> strictUtf8)
+    {
+        var reviewed = ReviewCore(strictUtf8, queuedBasis: null, allowRefresh: false);
+        if (reviewed.Plan is not { } plan || reviewed.ParsedProposal is not { } proposal)
+        {
+            return new(null, reviewed.Failures, ReadOnlyMemory<byte>.Empty);
+        }
+
+        try
+        {
+            var basis = PendingProposalReviewBasis.Create(
+                proposal,
+                reviewed.Current!,
+                PayloadDigest(strictUtf8.Span));
+            return new(plan, [], basis);
+        }
+        catch (Exception exception) when (exception is InvalidDataException
+                                          or JsonException)
+        {
+            return new(
+                null,
+                Array.AsReadOnly(new[] { new ProposalValidationFailure("review-basis-limit") }),
+                ReadOnlyMemory<byte>.Empty);
+        }
+    }
+
+    public QueuedProposalReviewResult ReviewQueued(
+        ReadOnlyMemory<byte> strictUtf8,
+        ReadOnlyMemory<byte> reviewBasis)
+    {
+        var reviewed = ReviewCore(strictUtf8, reviewBasis, allowRefresh: true);
+        return new(reviewed.Plan, reviewed.Failures, reviewed.WasRefreshed);
+    }
+
+    private ReviewCoreResult ReviewCore(
+        ReadOnlyMemory<byte> strictUtf8,
+        ReadOnlyMemory<byte>? queuedBasis,
+        bool allowRefresh)
+    {
         var parsed = ChangeProposalJsonParser.Parse(strictUtf8);
         if (!parsed.IsValid)
-            return new(null, Array.AsReadOnly(new[] { new ProposalValidationFailure(parsed.ErrorCode!) }));
+            return Failed(parsed.ErrorCode!);
 
         ProposalWorkspaceState current;
         try { current = source.Read(); }
@@ -25,19 +68,62 @@ public sealed class ProposalReviewBoundary(IProposalWorkspaceSource source, Time
             var snapshot = PlanningSnapshotJsonGenerator.Generate(
                 PlanningSnapshotProjection.Create(current.Revision, current.Workspace));
             if (!snapshot.Succeeded)
-                return new(null, Array.AsReadOnly(new[] { new ProposalValidationFailure(snapshot.ErrorCode!) }));
+                return Failed(snapshot.ErrorCode!);
             using var document = JsonDocument.Parse(snapshot.Payload!.Value);
             identity = document.RootElement.GetProperty("snapshotId").GetString()!;
             verifier = PlanningSnapshotIdentityVerifier.Instance;
         }
+        var proposal = parsed.Proposal;
+        var wasRefreshed = false;
+        if (allowRefresh
+            && proposal.Kind == ProposalKind.WorkspaceChange
+            && (proposal.SourceWorkspaceRevision != current.Revision
+                || !string.Equals(proposal.SourceSnapshotId, identity, StringComparison.Ordinal)))
+        {
+            var payloadDigest = PayloadDigest(strictUtf8.Span);
+            if (queuedBasis is not { } basis || basis.IsEmpty)
+            {
+                return Failed("missing-review-basis", proposal, current);
+            }
+
+            if (!PendingProposalReviewBasis.Matches(
+                    basis.Span,
+                    proposal,
+                    current,
+                    payloadDigest))
+            {
+                return Failed("source-conflict", proposal, current);
+            }
+
+            proposal = proposal with
+            {
+                SourceWorkspaceRevision = current.Revision,
+                SourceSnapshotId = identity,
+            };
+            wasRefreshed = true;
+        }
         var planner = new ProposalSemanticPlanner(timeProvider, new MarkdownValidator());
-        return planner.ValidateForApplication(parsed.Proposal, source, current, identity,
+        var result = planner.ValidateForApplication(proposal, source, current, identity,
             Convert.ToHexString(parsed.CanonicalDigest.Span).ToLowerInvariant(),
+            PayloadDigest(strictUtf8.Span),
             verifier);
+        return new(result.Plan, result.Failures, proposal, current, wasRefreshed);
     }
 
-    private static ProposalPlanResult Unavailable() => new(null,
-        Array.AsReadOnly(new[] { new ProposalValidationFailure("workspace-unavailable") }));
+    private static string PayloadDigest(ReadOnlySpan<byte> strictUtf8) =>
+        Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(strictUtf8));
+
+    private static ReviewCoreResult Failed(
+        string code,
+        ChangeProposal? proposal = null,
+        ProposalWorkspaceState? current = null) => new(
+            null,
+            Array.AsReadOnly(new[] { new ProposalValidationFailure(code) }),
+            proposal,
+            current,
+            false);
+
+    private static ReviewCoreResult Unavailable() => Failed("workspace-unavailable");
 
     private sealed class MarkdownValidator : IProposalMarkdownValidator
     {
@@ -47,4 +133,21 @@ public sealed class ProposalReviewBoundary(IProposalWorkspaceSource source, Time
             return new(parsed.Error == MarkdownBudgetError.None, parsed.NodeCount, parsed.ContainerDepth);
         }
     }
+
+    private sealed record ReviewCoreResult(
+        ProposalExecutionPlan? Plan,
+        IReadOnlyList<ProposalValidationFailure> Failures,
+        ChangeProposal? ParsedProposal,
+        ProposalWorkspaceState? Current,
+        bool WasRefreshed);
 }
+
+public sealed record QueuedProposalAdmissionResult(
+    ProposalExecutionPlan? Plan,
+    IReadOnlyList<ProposalValidationFailure> Failures,
+    ReadOnlyMemory<byte> ReviewBasis);
+
+public sealed record QueuedProposalReviewResult(
+    ProposalExecutionPlan? Plan,
+    IReadOnlyList<ProposalValidationFailure> Failures,
+    bool WasRefreshed);

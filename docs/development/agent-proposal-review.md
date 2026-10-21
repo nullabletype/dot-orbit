@@ -21,7 +21,7 @@ The retained plan still validates and bounds all direct and derived effects befo
 
 Closing the review window, editing or replacing the proposal, locking or closing the workspace, or ending the session discards the reviewed plan. Returning to review therefore requires validation again.
 
-Applying is an explicit whole-proposal action. Choose **Add all new work…** or **Apply all changes…**, then confirm in the decision overlay. dot-orbit first saves pending edits, creates and validates an encrypted recovery point, and then applies all operations atomically. It never offers partial approval.
+Applying is an explicit whole-proposal action. Choose **Add new work** or **Apply changes** in the review window; that action is the approval and does not open another confirmation. dot-orbit first saves pending edits, creates and validates an encrypted recovery point, and then applies all operations atomically. It never offers partial approval.
 
 The final result distinguishes an applied proposal from a pre-commit rejection or cancellation, a stale proposal, and a committed proposal whose post-commit maintenance needs attention. Only the last case offers **Retry maintenance**; retrying never replays the proposal.
 

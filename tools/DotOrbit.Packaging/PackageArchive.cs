@@ -27,10 +27,10 @@ internal static class PackageArchive
     private static readonly Dictionary<string, RuntimePackage> SupportedRuntimes =
         new Dictionary<string, RuntimePackage>(StringComparer.Ordinal)
         {
-            ["win-x64"] = new("dot-orbit.exe", "zip", false),
-            ["linux-x64"] = new("dot-orbit", "tar.gz", true),
-            ["osx-x64"] = new("dot-orbit", "tar.gz", true),
-            ["osx-arm64"] = new("dot-orbit", "tar.gz", true),
+            ["win-x64"] = new("dot-orbit.exe", "dot-orbit-mcp.exe", "zip", false),
+            ["linux-x64"] = new("dot-orbit", "dot-orbit-mcp", "tar.gz", true),
+            ["osx-x64"] = new("dot-orbit", "dot-orbit-mcp", "tar.gz", true),
+            ["osx-arm64"] = new("dot-orbit", "dot-orbit-mcp", "tar.gz", true),
         };
 
     public static string Build(
@@ -50,17 +50,23 @@ internal static class PackageArchive
 
         ApplicationIconAssets.Validate(repositoryRoot);
 
-        var projectPath = Path.Combine(
+        var desktopProjectPath = Path.Combine(
             repositoryRoot,
             "src",
             "DotOrbit.Desktop",
             "DotOrbit.Desktop.csproj");
+        var adapterProjectPath = Path.Combine(
+            repositoryRoot,
+            "src",
+            "DotOrbit.Mcp.Adapter",
+            "DotOrbit.Mcp.Adapter.csproj");
         var workRoot = Path.Combine(
             repositoryRoot,
             "artifacts",
             "package-work",
             runtimeIdentifier);
-        var publishRoot = Path.Combine(workRoot, "publish");
+        var desktopPublishRoot = Path.Combine(workRoot, "desktop-publish");
+        var adapterPublishRoot = Path.Combine(workRoot, "adapter-publish");
         var stageRoot = Path.Combine(workRoot, "stage");
         var extractedRoot = Path.Combine(
             repositoryRoot,
@@ -73,15 +79,20 @@ internal static class PackageArchive
             $"dot-orbit-{runtimeIdentifier}.{runtime.ArchiveExtension}");
 
         RecreateDirectory(workRoot);
-        Directory.CreateDirectory(publishRoot);
+        Directory.CreateDirectory(desktopPublishRoot);
+        Directory.CreateDirectory(adapterPublishRoot);
         Directory.CreateDirectory(stageRoot);
         RecreateDirectory(extractedRoot);
         Directory.CreateDirectory(packageRoot);
 
-        Publish(projectPath, publishRoot, runtimeIdentifier, version, noRestore);
+        Publish(desktopProjectPath, desktopPublishRoot, runtimeIdentifier, version, noRestore);
+        Publish(adapterProjectPath, adapterPublishRoot, runtimeIdentifier, version, noRestore);
         var executablePath = ValidatePublishedFiles(
-            publishRoot,
+            desktopPublishRoot,
             runtime.ExecutableName);
+        var adapterExecutablePath = ValidatePublishedFiles(
+            adapterPublishRoot,
+            runtime.AdapterExecutableName);
         if (string.Equals(runtimeIdentifier, "win-x64", StringComparison.Ordinal))
         {
             ApplicationIconAssets.ValidateWindowsExecutable(executablePath);
@@ -90,6 +101,7 @@ internal static class PackageArchive
         var payloads = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             [runtime.ExecutableName] = executablePath,
+            [runtime.AdapterExecutableName] = adapterExecutablePath,
             [LicenceFileName] = Path.Combine(repositoryRoot, "LICENSE"),
             [NoticesFileName] = Path.Combine(repositoryRoot, NoticesFileName),
             [AngleLicenceFileName] = Path.Combine(
@@ -135,11 +147,21 @@ internal static class PackageArchive
 
         if (runtime.UsesUnixArchive)
         {
-            CreateTarGzip(stageRoot, archivePath, runtime.ExecutableName);
+            CreateTarGzip(
+                stageRoot,
+                archivePath,
+                new HashSet<string>(
+                    [runtime.ExecutableName, runtime.AdapterExecutableName],
+                    StringComparer.Ordinal));
         }
         else
         {
-            CreateZip(stageRoot, archivePath, runtime.ExecutableName);
+            CreateZip(
+                stageRoot,
+                archivePath,
+                new HashSet<string>(
+                    [runtime.ExecutableName, runtime.AdapterExecutableName],
+                    StringComparer.Ordinal));
         }
 
         VerifyAndExtractArchive(
@@ -148,6 +170,7 @@ internal static class PackageArchive
             runtimeIdentifier,
             version,
             runtime.ExecutableName,
+            runtime.AdapterExecutableName,
             runtime.UsesUnixArchive);
         return archivePath;
     }
@@ -262,7 +285,7 @@ internal static class PackageArchive
             })
             .ToArray();
         var manifest = new PackageManifest(
-            2,
+            3,
             runtimeIdentifier,
             version,
             "Release",
@@ -276,7 +299,7 @@ internal static class PackageArchive
     private static void CreateZip(
         string stageRoot,
         string archivePath,
-        string executableName)
+        HashSet<string> executableNames)
     {
         using var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create);
         foreach (var file in Directory.GetFiles(stageRoot).Order(StringComparer.Ordinal))
@@ -284,7 +307,7 @@ internal static class PackageArchive
             var name = Path.GetFileName(file);
             var entry = archive.CreateEntry(name, CompressionLevel.Optimal);
             entry.LastWriteTime = new DateTimeOffset(1980, 1, 1, 0, 0, 0, TimeSpan.Zero);
-            entry.ExternalAttributes = string.Equals(name, executableName, StringComparison.Ordinal)
+            entry.ExternalAttributes = executableNames.Contains(name)
                 ? Convert.ToInt32("100755", 8) << 16
                 : Convert.ToInt32("100644", 8) << 16;
             using var source = File.OpenRead(file);
@@ -296,7 +319,7 @@ internal static class PackageArchive
     private static void CreateTarGzip(
         string stageRoot,
         string archivePath,
-        string executableName)
+        HashSet<string> executableNames)
     {
         using var archiveStream = File.Create(archivePath);
         using var gzip = new GZipStream(archiveStream, CompressionLevel.Optimal);
@@ -309,7 +332,7 @@ internal static class PackageArchive
             {
                 DataStream = source,
                 Gid = 0,
-                Mode = string.Equals(name, executableName, StringComparison.Ordinal)
+                Mode = executableNames.Contains(name)
                     ? UnixFileMode.UserRead
                       | UnixFileMode.UserWrite
                       | UnixFileMode.UserExecute
@@ -336,11 +359,13 @@ internal static class PackageArchive
         string runtimeIdentifier,
         string version,
         string executableName,
+        string adapterExecutableName,
         bool usesUnixArchive)
     {
         var expectedEntries = new HashSet<string>(StringComparer.Ordinal)
         {
             executableName,
+            adapterExecutableName,
             LicenceFileName,
             NoticesFileName,
             AngleLicenceFileName,
@@ -376,6 +401,15 @@ internal static class PackageArchive
                     | UnixFileMode.GroupExecute
                     | UnixFileMode.OtherRead
                     | UnixFileMode.OtherExecute);
+                File.SetUnixFileMode(
+                    Path.Combine(extractedRoot, adapterExecutableName),
+                    UnixFileMode.UserRead
+                    | UnixFileMode.UserWrite
+                    | UnixFileMode.UserExecute
+                    | UnixFileMode.GroupRead
+                    | UnixFileMode.GroupExecute
+                    | UnixFileMode.OtherRead
+                    | UnixFileMode.OtherExecute);
             }
         }
         else
@@ -387,7 +421,7 @@ internal static class PackageArchive
             File.ReadAllText(Path.Combine(extractedRoot, ManifestFileName)),
             ManifestJsonOptions)
             ?? throw new PackageException("manifest-invalid");
-        if (manifest.SchemaVersion != 2
+        if (manifest.SchemaVersion != 3
             || !string.Equals(
                 manifest.RuntimeIdentifier,
                 runtimeIdentifier,
@@ -477,6 +511,7 @@ internal static class PackageArchive
 
     private sealed record RuntimePackage(
         string ExecutableName,
+        string AdapterExecutableName,
         string ArchiveExtension,
         bool UsesUnixArchive);
 

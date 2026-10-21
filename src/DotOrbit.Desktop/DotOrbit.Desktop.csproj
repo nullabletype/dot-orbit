@@ -23,6 +23,7 @@
     <ProjectReference Include="../DotOrbit.Interchange.Json/DotOrbit.Interchange.Json.csproj" />
     <ProjectReference Include="../DotOrbit.Export.Json/DotOrbit.Export.Json.csproj" />
     <ProjectReference Include="../DotOrbit.Markdown/DotOrbit.Markdown.csproj" />
+    <ProjectReference Include="../DotOrbit.Mcp.Ipc/DotOrbit.Mcp.Ipc.csproj" />
     <ProjectReference Include="../DotOrbit.Storage.Sqlite/DotOrbit.Storage.Sqlite.csproj" />
   </ItemGroup>
   <ItemGroup>

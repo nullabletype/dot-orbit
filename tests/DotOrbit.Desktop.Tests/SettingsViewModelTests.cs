@@ -1,3 +1,4 @@
+using DotOrbit.Core.Interchange;
 using DotOrbit.Desktop.ViewModels;
 using Xunit;
 
@@ -134,6 +135,72 @@ public sealed class SettingsViewModelTests
         Assert.Contains("previous setting is still active", settings.Announcement, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void LocalMcpIsSubordinateAndAiDisableForcesItOff()
+    {
+        var preferences = new RecordingAiFeaturePreferenceService();
+        var mcpChanges = new List<bool>();
+        var settings = new SettingsViewModel(
+            new MemoryWorkspaceWork(),
+            () => { },
+            aiFeaturePreferenceService: preferences,
+            localMcpChanged: mcpChanges.Add);
+
+        Assert.False(settings.ShowLocalMcpSettings);
+        Assert.False(settings.LocalMcpEnabled);
+
+        settings.AiFeaturesEnabled = true;
+        settings.LocalMcpEnabled = true;
+
+        Assert.True(settings.ShowLocalMcpSettings);
+        Assert.True(settings.LocalMcpEnabled);
+        Assert.Equal([true], mcpChanges);
+
+        settings.AiFeaturesEnabled = false;
+
+        Assert.False(settings.ShowLocalMcpSettings);
+        Assert.False(settings.LocalMcpEnabled);
+        Assert.Equal("Local MCP disabled", settings.LocalMcpStatus);
+    }
+
+    [Fact]
+    public void RememberedLocalMcpClientExposesExactTrustAndRevocationAction()
+    {
+        var settings = new SettingsViewModel(new MemoryWorkspaceWork(), () => { });
+        string? revoked = null;
+        settings.ReportAuthorizedMcpClients(
+        [
+            new AgentClientAuthorization(
+                "authorization-1",
+                new string('a', 64),
+                "verified-user",
+                "unverified-client",
+                "1.2.3",
+                AgentClientScopes.ReadInterchangeContext | AgentClientScopes.SubmitProposals,
+                DateTimeOffset.UnixEpoch),
+        ],
+        id => revoked = id);
+
+        var client = Assert.Single(settings.AuthorizedMcpClients);
+        Assert.True(settings.HasAuthorizedMcpClients);
+        Assert.False(settings.HasNoAuthorizedMcpClients);
+        Assert.Equal("Unverified client: unverified-client 1.2.3", client.ClientLabel);
+        Assert.Equal("Verified OS account: verified-user", client.VerifiedAccount);
+        Assert.Equal("Scopes: read context, submit proposals", client.Scopes);
+        Assert.Contains("Unverified client", client.RevokeAccessibleName, StringComparison.Ordinal);
+
+        client.RevokeCommand.Execute(null);
+
+        Assert.Equal("authorization-1", revoked);
+
+        settings.ReportAuthorizedMcpClients([], _ => { });
+        settings.ReportLocalMcpRevocation(removed: true, "settings-local-mcp");
+        Assert.Equal(
+            "Remembered local MCP access revoked. Connected clients were disconnected.",
+            settings.Announcement);
+        Assert.Equal("settings-local-mcp", settings.FocusAutomationId);
+    }
+
     private sealed class RecordingThemeService(ApplicationTheme theme) : IApplicationThemeService
     {
         public ApplicationTheme CurrentTheme { get; private set; } = theme;
@@ -155,6 +222,7 @@ public sealed class SettingsViewModelTests
     private sealed class RecordingAiFeaturePreferenceService : IAiFeaturePreferenceService
     {
         public bool AiFeaturesEnabled { get; private set; }
+        public bool LocalMcpEnabled { get; private set; }
 
         public bool AllowChange { get; set; } = true;
 
@@ -166,6 +234,22 @@ public sealed class SettingsViewModelTests
             }
 
             AiFeaturesEnabled = enabled;
+            if (!enabled)
+            {
+                LocalMcpEnabled = false;
+            }
+
+            return true;
+        }
+
+        public bool TrySetLocalMcpEnabled(bool enabled)
+        {
+            if (!AllowChange || (enabled && !AiFeaturesEnabled))
+            {
+                return false;
+            }
+
+            LocalMcpEnabled = enabled;
             return true;
         }
     }

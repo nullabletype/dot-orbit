@@ -238,6 +238,9 @@
           "Markdig": "[1.4.0, )"
         }
       },
+      "dotorbit.mcp.ipc": {
+        "type": "Project"
+      },
       "dotorbit.storage.sqlite": {
         "type": "Project",
         "dependencies": {

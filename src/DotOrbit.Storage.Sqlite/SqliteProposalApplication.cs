@@ -6,7 +6,8 @@ namespace DotOrbit.Storage.Sqlite;
 internal sealed class SqliteProposalApplication(
     WorkspaceTransactionCoordinator transactions,
     SqliteWorkspaceWork work,
-    IProposalWorkspaceSource source) : IProposalApplication
+    IProposalWorkspaceSource source,
+    SqliteAgentIntegrationStore agentIntegration) : IInboundProposalApplication
 {
     private readonly object authority = new();
     private readonly WorkspaceTransactionCoordinator coordinator = transactions;
@@ -21,7 +22,24 @@ internal sealed class SqliteProposalApplication(
     public ProposalApplyResult Apply(
         ProposalApproval approval,
         IProposalApplicationHost host,
+        CancellationToken cancellationToken = default) =>
+        ApplyCore(approval, host, null, cancellationToken);
+
+    public ProposalApplyResult ApplyInbound(
+        ProposalApproval approval,
+        string pendingProposalReceipt,
+        IProposalApplicationHost host,
         CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(pendingProposalReceipt);
+        return ApplyCore(approval, host, pendingProposalReceipt, cancellationToken);
+    }
+
+    private ProposalApplyResult ApplyCore(
+        ProposalApproval approval,
+        IProposalApplicationHost host,
+        string? pendingProposalReceipt,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(approval);
         ArgumentNullException.ThrowIfNull(host);
@@ -60,6 +78,9 @@ internal sealed class SqliteProposalApplication(
             storageStatus = coordinator.ExecuteProposal(
                 plan,
                 () => ApplyOperations(plan, cancellationToken),
+                pendingProposalReceipt is null
+                    ? null
+                    : () => ConsumePendingProposal(plan, pendingProposalReceipt),
                 cancellationToken);
         }
         catch (ObjectDisposedException)
@@ -89,6 +110,14 @@ internal sealed class SqliteProposalApplication(
 
         var maintenance = new Maintenance(this, refreshPending, recoveryPending);
         return new(ProposalApplyStatus.CommittedMaintenanceRequired, maintenance);
+    }
+
+    private bool ConsumePendingProposal(ProposalExecutionPlan plan, string receipt)
+    {
+        var pending = agentIntegration.FindPendingProposal(receipt);
+        return pending is not null
+               && plan.MatchesSourcePayloadDigest(pending.PayloadDigest)
+               && agentIntegration.RemovePendingProposal(receipt);
     }
 
     internal void Close() => closed = true;

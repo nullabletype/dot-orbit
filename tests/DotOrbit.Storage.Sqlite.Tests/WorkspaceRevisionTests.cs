@@ -108,7 +108,7 @@ public sealed class WorkspaceRevisionTests : IDisposable
         using (var connection = OpenConnection(SqliteOpenMode.ReadWrite))
         {
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE workspace_revision; PRAGMA user_version=14;";
+            command.CommandText = "DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; PRAGMA user_version=14;";
             command.ExecuteNonQuery();
         }
 

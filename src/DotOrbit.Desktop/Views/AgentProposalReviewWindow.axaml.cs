@@ -27,17 +27,11 @@ public sealed partial class AgentProposalReviewWindow : Window
         Opened += OnOpened;
         Closing += OnClosing;
         Closed += OnClosed;
-        _viewModel.ConfirmationOpened += OnConfirmationOpened;
-        _viewModel.ConfirmationClosed += OnConfirmationClosed;
         _viewModel.ApplyFinished += OnApplyFinished;
     }
 
-    private void OnRequestApply(object? sender, RoutedEventArgs e) => _viewModel.RequestApply();
-
-    private async void OnConfirmApply(object? sender, RoutedEventArgs e) =>
-        await _viewModel.ConfirmApplyAsync(_host);
-
-    private void OnCancelApply(object? sender, RoutedEventArgs e) => _viewModel.CancelConfirmation();
+    private async void OnApply(object? sender, RoutedEventArgs e) =>
+        await _viewModel.ApplyAsync(_host);
 
     private async void OnRetryMaintenance(object? sender, RoutedEventArgs e) =>
         await _viewModel.RetryMaintenanceAsync(_host);
@@ -52,15 +46,6 @@ public sealed partial class AgentProposalReviewWindow : Window
 
     private void OnOpened(object? sender, EventArgs e) =>
         this.FindControl<ScrollViewer>("ProposalReviewContent")?.Focus();
-
-    private void OnConfirmationOpened(object? sender, EventArgs e) =>
-        this.FindControl<Button>("CancelProposalApplyButton")?.Focus();
-
-    private void OnConfirmationClosed(object? sender, EventArgs e) =>
-        this.FindControl<Button>(
-            _viewModel.CanRequestApply
-                ? "RequestProposalApplyButton"
-                : "CloseProposalReviewButton")?.Focus();
 
     private void OnApplyFinished(object? sender, EventArgs e) =>
         this.FindControl<Button>(
@@ -82,8 +67,6 @@ public sealed partial class AgentProposalReviewWindow : Window
         Opened -= OnOpened;
         Closing -= OnClosing;
         Closed -= OnClosed;
-        _viewModel.ConfirmationOpened -= OnConfirmationOpened;
-        _viewModel.ConfirmationClosed -= OnConfirmationClosed;
         _viewModel.ApplyFinished -= OnApplyFinished;
     }
 }

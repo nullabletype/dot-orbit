@@ -21,11 +21,13 @@ public sealed class ApplicationThemeTests
         File.WriteAllText(path, "{not-json");
         Assert.Equal(ApplicationTheme.Dark, store.Load());
         Assert.False(store.LoadAiFeaturesEnabled());
+        Assert.False(store.LoadLocalMcpEnabled());
 
         File.WriteAllText(path, "{\"theme\":\"Sepia\"}");
         Assert.Equal(ApplicationTheme.Dark, store.Load());
         Assert.True(store.LoadIncludeAgentInstructionsAndSchemaWithSnapshot());
         Assert.False(store.LoadAiFeaturesEnabled());
+        Assert.False(store.LoadLocalMcpEnabled());
     }
 
     [Fact]
@@ -86,6 +88,27 @@ public sealed class ApplicationThemeTests
         Assert.Equal(ApplicationTheme.Light, reloaded.Load());
         Assert.False(reloaded.LoadIncludeAgentInstructionsAndSchemaWithSnapshot());
         Assert.Empty(Directory.GetFiles(directory.Path, "*.tmp"));
+    }
+
+    [Fact]
+    public void LocalMcpDefaultsOffAndAiDisablePersistsBothGatesOffAtomically()
+    {
+        using var directory = new TemporaryDirectory();
+        var path = Path.Combine(directory.Path, "preferences.json");
+        var store = new JsonDevicePreferenceStore(path);
+        var service = new AiFeaturePreferenceService(store);
+
+        Assert.False(service.LocalMcpEnabled);
+        Assert.False(service.TrySetLocalMcpEnabled(true));
+        Assert.True(service.TrySetAiFeaturesEnabled(true));
+        Assert.True(service.TrySetLocalMcpEnabled(true));
+        Assert.True(service.LocalMcpEnabled);
+
+        Assert.True(service.TrySetAiFeaturesEnabled(false));
+
+        var reloaded = new AiFeaturePreferenceService(new JsonDevicePreferenceStore(path));
+        Assert.False(reloaded.AiFeaturesEnabled);
+        Assert.False(reloaded.LocalMcpEnabled);
     }
 
     [Fact]
@@ -252,10 +275,13 @@ public sealed class ApplicationThemeTests
     private sealed class RecordingAiFeaturePreferenceStore : IAiFeaturePreferenceStore
     {
         private bool _enabled;
+        private bool _localMcpEnabled;
 
         public bool AllowSave { get; set; } = true;
 
         public bool LoadAiFeaturesEnabled() => _enabled;
+
+        public bool LoadLocalMcpEnabled() => _localMcpEnabled;
 
         public bool TrySaveAiFeaturesEnabled(bool enabled)
         {
@@ -265,6 +291,22 @@ public sealed class ApplicationThemeTests
             }
 
             _enabled = enabled;
+            if (!enabled)
+            {
+                _localMcpEnabled = false;
+            }
+
+            return true;
+        }
+
+        public bool TrySaveLocalMcpEnabled(bool enabled)
+        {
+            if (!AllowSave || (enabled && !_enabled))
+            {
+                return false;
+            }
+
+            _localMcpEnabled = enabled;
             return true;
         }
     }

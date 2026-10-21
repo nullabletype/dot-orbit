@@ -12,16 +12,19 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private readonly IApplicationThemeService _applicationThemeService;
     private readonly IAiFeaturePreferenceService _aiFeaturePreferenceService;
     private readonly Action<bool> _aiFeaturesChanged;
+    private readonly Action<bool> _localMcpChanged;
     private string _announcement = string.Empty;
     private string _focusAutomationId = string.Empty;
     private string _securityConfirmation = string.Empty;
+    private string _localMcpRuntimeStatus = "Stopped";
 
     public SettingsViewModel(
         IWorkspaceWork work,
         Action participantsChanged,
         IApplicationThemeService? applicationThemeService = null,
         IAiFeaturePreferenceService? aiFeaturePreferenceService = null,
-        Action<bool>? aiFeaturesChanged = null)
+        Action<bool>? aiFeaturesChanged = null,
+        Action<bool>? localMcpChanged = null)
     {
         _work = work;
         _participantsChanged = participantsChanged;
@@ -29,6 +32,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         _aiFeaturePreferenceService = aiFeaturePreferenceService
             ?? new TransientAiFeaturePreferenceService();
         _aiFeaturesChanged = aiFeaturesChanged ?? (_ => { });
+        _localMcpChanged = localMcpChanged ?? (_ => { });
         ThemeOptions =
         [
             new(ApplicationTheme.Dark, "Dark"),
@@ -41,6 +45,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public ObservableCollection<ParticipantSettingViewModel> Participants { get; } = [];
+    public ObservableCollection<AuthorizedMcpClientViewModel> AuthorizedMcpClients { get; } = [];
     public IReadOnlyList<ApplicationThemeOption> ThemeOptions { get; }
     private ApplicationThemeOption _selectedTheme;
     public ApplicationThemeOption SelectedTheme
@@ -88,6 +93,9 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
             Notify();
             Notify(nameof(AiFeaturesStatus));
+            Notify(nameof(ShowLocalMcpSettings));
+            Notify(nameof(LocalMcpEnabled));
+            Notify(nameof(LocalMcpStatus));
             _aiFeaturesChanged(value);
             Announcement = value
                 ? "AI features enabled. Manual agent interchange is now available."
@@ -97,6 +105,71 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     public string AiFeaturesStatus => AiFeaturesEnabled
         ? "AI features enabled"
         : "AI features disabled";
+    public bool ShowLocalMcpSettings => AiFeaturesEnabled;
+    public bool LocalMcpEnabled
+    {
+        get => _aiFeaturePreferenceService.LocalMcpEnabled;
+        set
+        {
+            if (value == LocalMcpEnabled)
+            {
+                return;
+            }
+
+            if (!_aiFeaturePreferenceService.TrySetLocalMcpEnabled(value))
+            {
+                Announcement =
+                    "Could not save the local MCP preference. The previous setting is still active.";
+                Notify();
+                return;
+            }
+
+            Notify();
+            Notify(nameof(LocalMcpStatus));
+            _localMcpChanged(value);
+            Announcement = value
+                ? "Local MCP enabled. Approved local clients can connect while this workspace is unlocked."
+                : "Local MCP disabled. Local clients have been disconnected.";
+        }
+    }
+    public string LocalMcpStatus => LocalMcpEnabled
+        ? $"Local MCP enabled · {_localMcpRuntimeStatus}"
+        : "Local MCP disabled";
+    public bool HasAuthorizedMcpClients => AuthorizedMcpClients.Count > 0;
+    public bool HasNoAuthorizedMcpClients => !HasAuthorizedMcpClients;
+
+    internal void ReportLocalMcpRuntimeStatus(LocalMcpServiceStatus status)
+    {
+        _localMcpRuntimeStatus = status switch
+        {
+            LocalMcpServiceStatus.Running => "Running",
+            LocalMcpServiceStatus.Error => "Error",
+            _ => "Stopped",
+        };
+        Notify(nameof(LocalMcpStatus));
+    }
+
+    internal void ReportAuthorizedMcpClients(
+        IReadOnlyList<DotOrbit.Core.Interchange.AgentClientAuthorization> authorizations,
+        Action<string> revoke)
+    {
+        AuthorizedMcpClients.Clear();
+        foreach (var authorization in authorizations)
+        {
+            AuthorizedMcpClients.Add(new(authorization, revoke));
+        }
+
+        Notify(nameof(HasAuthorizedMcpClients));
+        Notify(nameof(HasNoAuthorizedMcpClients));
+    }
+
+    internal void ReportLocalMcpRevocation(bool removed, string focusAutomationId)
+    {
+        Announcement = removed
+            ? "Remembered local MCP access revoked. Connected clients were disconnected."
+            : "Remembered local MCP access could not be revoked. It may still be active.";
+        FocusAutomationId = focusAutomationId;
+    }
     public bool HasParticipants => Participants.Count > 0;
     public bool HasNoParticipants => !HasParticipants;
     public string Announcement

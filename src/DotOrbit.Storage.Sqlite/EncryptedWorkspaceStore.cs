@@ -8,7 +8,7 @@ namespace DotOrbit.Storage.Sqlite;
 
 public sealed class EncryptedWorkspaceStore : IWorkspaceStore
 {
-    public const int CurrentSchemaVersion = 15;
+    public const int CurrentSchemaVersion = 18;
 
     internal const string CipherName = "chacha20";
     internal const int KdfIterations = 64007;
@@ -141,6 +141,11 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
                 workSchema.Transaction = transaction;
                 workSchema.CommandText = SqliteWorkspaceWork.Schema;
                 workSchema.ExecuteNonQuery();
+                using var agentIntegrationSchema = connection.CreateCommand();
+                agentIntegrationSchema.Transaction = transaction;
+                agentIntegrationSchema.CommandText =
+                    SqliteAgentIntegrationStore.Schema + "PRAGMA user_version = 18;";
+                agentIntegrationSchema.ExecuteNonQuery();
                 using var identity = connection.CreateCommand();
                 identity.Transaction = transaction;
                 identity.CommandText = """
@@ -771,9 +776,21 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         {
             SqliteWorkspaceWork.ValidateShape(connection, transaction, SqliteWorkspaceWork.SchemaFourteen);
         }
-        else if (schemaVersion == 15)
+        else if (schemaVersion is 15 or 16 or 17 or 18)
         {
             SqliteWorkspaceWork.ValidateShape(connection, transaction);
+            if (schemaVersion == 16)
+            {
+                SqliteAgentIntegrationStore.ValidateShapeSixteen(connection, transaction);
+            }
+            else if (schemaVersion == 17)
+            {
+                SqliteAgentIntegrationStore.ValidateShapeSeventeen(connection, transaction);
+            }
+            else if (schemaVersion == 18)
+            {
+                SqliteAgentIntegrationStore.ValidateShape(connection, transaction);
+            }
         }
 
         return name;
@@ -946,7 +963,13 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
             Work = work;
             Planning = new SqlitePlanningSnapshotSource(_transactions);
             Proposals = proposalSource;
-            _proposalApplication = new SqliteProposalApplication(_transactions, work, proposalSource);
+            var agentIntegration = new SqliteAgentIntegrationStore(_transactions);
+            AgentIntegration = agentIntegration;
+            _proposalApplication = new SqliteProposalApplication(
+                _transactions,
+                work,
+                proposalSource,
+                agentIntegration);
             ProposalApplication = _proposalApplication;
         }
 
@@ -959,6 +982,8 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         public IPlanningSnapshotSource Planning { get; }
 
         public IProposalWorkspaceSource Proposals { get; }
+
+        public IAgentIntegrationStore AgentIntegration { get; }
 
         public IProposalApplication ProposalApplication { get; }
 

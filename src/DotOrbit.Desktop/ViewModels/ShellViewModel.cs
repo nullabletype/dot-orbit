@@ -9,6 +9,10 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     private NavigationItemViewModel _selectedItem = null!;
     private readonly IInterchangePreferenceService _interchangePreferenceService;
     private readonly IAiFeaturePreferenceService _aiFeaturePreferenceService;
+    private readonly PendingProposalCoordinator? _pendingProposalCoordinator;
+    private readonly IUiDispatcher _uiDispatcher;
+    private readonly TimeProvider _timeProvider;
+    private bool _hasProposalArrivalNotification;
 
     public ShellViewModel(
         IWorkspaceWork? work = null,
@@ -36,18 +40,22 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         IWorkspaceActionExecutor? actionExecutor = null,
         IUiDispatcher? uiDispatcher = null,
         IInterchangePreferenceService? interchangePreferenceService = null,
-        IAiFeaturePreferenceService? aiFeaturePreferenceService = null)
+        IAiFeaturePreferenceService? aiFeaturePreferenceService = null,
+        PendingProposalCoordinator? pendingProposalCoordinator = null)
     {
         applicationThemeService ??= new TransientApplicationThemeService();
         _interchangePreferenceService = interchangePreferenceService
             ?? new TransientInterchangePreferenceService();
         _aiFeaturePreferenceService = aiFeaturePreferenceService
             ?? new TransientAiFeaturePreferenceService();
+        _pendingProposalCoordinator = pendingProposalCoordinator;
+        _uiDispatcher = uiDispatcher ?? new AvaloniaUiDispatcher();
+        _timeProvider = timeProvider ?? TimeProvider.System;
         Work = work is null
             ? null
             : inspectorSaveWriter is null
                 ? new ProjectCaptureViewModel(work, timeProvider)
-                : new ProjectCaptureViewModel(work, timeProvider, inspectorSaveWriter, actionExecutor, uiDispatcher);
+                : new ProjectCaptureViewModel(work, timeProvider, inspectorSaveWriter, actionExecutor, _uiDispatcher);
         Settings = work is null
             ? null
             : new SettingsViewModel(
@@ -55,10 +63,11 @@ public sealed class ShellViewModel : INotifyPropertyChanged
                 () => Work!.RefreshFromStore(),
                 applicationThemeService,
                 _aiFeaturePreferenceService,
-                OnAiFeaturesChanged);
+                OnAiFeaturesChanged,
+                OnLocalMcpChanged);
         Ai = work is null || !AiFeaturesEnabled
             ? null
-            : new AiViewModel(_interchangePreferenceService);
+            : new AiViewModel(_interchangePreferenceService, _pendingProposalCoordinator, _timeProvider);
         PrimaryNavigation =
         [
             CreateNavigationItem(
@@ -112,6 +121,13 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             "AI planning exchange",
             "Copy planning context explicitly and review proposed changes before applying them.",
             countText: null);
+        UpdateAiAttention();
+
+        if (_pendingProposalCoordinator is not null)
+        {
+            _pendingProposalCoordinator.StateChanged += OnPendingProposalStateChanged;
+            _pendingProposalCoordinator.ProposalAccepted += OnProposalAccepted;
+        }
 
         BinNavigation = CreateNavigationItem(
             "Bin",
@@ -197,6 +213,13 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     public AiViewModel? Ai { get; private set; }
 
     public bool AiFeaturesEnabled => _aiFeaturePreferenceService.AiFeaturesEnabled;
+    public bool LocalMcpEnabled => _aiFeaturePreferenceService.LocalMcpEnabled;
+    public bool HasProposalArrivalNotification => _hasProposalArrivalNotification
+        && AiFeaturesEnabled
+        && (_pendingProposalCoordinator?.HasPendingProposal ?? false);
+    public string ProposalArrivalMessage => _pendingProposalCoordinator?.PendingProposalCount == 1
+        ? "1 AI proposal needs review. Nothing has been applied."
+        : $"{_pendingProposalCoordinator?.PendingProposalCount ?? 0} AI proposals need review. Nothing has been applied.";
 
     public bool ShowProjects => Work is not null && ViewTitle == "Projects";
     public bool ShowToday => Work is not null && ViewTitle == "Today";
@@ -249,12 +272,20 @@ public sealed class ShellViewModel : INotifyPropertyChanged
 
     private void OnAiFeaturesChanged(bool enabled)
     {
+        if (!enabled)
+        {
+            _hasProposalArrivalNotification = false;
+        }
+
         Ai = enabled && Work is not null
-            ? new AiViewModel(_interchangePreferenceService)
+            ? new AiViewModel(_interchangePreferenceService, _pendingProposalCoordinator, _timeProvider)
             : null;
         OnPropertyChanged(nameof(Ai));
         OnPropertyChanged(nameof(AiFeaturesEnabled));
+        OnPropertyChanged(nameof(LocalMcpEnabled));
         OnPropertyChanged(nameof(UtilityNavigation));
+        OnPropertyChanged(nameof(HasProposalArrivalNotification));
+        OnPropertyChanged(nameof(ProposalArrivalMessage));
 
         if (!enabled && ReferenceEquals(SelectedItem, AiNavigation))
         {
@@ -265,6 +296,48 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(ShowAI));
         OnPropertyChanged(nameof(ShowWorkspace));
         OnPropertyChanged(nameof(ShowEmpty));
+    }
+
+    private void OnLocalMcpChanged(bool enabled)
+    {
+        _ = enabled;
+        OnPropertyChanged(nameof(LocalMcpEnabled));
+    }
+
+    private void OnPendingProposalStateChanged(object? sender, EventArgs e) =>
+        _ = _uiDispatcher.InvokeAsync(() =>
+        {
+            UpdateAiAttention();
+            Ai?.RefreshPendingProposals();
+            if (_pendingProposalCoordinator?.HasPendingProposal != true)
+            {
+                _hasProposalArrivalNotification = false;
+            }
+            OnPropertyChanged(nameof(HasProposalArrivalNotification));
+            OnPropertyChanged(nameof(ProposalArrivalMessage));
+        });
+
+    private void OnProposalAccepted(object? sender, EventArgs e) =>
+        _ = _uiDispatcher.InvokeAsync(() =>
+        {
+            if (AiFeaturesEnabled)
+            {
+                _hasProposalArrivalNotification = true;
+            }
+
+            OnPropertyChanged(nameof(HasProposalArrivalNotification));
+            OnPropertyChanged(nameof(ProposalArrivalMessage));
+        });
+
+    public void DismissProposalArrivalNotification()
+    {
+        _hasProposalArrivalNotification = false;
+        OnPropertyChanged(nameof(HasProposalArrivalNotification));
+    }
+
+    public void OpenPendingProposals()
+    {
+        Select(AiNavigation);
     }
 
     private void SelectCore(NavigationItemViewModel item)
@@ -282,6 +355,10 @@ public sealed class ShellViewModel : INotifyPropertyChanged
 
         item.IsSelected = true;
         SelectedItem = item;
+        if (ReferenceEquals(item, AiNavigation))
+        {
+            DismissProposalArrivalNotification();
+        }
         var isBacklog = item.Title == "Backlog";
         var isUpcoming = item.Title == "Upcoming";
         var isCompleted = item.Title == "Completed";
@@ -316,6 +393,14 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         BinNavigation.CountText = Work.Bin.Count == 0
             ? null
             : Work.Bin.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private void UpdateAiAttention()
+    {
+        var count = _pendingProposalCoordinator?.PendingProposalCount ?? 0;
+        AiNavigation.AttentionText = count == 0
+            ? null
+            : $"Review {count.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
