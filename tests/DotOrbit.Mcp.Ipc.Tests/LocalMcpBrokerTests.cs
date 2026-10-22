@@ -6,6 +6,40 @@ namespace DotOrbit.Mcp.Ipc.Tests;
 public sealed class LocalMcpBrokerTests
 {
     [Fact]
+    public async Task DistinctRuntimeRootsRouteToTheirOwnBroker()
+    {
+        using var directory = new TemporaryDirectory();
+        var firstRoot = Path.Combine(directory.Path, "first");
+        var secondRoot = Path.Combine(directory.Path, "second");
+        var firstBoundary = new RecordingBoundary([1]);
+        var secondBoundary = new RecordingBoundary([2]);
+        await using var firstHost = new LocalMcpBrokerHost(firstRoot, firstBoundary, firstBoundary);
+        await using var secondHost = new LocalMcpBrokerHost(secondRoot, secondBoundary, secondBoundary);
+        firstHost.Start();
+        secondHost.Start();
+        await Task.WhenAll(firstHost.Ready, secondHost.Ready)
+            .WaitAsync(TestContext.Current.CancellationToken);
+        await using var firstClient = new LocalMcpBrokerClient(
+            firstRoot,
+            "first-client",
+            "1.0",
+            new string('a', 64),
+            [LocalMcpProtocol.ReadScope]);
+        await using var secondClient = new LocalMcpBrokerClient(
+            secondRoot,
+            "second-client",
+            "1.0",
+            new string('b', 64),
+            [LocalMcpProtocol.ReadScope]);
+
+        var first = await firstClient.ReadPlanningSnapshotAsync(TestContext.Current.CancellationToken);
+        var second = await secondClient.ReadPlanningSnapshotAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal([1], first.Payload.ToArray());
+        Assert.Equal([2], second.Payload.ToArray());
+    }
+
+    [Fact]
     public async Task SameUserClientReadsAndSubmitsThroughScopedChunkedBroker()
     {
         using var directory = new TemporaryDirectory();
@@ -13,7 +47,7 @@ public sealed class LocalMcpBrokerTests
         var boundary = new RecordingBoundary();
         await using var host = new LocalMcpBrokerHost(runtimeRoot, boundary, boundary);
         host.Start();
-        await WaitForEndpointAsync(runtimeRoot);
+        await host.Ready.WaitAsync(TestContext.Current.CancellationToken);
         await using var client = new LocalMcpBrokerClient(
             runtimeRoot,
             "test-client",
@@ -46,7 +80,7 @@ public sealed class LocalMcpBrokerTests
         var boundary = new RecordingBoundary();
         await using var host = new LocalMcpBrokerHost(runtimeRoot, boundary, boundary);
         host.Start();
-        await WaitForEndpointAsync(runtimeRoot);
+        await host.Ready.WaitAsync(TestContext.Current.CancellationToken);
         await using var client = new LocalMcpBrokerClient(
             runtimeRoot,
             "test-client",
@@ -71,7 +105,7 @@ public sealed class LocalMcpBrokerTests
         var boundary = new RecordingBoundary();
         await using var host = new LocalMcpBrokerHost(runtimeRoot, boundary, boundary);
         host.Start();
-        await WaitForEndpointAsync(runtimeRoot);
+        await host.Ready.WaitAsync(TestContext.Current.CancellationToken);
         await using var client = new LocalMcpBrokerClient(
             runtimeRoot,
             "test-client",
@@ -101,7 +135,7 @@ public sealed class LocalMcpBrokerTests
             boundary,
             requestLifetime: TimeSpan.FromMilliseconds(100));
         host.Start();
-        await WaitForEndpointAsync(runtimeRoot);
+        await host.Ready.WaitAsync(TestContext.Current.CancellationToken);
 
         var bootstrap = await LocalEndpoint.DiscoverBootstrapAsync(
             runtimeRoot,
@@ -171,7 +205,7 @@ public sealed class LocalMcpBrokerTests
         var boundary = new RecordingBoundary();
         await using var host = new LocalMcpBrokerHost(runtimeRoot, boundary, boundary);
         host.Start();
-        await WaitForEndpointAsync(runtimeRoot);
+        await host.Ready.WaitAsync(TestContext.Current.CancellationToken);
         var endpoint = await LocalEndpoint.DiscoverBootstrapAsync(
             runtimeRoot,
             TestContext.Current.CancellationToken);
@@ -208,7 +242,7 @@ public sealed class LocalMcpBrokerTests
         var boundary = new PendingAuthorizationBoundary();
         await using var host = new LocalMcpBrokerHost(runtimeRoot, boundary, boundary);
         host.Start();
-        await WaitForEndpointAsync(runtimeRoot);
+        await host.Ready.WaitAsync(TestContext.Current.CancellationToken);
         var endpoint = await LocalEndpoint.DiscoverBootstrapAsync(
             runtimeRoot,
             TestContext.Current.CancellationToken);
@@ -243,7 +277,7 @@ public sealed class LocalMcpBrokerTests
         var boundary = new RacingRememberedAuthorizationBoundary();
         await using var host = new LocalMcpBrokerHost(runtimeRoot, boundary, boundary);
         host.Start();
-        await WaitForEndpointAsync(runtimeRoot);
+        await host.Ready.WaitAsync(TestContext.Current.CancellationToken);
         var endpoint = await LocalEndpoint.DiscoverBootstrapAsync(
             runtimeRoot,
             TestContext.Current.CancellationToken);
@@ -282,7 +316,7 @@ public sealed class LocalMcpBrokerTests
         var boundary = new RecordingBoundary();
         await using var host = new LocalMcpBrokerHost(runtimeRoot, boundary, boundary);
         host.Start();
-        await WaitForEndpointAsync(runtimeRoot);
+        await host.Ready.WaitAsync(TestContext.Current.CancellationToken);
         await using var session = await OpenSessionAsync(runtimeRoot, boundary);
 
         await JsonLineCodec.WriteAsync(
@@ -311,7 +345,7 @@ public sealed class LocalMcpBrokerTests
         var boundary = new RecordingBoundary();
         await using var host = new LocalMcpBrokerHost(runtimeRoot, boundary, boundary);
         host.Start();
-        await WaitForEndpointAsync(runtimeRoot);
+        await host.Ready.WaitAsync(TestContext.Current.CancellationToken);
         var bootstrap = await LocalEndpoint.DiscoverBootstrapAsync(
             runtimeRoot,
             TestContext.Current.CancellationToken);
@@ -360,7 +394,7 @@ public sealed class LocalMcpBrokerTests
         var boundary = new RecordingBoundary();
         await using var host = new LocalMcpBrokerHost(runtimeRoot, boundary, boundary);
         host.Start();
-        await WaitForEndpointAsync(runtimeRoot);
+        await host.Ready.WaitAsync(TestContext.Current.CancellationToken);
         var endpoint = await LocalEndpoint.DiscoverBootstrapAsync(
             runtimeRoot,
             TestContext.Current.CancellationToken);
@@ -397,7 +431,7 @@ public sealed class LocalMcpBrokerTests
         var boundary = new RecordingBoundary();
         await using var host = new LocalMcpBrokerHost(runtimeRoot, boundary, boundary);
         host.Start();
-        await WaitForEndpointAsync(runtimeRoot);
+        await host.Ready.WaitAsync(TestContext.Current.CancellationToken);
         var clients = new List<LocalMcpBrokerClient>();
         try
         {
@@ -436,23 +470,6 @@ public sealed class LocalMcpBrokerTests
                 await client.DisposeAsync();
             }
         }
-    }
-
-    private static async Task WaitForEndpointAsync(string runtimeRoot)
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            await Task.Delay(50, TestContext.Current.CancellationToken);
-            return;
-        }
-
-        var descriptor = Path.Combine(runtimeRoot, "mcp-bootstrap.json");
-        for (var attempt = 0; attempt < 100 && !File.Exists(descriptor); attempt++)
-        {
-            await Task.Delay(10, TestContext.Current.CancellationToken);
-        }
-
-        Assert.True(File.Exists(descriptor));
     }
 
     private static async Task<LocalConnection> OpenSessionAsync(
@@ -497,9 +514,11 @@ public sealed class LocalMcpBrokerTests
         return session;
     }
 
-    private sealed class RecordingBoundary : ILocalMcpAuthorizationHandler, ILocalMcpOperationHandler
+    private sealed class RecordingBoundary(byte[]? snapshot = null) :
+        ILocalMcpAuthorizationHandler,
+        ILocalMcpOperationHandler
     {
-        public byte[] Snapshot { get; } = Enumerable.Range(0, 160 * 1024)
+        public byte[] Snapshot { get; } = snapshot ?? Enumerable.Range(0, 160 * 1024)
             .Select(index => (byte)(index % 239))
             .ToArray();
         public ConcurrentBag<LocalMcpClientIdentity> Clients { get; } = [];

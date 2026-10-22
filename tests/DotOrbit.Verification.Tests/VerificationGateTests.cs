@@ -37,6 +37,9 @@ public sealed class VerificationGateTests
             ["restore", "vulnerability-audit", "deprecation-audit", "format", "build", "test", "native-smoke", "native-smoke-failure=startup", "native-smoke-failure=navigation"],
             runner.Requests.Select(RequestIdentity));
         Assert.All(runner.Requests, request => Assert.Equal("/snapshot", request.WorkingDirectory));
+        Assert.Equal(
+            TimeSpan.FromMinutes(10),
+            Assert.Single(runner.Requests, request => RequestIdentity(request) == "test").Timeout);
         Assert.Contains($"verify: result=verified commit={Commit}", output.Messages);
     }
 
