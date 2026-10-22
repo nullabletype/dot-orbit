@@ -12,6 +12,9 @@ public sealed partial class WorkspaceAccessWindow : Window
 {
     private WorkspaceAccessViewModel _viewModel = null!;
     private IWorkspacePathProvider? _workspacePathProvider;
+    private readonly IMainWindowSizePreferenceStore? _mainWindowSizePreferenceStore;
+    private readonly IMainWindowScreenProvider? _mainWindowScreenProvider;
+    private readonly Action<MainWindow>? _mainWindowOpened;
 
     public WorkspaceAccessWindow()
         : this(new DefaultWorkspaceStore(), new SystemWorkspacePathProvider())
@@ -20,11 +23,17 @@ public sealed partial class WorkspaceAccessWindow : Window
 
     internal WorkspaceAccessWindow(
         IWorkspaceStore workspaceStore,
-        IWorkspacePathProvider workspacePathProvider)
+        IWorkspacePathProvider workspacePathProvider,
+        IMainWindowSizePreferenceStore? mainWindowSizePreferenceStore = null,
+        IMainWindowScreenProvider? mainWindowScreenProvider = null,
+        Action<MainWindow>? mainWindowOpened = null)
     {
         ArgumentNullException.ThrowIfNull(workspaceStore);
         ArgumentNullException.ThrowIfNull(workspacePathProvider);
         _workspacePathProvider = workspacePathProvider;
+        _mainWindowSizePreferenceStore = mainWindowSizePreferenceStore;
+        _mainWindowScreenProvider = mainWindowScreenProvider;
+        _mainWindowOpened = mainWindowOpened;
         Initialise(new WorkspaceAccessViewModel(
             workspaceStore,
             workspacePathProvider.ResolveDefaultWorkspace(),
@@ -51,13 +60,18 @@ public sealed partial class WorkspaceAccessWindow : Window
     {
         var mainWindow = _workspacePathProvider is null
             ? new MainWindow(session)
-            : new MainWindow(session, null, null, ReturnToWorkspaceAccess);
+            : new MainWindow(
+                session,
+                workspaceUnavailable: ReturnToWorkspaceAccess,
+                mainWindowSizePreferenceStore: _mainWindowSizePreferenceStore,
+                mainWindowScreenProvider: _mainWindowScreenProvider);
         if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             desktop.MainWindow = mainWindow;
         }
 
         mainWindow.Show();
+        _mainWindowOpened?.Invoke(mainWindow);
         Close();
     }
 
