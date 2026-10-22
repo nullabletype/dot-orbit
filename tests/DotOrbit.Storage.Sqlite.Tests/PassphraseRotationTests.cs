@@ -298,7 +298,7 @@ public sealed class PassphraseRotationTests
                 Path.GetTempPath(),
                 $"dot-orbit-passphrase-tests-{Guid.NewGuid():N}");
             Directory.CreateDirectory(DirectoryPath);
-            WorkspacePath = Path.Combine(DirectoryPath, "workspace.db");
+            WorkspacePath = Path.Combine(DirectoryPath, "chosen-workspace.custom");
             Store = new EncryptedWorkspaceStore(
                 new SystemIdentifierGenerator(),
                 fileOperations ?? new WorkspaceFileOperations(),

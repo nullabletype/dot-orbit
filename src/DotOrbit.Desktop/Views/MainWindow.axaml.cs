@@ -913,7 +913,20 @@ public sealed partial class MainWindow : Window
 
     private async Task CompleteUnavailableCloseAsync(Action? showWorkspaceAccess)
     {
+        if (_closeCompletionStarted) return;
+        _closeCompletionStarted = true;
         await StopLocalMcpAsync();
+        DiscardProposalStateForSessionEnd();
+        if (DataContext is ShellViewModel { Work: { } work })
+            await work.DrainWorkspaceActionsAsync();
+        if (_inspectorSaveWriter is not null)
+        {
+            await _inspectorSaveWriter.DisposeAsync();
+            _inspectorSaveWriter = null;
+            _actionExecutor = null;
+        }
+        _session?.Dispose();
+        _session = null;
         if (showWorkspaceAccess is not null)
         {
             showWorkspaceAccess();
@@ -928,14 +941,6 @@ public sealed partial class MainWindow : Window
             }
 
             access.Show();
-        }
-        if (DataContext is ShellViewModel { Work: { } work })
-            await work.DrainWorkspaceActionsAsync();
-        if (_inspectorSaveWriter is not null)
-        {
-            await _inspectorSaveWriter.DisposeAsync();
-            _inspectorSaveWriter = null;
-            _actionExecutor = null;
         }
         FinishAcceptedClose();
     }

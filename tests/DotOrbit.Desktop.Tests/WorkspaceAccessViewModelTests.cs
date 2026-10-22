@@ -308,8 +308,9 @@ public sealed class WorkspaceAccessViewModelTests
         viewModel.SubmitCommand.Execute(null);
 
         Assert.Equal(
-            "The workspace upgrade could not be completed. The original remains usable and a recovery point is available at /safe/pre-migration.dotorbit-recovery.",
+            "The workspace upgrade could not be completed. The original remains usable and a validated recovery point is available.",
             viewModel.ValidationMessage);
+        Assert.DoesNotContain("/safe", viewModel.ValidationMessage, StringComparison.Ordinal);
         Assert.Empty(viewModel.Passphrase);
         Assert.True(viewModel.CanRestoreMigrationRecovery);
 
@@ -364,8 +365,242 @@ public sealed class WorkspaceAccessViewModelTests
         Assert.Equal("Hide passphrase", viewModel.PassphraseVisibilityActionName);
     }
 
+    [Fact]
+    public void MissingRememberedWorkspaceNeverFallsBackToCreation()
+    {
+        var store = new StubWorkspaceStore(exists: false);
+        var preferences = new RecordingWorkspacePathPreferenceStore();
+        var path = Path.GetFullPath("/missing/remembered-workspace.custom");
+        var viewModel = new WorkspaceAccessViewModel(
+            store,
+            WorkspacePathSelection.Existing(path, wasRemembered: true),
+            preferences,
+            _ => { });
+
+        Assert.True(viewModel.IsWorkspaceUnavailable);
+        Assert.True(viewModel.IsBlocked);
+        Assert.False(viewModel.IsCreateMode);
+        Assert.True(viewModel.CanRetryWorkspace);
+        Assert.True(viewModel.CanReturnToDefault);
+        Assert.False(viewModel.SubmitCommand.CanExecute(null));
+
+        viewModel.SubmitCommand.Execute(null);
+
+        Assert.Equal(0, store.CreateCallCount);
+        Assert.Equal(0, store.OpenCallCount);
+        Assert.Null(preferences.SavedPath);
+    }
+
+    [Fact]
+    public void ChosenExistingWorkspaceThatDisappearsMovesToUnavailableWithoutCreation()
+    {
+        var store = new StubWorkspaceStore(exists: true);
+        var viewModel = new WorkspaceAccessViewModel(
+            store,
+            WorkspacePathSelection.Existing(Path.GetFullPath("/chosen/workspace.custom")),
+            new RecordingWorkspacePathPreferenceStore(),
+            _ => { })
+        {
+            Passphrase = "correct horse battery",
+        };
+        store.ExistsValue = false;
+
+        viewModel.SubmitCommand.Execute(null);
+
+        Assert.True(viewModel.IsWorkspaceUnavailable);
+        Assert.True(viewModel.CanRetryWorkspace);
+        Assert.Empty(viewModel.Passphrase);
+        Assert.Equal(1, store.OpenCallCount);
+        Assert.Equal(0, store.CreateCallCount);
+    }
+
+    [Fact]
+    public void ChosenNewLocationIsCreatedWithoutInferringIntentFromExistenceAndRememberedOnSuccess()
+    {
+        using var session = new StubWorkspaceSession("Home");
+        var store = new StubWorkspaceStore(exists: true)
+        {
+            CreateResult = WorkspaceCreationResult.Created(session),
+        };
+        var preferences = new RecordingWorkspacePathPreferenceStore();
+        var path = Path.GetFullPath("/chosen/new-workspace.any-name");
+        var viewModel = new WorkspaceAccessViewModel(
+            store,
+            WorkspacePathSelection.Existing(Path.GetFullPath("/old/workspace.orb")),
+            preferences,
+            _ => { });
+
+        viewModel.SelectNewWorkspace(path);
+        viewModel.FirstCategoryName = "Home";
+        viewModel.Passphrase = "correct horse battery";
+        viewModel.Confirmation = "correct horse battery";
+        viewModel.SubmitCommand.Execute(null);
+
+        Assert.True(viewModel.IsCreateMode);
+        Assert.Equal(path, store.LastCreatePath);
+        Assert.Equal(path, preferences.SavedPath);
+    }
+
+    [Fact]
+    public void FailedChosenWorkspaceDoesNotReplaceRememberedPath()
+    {
+        var preferences = new RecordingWorkspacePathPreferenceStore();
+        var viewModel = new WorkspaceAccessViewModel(
+            new StubWorkspaceStore(exists: false),
+            WorkspacePathSelection.New(Path.GetFullPath("/chosen/workspace.orb")),
+            preferences,
+            _ => { })
+        {
+            FirstCategoryName = "Home",
+            Passphrase = "correct horse battery",
+            Confirmation = "correct horse battery",
+        };
+
+        viewModel.SubmitCommand.Execute(null);
+
+        Assert.Null(preferences.SavedPath);
+    }
+
+    [Fact]
+    public void SuccessfulLegacyAdoptionRemembersTheCurrentDefaultName()
+    {
+        using var session = new StubWorkspaceSession("Home");
+        var store = new StubWorkspaceStore(exists: true)
+        {
+            OpenResult = WorkspaceOpenResult.Opened(session),
+        };
+        var preferences = new RecordingWorkspacePathPreferenceStore();
+        var legacy = Path.GetFullPath("/platform/dot-orbit/workspace.db");
+        var current = Path.GetFullPath("/platform/dot-orbit/workspace.orb");
+        var viewModel = new WorkspaceAccessViewModel(
+            store,
+            WorkspacePathSelection.Default(DefaultWorkspaceResolution.Ready(legacy), current),
+            preferences,
+            _ => { })
+        {
+            Passphrase = "correct horse battery",
+        };
+
+        viewModel.SubmitCommand.Execute(null);
+
+        Assert.Equal(legacy, store.LastOpenPath);
+        Assert.Equal(current, preferences.SavedPath);
+    }
+
+    [Fact]
+    public void SuccessfulChosenExistingWorkspaceRemembersItsCanonicalPath()
+    {
+        using var session = new StubWorkspaceSession("Home");
+        var store = new StubWorkspaceStore(exists: true)
+        {
+            OpenResult = WorkspaceOpenResult.Opened(session),
+        };
+        var preferences = new RecordingWorkspacePathPreferenceStore();
+        var path = Path.GetFullPath("/chosen/../chosen/workspace.custom");
+        var viewModel = new WorkspaceAccessViewModel(
+            store,
+            WorkspacePathSelection.Existing(path),
+            preferences,
+            _ => { })
+        {
+            Passphrase = "correct horse battery",
+        };
+
+        viewModel.SubmitCommand.Execute(null);
+
+        Assert.Equal(Path.GetFullPath(path), preferences.SavedPath);
+    }
+
+    [Theory]
+    [InlineData(WorkspaceOpenStatus.InvalidPassphraseOrStore)]
+    [InlineData(WorkspaceOpenStatus.UnsupportedSchema)]
+    [InlineData(WorkspaceOpenStatus.Failed)]
+    public void FailedExistingOpenNeverReplacesTheRememberedPath(WorkspaceOpenStatus status)
+    {
+        var store = new StubWorkspaceStore(exists: true)
+        {
+            OpenResult = status switch
+            {
+                WorkspaceOpenStatus.UnsupportedSchema => WorkspaceOpenResult.UnsupportedSchema(),
+                WorkspaceOpenStatus.Failed => WorkspaceOpenResult.Failed(),
+                _ => WorkspaceOpenResult.InvalidPassphraseOrStore(),
+            },
+        };
+        var preferences = new RecordingWorkspacePathPreferenceStore();
+        var viewModel = new WorkspaceAccessViewModel(
+            store,
+            WorkspacePathSelection.Existing(Path.GetFullPath("/chosen/workspace.custom")),
+            preferences,
+            _ => { })
+        {
+            Passphrase = "incorrect or invalid",
+        };
+
+        viewModel.SubmitCommand.Execute(null);
+
+        Assert.Null(preferences.SavedPath);
+    }
+
+    [Fact]
+    public void ProductionStartupUsesRememberedPathWhileDevelopmentOverrideStaysExplicit()
+    {
+        var remembered = Path.GetFullPath("/remembered/custom.workspace");
+        var fallback = Path.GetFullPath("/default/workspace.orb");
+        var preferences = new RecordingWorkspacePathPreferenceStore(remembered);
+
+        var production = WorkspacePathSelectionFactory.CreateInitial(
+            new StubWorkspacePathProvider(fallback, usesRememberedWorkspace: true),
+            preferences);
+        var development = WorkspacePathSelectionFactory.CreateInitial(
+            new StubWorkspacePathProvider(fallback, usesRememberedWorkspace: false),
+            preferences);
+
+        Assert.Equal(remembered, production.StoragePath);
+        Assert.True(production.WasRemembered);
+        Assert.Equal(WorkspacePathIntent.Existing, production.Intent);
+        Assert.Equal(fallback, development.StoragePath);
+        Assert.Equal(WorkspacePathIntent.Development, development.Intent);
+    }
+
+    [Fact]
+    public void SystemAvailabilityAcceptsReadableContentAndRejectsDirectoriesAndEmptyFiles()
+    {
+        using var directory = TemporaryDirectory.CreateRepository(createSolution: false);
+        var emptyPath = Path.Combine(directory.Path, "empty.workspace");
+        var contentPath = Path.Combine(directory.Path, "content.workspace");
+        File.WriteAllBytes(emptyPath, []);
+        File.WriteAllBytes(contentPath, [1]);
+        var availability = new SystemWorkspacePathAvailability();
+
+        Assert.False(availability.IsAvailableRegularFile(directory.Path));
+        Assert.False(availability.IsAvailableRegularFile(emptyPath));
+        Assert.True(availability.IsAvailableRegularFile(contentPath));
+    }
+
+    [Fact]
+    public void PresentButUnavailableRememberedWorkspaceNeverShowsPassphraseOrCreation()
+    {
+        var store = new StubWorkspaceStore(exists: true);
+        var viewModel = new WorkspaceAccessViewModel(
+            store,
+            WorkspacePathSelection.Existing(
+                Path.GetFullPath("/present/but-unreadable.workspace"),
+                wasRemembered: true),
+            new RecordingWorkspacePathPreferenceStore(),
+            _ => { },
+            new FixedWorkspacePathAvailability(isAvailable: false));
+
+        Assert.True(viewModel.IsWorkspaceUnavailable);
+        Assert.False(viewModel.IsWorkspaceAccessAvailable);
+        Assert.False(viewModel.IsCreateMode);
+        Assert.Equal(0, store.OpenCallCount);
+        Assert.Equal(0, store.CreateCallCount);
+    }
+
     private sealed class StubWorkspaceStore(bool exists) : IWorkspaceStore
     {
+        public bool ExistsValue { get; set; } = exists;
+
         public int ExistsCallCount { get; private set; }
 
         public int CreateCallCount { get; private set; }
@@ -375,6 +610,10 @@ public sealed class WorkspaceAccessViewModelTests
         public int MigrationRestoreCallCount { get; private set; }
 
         public string? LastCategoryName { get; private set; }
+
+        public string? LastCreatePath { get; private set; }
+
+        public string? LastOpenPath { get; private set; }
 
         public WorkspaceCreationResult CreateResult { get; init; } = WorkspaceCreationResult.Failed();
 
@@ -386,7 +625,7 @@ public sealed class WorkspaceAccessViewModelTests
         public bool Exists(string path)
         {
             ExistsCallCount++;
-            return exists;
+            return ExistsValue;
         }
 
         public WorkspaceCreationResult Create(
@@ -395,6 +634,7 @@ public sealed class WorkspaceAccessViewModelTests
             CategoryName firstCategory)
         {
             CreateCallCount++;
+            LastCreatePath = path;
             LastCategoryName = firstCategory.Value;
             return CreateResult;
         }
@@ -402,6 +642,7 @@ public sealed class WorkspaceAccessViewModelTests
         public WorkspaceOpenResult Open(string path, WorkspacePassphrase passphrase)
         {
             OpenCallCount++;
+            LastOpenPath = path;
             return OpenResult;
         }
 
@@ -413,6 +654,38 @@ public sealed class WorkspaceAccessViewModelTests
             MigrationRestoreCallCount++;
             return MigrationRestoreResult;
         }
+    }
+
+    private sealed class RecordingWorkspacePathPreferenceStore(string? loadedPath = null)
+        : IWorkspacePathPreferenceStore
+    {
+        public string? SavedPath { get; private set; }
+
+        public string? LoadWorkspacePath() => loadedPath;
+
+        public bool TrySaveWorkspacePath(string path)
+        {
+            SavedPath = path;
+            return true;
+        }
+    }
+
+    private sealed class StubWorkspacePathProvider(
+        string path,
+        bool usesRememberedWorkspace) : IWorkspacePathProvider
+    {
+        public bool UsesRememberedWorkspace => usesRememberedWorkspace;
+
+        public string GetDefaultWorkspacePath() => path;
+
+        public DefaultWorkspaceResolution ResolveDefaultWorkspace() =>
+            DefaultWorkspaceResolution.Ready(path);
+    }
+
+    private sealed class FixedWorkspacePathAvailability(bool isAvailable)
+        : IWorkspacePathAvailability
+    {
+        public bool IsAvailableRegularFile(string path) => isAvailable;
     }
 
     private sealed class StubWorkspaceSession(string firstCategoryName) : IWorkspaceSession

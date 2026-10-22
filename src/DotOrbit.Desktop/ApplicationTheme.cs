@@ -62,6 +62,36 @@ internal interface IAiFeaturePreferenceStore
     bool TrySaveLocalMcpEnabled(bool enabled);
 }
 
+internal interface IWorkspacePathPreferenceStore
+{
+    string? LoadWorkspacePath();
+
+    bool TrySaveWorkspacePath(string path);
+}
+
+internal sealed class TransientWorkspacePathPreferenceStore(
+    string? workspacePath = null) : IWorkspacePathPreferenceStore
+{
+    private string? _workspacePath = WorkspacePathPolicy.TryCanonicalize(
+        workspacePath,
+        out var canonicalPath)
+        ? canonicalPath
+        : null;
+
+    public string? LoadWorkspacePath() => _workspacePath;
+
+    public bool TrySaveWorkspacePath(string path)
+    {
+        if (!WorkspacePathPolicy.TryCanonicalize(path, out var canonicalPath))
+        {
+            return false;
+        }
+
+        _workspacePath = canonicalPath;
+        return true;
+    }
+}
+
 internal sealed class ApplicationThemeService : IApplicationThemeService
 {
     private readonly Application _application;
@@ -259,6 +289,7 @@ internal sealed class JsonDevicePreferenceStore :
     IApplicationThemePreferenceStore,
     IInterchangePreferenceStore,
     IAiFeaturePreferenceStore,
+    IWorkspacePathPreferenceStore,
     IMainWindowSizePreferenceStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -307,6 +338,14 @@ internal sealed class JsonDevicePreferenceStore :
     public bool LoadLocalMcpEnabled() =>
         LoadDocument().LocalMcpEnabled ?? false;
 
+    public string? LoadWorkspacePath()
+    {
+        var path = LoadDocument().LastWorkspacePath;
+        return WorkspacePathPolicy.TryCanonicalize(path, out var canonicalPath)
+            ? canonicalPath
+            : null;
+    }
+
     public MainWindowSize? LoadMainWindowSize()
     {
         var document = LoadDocument();
@@ -338,6 +377,16 @@ internal sealed class JsonDevicePreferenceStore :
         return TrySaveDocument(document with { LocalMcpEnabled = enabled });
     }
 
+    public bool TrySaveWorkspacePath(string path)
+    {
+        if (!WorkspacePathPolicy.TryCanonicalize(path, out var canonicalPath))
+        {
+            return false;
+        }
+
+        return TrySaveDocument(LoadDocument() with { LastWorkspacePath = canonicalPath });
+    }
+
     public bool TrySaveMainWindowSize(MainWindowSize size)
     {
         if (!MainWindowSizePolicy.IsValid(size))
@@ -358,25 +407,25 @@ internal sealed class JsonDevicePreferenceStore :
         {
             if (!File.Exists(_path))
             {
-                return new(null, null, null, null, null, null);
+                return new(null, null, null, null, null, null, null);
             }
 
             return JsonSerializer.Deserialize<PreferenceDocument>(
                        File.ReadAllText(_path),
                        JsonOptions)
-                   ?? new(null, null, null, null, null, null);
+                   ?? new(null, null, null, null, null, null, null);
         }
         catch (IOException)
         {
-            return new(null, null, null, null, null, null);
+            return new(null, null, null, null, null, null, null);
         }
         catch (UnauthorizedAccessException)
         {
-            return new(null, null, null, null, null, null);
+            return new(null, null, null, null, null, null, null);
         }
         catch (JsonException)
         {
-            return new(null, null, null, null, null, null);
+            return new(null, null, null, null, null, null, null);
         }
     }
 
@@ -430,5 +479,6 @@ internal sealed class JsonDevicePreferenceStore :
         bool? AiFeaturesEnabled,
         bool? LocalMcpEnabled,
         double? MainWindowWidth,
-        double? MainWindowHeight);
+        double? MainWindowHeight,
+        string? LastWorkspacePath);
 }

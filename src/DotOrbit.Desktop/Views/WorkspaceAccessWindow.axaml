@@ -54,14 +54,81 @@
             Text="{Binding Intro}"
             TextWrapping="Wrap" />
 
+        <Border
+            Classes="list-panel">
+          <StackPanel Spacing="6">
+            <TextBlock
+                x:Name="WorkspaceFileLabel"
+                Classes="eyebrow"
+                Text="WORKSPACE FILE" />
+            <TextBlock
+                x:Name="SelectedWorkspacePath"
+                AutomationProperties.HelpText="{Binding WorkspaceLocationStatus}"
+                AutomationProperties.LiveSetting="Polite"
+                AutomationProperties.Name="{Binding SelectedWorkspaceAccessibleName}"
+                Foreground="{DynamicResource MutedTextBrush}"
+                Text="{Binding SelectedWorkspacePath}"
+                TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+
+        <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+          <Button
+              x:Name="ChooseExistingWorkspaceButton"
+              Grid.Column="0"
+              AutomationProperties.Name="Choose existing workspace"
+              Click="ChooseExistingWorkspaceClick"
+              HorizontalAlignment="Left"
+              HorizontalContentAlignment="Center"
+              TabIndex="0">
+            <TextBlock Text="Choose existing" />
+          </Button>
+          <Button
+              x:Name="ChooseNewWorkspaceButton"
+              Grid.Column="1"
+              AutomationProperties.Name="Choose where to create a new workspace"
+              Click="ChooseNewWorkspaceClick"
+              HorizontalAlignment="Right"
+              HorizontalContentAlignment="Center"
+              TabIndex="1">
+            <TextBlock Text="Set up new workspace…" />
+          </Button>
+        </Grid>
+
         <TextBlock
             x:Name="WorkspaceResolutionMessage"
             AutomationProperties.LiveSetting="Assertive"
-            AutomationProperties.Name="Workspace startup blocked"
+            AutomationProperties.Name="{Binding WorkspaceResolutionAnnouncementName}"
             Foreground="{DynamicResource ErrorBrush}"
             IsVisible="{Binding IsBlocked}"
             Text="{Binding BlockingMessage}"
             TextWrapping="Wrap" />
+
+        <Grid
+            ColumnDefinitions="*,*"
+            ColumnSpacing="10"
+            IsVisible="{Binding IsWorkspaceUnavailable}">
+          <Button
+              x:Name="RetryWorkspaceButton"
+              Grid.Column="0"
+              AutomationProperties.Name="Retry selected workspace"
+              Click="RetryWorkspaceClick"
+              HorizontalContentAlignment="Center"
+              IsVisible="{Binding CanRetryWorkspace}"
+              TabIndex="2">
+            <TextBlock Text="Retry" />
+          </Button>
+          <Button
+              x:Name="UseDefaultWorkspaceButton"
+              Grid.Column="1"
+              AutomationProperties.Name="Return to default workspace location"
+              Click="UseDefaultWorkspaceClick"
+              HorizontalContentAlignment="Center"
+              IsVisible="{Binding CanReturnToDefault}"
+              TabIndex="3">
+            <TextBlock Text="Use default location" />
+          </Button>
+        </Grid>
 
         <TextBlock
             IsVisible="{Binding IsCreateMode}"
@@ -71,7 +138,7 @@
             AutomationProperties.HelpText="Name the first Category before Projects or Tasks can be created."
             AutomationProperties.Name="First Category name"
             IsVisible="{Binding IsCreateMode}"
-            TabIndex="0"
+            TabIndex="4"
             Text="{Binding FirstCategoryName, Mode=TwoWay}"
             PlaceholderText="For example, Personal Admin" />
 
@@ -85,7 +152,7 @@
             AutomationProperties.Name="Passphrase"
             IsVisible="{Binding IsWorkspaceAccessAvailable}"
             PasswordChar="{Binding PasswordCharacter}"
-            TabIndex="1"
+            TabIndex="5"
             Text="{Binding Passphrase, Mode=TwoWay}" />
 
         <TextBlock
@@ -97,7 +164,7 @@
             AutomationProperties.Name="Confirm passphrase"
             IsVisible="{Binding IsCreateMode}"
             PasswordChar="{Binding PasswordCharacter}"
-            TabIndex="2"
+            TabIndex="6"
             Text="{Binding Confirmation, Mode=TwoWay}" />
 
         <ToggleButton
@@ -108,7 +175,7 @@
             Command="{Binding TogglePassphraseVisibilityCommand}"
             IsVisible="{Binding IsWorkspaceAccessAvailable}"
             IsChecked="{Binding IsPassphraseVisible, Mode=OneWay}"
-            TabIndex="3">
+            TabIndex="7">
           <TextBlock Text="{Binding PassphraseVisibilityActionName}" />
         </ToggleButton>
 
@@ -150,7 +217,7 @@
             AutomationProperties.Name="Restore pre-upgrade workspace"
             Command="{Binding RestoreMigrationRecoveryCommand}"
             IsVisible="{Binding CanRestoreMigrationRecovery}"
-            TabIndex="4">
+            TabIndex="8">
           <TextBlock Text="Restore pre-upgrade workspace" />
         </Button>
 
@@ -163,7 +230,7 @@
             Command="{Binding SubmitCommand}"
             IsVisible="{Binding IsWorkspaceAccessAvailable}"
             IsDefault="True"
-            TabIndex="5">
+            TabIndex="9">
           <TextBlock Text="{Binding SubmitActionName}" />
         </Button>
       </StackPanel>

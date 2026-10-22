@@ -14,6 +14,22 @@ public sealed class EncryptedWorkspaceRecoveryTests
 {
     private const string ValidPassphrase = "correct horse battery";
 
+    [Fact]
+    public void CustomWorkspaceNameKeepsRecoveryStateBesideTheExactSelectedFile()
+    {
+        using var fixture = new RecoveryFixture(workspaceFileName: "chosen workspace-λ.custom");
+        using var session = fixture.CreateWorkspace("Initial");
+        var concrete = Assert.IsType<EncryptedWorkspaceStore.WorkspaceSession>(session);
+        session.Recovery.ConfigureAutomaticRecoveryDirectory(fixture.RecoveryDirectory);
+
+        Assert.Equal(
+            AutomaticRecoveryAttempt.Created,
+            ChangeFirstCategory(concrete.Transactions, "Changed"));
+
+        Assert.True(File.Exists(fixture.WorkspacePath + ".recovery-state.json"));
+        Assert.False(File.Exists(Path.Combine(fixture.Directory, "workspace.db.recovery-state.json")));
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(1)]
@@ -1416,14 +1432,15 @@ public sealed class EncryptedWorkspaceRecoveryTests
         public RecoveryFixture(
             string passphrase = ValidPassphrase,
             TimeProvider? timeProvider = null,
-            string? recoveryDirectoryPath = null)
+            string? recoveryDirectoryPath = null,
+            string workspaceFileName = "chosen-workspace.custom")
         {
             _passphrase = passphrase;
             Directory = Path.Combine(
                 Path.GetTempPath(),
                 $"dot-orbit-recovery-tests-{Guid.NewGuid():N}");
             RecoveryDirectory = recoveryDirectoryPath ?? Path.Combine(Directory, "recovery");
-            WorkspacePath = Path.Combine(Directory, "workspace.db");
+            WorkspacePath = Path.Combine(Directory, workspaceFileName);
             System.IO.Directory.CreateDirectory(Directory);
             FileOperations = new FaultInjectingFileOperations();
             Store = new EncryptedWorkspaceStore(

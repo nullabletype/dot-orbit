@@ -26,6 +26,9 @@ public sealed partial class App : Application
     internal IMainWindowSizePreferenceStore MainWindowSizePreferenceStore { get; private set; } =
         new TransientMainWindowSizePreferenceStore();
 
+    internal IWorkspacePathPreferenceStore WorkspacePathPreferenceStore { get; private set; } =
+        new TransientWorkspacePathPreferenceStore();
+
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
     public override void OnFrameworkInitializationCompleted()
@@ -40,6 +43,7 @@ public sealed partial class App : Application
             InterchangePreferenceService = new InterchangePreferenceService(preferenceStore);
             AiFeaturePreferenceService = new AiFeaturePreferenceService(preferenceStore);
             MainWindowSizePreferenceStore = preferenceStore;
+            WorkspacePathPreferenceStore = preferenceStore;
 
             if (desktop.Args?.Contains("--markdown-link-smoke", StringComparer.Ordinal) == true)
             {
@@ -85,7 +89,9 @@ public sealed partial class App : Application
                         SystemWorkspacePathProvider.FromArguments(
                             desktop.Args,
                             Environment.CurrentDirectory,
-                            AppContext.BaseDirectory));
+                            AppContext.BaseDirectory),
+                        workspacePathPreferenceStore: WorkspacePathPreferenceStore,
+                        mainWindowSizePreferenceStore: MainWindowSizePreferenceStore);
                 }
             }
         }

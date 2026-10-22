@@ -5,6 +5,7 @@ using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Input.Raw;
+using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -32,7 +33,8 @@ public sealed class WorkspaceAccessWindowTests
             new StubWorkspacePathProvider("/platform-data/dot-orbit/workspace.orb"),
             preferences,
             new FixedMainWindowScreenProvider(new(1600, 1000)),
-            opened => mainWindow = opened);
+            opened => mainWindow = opened,
+            workspacePathAvailability: new StoreWorkspacePathAvailability(store));
         access.Show();
         var viewModel = Assert.IsType<WorkspaceAccessViewModel>(access.DataContext);
         viewModel.Passphrase = "correct horse battery";
@@ -56,13 +58,15 @@ public sealed class WorkspaceAccessWindowTests
     [AvaloniaFact]
     public void StartupUsesThePlatformWorkspacePathProvider()
     {
+        const string providerPath = "/platform-data/dot-orbit/workspace.orb";
         var store = new StubWorkspaceStore(exists: false);
 
         _ = new WorkspaceAccessWindow(
             store,
-            new StubWorkspacePathProvider("/platform-data/dot-orbit/workspace.orb"));
+            new StubWorkspacePathProvider(providerPath),
+            workspacePathAvailability: new StoreWorkspacePathAvailability(store));
 
-        Assert.Equal("/platform-data/dot-orbit/workspace.orb", store.LastExistsPath);
+        Assert.Equal(Path.GetFullPath(providerPath), store.LastExistsPath);
     }
 
     [AvaloniaFact]
@@ -88,7 +92,7 @@ public sealed class WorkspaceAccessWindowTests
         Assert.True(confirmation.Focusable);
         Assert.True(reveal.Focusable);
         Assert.True(submit.Focusable);
-        Assert.Equal([0, 1, 2, 3, 5], new[]
+        Assert.Equal([4, 5, 6, 7, 9], new[]
         {
             category.TabIndex,
             passphrase.TabIndex,
@@ -170,10 +174,11 @@ public sealed class WorkspaceAccessWindowTests
         Assert.True(validation.IsVisible);
         Assert.Equal(TextWrapping.Wrap, validation.TextWrapping);
         Assert.Equal(AutomationLiveSetting.Assertive, AutomationProperties.GetLiveSetting(validation));
-        Assert.Contains(recoveryPath, validation.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(recoveryPath, validation.Text, StringComparison.Ordinal);
+        Assert.Contains("validated recovery point", validation.Text, StringComparison.Ordinal);
         Assert.True(restore.IsVisible);
         Assert.Equal("Restore pre-upgrade workspace", AutomationProperties.GetName(restore));
-        Assert.Equal(4, restore.TabIndex);
+        Assert.Equal(8, restore.TabIndex);
         Assert.True(passphrase.IsFocused);
 
         Assert.True(restore.Focus());
@@ -215,6 +220,171 @@ public sealed class WorkspaceAccessWindowTests
         Assert.False(viewModel.SubmitCommand.CanExecute(null));
         Assert.False(viewModel.TogglePassphraseVisibilityCommand.CanExecute(null));
         Assert.False(viewModel.RestoreMigrationRecoveryCommand.CanExecute(null));
+    }
+
+    [AvaloniaFact]
+    public void MissingRememberedWorkspaceFocusesTheRetryAction()
+    {
+        var viewModel = new WorkspaceAccessViewModel(
+            new StubWorkspaceStore(exists: false),
+            WorkspacePathSelection.Existing(
+                Path.GetFullPath("/missing/workspace.orb"),
+                wasRemembered: true),
+            new TransientWorkspacePathPreferenceStore(),
+            _ => { });
+        var window = new WorkspaceAccessWindow(viewModel);
+
+        window.Show();
+
+        var retry = Assert.IsType<Button>(window.FindControl<Button>("RetryWorkspaceButton"));
+        Assert.True(retry.IsVisible);
+        Assert.True(retry.IsFocused);
+        Assert.Equal("Retry selected workspace", AutomationProperties.GetName(retry));
+    }
+
+    [AvaloniaFact]
+    public void WorkspaceLocationControlsAreNamedKeyboardOperableAndAnnounceThePath()
+    {
+        var window = CreateWindow(exists: false);
+        window.Show();
+
+        var existing = Assert.IsType<Button>(
+            window.FindControl<Button>("ChooseExistingWorkspaceButton"));
+        var create = Assert.IsType<Button>(
+            window.FindControl<Button>("ChooseNewWorkspaceButton"));
+        var label = Assert.IsType<TextBlock>(window.FindControl<TextBlock>("WorkspaceFileLabel"));
+        var path = Assert.IsType<TextBlock>(window.FindControl<TextBlock>("SelectedWorkspacePath"));
+
+        Assert.Equal("Choose existing workspace", AutomationProperties.GetName(existing));
+        Assert.Equal("Choose where to create a new workspace", AutomationProperties.GetName(create));
+        Assert.Equal(HorizontalAlignment.Left, existing.HorizontalAlignment);
+        Assert.Equal(HorizontalAlignment.Right, create.HorizontalAlignment);
+        Assert.Equal("WORKSPACE FILE", label.Text);
+        Assert.Equal("Default workspace location", AutomationProperties.GetHelpText(path));
+        Assert.Equal(AutomationLiveSetting.Polite, AutomationProperties.GetLiveSetting(path));
+        Assert.Equal(TextWrapping.Wrap, path.TextWrapping);
+        Assert.True(existing.Focusable);
+        Assert.True(create.Focusable);
+        Assert.Equal(0, existing.TabIndex);
+        Assert.Equal(1, create.TabIndex);
+        Assert.Contains("Selected workspace location", AutomationProperties.GetName(path), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WorkspacePickersDoNotUseTheFilenameExtensionAsAFileTypeGate()
+    {
+        var open = AvaloniaWorkspaceLocationPicker.CreateOpenOptions();
+        var save = AvaloniaWorkspaceLocationPicker.CreateSaveOptions();
+
+        Assert.False(open.AllowMultiple);
+        Assert.Null(open.FileTypeFilter);
+        Assert.Equal("workspace.orb", save.SuggestedFileName);
+        Assert.Null(save.FileTypeChoices);
+        Assert.Null(save.DefaultExtension);
+        Assert.True(save.ShowOverwritePrompt);
+    }
+
+    [AvaloniaFact]
+    public async Task PickerActionsApplyExistingAndNewIntentWithoutExtensionInference()
+    {
+        var existingPath = Path.GetFullPath("/chosen/existing.notes");
+        var newPath = Path.GetFullPath("/chosen/new-workspace.no-extension");
+        var store = new StubWorkspaceStore(exists: false);
+        var access = new WorkspaceAccessWindow(
+            store,
+            new StubWorkspacePathProvider(Path.GetFullPath("/default/workspace.orb")),
+            workspaceLocationPicker: new StaticWorkspaceLocationPicker(existingPath, newPath),
+            workspacePathAvailability: new StoreWorkspacePathAvailability(store));
+        access.Show();
+        var viewModel = Assert.IsType<WorkspaceAccessViewModel>(access.DataContext);
+
+        Assert.IsType<Button>(access.FindControl<Button>("ChooseExistingWorkspaceButton"))
+            .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        await DrainUiUntilAsync(() => viewModel.SelectedWorkspacePath == existingPath);
+
+        Assert.True(viewModel.IsWorkspaceUnavailable);
+        Assert.False(viewModel.IsCreateMode);
+
+        Assert.IsType<Button>(access.FindControl<Button>("ChooseNewWorkspaceButton"))
+            .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        await DrainUiUntilAsync(() => viewModel.SelectedWorkspacePath == newPath);
+
+        Assert.False(viewModel.IsWorkspaceUnavailable);
+        Assert.True(viewModel.IsCreateMode);
+        Assert.Equal("New workspace location", viewModel.WorkspaceLocationStatus);
+    }
+
+    [AvaloniaFact]
+    public async Task CancelledPickerRestoresFocusWithoutChangingTheSelection()
+    {
+        var defaultPath = Path.GetFullPath("/default/workspace.orb");
+        var store = new StubWorkspaceStore(exists: false);
+        var access = new WorkspaceAccessWindow(
+            store,
+            new StubWorkspacePathProvider(defaultPath),
+            workspaceLocationPicker: new StaticWorkspaceLocationPicker(null, null),
+            workspacePathAvailability: new StoreWorkspacePathAvailability(store));
+        access.Show();
+        var viewModel = Assert.IsType<WorkspaceAccessViewModel>(access.DataContext);
+        var launcher = Assert.IsType<Button>(
+            access.FindControl<Button>("ChooseExistingWorkspaceButton"));
+
+        launcher.Focus();
+        launcher.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        await DrainUiUntilAsync(() => launcher.IsEnabled && launcher.IsFocused);
+
+        Assert.Equal(defaultPath, viewModel.SelectedWorkspacePath);
+        Assert.False(viewModel.HasValidationMessage);
+    }
+
+    [AvaloniaFact]
+    public async Task PickerFailureIsAnnouncedAndRestoresFocus()
+    {
+        var store = new StubWorkspaceStore(exists: false);
+        var access = new WorkspaceAccessWindow(
+            store,
+            new StubWorkspacePathProvider(Path.GetFullPath("/default/workspace.orb")),
+            workspaceLocationPicker: new ThrowingWorkspaceLocationPicker(),
+            workspacePathAvailability: new StoreWorkspacePathAvailability(store));
+        access.Show();
+        var launcher = Assert.IsType<Button>(
+            access.FindControl<Button>("ChooseNewWorkspaceButton"));
+        var validation = Assert.IsType<TextBlock>(access.FindControl<TextBlock>("ValidationMessage"));
+
+        launcher.Focus();
+        launcher.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        await DrainUiUntilAsync(() => launcher.IsEnabled && launcher.IsFocused && validation.IsVisible);
+
+        Assert.Equal(AutomationLiveSetting.Assertive, AutomationProperties.GetLiveSetting(validation));
+        Assert.DoesNotContain("/default", validation.Text, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task MissingRememberedWorkspaceCanReturnToTheDefaultLocation()
+    {
+        var rememberedPath = Path.GetFullPath("/missing/remembered.workspace");
+        var defaultPath = Path.GetFullPath("/default/workspace.orb");
+        var store = new StubWorkspaceStore(exists: false);
+        var access = new WorkspaceAccessWindow(
+            store,
+            new StubWorkspacePathProvider(defaultPath, usesRememberedWorkspace: true),
+            workspacePathPreferenceStore: new StaticWorkspacePathPreferenceStore(rememberedPath),
+            workspacePathAvailability: new StoreWorkspacePathAvailability(store));
+        access.Show();
+        var viewModel = Assert.IsType<WorkspaceAccessViewModel>(access.DataContext);
+        var useDefault = Assert.IsType<Button>(
+            access.FindControl<Button>("UseDefaultWorkspaceButton"));
+        var path = Assert.IsType<TextBlock>(access.FindControl<TextBlock>("SelectedWorkspacePath"));
+
+        Assert.Equal("Remembered workspace location", AutomationProperties.GetHelpText(path));
+
+        useDefault.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        await DrainUiUntilAsync(() => viewModel.SelectedWorkspacePath == defaultPath);
+
+        Assert.False(viewModel.IsWorkspaceUnavailable);
+        Assert.True(viewModel.IsCreateMode);
+        Assert.Equal("Default workspace location", viewModel.WorkspaceLocationStatus);
+        Assert.Equal("Default workspace location", AutomationProperties.GetHelpText(path));
     }
 
     private static WorkspaceAccessWindow CreateWindow(bool exists) =>
@@ -312,11 +482,39 @@ public sealed class WorkspaceAccessWindowTests
             string recoveryPointPath) => MigrationRecoveryRestoreResult.Restored();
     }
 
-    private sealed class StubWorkspacePathProvider(string path) : IWorkspacePathProvider
+    private sealed class StubWorkspacePathProvider(
+        string path,
+        bool usesRememberedWorkspace = false) : IWorkspacePathProvider
     {
+        public bool UsesRememberedWorkspace => usesRememberedWorkspace;
+
         public string GetDefaultWorkspacePath() => path;
 
         public DefaultWorkspaceResolution ResolveDefaultWorkspace() =>
             DefaultWorkspaceResolution.Ready(path);
+    }
+
+    private sealed class StaticWorkspaceLocationPicker(
+        string? existingPath,
+        string? newPath) : IWorkspaceLocationPicker
+    {
+        public Task<string?> PickExistingAsync(Window owner) => Task.FromResult<string?>(existingPath);
+
+        public Task<string?> PickNewAsync(Window owner) => Task.FromResult<string?>(newPath);
+    }
+
+    private sealed class ThrowingWorkspaceLocationPicker : IWorkspaceLocationPicker
+    {
+        public Task<string?> PickExistingAsync(Window owner) => throw new IOException("Injected failure.");
+
+        public Task<string?> PickNewAsync(Window owner) => throw new IOException("Injected failure.");
+    }
+
+    private sealed class StaticWorkspacePathPreferenceStore(string path)
+        : IWorkspacePathPreferenceStore
+    {
+        public string? LoadWorkspacePath() => path;
+
+        public bool TrySaveWorkspacePath(string value) => true;
     }
 }

@@ -1695,18 +1695,27 @@ public sealed class MainWindowTests
     public async Task WorkspaceUnavailableShowsReplacementAndClosesTheShell()
     {
         var replacementShown = 0;
+        var session = new DisposalTrackingWorkspaceSession();
+        var oldSessionWasDisposedBeforeReplacement = false;
         var preferences = new RecordingMainWindowSizePreferenceStore();
         var window = new MainWindow(
-            session: null,
+            session,
             mainWindowSizePreferenceStore: preferences,
             mainWindowScreenProvider: new FixedMainWindowScreenProvider(new(1600, 1000)));
         window.Show();
 
+        window.HandleWorkspaceUnavailable(() =>
+        {
+            oldSessionWasDisposedBeforeReplacement = session.IsDisposed;
+            replacementShown++;
+        });
         window.HandleWorkspaceUnavailable(() => replacementShown++);
 
         await DrainUiUntilAsync(() => replacementShown == 1 && !window.IsVisible);
 
         Assert.Equal(1, replacementShown);
+        Assert.True(oldSessionWasDisposedBeforeReplacement);
+        Assert.True(session.IsDisposed);
         Assert.False(window.IsVisible);
         Assert.Equal(1, preferences.SaveAttempts);
     }
