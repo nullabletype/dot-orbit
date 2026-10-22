@@ -48,6 +48,45 @@
     <Setter Property="FontSize" Value="12" />
     <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" />
   </Style>
+  <Style Selector="Button.identity-pill-segment">
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Height" Value="14" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="VerticalContentAlignment" Value="Stretch" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Grid>
+          <Border x:Name="SegmentChrome" Background="{TemplateBinding Background}"
+              CornerRadius="{TemplateBinding CornerRadius}" />
+          <ContentPresenter Content="{TemplateBinding Content}"
+              ContentTemplate="{TemplateBinding ContentTemplate}"
+              HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+              VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+          <Border x:Name="FocusIndicator" BorderBrush="{DynamicResource AccentBrush}"
+              BorderThickness="0,0,0,2" CornerRadius="{TemplateBinding CornerRadius}"
+              IsVisible="False" IsHitTestVisible="False" />
+        </Grid>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="Button.identity-pill-segment:pointerover">
+    <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
+  </Style>
+  <Style Selector="Button.identity-pill-segment:pressed">
+    <Setter Property="Background" Value="{DynamicResource AccentSurfaceBrush}" />
+  </Style>
+  <Style Selector="Button.identity-pill-segment:focus-visible /template/ Border#FocusIndicator">
+    <Setter Property="IsVisible" Value="True" />
+  </Style>
+  <Style Selector="Button.identity-pill-segment:disabled /template/ ContentPresenter">
+    <Setter Property="Opacity" Value="0.55" />
+  </Style>
   <Style Selector="UserControl.category-heading-identity TextBlock.category-identity-name">
     <Setter Property="FontSize" Value="15" />
     <Setter Property="FontWeight" Value="Bold" />
