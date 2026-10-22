@@ -88,6 +88,10 @@ One encrypted inbound proposal waiting in the bounded local-agent review queue. 
 
 A durable, monotonically increasing identity for committed user-data state. Each transaction that actually changes user data advances it exactly once, including changes to archived, binned, or otherwise hidden state. Reads, export, snapshot generation, recovery creation and retention, passphrase operations, schema migration, device-local preferences, and derived-index maintenance do not advance it. Replacing working data through recovery restore rebases the restored workspace to a new successor revision.
 
+### Planned: Quick unlock
+
+An optional Windows-only device-local convenience path that requests Windows Hello system authentication and then uses a DPAPI-NG `LOCAL=user` protected passphrase copy to attempt the ordinary workspace unlock. It is not password recovery, application authentication, or a portable credential; the passphrase remains the sole recovery and cross-device credential.
+
 ## Invariants
 
 1. Every Task is standalone or belongs to one Project, never more than one.
@@ -150,3 +154,10 @@ A durable, monotonically increasing identity for committed user-data state. Each
 56. Remembered local-agent trust survives restart, but connections and short-lived connection-bound capabilities do not; revoke, disconnect, lock, either disabled gate, or process exit invalidates live authority.
 57. Local same-user IPC excludes other operating-system accounts but does not prove the identity of a particular application or defend against a compromised user session, administrator, root, or process injection.
 58. Queue reconciliation never rewrites, drops, repairs, partially applies, or silently approves proposal operations. An absent, invalid, or changed compatibility basis fails closed, while a safely refreshed preview remains subject to explicit whole-proposal approval and the ordinary exact-state Apply check.
+
+### Planned quick-unlock invariants
+
+59. Quick unlock is optional, off by default, and enrolled only after the current passphrase has successfully opened and validated the workspace; it never replaces or hides passphrase unlock.
+60. A protected quick-unlock record is device-local, scoped by DPAPI-NG to the same Windows user and computer, and bound inside its protected payload to one encrypted workspace identity, canonical local-location digest, and passphrase-rotation generation.
+61. Forgetting quick unlock changes only the device-local record. Passphrase rotation invalidates the prior generation and requires explicit re-enrolment; a missing, stale, corrupt, denied, or unavailable record fails closed to passphrase entry.
+62. Quick unlock does not claim protection from another same-user process, administrator or SYSTEM access, malware, application replacement, or a compromised operating system, and it never claims that Windows used a particular biometric factor.
