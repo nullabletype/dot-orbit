@@ -168,6 +168,39 @@ public sealed class ApplicationThemeTests
     }
 
     [Fact]
+    public void WorkspacePathPreferenceRoundTripsCanonicalAbsolutePathWithoutClobberingOtherPreferences()
+    {
+        using var directory = new TemporaryDirectory();
+        var preferencePath = Path.Combine(directory.Path, "preferences.json");
+        var workspacePath = Path.Combine(directory.Path, "nested", "..", "chosen.workspace");
+        var expected = Path.GetFullPath(workspacePath);
+        var store = new JsonDevicePreferenceStore(preferencePath);
+
+        Assert.Null(store.LoadWorkspacePath());
+        Assert.True(store.TrySave(ApplicationTheme.Light));
+        Assert.True(store.TrySaveWorkspacePath(workspacePath));
+
+        var reloaded = new JsonDevicePreferenceStore(preferencePath);
+        Assert.Equal(expected, reloaded.LoadWorkspacePath());
+        Assert.Equal(ApplicationTheme.Light, reloaded.Load());
+        Assert.Empty(Directory.GetFiles(directory.Path, "*.tmp"));
+    }
+
+    [Fact]
+    public void WorkspacePathPreferenceRejectsRelativeAndMalformedValues()
+    {
+        using var directory = new TemporaryDirectory();
+        var preferencePath = Path.Combine(directory.Path, "preferences.json");
+        var store = new JsonDevicePreferenceStore(preferencePath);
+
+        Assert.False(store.TrySaveWorkspacePath("relative/workspace.orb"));
+        Assert.False(File.Exists(preferencePath));
+
+        File.WriteAllText(preferencePath, "{\"lastWorkspacePath\":\"relative/workspace.orb\"}");
+        Assert.Null(store.LoadWorkspacePath());
+    }
+
+    [Fact]
     public void AiFeaturePreferenceServiceChangesStateOnlyAfterPersistenceSucceeds()
     {
         var store = new RecordingAiFeaturePreferenceStore();

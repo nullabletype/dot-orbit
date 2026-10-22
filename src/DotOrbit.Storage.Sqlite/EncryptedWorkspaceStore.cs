@@ -100,16 +100,17 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         ArgumentNullException.ThrowIfNull(passphrase);
         ArgumentNullException.ThrowIfNull(firstCategory);
 
-        var fullPath = _fileOperations.ResolvePath(path);
-        if (_fileOperations.Exists(fullPath))
-        {
-            return WorkspaceCreationResult.AlreadyExists();
-        }
-
+        var fullPath = string.Empty;
         var candidatePath = string.Empty;
 
         try
         {
+            fullPath = _fileOperations.ResolvePath(path);
+            if (_fileOperations.Exists(fullPath))
+            {
+                return WorkspaceCreationResult.AlreadyExists();
+            }
+
             _fileOperations.EnsureParentDirectory(fullPath);
             candidatePath = _fileOperations.GetCandidatePath(fullPath, GetIdentifier());
             using (var connection = OpenConnection(
@@ -183,6 +184,10 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         {
             return WorkspaceCreationResult.Failed();
         }
+        catch (UnauthorizedAccessException)
+        {
+            return WorkspaceCreationResult.Failed();
+        }
         catch (InvalidDataException)
         {
             return WorkspaceCreationResult.Failed();
@@ -201,13 +206,28 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         ArgumentNullException.ThrowIfNull(passphrase);
 
-        var fullPath = _fileOperations.ResolvePath(path);
-        if (!_fileOperations.Exists(fullPath))
+        try
         {
-            return WorkspaceOpenResult.InvalidPassphraseOrStore();
-        }
+            var fullPath = _fileOperations.ResolvePath(path);
+            if (!_fileOperations.Exists(fullPath))
+            {
+                return WorkspaceOpenResult.InvalidPassphraseOrStore();
+            }
 
-        return OpenResolved(fullPath, passphrase);
+            return OpenResolved(fullPath, passphrase);
+        }
+        catch (IOException)
+        {
+            return WorkspaceOpenResult.Failed();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return WorkspaceOpenResult.Failed();
+        }
+        catch (InvalidDataException)
+        {
+            return WorkspaceOpenResult.Failed();
+        }
     }
 
     public MigrationRecoveryRestoreResult RestoreMigrationRecovery(

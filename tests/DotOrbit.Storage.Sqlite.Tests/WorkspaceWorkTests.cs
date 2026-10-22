@@ -12,7 +12,7 @@ public sealed class WorkspaceWorkTests : IDisposable
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "orbit-work-" + Guid.NewGuid().ToString("N"));
     private readonly EncryptedWorkspaceStore _store = new();
     private readonly WorkspacePassphrase _passphrase = WorkspacePassphrase.Create("correct horse battery", "correct horse battery").Passphrase!;
-    private string WorkspacePath => Path.Combine(_directory, "workspace.db");
+    private string WorkspacePath => Path.Combine(_directory, "chosen-workspace.custom");
 
     [Fact]
     public void CreateTaskDraftPersistsOptionalProjectContentParticipantsAndTodayLaneAtomically()

@@ -314,7 +314,7 @@ public sealed class EncryptedWorkspaceStoreTests
 
     private sealed class WorkspaceFixture : IDisposable
     {
-        public WorkspaceFixture(string fileName = "workspace.db")
+        public WorkspaceFixture(string fileName = "chosen-workspace.custom")
         {
             Directory = System.IO.Path.Combine(
                 System.IO.Path.GetTempPath(),

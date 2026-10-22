@@ -948,7 +948,7 @@ public sealed class WorkspaceMigrationTests
                 integrityCheck,
                 afterMigration,
                 connectionOpener: connectionOpener);
-            WorkspacePath = Path.Combine(DirectoryPath, "workspace.db");
+            WorkspacePath = Path.Combine(DirectoryPath, "chosen-workspace.custom");
         }
 
         public string DirectoryPath { get; }
