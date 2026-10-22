@@ -1791,14 +1791,14 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         Notify(nameof(HasBlockingDialog));
     }
 
-    public bool DragTask(string taskId, string targetTaskId)
+    public bool DragTask(string taskId, string targetTaskId, bool? after = null)
         => EnqueueWorkspaceAction(new(
             WorkspaceActionKind.MoveBacklog,
             taskId,
-            WorkspaceMoveKind.TargetTaskPosition,
+            DragMoveKind(after),
             targetTaskId), closesInspectorOnCommit: false);
 
-    public bool DragTodayTask(string taskId, string targetTaskId)
+    public bool DragTodayTask(string taskId, string targetTaskId, bool? after = null)
     {
         var task = _snapshot.Tasks.Single(item => item.Id == taskId);
         var target = _snapshot.Tasks.Single(item => item.Id == targetTaskId);
@@ -1806,22 +1806,50 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         return EnqueueWorkspaceAction(new(
             WorkspaceActionKind.MoveToday,
             taskId,
-            WorkspaceMoveKind.TargetTaskPosition,
+            DragMoveKind(after),
             targetTaskId), closesInspectorOnCommit: false);
     }
 
-    public bool DragProject(string projectId, string targetProjectId) =>
-        MoveProject(projectId, Projects.IndexOf(Projects.Single(project => project.Id == targetProjectId)));
-
-    public bool DragProjectTask(string projectId, string taskId, string targetTaskId)
+    private static WorkspaceMoveKind DragMoveKind(bool? after) => after switch
     {
-        var project = Projects.Single(item => item.Id == projectId);
-        var target = project.Tasks.SingleOrDefault(task => task.Id == targetTaskId);
-        return target is not null && MoveProjectTask(projectId, taskId, project.Tasks.IndexOf(target));
+        true => WorkspaceMoveKind.AfterTargetTask,
+        false => WorkspaceMoveKind.BeforeTargetTask,
+        null => WorkspaceMoveKind.TargetTaskPosition,
+    };
+
+    private static int DragPosition(string[] ids, string sourceId, string targetId, bool? after)
+    {
+        var source = Array.IndexOf(ids, sourceId);
+        var target = Array.IndexOf(ids, targetId);
+        if (source < 0 || target < 0) return -1;
+        return after is null || source == target ? target : target - (source < target ? 1 : 0) + (after.Value ? 1 : 0);
     }
 
-    public bool DragCategory(string categoryId, string targetCategoryId) =>
-        MoveCategory(categoryId, CategoryGroups.IndexOf(CategoryGroups.Single(category => category.Id == targetCategoryId)));
+    public bool DragProject(string projectId, string targetProjectId, bool? after = null)
+    {
+        if (HasPendingPersistence || (_editingCategory && IsDirty))
+            return RunAfterDraftFlush(() => DragProject(projectId, targetProjectId, after));
+        var position = DragPosition(Projects.Select(project => project.Id).ToArray(), projectId, targetProjectId, after);
+        return position >= 0 && MoveProject(projectId, position);
+    }
+
+    public bool DragProjectTask(string projectId, string taskId, string targetTaskId, bool? after = null)
+    {
+        if (HasPendingPersistence || (_editingCategory && IsDirty))
+            return RunAfterDraftFlush(() => DragProjectTask(projectId, taskId, targetTaskId, after));
+        var project = Projects.SingleOrDefault(item => item.Id == projectId);
+        if (project is null) return false;
+        var position = DragPosition(project.Tasks.Select(task => task.Id).ToArray(), taskId, targetTaskId, after);
+        return position >= 0 && MoveProjectTask(projectId, taskId, position);
+    }
+
+    public bool DragCategory(string categoryId, string targetCategoryId, bool? after = null)
+    {
+        if (HasPendingPersistence || (_editingCategory && IsDirty))
+            return RunAfterDraftFlush(() => DragCategory(categoryId, targetCategoryId, after));
+        var position = DragPosition(CategoryGroups.Select(category => category.Id).ToArray(), categoryId, targetCategoryId, after);
+        return position >= 0 && MoveCategory(categoryId, position);
+    }
 
     private void BeginProject()
     {
@@ -2786,6 +2814,19 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private void RefreshAvailableParticipants() => RefreshParticipantChoices();
 
     public void RefreshFromStore() => ResolveDraftBeforeAction(Reload);
+
+    internal bool CanApplyProposalNow() =>
+        !NeedsDecision
+        && !HasPendingWorkspaceActions
+        && !HasPendingPersistence
+        && !(_editingCategory && IsDirty);
+
+    internal bool RefreshAfterProposalApply()
+    {
+        Reload();
+        return true;
+    }
+
     private TaskRowViewModel ToTaskRow(TaskRecord task)
     {
         var inherited = task.ProjectId is not null && task.ExplicitCategoryId is null;

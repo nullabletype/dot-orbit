@@ -9,10 +9,15 @@ using Avalonia.VisualTree;
 using System.ComponentModel;
 using Avalonia.Markup.Xaml;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
+using DotOrbit.Core.Interchange;
 using DotOrbit.Core.Workspaces;
 using DotOrbit.Desktop.Clipboard;
 using DotOrbit.Desktop.Markdown;
 using DotOrbit.Desktop.ViewModels;
+using DotOrbit.Interchange.Json;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace DotOrbit.Desktop.Views;
 
@@ -30,8 +35,13 @@ public sealed partial class MainWindow : Window
     private string? _draggedProjectId;
     private Border? _pressedSelectableRow;
     private Border? _dragTarget;
+    private Border? _dragSource;
+    private Border? _dragPlaceholder;
+    private bool _dragAfter;
+    private Border[]? _dragRows;
     private bool _markdownPointerStartedOutside;
     private DateTime? _calendarDateAtOpen;
+    private ShellViewModel? _subscribedShell;
     private ProjectCaptureViewModel? _subscribedWork;
     private SettingsViewModel? _subscribedSettings;
     private readonly DispatcherTimer _dateRefreshTimer = new() { Interval = TimeSpan.FromMinutes(1) };
@@ -39,11 +49,19 @@ public sealed partial class MainWindow : Window
     private readonly ITransientMessageScheduler _transientMessageScheduler;
     private readonly IMarkdownClipboard? _markdownClipboard;
     private readonly IPlainTextClipboard? _plainTextClipboard;
+    private readonly IProposalClipboardReader? _proposalClipboardReader;
+    private readonly IProposalFilePicker _proposalFilePicker;
+    private readonly IProposalFileIntake _proposalFileIntake;
     private readonly Action _workspaceUnavailable;
     private readonly IApplicationThemeService _applicationThemeService;
     private readonly IInterchangePreferenceService _interchangePreferenceService;
+    private readonly IAiFeaturePreferenceService _aiFeaturePreferenceService;
     private readonly TimeProvider _timeProvider;
     private readonly Func<IWorkspaceWork, IInspectorSaveWriter> _inspectorSaveWriterFactory;
+    private CancellationTokenSource? _proposalIntakeCancellation;
+    private AgentProposalReviewViewModel? _activeProposalReview;
+    private AgentProposalReviewWindow? _activeProposalReviewWindow;
+    private long _proposalReviewRevision;
     private long _transientMessageRevision;
 
     internal static TimeSpan TransientMessageDuration { get; } = TimeSpan.FromSeconds(5);
@@ -65,19 +83,25 @@ public sealed partial class MainWindow : Window
 
     internal MainWindow(
         IWorkspaceSession? session,
-        IMarkdownClipboard? markdownClipboard,
-        IInspectorAutosaveScheduler? autosaveScheduler,
+        IMarkdownClipboard? markdownClipboard = null,
+        IInspectorAutosaveScheduler? autosaveScheduler = null,
         Action? workspaceUnavailable = null,
         ITransientMessageScheduler? transientMessageScheduler = null,
         IApplicationThemeService? applicationThemeService = null,
         TimeProvider? timeProvider = null,
         Func<IWorkspaceWork, IInspectorSaveWriter>? inspectorSaveWriterFactory = null,
         IPlainTextClipboard? plainTextClipboard = null,
-        IInterchangePreferenceService? interchangePreferenceService = null)
+        IInterchangePreferenceService? interchangePreferenceService = null,
+        IProposalClipboardReader? proposalClipboardReader = null,
+        IProposalFilePicker? proposalFilePicker = null,
+        IProposalFileIntake? proposalFileIntake = null,
+        IAiFeaturePreferenceService? aiFeaturePreferenceService = null)
     {
         _session = session;
         _markdownClipboard = markdownClipboard;
         _plainTextClipboard = plainTextClipboard;
+        _proposalClipboardReader = proposalClipboardReader;
+        _proposalFilePicker = proposalFilePicker ?? new AvaloniaProposalFilePicker();
         _autosaveScheduler = autosaveScheduler ?? new DispatcherInspectorAutosaveScheduler();
         _transientMessageScheduler = transientMessageScheduler ?? new DispatcherTransientMessageScheduler();
         _workspaceUnavailable = () => HandleWorkspaceUnavailable(workspaceUnavailable);
@@ -87,13 +111,20 @@ public sealed partial class MainWindow : Window
         _interchangePreferenceService = interchangePreferenceService
             ?? (Application.Current as App)?.InterchangePreferenceService
             ?? new TransientInterchangePreferenceService();
+        _aiFeaturePreferenceService = aiFeaturePreferenceService
+            ?? (Application.Current as App)?.AiFeaturePreferenceService
+            ?? new TransientAiFeaturePreferenceService();
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _proposalFileIntake = proposalFileIntake ?? new ProposalFileIntake(_timeProvider);
         _inspectorSaveWriterFactory = inspectorSaveWriterFactory
             ?? (work => new SerializedWorkspacePersistenceExecutor(work, _timeProvider));
         AvaloniaXamlLoader.Load(this);
         DataContextChanged += OnDataContextChanged;
         AddHandler(PointerPressedEvent, OnWorkPointerPressed, RoutingStrategies.Bubble, handledEventsToo: true);
         AddHandler(PointerMovedEvent, OnWorkDragPointerMoved, RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(ScrollViewer.ScrollChangedEvent, OnDragScrollChanged, RoutingStrategies.Bubble);
+        SizeChanged += OnDragWindowSizeChanged;
+        LayoutUpdated += OnDragLayoutUpdated;
         AddHandler(PointerReleasedEvent, OnWorkPointerReleased, RoutingStrategies.Bubble, handledEventsToo: true);
         AddHandler(KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         this.FindControl<TextBox>("MarkdownSource")?.AddHandler(
@@ -101,6 +132,11 @@ public sealed partial class MainWindow : Window
             OnMarkdownSourceKeyDown,
             RoutingStrategies.Tunnel,
             handledEventsToo: true);
+        if (this.FindControl<BoundedProposalTextBox>("AiProposalTextBox") is { } proposalTextBox)
+        {
+            proposalTextBox.ProposalTextAttempted += OnProposalTextAttempted;
+            proposalTextBox.PastingFromClipboard += OnProposalPastingFromClipboard;
+        }
         AddHandler(
             PointerCaptureLostEvent,
             OnPointerCaptureLost,
@@ -121,6 +157,8 @@ public sealed partial class MainWindow : Window
             snapshotButton.IsVisible = session is not null;
         if (this.FindControl<Button>("AiReusableInstructionsButton") is { } instructionsButton)
             instructionsButton.IsVisible = session is not null;
+        if (this.FindControl<Border>("AiProposalDropSurface") is { } proposalSurface)
+            proposalSurface.IsVisible = session is not null;
         Closed += OnClosed;
         Closing += OnClosing;
     }
@@ -162,7 +200,7 @@ public sealed partial class MainWindow : Window
 
     internal async Task OpenPlanningSnapshotAsync(Control? launcher = null)
     {
-        if (_session is null)
+        if (_session is null || DataContext is not ShellViewModel { Ai: { } })
         {
             return;
         }
@@ -244,6 +282,356 @@ public sealed partial class MainWindow : Window
         await ai.CopyReusableInstructionsAsync(clipboard);
     }
 
+    private async void OnCopyProposalFeedback(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not ShellViewModel { Ai: { HasProposalStatus: true } ai })
+        {
+            return;
+        }
+
+        var feedback = ai.ProposalStatus;
+        var clipboard = PlainTextClipboard();
+        if (clipboard is null)
+        {
+            ai.ReportProposalStatus(
+                $"The system clipboard is unavailable. Select and copy this feedback manually: {feedback}");
+            return;
+        }
+
+        var payload = Encoding.UTF8.GetBytes(feedback);
+        try
+        {
+            await clipboard.WriteTextAsync(payload);
+        }
+        catch (Exception)
+        {
+            ai.ReportProposalStatus(
+                $"The feedback could not be copied automatically. Select and copy it manually: {feedback}");
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(payload);
+        }
+    }
+
+    private void OnProposalTextAttempted(object? sender, ProposalTextAttemptedEventArgs e)
+    {
+        _proposalIntakeCancellation?.Cancel();
+        InvalidateActiveProposalReview();
+        if (DataContext is ShellViewModel { Ai: { } ai })
+        {
+            ai.ReportProposalTextAttempt(e.Accepted, e.ByteCount);
+        }
+    }
+
+    private void OnProposalPastingFromClipboard(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        _ = PasteProposalAsync(sender as BoundedProposalTextBox, sender as Control);
+    }
+
+    private async void OnPasteProposal(object? sender, RoutedEventArgs e) =>
+        await PasteProposalAsync(
+            this.FindControl<BoundedProposalTextBox>("AiProposalTextBox"),
+            sender as Control);
+
+    internal async Task PasteProposalAsync(BoundedProposalTextBox? editor, Control? failureFocus)
+    {
+        if (editor is null || DataContext is not ShellViewModel { Ai: { } ai })
+        {
+            return;
+        }
+
+        InvalidateActiveProposalReview();
+        var proposalInputRevision = _proposalReviewRevision;
+        var clipboard = _proposalClipboardReader
+            ?? (Clipboard is null ? null : new AvaloniaProposalClipboardReader(Clipboard));
+        if (clipboard is null)
+        {
+            ai.ReportProposalStatus("The system clipboard is unavailable. Proposal text was not changed.");
+            (failureFocus ?? editor).Focus();
+            return;
+        }
+
+        string? text;
+        try
+        {
+            text = await clipboard.ReadTextAsync();
+        }
+        catch (Exception)
+        {
+            if (!IsCurrentProposalInput(ai, proposalInputRevision)) return;
+            ai.ReportProposalStatus("The clipboard could not be read. Proposal text was not changed.");
+            (failureFocus ?? editor).Focus();
+            return;
+        }
+
+        if (!IsCurrentProposalInput(ai, proposalInputRevision)) return;
+
+        if (text is null)
+        {
+            ai.ReportProposalStatus("The clipboard does not contain text. Proposal text was not changed.");
+            (failureFocus ?? editor).Focus();
+            return;
+        }
+
+        if (editor.TryReplaceAll(text))
+        {
+            editor.Focus();
+        }
+        else
+        {
+            (failureFocus ?? editor).Focus();
+        }
+    }
+
+    private async void OnLoadProposal(object? sender, RoutedEventArgs e) =>
+        await LoadProposalFromPickerAsync(sender as Control);
+
+    internal async Task LoadProposalFromPickerAsync(Control? launcher)
+    {
+        if (DataContext is not ShellViewModel { Ai: { } ai })
+        {
+            return;
+        }
+
+        InvalidateActiveProposalReview();
+        var proposalInputRevision = _proposalReviewRevision;
+        string? path;
+        try
+        {
+            path = await _proposalFilePicker.PickAsync(this);
+        }
+        catch (Exception)
+        {
+            if (!IsCurrentProposalInput(ai, proposalInputRevision)) return;
+            ai.ReportProposalStatus("The file picker could not be opened. Proposal text was not changed.");
+            launcher?.Focus();
+            return;
+        }
+
+        if (!IsCurrentProposalInput(ai, proposalInputRevision)) return;
+
+        if (path is null)
+        {
+            ai.ReportProposalStatus("File loading was cancelled. Proposal text was not changed.");
+            launcher?.Focus();
+            return;
+        }
+
+        await LoadProposalFileAsync(path, launcher);
+    }
+
+    private bool IsCurrentProposalInput(AiViewModel ai, long revision) =>
+        revision == _proposalReviewRevision
+        && DataContext is ShellViewModel { Ai: { } currentAi }
+        && ReferenceEquals(ai, currentAi);
+
+    private void OnProposalDragOver(object? sender, DragEventArgs e)
+    {
+        e.DragEffects = ProposalDragEffects(e.DataTransfer);
+        e.Handled = true;
+    }
+
+    internal DragDropEffects ProposalDragEffects(IDataTransfer dataTransfer)
+    {
+        if (DataContext is not ShellViewModel { Ai: { } })
+        {
+            return DragDropEffects.None;
+        }
+
+        var files = dataTransfer.TryGetFiles()?.ToArray();
+        return files?.Length == 1 ? DragDropEffects.Copy : DragDropEffects.None;
+    }
+
+    private async void OnProposalDrop(object? sender, DragEventArgs e)
+    {
+        e.Handled = true;
+        if (DataContext is not ShellViewModel { Ai: { } ai })
+        {
+            return;
+        }
+
+        InvalidateActiveProposalReview();
+        var previousFocus = this.GetVisualDescendants()
+            .OfType<Control>()
+            .FirstOrDefault(control => control.IsFocused);
+        var files = e.DataTransfer.TryGetFiles()?.ToArray();
+        if (files is null || files.Length != 1 || files[0].TryGetLocalPath() is not { } path)
+        {
+            ai.ReportProposalStatus("Drop exactly one local regular file. Proposal text was not changed.");
+            previousFocus?.Focus();
+            return;
+        }
+
+        await LoadProposalFileAsync(path, previousFocus);
+    }
+
+    private async Task LoadProposalFileAsync(string path, Control? launcher)
+    {
+        if (DataContext is not ShellViewModel { Ai: { } ai })
+        {
+            return;
+        }
+
+        var proposalInputRevision = _proposalReviewRevision;
+        _proposalIntakeCancellation?.Cancel();
+        _proposalIntakeCancellation?.Dispose();
+        var cancellation = new CancellationTokenSource();
+        _proposalIntakeCancellation = cancellation;
+        ai.SetProposalActionInFlight(true);
+        ProposalFileIntakeResult result;
+        try
+        {
+            result = await _proposalFileIntake.ReadAsync(path, cancellation.Token);
+        }
+        finally
+        {
+            if (ReferenceEquals(_proposalIntakeCancellation, cancellation))
+            {
+                _proposalIntakeCancellation = null;
+                ai.SetProposalActionInFlight(false);
+            }
+
+            cancellation.Dispose();
+        }
+
+        if (DataContext is not ShellViewModel { Ai: { } currentAi }
+            || !ReferenceEquals(ai, currentAi))
+        {
+            return;
+        }
+
+        if (proposalInputRevision != _proposalReviewRevision)
+        {
+            ai.ReportProposalStatus(
+                "File loading was superseded by a newer proposal input. Proposal text was not changed.");
+            launcher?.Focus();
+            return;
+        }
+
+        var editor = this.FindControl<BoundedProposalTextBox>("AiProposalTextBox");
+        if (result.Status == ProposalFileIntakeStatus.Loaded && result.Text is { } text)
+        {
+            _ = editor?.TryReplaceAll(text);
+            ai.ReportProposalStatus("Proposal text loaded from one local file. Review is required before anything can be applied.");
+        }
+        else if (result.Status == ProposalFileIntakeStatus.Cancelled)
+        {
+            ai.ReportProposalStatus("File loading was cancelled. Proposal text was not changed.");
+        }
+        else
+        {
+            ai.ReportProposalStatus("That file was rejected. Choose one readable local regular file containing at most 4 MiB of strict UTF-8 JSON.");
+        }
+
+        (launcher ?? editor)?.Focus();
+    }
+
+    private async void OnReviewProposal(object? sender, RoutedEventArgs e)
+    {
+        var launcher = sender as Control;
+        if (_session is null || DataContext is not ShellViewModel { Ai: { }, Work: { } work })
+        {
+            return;
+        }
+
+        await work.NavigateAsync(() => _ = CompleteProposalReviewAsync(launcher));
+    }
+
+    internal async Task CompleteProposalReviewAsync(Control? launcher)
+    {
+        if (_session is not { } session
+            || DataContext is not ShellViewModel { Ai: { } ai, Work: { } work }
+            || !ai.CanReviewProposal)
+        {
+            return;
+        }
+
+        InvalidateActiveProposalReview();
+        var proposalReviewRevision = _proposalReviewRevision;
+        ai.SetProposalActionInFlight(true);
+        byte[]? payload = null;
+        ProposalPlanResult result;
+        try
+        {
+            payload = ProposalTextRules.Encode(ai.ProposalText);
+            var boundary = new ProposalReviewBoundary(session.Proposals, _timeProvider);
+            result = await Task.Run(() => boundary.Review(payload));
+        }
+        catch (Exception exception) when (exception is EncoderFallbackException
+                                          or InvalidOperationException
+                                          or ObjectDisposedException)
+        {
+            ai.ReportProposalStatus("The proposal could not be reviewed. Nothing was applied.");
+            launcher?.Focus();
+            return;
+        }
+        finally
+        {
+            if (payload is not null)
+            {
+                CryptographicOperations.ZeroMemory(payload);
+            }
+
+            ai.SetProposalActionInFlight(false);
+        }
+
+        if (!ReferenceEquals(session, _session)
+            || proposalReviewRevision != _proposalReviewRevision
+            || DataContext is not ShellViewModel currentShell
+            || !ReferenceEquals(ai, currentShell.Ai)
+            || !currentShell.ShowAI)
+        {
+            ai.ReportProposalStatus(
+                "Proposal review was invalidated by an input, navigation, or workspace change. Nothing was applied.");
+            launcher?.Focus();
+            return;
+        }
+
+        if (result.Plan is not { } plan)
+        {
+            var guidance = result.Failures
+                .Take(20)
+                .Select(failure => failure.OperationIndex is { } operationIndex
+                    ? $"Operation {operationIndex + 1}: {failure.Guidance}"
+                    : failure.Guidance)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            ai.ReportProposalStatus(guidance.Length == 0
+                ? "The proposal is invalid, unsupported, stale, or incomplete. Nothing was applied."
+                : string.Join(" ", guidance));
+            launcher?.Focus();
+            return;
+        }
+
+        var viewModel = new AgentProposalReviewViewModel(plan, session.ProposalApplication);
+        var review = new AgentProposalReviewWindow(viewModel, new DesktopProposalApplicationHost(work));
+        _activeProposalReview = viewModel;
+        _activeProposalReviewWindow = review;
+        review.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_activeProposalReview, viewModel))
+            {
+                _activeProposalReview = null;
+                _activeProposalReviewWindow = null;
+            }
+
+            ai.ReportProposalStatus(viewModel.HasStatusMessage
+                ? viewModel.StatusMessage
+                : "Proposal review closed. Review is required again before Apply.");
+            Dispatcher.UIThread.Post(() => launcher?.Focus());
+        };
+        ai.ReportProposalStatus("Proposal ready to review. Check everything shown before deciding whether to apply it.");
+        _ = review.ShowDialog(this);
+    }
+
+    private void InvalidateActiveProposalReview()
+    {
+        _proposalReviewRevision++;
+        _activeProposalReview?.Discard();
+    }
+
     private IPlainTextClipboard? PlainTextClipboard() =>
         _plainTextClipboard ?? (Clipboard is null ? null : new AvaloniaPlainTextClipboard(Clipboard));
 
@@ -317,6 +705,7 @@ public sealed partial class MainWindow : Window
 
     internal async Task ReplaceSessionAsync(IWorkspaceSession session)
     {
+        DiscardProposalStateForSessionEnd();
         if (DataContext is ShellViewModel { Work: { } work })
             await work.DrainWorkspaceActionsAsync();
         if (_inspectorSaveWriter is not null)
@@ -341,13 +730,17 @@ public sealed partial class MainWindow : Window
             inspectorSaveWriter: _inspectorSaveWriter,
             actionExecutor: _actionExecutor,
             uiDispatcher: new AvaloniaUiDispatcher(),
-            interchangePreferenceService: _interchangePreferenceService);
+            interchangePreferenceService: _interchangePreferenceService,
+            aiFeaturePreferenceService: _aiFeaturePreferenceService);
     }
 
     private void OnDataContextChanged(object? sender, EventArgs e)
     {
+        ResetPointerGesture();
         _autosaveScheduler.Cancel();
         CancelTransientMessageDismissal();
+        if (_subscribedShell is not null)
+            _subscribedShell.PropertyChanged -= OnShellChanged;
         if (_subscribedWork is not null)
         {
             _subscribedWork.PropertyChanged -= OnWorkChanged;
@@ -355,8 +748,11 @@ public sealed partial class MainWindow : Window
         }
         if (_subscribedSettings is not null)
             _subscribedSettings.PropertyChanged -= OnSettingsChanged;
-        _subscribedWork = (DataContext as ShellViewModel)?.Work;
-        _subscribedSettings = (DataContext as ShellViewModel)?.Settings;
+        _subscribedShell = DataContext as ShellViewModel;
+        _subscribedWork = _subscribedShell?.Work;
+        _subscribedSettings = _subscribedShell?.Settings;
+        if (_subscribedShell is not null)
+            _subscribedShell.PropertyChanged += OnShellChanged;
         if (_subscribedWork is not null)
         {
             _subscribedWork.PropertyChanged += OnWorkChanged;
@@ -365,6 +761,32 @@ public sealed partial class MainWindow : Window
         }
         if (_subscribedSettings is not null)
             _subscribedSettings.PropertyChanged += OnSettingsChanged;
+    }
+
+    private void OnShellChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(ShellViewModel.AiFeaturesEnabled))
+        {
+            if (sender is ShellViewModel { AiFeaturesEnabled: false })
+            {
+                DiscardProposalStateForSessionEnd();
+            }
+
+            return;
+        }
+
+        if (e.PropertyName != nameof(ShellViewModel.SelectedItem))
+        {
+            return;
+        }
+
+        var hadReview = _activeProposalReview is not null;
+        InvalidateActiveProposalReview();
+        if (hadReview && sender is ShellViewModel { Ai: { } ai })
+        {
+            ai.ReportProposalStatus(
+                "Proposal review was invalidated by navigation. Review the current proposal again before Apply.");
+        }
     }
 
     private void OnSettingsChanged(object? sender, PropertyChangedEventArgs e)
@@ -446,6 +868,8 @@ public sealed partial class MainWindow : Window
 
     private void OnWorkChanged(object? sender, PropertyChangedEventArgs e)
     {
+        // Projection changes can replace rows while a pointer gesture is in progress.
+        if (_dragScope != DragScope.None) ResetPointerGesture();
         if (e.PropertyName is nameof(ProjectCaptureViewModel.Message)
                 or nameof(ProjectCaptureViewModel.PendingWorkspaceActionCount)
                 or nameof(ProjectCaptureViewModel.CanRetryWorkspaceRefresh)
@@ -561,6 +985,7 @@ public sealed partial class MainWindow : Window
     private async void OnClosing(object? sender, WindowClosingEventArgs e)
     {
         if (_closingApproved) return;
+        DiscardProposalStateForSessionEnd();
         e.Cancel = true;
         if (DataContext is ShellViewModel { Work: { } work })
         {
@@ -694,6 +1119,12 @@ public sealed partial class MainWindow : Window
 
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
+        if (e.Key == Key.Escape && _dragScope != DragScope.None)
+        {
+            ResetPointerGesture();
+            e.Handled = true;
+            return;
+        }
         if (e.Key != Key.Escape || DataContext is not ShellViewModel { Work: { } work }) return;
         if (work.NeedsArchiveConfirmation)
         {
@@ -765,7 +1196,11 @@ public sealed partial class MainWindow : Window
     private void OnWorkDragPointerMoved(object? sender, PointerEventArgs e)
     {
         if (_dragScope == DragScope.None || _draggedId is null) return;
-        var hit = this.InputHitTest(e.GetPosition(this)) as Control;
+        UpdateDragTarget(e.GetPosition(this));
+    }
+
+    private void UpdateDragTarget(Point point)
+    {
         var targetClass = _dragScope switch
         {
             DragScope.Backlog => "backlog-row",
@@ -776,15 +1211,88 @@ public sealed partial class MainWindow : Window
             DragScope.Categories => "category-row",
             _ => string.Empty,
         };
-        var target = FindRow(hit, targetClass);
-        if (_dragScope == DragScope.ProjectTasks
-            && target?.DataContext is TaskRowViewModel task
-            && task.ProjectId != _draggedProjectId)
-            target = null;
-        if (ReferenceEquals(target, _dragTarget)) return;
-        _dragTarget?.Classes.Remove("drag-target");
+        // The gap owns its entire displayed area: crossing its midpoint must not
+        // retarget the row which moved out from underneath the pointer.
+        if (_dragPlaceholder is { } placeholder && IsInsideDragViewport(placeholder, point)
+            && new Rect(placeholder.TranslatePoint(default, this)!.Value, placeholder.Bounds.Size).Contains(point)) return;
+        _dragRows ??= this.GetVisualDescendants().OfType<Border>()
+            .Where(row => row.IsEffectivelyVisible && row.Classes.Contains(targetClass)
+                && (_dragScope != DragScope.ProjectTasks
+                    || row.DataContext is TaskRowViewModel task && task.ProjectId == _draggedProjectId))
+            .ToArray();
+        _dragSource ??= _dragRows.FirstOrDefault(row => DragId(row) == _draggedId);
+        var candidate = _dragRows.FirstOrDefault(row => row.IsEffectivelyVisible && TopLevel.GetTopLevel(row) == this
+            && new Rect(row.TranslatePoint(default, this)!.Value, row.Bounds.Size).Contains(point)
+            && IsInsideDragViewport(row, point));
+        var target = candidate;
+        var after = target is not null && point.Y >= target.TranslatePoint(default, this)!.Value.Y + DragHeading(target).Bounds.Height / 2;
+        if (ReferenceEquals(target, _dragSource)) target = null;
+        if (ReferenceEquals(target, _dragTarget) && after == _dragAfter) return;
+        ClearDragPreview();
         _dragTarget = target;
-        _dragTarget?.Classes.Add("drag-target");
+        _dragAfter = after;
+        if (target?.Parent is not StackPanel host || _dragSource is null) return;
+        var sourceIndex = Array.FindIndex(_dragRows, row => ReferenceEquals(row, _dragSource));
+        var targetIndex = Array.FindIndex(_dragRows, row => ReferenceEquals(row, target));
+        var position = targetIndex - (sourceIndex < targetIndex ? 1 : 0) + (after ? 1 : 0) + 1;
+        var label = $"Drop here: {DragTitle(_dragSource)} · position {position} of {_dragRows.Length}";
+        var title = new TextBlock
+        {
+            Text = $"Drop here: {DragTitle(_dragSource)}",
+            TextTrimming = Avalonia.Media.TextTrimming.CharacterEllipsis,
+        };
+        var destination = new TextBlock { Text = $"Position {position} of {_dragRows.Length}", FontSize = 11 };
+        Grid.SetRow(destination, 1);
+        _dragPlaceholder = new Border
+        {
+            Classes = { "reorder-placeholder" },
+            Height = DragHeading(_dragSource).Bounds.Height,
+            IsHitTestVisible = false,
+            ClipToBounds = true,
+            Child = new Grid
+            {
+                RowDefinitions = new RowDefinitions("Auto,Auto"),
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                Children = { title, destination },
+            },
+        };
+        AutomationProperties.SetName(_dragPlaceholder, label);
+        host.Children.Insert(after ? 1 : 0, _dragPlaceholder);
+        target.Classes.Add("drag-target");
+        _dragSource.Classes.Add("drag-source");
+    }
+
+    private bool IsInsideDragViewport(Control control, Point point) =>
+        control.GetVisualAncestors().OfType<ScrollViewer>().All(viewer =>
+            new Rect(viewer.TranslatePoint(default, this)!.Value, viewer.Bounds.Size).Contains(point));
+
+    private static Border DragHeading(Border row) => row.GetVisualDescendants().OfType<Border>()
+        .FirstOrDefault(border => border.Classes.Contains("project-header-row") || border.Classes.Contains("category-header-row")) ?? row;
+
+    private static string? DragId(Border row) => row.DataContext switch
+    {
+        TaskRowViewModel task => task.Id,
+        TodayTaskRowViewModel today => today.Task.Id,
+        ProjectRowViewModel project => project.Id,
+        CategoryGroupViewModel category => category.Id,
+        _ => null,
+    };
+
+    private static string DragTitle(Border row) => row.DataContext switch
+    {
+        TaskRowViewModel task => task.Title,
+        TodayTaskRowViewModel today => today.Task.Title,
+        ProjectRowViewModel project => project.Title,
+        CategoryGroupViewModel category => category.Name,
+        _ => string.Empty,
+    };
+
+    private void ClearDragPreview()
+    {
+        if (_dragPlaceholder?.Parent is StackPanel host) host.Children.Remove(_dragPlaceholder);
+        _dragPlaceholder = null;
+        _dragTarget?.Classes.Remove("drag-target");
+        _dragSource?.Classes.Remove("drag-source");
     }
 
     private void OnWorkPointerReleased(object? sender, PointerReleasedEventArgs e)
@@ -816,29 +1324,42 @@ public sealed partial class MainWindow : Window
             e.Handled = true;
             return;
         }
+        if (_dragRows is not null) UpdateDragTarget(e.GetPosition(this));
+        var after = _dragAfter;
         var target = _dragTarget?.DataContext as TaskRowViewModel;
         var targetToday = _dragTarget?.DataContext as TodayTaskRowViewModel;
         var targetProject = _dragTarget?.DataContext as ProjectRowViewModel;
         var targetCategory = _dragTarget?.DataContext as CategoryGroupViewModel;
-        _dragTarget?.Classes.Remove("drag-target");
-        _dragTarget = null;
         var draggedId = _draggedId;
         var draggedProjectId = _draggedProjectId;
         var dragScope = _dragScope;
         ResetPointerGesture();
         if (dragScope == DragScope.Backlog && target is not null)
-            work.DragTask(draggedId, target.Id);
+            work.DragTask(draggedId, target.Id, after);
         else if ((dragScope == DragScope.TodayPlanned || dragScope == DragScope.TodayInProgress) && targetToday is not null)
-            work.DragTodayTask(draggedId, targetToday.Task.Id);
+            work.DragTodayTask(draggedId, targetToday.Task.Id, after);
         else if (dragScope == DragScope.Projects && targetProject is not null)
-            work.DragProject(draggedId, targetProject.Id);
+            work.DragProject(draggedId, targetProject.Id, after);
         else if (dragScope == DragScope.ProjectTasks && target is not null && draggedProjectId is not null)
-            work.DragProjectTask(draggedProjectId, draggedId, target.Id);
+            work.DragProjectTask(draggedProjectId, draggedId, target.Id, after);
         else if (dragScope == DragScope.Categories && targetCategory is not null)
-            work.DragCategory(draggedId, targetCategory.Id);
+            work.DragCategory(draggedId, targetCategory.Id, after);
         else return;
         e.Handled = true;
     }
+
+    private void OnDragLayoutUpdated(object? sender, EventArgs e)
+    {
+        if (_dragSource is { } source && (!source.IsEffectivelyVisible || TopLevel.GetTopLevel(source) != this))
+            ResetPointerGesture();
+    }
+
+    private void OnDragScrollChanged(object? sender, ScrollChangedEventArgs e)
+    {
+        if (e.OffsetDelta != default) ResetPointerGesture();
+    }
+
+    private void OnDragWindowSizeChanged(object? sender, SizeChangedEventArgs e) => ResetPointerGesture();
 
     private void OnPointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
     {
@@ -854,8 +1375,10 @@ public sealed partial class MainWindow : Window
 
     private void ResetPointerGesture()
     {
-        _dragTarget?.Classes.Remove("drag-target");
+        ClearDragPreview();
         _dragTarget = null;
+        _dragSource = null;
+        _dragRows = null;
         _dragScope = DragScope.None;
         _draggedId = null;
         _draggedProjectId = null;
@@ -904,14 +1427,38 @@ public sealed partial class MainWindow : Window
         _dateRefreshTimer.Tick -= OnDateRefreshTick;
         _autosaveScheduler.Dispose();
         _transientMessageScheduler.Dispose();
+        DiscardProposalStateForSessionEnd();
+        if (this.FindControl<BoundedProposalTextBox>("AiProposalTextBox") is { } proposalTextBox)
+        {
+            proposalTextBox.ProposalTextAttempted -= OnProposalTextAttempted;
+            proposalTextBox.PastingFromClipboard -= OnProposalPastingFromClipboard;
+        }
         if (_subscribedWork is not null)
         {
             _subscribedWork.PropertyChanged -= OnWorkChanged;
             _subscribedWork.AutosaveRequested -= OnAutosaveRequested;
         }
+        if (_subscribedShell is not null)
+            _subscribedShell.PropertyChanged -= OnShellChanged;
         // Normal close and session-unavailable close drain the session executor before
         // reaching this event. Never synchronously wait for storage on the UI thread here.
         _session?.Dispose();
         _session = null;
+    }
+
+    private void DiscardProposalStateForSessionEnd()
+    {
+        _proposalReviewRevision++;
+        _proposalIntakeCancellation?.Cancel();
+        _proposalIntakeCancellation?.Dispose();
+        _proposalIntakeCancellation = null;
+        _activeProposalReview?.Discard();
+        if (_activeProposalReviewWindow?.DataContext is AgentProposalReviewViewModel { CanClose: true })
+        {
+            _activeProposalReviewWindow.Close();
+        }
+
+        _activeProposalReview = null;
+        _activeProposalReviewWindow = null;
     }
 }

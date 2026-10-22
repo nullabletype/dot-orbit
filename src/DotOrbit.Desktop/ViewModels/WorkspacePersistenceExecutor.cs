@@ -97,6 +97,8 @@ internal enum WorkspaceMoveKind
     Top,
     Bottom,
     TargetTaskPosition,
+    BeforeTargetTask,
+    AfterTargetTask,
 }
 
 internal sealed record WorkspaceActionRequest(
@@ -403,6 +405,8 @@ internal sealed class WorkspacePersistenceOperation : IWorkspacePersistenceOpera
             WorkspaceMoveKind.Top => TaskOrderMoveKind.Top,
             WorkspaceMoveKind.Bottom => TaskOrderMoveKind.Bottom,
             WorkspaceMoveKind.TargetTaskPosition => TaskOrderMoveKind.TargetTask,
+            WorkspaceMoveKind.BeforeTargetTask => TaskOrderMoveKind.BeforeTargetTask,
+            WorkspaceMoveKind.AfterTargetTask => TaskOrderMoveKind.AfterTargetTask,
             _ => throw new ArgumentException("A move intent is required.", nameof(request)),
         },
         request.TargetTaskId);

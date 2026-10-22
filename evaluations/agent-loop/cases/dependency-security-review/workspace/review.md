@@ -1,3 +1,0 @@
-# Dependency review
-
-Pending.

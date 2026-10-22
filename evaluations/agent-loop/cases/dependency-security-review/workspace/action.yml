@@ -1,7 +1,0 @@
-name: Synthetic check
-on: workflow_dispatch
-jobs:
-  check:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: vendor/supported-action@v4

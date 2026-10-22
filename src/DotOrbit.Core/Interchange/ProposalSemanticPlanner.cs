@@ -9,7 +9,7 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
     public ProposalPlanResult Validate(
         ChangeProposal proposal,
         ProposalWorkspaceState source,
-        string currentSnapshotId,
+        string? currentSnapshotId,
         string proposalDigest) => ValidateCore(
         proposal,
         source,
@@ -22,12 +22,11 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
         ChangeProposal proposal,
         IProposalWorkspaceSource applicationSource,
         ProposalWorkspaceState source,
-        string currentSnapshotId,
+        string? currentSnapshotId,
         string proposalDigest,
-        IPlanningSnapshotIdentityVerifier identityVerifier)
+        IPlanningSnapshotIdentityVerifier? identityVerifier)
     {
         ArgumentNullException.ThrowIfNull(applicationSource);
-        ArgumentNullException.ThrowIfNull(identityVerifier);
         return ValidateCore(
             proposal,
             source,
@@ -40,17 +39,24 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
     private ProposalPlanResult ValidateCore(
         ChangeProposal proposal,
         ProposalWorkspaceState source,
-        string currentSnapshotId,
+        string? currentSnapshotId,
         string proposalDigest,
         IPlanningSnapshotIdentityVerifier? identityVerifier,
         IProposalWorkspaceSource? applicationSource)
     {
         ArgumentNullException.ThrowIfNull(proposal);
         ArgumentNullException.ThrowIfNull(source);
-        if (proposal.SourceWorkspaceRevision != source.Revision || proposal.SourceSnapshotId != currentSnapshotId)
-            return Failed("stale-source");
-        if (proposal.Format != AgentInterchangeV1.ChangeProposalFormat || proposal.SchemaVersion != 1)
+        if (!MatchesFormat(proposal) || proposal.SchemaVersion != 1)
             return Failed("unsupported-version");
+        if (proposal.Kind == ProposalKind.WorkspaceChange
+            && (proposal.SourceWorkspaceRevision != source.Revision
+                || proposal.SourceSnapshotId != currentSnapshotId))
+            return Failed("stale-source");
+        if (proposal.Kind == ProposalKind.NewWork
+            && (proposal.SourceWorkspaceRevision is not null
+                || proposal.SourceSnapshotId is not null
+                || proposal.Operations.Any(operation => !IsNewWorkOperation(operation))))
+            return Failed("invalid-new-work");
         if (proposal.Operations.Count is < 1 or > 512) return Failed("operation-limit");
         var operations = proposal.Operations.Select(Freeze).ToArray();
         var simulation = new Simulation(source, timeProvider, markdownValidator);
@@ -64,7 +70,7 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
         try
         {
             simulation.Finish();
-            return new(new(proposal.SourceSnapshotId, source.Revision, proposalDigest,
+            return new(new(proposal.Kind, currentSnapshotId, source.Revision, proposalDigest,
                 Array.AsReadOnly(operations), Array.AsReadOnly(simulation.Effects.ToArray()),
                 simulation.Instant, simulation.TimeZone, identityVerifier, applicationSource), []);
         }
@@ -77,6 +83,26 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
         ReplaceTaskParticipantsOperation item => item with { Participants = Array.AsReadOnly(item.Participants.ToArray()) },
         _ => operation,
     };
+    private static bool MatchesFormat(ChangeProposal proposal) => proposal.Kind switch
+    {
+        ProposalKind.NewWork => proposal.Format == AgentInterchangeV1.NewWorkProposalFormat,
+        ProposalKind.WorkspaceChange => proposal.Format == AgentInterchangeV1.ChangeProposalFormat,
+        _ => false,
+    };
+    private static bool IsNewWorkOperation(ChangeOperation operation) => operation switch
+    {
+        CreateCategoryOperation => true,
+        CreateParticipantOperation => true,
+        CreateProjectOperation item => IsLocal(item.Category),
+        CreateTaskOperation item =>
+            (item.Project is null || IsLocal(item.Project.Value))
+            && (item.Category.Mode == ProposedTaskCategoryMode.Inherit
+                || item.Category.Category is { } category && IsLocal(category))
+            && item.Participants.All(IsLocal),
+        _ => false,
+    };
+    private static bool IsLocal(ProposalReference reference) =>
+        reference.LocalId is not null && reference.ExistingId is null;
     private static ProposalPlanResult Failed(string code, int? index = null) =>
         new(null, Array.AsReadOnly(new[] { new ProposalValidationFailure(code, index) }));
     private sealed class InvalidProposalException(string code) : Exception("The proposal is invalid.")
@@ -108,6 +134,7 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
         private readonly DateOnly date;
         private int nodes;
         private long bytes;
+        private long nextProjectPosition;
         public List<ProposalPreviewEffect> Effects { get; } = [];
         public DateTimeOffset Instant => instant;
         public TimeZoneInfo TimeZone { get; }
@@ -122,6 +149,11 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
             categories = source.Workspace.Categories.ToDictionary(x => x.Id, StringComparer.Ordinal);
             participants = source.Workspace.Participants.ToDictionary(x => x.Id, StringComparer.Ordinal);
             projects = source.Workspace.Projects.ToDictionary(x => x.Id, StringComparer.Ordinal);
+            nextProjectPosition = source.Workspace.Projects
+                .Select(project => project.Position)
+                .Concat(source.ProjectBin.Select(item => item.Project.Position))
+                .DefaultIfEmpty(-1)
+                .Max() + 1;
             tasks = source.Workspace.Tasks.ToDictionary(x => x.Id,
                 x => x with { ParticipantIds = Array.AsReadOnly(x.Participants.ToArray()) }, StringComparer.Ordinal);
             originalTasks = new(tasks, StringComparer.Ordinal);
@@ -184,9 +216,69 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
             bytes += new UTF8Encoding(false, true).GetByteCount(kind) + new UTF8Encoding(false, true).GetByteCount(before) + new UTF8Encoding(false, true).GetByteCount(after);
             bytes += new UTF8Encoding(false, true).GetByteCount(label) + new UTF8Encoding(false, true).GetByteCount(references[key].ExistingId ?? references[key].LocalId!)
                 + markdownFields.Sum(field => (long)new UTF8Encoding(false, true).GetByteCount(field));
+            var identity = Identity(key);
+            bytes += IdentityByteCount(identity);
             Check(bytes <= 4 * 1024 * 1024, "preview-text-limit");
-            Effects.Add(new(kind, references[key], label, before, after, Array.AsReadOnly(markdownFields)));
+            Effects.Add(new(kind, references[key], label, before, after, Array.AsReadOnly(markdownFields), identity));
         }
+        private ProposalPreviewIdentity Identity(string key)
+        {
+            if (tasks.TryGetValue(key, out var task)) return TaskIdentity(task);
+            if (projects.TryGetValue(key, out var project))
+            {
+                var category = categories[project.CategoryId];
+                return new(
+                    project.ColourKey,
+                    category.Name,
+                    category.ColourKey,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    project.TargetDate,
+                    false,
+                    []);
+            }
+            if (categories.TryGetValue(key, out var categoryIdentity))
+                return new(categoryIdentity.ColourKey, null, null, null, null, null, null, null, null, false, []);
+            if (participants.ContainsKey(key))
+                return new(null, null, null, null, null, null, null, null, null, false, []);
+            return TaskIdentity(source.TaskBin.First(item => item.Task.Id == key).Task);
+        }
+        private ProposalPreviewIdentity TaskIdentity(TaskRecord task)
+        {
+            var category = categories[Effective(task)];
+            var project = task.ProjectId is { } projectId ? projects[projectId] : null;
+            var projectCategory = project is null ? null : categories[project.CategoryId];
+            return new(
+                null,
+                category.Name,
+                category.ColourKey,
+                project is null ? null : references[project.Id],
+                project?.Title,
+                project?.ColourKey,
+                projectCategory?.Name,
+                projectCategory?.ColourKey,
+                task.DueDate,
+                task.ExplicitCategoryId is not null && project is not null,
+                Array.AsReadOnly(task.Participants.Select(id => participants[id].Label).ToArray()));
+        }
+        private static IEnumerable<string> IdentityText(ProposalPreviewIdentity identity)
+        {
+            if (identity.TargetColourKey is { } targetColour) yield return targetColour;
+            if (identity.CategoryName is { } categoryName) yield return categoryName;
+            if (identity.CategoryColourKey is { } categoryColour) yield return categoryColour;
+            if (identity.Project is { } projectReference)
+                yield return projectReference.ExistingId ?? projectReference.LocalId!;
+            if (identity.ProjectName is { } projectName) yield return projectName;
+            if (identity.ProjectColourKey is { } projectColour) yield return projectColour;
+            if (identity.ProjectCategoryName is { } projectCategoryName) yield return projectCategoryName;
+            if (identity.ProjectCategoryColourKey is { } projectCategoryColour) yield return projectCategoryColour;
+            foreach (var label in identity.ParticipantLabels) yield return label;
+        }
+        private static long IdentityByteCount(ProposalPreviewIdentity identity) =>
+            IdentityText(identity).Sum(value => (long)new UTF8Encoding(false, true).GetByteCount(value));
         private void Markdown(string value, bool proposed = true)
         {
             var result = markdown.Validate(value, proposed);
@@ -227,7 +319,10 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
                         var validation = CategoryName.Create(x.Name); Check(validation.IsValid, "invalid-category-name");
                         var name = validation.CategoryName!.Value;
                         Check(!categories.Values.Any(c => StringComparer.OrdinalIgnoreCase.Equals(c.Name, name)), "duplicate-category-name");
-                        var id = Create(x.LocalId, "category"); categories.Add(id, new(id, name, categories.Count)); Effect("create-category", id, "", name + "; appended to Category order; colour assigned by application"); break;
+                        var id = Create(x.LocalId, "category");
+                        var position = categories.Count;
+                        categories.Add(id, new(id, name, position, IdentityColourPalette.KeyForPosition(position)));
+                        Effect("create-category", id, "", name + "; appended to Category order; colour assigned by application"); break;
                     }
                 case CreateParticipantOperation x:
                     {
@@ -238,7 +333,10 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
                 case CreateProjectOperation x:
                     {
                         var category = Resolve(x.Category, "category"); Markdown(x.Description);
-                        var id = Create(x.LocalId, "project"); projects.Add(id, new(id, WorkTitle.Normalize(x.Title), x.Description, category, x.TargetDate, projects.Count));
+                        var id = Create(x.LocalId, "project");
+                        var position = nextProjectPosition++;
+                        projects.Add(id, new(id, WorkTitle.Normalize(x.Title), x.Description, category, x.TargetDate, position,
+                            ColourKey: IdentityColourPalette.KeyForProjectPosition(position)));
                         Effect("create-project", id, "", ProjectText(projects[id]) + "; appended to Project order; colour assigned by application", x.Description); break;
                     }
                 case CreateTaskOperation x:
@@ -393,6 +491,10 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
             }
             else Check(placement.Anchor is null, "invalid-anchor");
             included.Insert(index, id); Check(!before.SequenceEqual(included, StringComparer.Ordinal), "no-op");
+            Effect("task-reorder", id,
+                "Position " + (Array.IndexOf(before, id) + 1).ToString(CultureInfo.InvariantCulture),
+                "Position " + (index + 1).ToString(CultureInfo.InvariantCulture));
+            SetLatestEffectOrderProject(parent!);
             for (var i = 0; i < slots.Length; i++) all[slots[i]] = included[i]; SetOrder(parent!, all);
         }
         private void Lifecycle(ProposalReference reference, bool project, bool bin)
@@ -472,6 +574,22 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
                     OrderRows("final-shared-order-row", originalShared, shared);
                 }
             }
+            RefreshEffectIdentities();
+        }
+        private void RefreshEffectIdentities()
+        {
+            for (var index = 0; index < Effects.Count; index++)
+            {
+                var effect = Effects[index];
+                var key = effect.Target.LocalId is { } localId
+                    ? locals[localId].Key
+                    : effect.Target.ExistingId!;
+                var finalIdentity = Identity(key);
+                bytes -= IdentityByteCount(effect.Identity);
+                bytes += IdentityByteCount(finalIdentity);
+                Check(bytes <= 4 * 1024 * 1024, "preview-text-limit");
+                Effects[index] = effect with { Identity = finalIdentity };
+            }
         }
         private void OrderRows(string kind, IReadOnlyList<string> before, IReadOnlyList<string> after, string? project = null)
         {
@@ -482,14 +600,15 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
                 Effect(kind, id,
                     beforePositions.TryGetValue(id, out var oldPosition) ? OrderPosition(id, oldPosition, before: true) : "Not included",
                     afterPositions.TryGetValue(id, out var newPosition) ? OrderPosition(id, newPosition) : "Not included");
-                if (project is not null)
-                {
-                    var reference = references[project];
-                    bytes += new UTF8Encoding(false, true).GetByteCount(reference.ExistingId ?? reference.LocalId!);
-                    Check(bytes <= 4 * 1024 * 1024, "preview-text-limit");
-                    Effects[^1] = Effects[^1] with { OrderProject = reference };
-                }
+                if (project is not null) SetLatestEffectOrderProject(project);
             }
+        }
+        private void SetLatestEffectOrderProject(string project)
+        {
+            var reference = references[project];
+            bytes += new UTF8Encoding(false, true).GetByteCount(reference.ExistingId ?? reference.LocalId!);
+            Check(bytes <= 4 * 1024 * 1024, "preview-text-limit");
+            Effects[^1] = Effects[^1] with { OrderProject = reference };
         }
         private string OrderPosition(string id, int position, bool before = false) => "Position " + (position + 1).ToString(CultureInfo.InvariantCulture)
             + ((before ? originalTasks[id] : tasks[id]).IsArchived ? "; individually archived" : "; active");

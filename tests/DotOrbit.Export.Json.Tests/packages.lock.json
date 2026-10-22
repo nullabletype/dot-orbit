@@ -123,7 +123,7 @@
         "dependencies": {
           "DotOrbit.Core": "[1.0.0, )",
           "DotOrbit.Markdown": "[1.0.0, )",
-          "Microsoft.Data.Sqlite.Core": "[10.0.12, )",
+          "Microsoft.Data.Sqlite.Core": "[10.0.13, )",
           "SQLite3MC.PCLRaw.bundle": "[2.4.0, )"
         }
       },
@@ -135,11 +135,11 @@
       },
       "Microsoft.Data.Sqlite.Core": {
         "type": "CentralTransitive",
-        "requested": "[10.0.12, )",
-        "resolved": "10.0.12",
-        "contentHash": "2aL9eL5HQr0V4b8V909SD+jQAx6qnTTl7sT/v3D8dIvmr2UGdpZIQxqm1pj2Js3e4EYTvpw0oMH7DjapJJuPPw==",
+        "requested": "[10.0.13, )",
+        "resolved": "10.0.13",
+        "contentHash": "Gge8XsSCOwcbkbdmt2UDAe6kIv9Q0vA6yb3wsTStjjexaMFLTWfc/1gH4kbhJ+zWiXRTRA4lG2sOQNVfir204w==",
         "dependencies": {
-          "SQLitePCLRaw.core": "2.1.12"
+          "SQLitePCLRaw.core": "2.1.13"
         }
       },
       "Microsoft.Testing.Extensions.Telemetry": {

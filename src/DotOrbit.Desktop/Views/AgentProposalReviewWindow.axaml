@@ -1,0 +1,345 @@
+<Window
+    x:Class="DotOrbit.Desktop.Views.AgentProposalReviewWindow"
+    x:DataType="vm:AgentProposalReviewViewModel"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:DotOrbit.Desktop.ViewModels"
+    xmlns:views="using:DotOrbit.Desktop.Views"
+    Title="dot-orbit proposal review"
+    Width="860"
+    Height="720"
+    MinWidth="660"
+    MinHeight="520"
+    Background="{DynamicResource BackgroundBrush}"
+    WindowStartupLocation="CenterOwner">
+  <Window.Resources>
+    <DataTemplate x:Key="CreatedTaskReviewTemplate" x:DataType="vm:ProposalCreatedTaskReviewRow">
+      <Border MinHeight="{StaticResource CompactRowHeight}" Padding="10,8"
+          Background="{DynamicResource PanelRaisedBrush}" BorderBrush="{DynamicResource LineSoftBrush}"
+          BorderThickness="1" CornerRadius="{StaticResource CompactControlRadius}"
+          AutomationProperties.Name="{Binding AccessibleName}">
+        <StackPanel Classes="task-identity-layout" Spacing="6">
+          <Grid Classes="review-title-row" ColumnDefinitions="Auto,*" ColumnSpacing="6">
+            <views:WorkTypeIcon Classes="review-title-icon" WorkType="Task" />
+            <TextBlock Grid.Column="1" Classes="work-identity-title review-title-text"
+                FontWeight="SemiBold" Text="{Binding TargetLabel}" TextTrimming="CharacterEllipsis" />
+          </Grid>
+          <views:CategoryProjectPill HorizontalAlignment="Left"
+              CategoryName="{Binding CategoryName}" CategoryColourKey="{Binding CategoryColourKey}"
+              ProjectName="{Binding ProjectName}" ProjectColourKey="{Binding ProjectColourKey}"
+              HasOverride="{Binding HasCategoryOverride}" />
+          <TextBlock Classes="category-override-note" FontSize="11"
+              Foreground="{DynamicResource QuietTextBrush}" IsVisible="{Binding HasCategoryOverride}"
+              Text="{Binding CategoryRelationshipText}" />
+          <TextBlock FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
+              Text="{Binding DetailText}" TextWrapping="Wrap" />
+          <ItemsControl ItemsSource="{Binding Markdown}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:ProposalMarkdownReviewRow">
+                <StackPanel Margin="0,5,0,0" Spacing="5">
+                  <TextBlock FontWeight="SemiBold" Text="{Binding Label}" />
+                  <views:MarkdownPreview Document="{Binding Document}" />
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <ItemsControl ItemsSource="{Binding Changes}" IsVisible="{Binding HasChanges}"
+              ItemTemplate="{DynamicResource ChangedEffectReviewTemplate}" />
+        </StackPanel>
+      </Border>
+    </DataTemplate>
+    <DataTemplate x:Key="ChangedEffectReviewTemplate" x:DataType="vm:ProposalEffectReviewRow">
+      <StackPanel Margin="0,8,0,0" Spacing="5">
+        <TextBlock Classes="inspector-label" Text="{Binding Kind}" />
+        <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+          <StackPanel Spacing="3">
+            <TextBlock FontSize="11" Foreground="{DynamicResource QuietTextBrush}" Text="CURRENT" />
+            <TextBlock Text="{Binding Before}" TextWrapping="Wrap" />
+          </StackPanel>
+          <StackPanel Grid.Column="1" Spacing="3">
+            <TextBlock FontSize="11" Foreground="{DynamicResource QuietTextBrush}" Text="PROPOSED" />
+            <TextBlock Text="{Binding After}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Grid>
+        <ItemsControl ItemsSource="{Binding Markdown}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:ProposalMarkdownReviewRow">
+              <StackPanel Margin="0,5,0,0" Spacing="5">
+                <TextBlock FontWeight="SemiBold" Text="{Binding Label}" />
+                <views:MarkdownPreview Document="{Binding Document}" />
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </DataTemplate>
+  </Window.Resources>
+  <Grid RowDefinitions="Auto,*,Auto">
+    <StackPanel x:Name="ProposalReviewHeader" Grid.Row="0" Margin="32,28,32,16" Spacing="10"
+        IsEnabled="{Binding !NeedsConfirmation}">
+      <TextBlock Classes="eyebrow" Text="PROPOSAL REVIEW" />
+      <TextBlock FontSize="28" FontWeight="Bold" Text="Review proposal" />
+      <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
+          Text="Check everything below. Nothing changes until you choose Apply." />
+    </StackPanel>
+
+    <ScrollViewer x:Name="ProposalReviewContent" Grid.Row="1" Margin="32,0,32,16"
+        Focusable="True" TabIndex="0" IsEnabled="{Binding !NeedsConfirmation}"
+        AutomationProperties.Name="Proposal changes to review">
+      <StackPanel Spacing="16">
+        <Border Classes="list-panel">
+          <StackPanel Spacing="5">
+            <TextBlock FontSize="17" FontWeight="SemiBold" Text="{Binding ProposalKindLabel}" />
+            <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
+                Text="{Binding ProposalKindSummary}" />
+          </StackPanel>
+        </Border>
+        <StackPanel Spacing="4">
+          <TextBlock FontSize="20" FontWeight="Bold" Text="{Binding ReviewHeading}" />
+          <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
+              Text="{Binding ReviewHelpText}" />
+        </StackPanel>
+        <StackPanel x:Name="ProposalEffectsList" Spacing="12"
+            AutomationProperties.Name="{Binding ReviewListAccessibleName}">
+          <StackPanel Spacing="4" IsVisible="{Binding HasMixedReview}">
+            <TextBlock Classes="eyebrow" Text="NEW WORK" />
+            <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
+                Text="Projects contain their new Tasks; other new work follows separately." />
+          </StackPanel>
+          <ItemsControl ItemsSource="{Binding NewProjectGroups}" IsVisible="{Binding HasNewProjectGroups}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:ProposalCreatedProjectReviewGroup">
+                <Border Classes="list-panel" Margin="0,0,0,8" AutomationProperties.Name="{Binding AccessibleName}">
+                  <StackPanel Spacing="10">
+                    <Grid Classes="review-title-row" ColumnDefinitions="Auto,*" ColumnSpacing="7">
+                      <views:IdentityTypeIcon Classes="review-title-icon" WorkType="Project"
+                          ColourKey="{Binding ProjectColourKey}"
+                          Width="{StaticResource WorkTypeIconSlotWidth}"
+                          Height="{StaticResource WorkTypeIconGlyphSize}" VerticalAlignment="Center" />
+                      <TextBlock Grid.Column="1" Classes="review-title-text" VerticalAlignment="Center"
+                          FontSize="16" FontWeight="SemiBold"
+                          Text="{Binding TargetLabel}" TextWrapping="Wrap" />
+                    </Grid>
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                      <views:CategoryIdentityMarker Classes="category-metadata-identity"
+                          CategoryName="{Binding CategoryName}" ColourKey="{Binding CategoryColourKey}" />
+                      <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="12"
+                          Foreground="{DynamicResource QuietTextBrush}" Text="{Binding DetailText}" />
+                    </Grid>
+                    <ItemsControl ItemsSource="{Binding Markdown}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ProposalMarkdownReviewRow">
+                          <StackPanel Spacing="5">
+                            <TextBlock FontWeight="SemiBold" Text="{Binding Label}" />
+                            <views:MarkdownPreview Document="{Binding Document}" />
+                          </StackPanel>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <ItemsControl ItemsSource="{Binding Changes}" IsVisible="{Binding HasChanges}"
+                        ItemTemplate="{StaticResource ChangedEffectReviewTemplate}" />
+                    <Grid ColumnDefinitions="16,*" IsVisible="{Binding HasTasks}">
+                      <Border Width="1" Margin="7,0,0,0" HorizontalAlignment="Left"
+                          Background="{DynamicResource LineSoftBrush}" />
+                      <ItemsControl Grid.Column="1" ItemsSource="{Binding Tasks}"
+                          ItemTemplate="{StaticResource CreatedTaskReviewTemplate}">
+                        <ItemsControl.ItemsPanel>
+                          <ItemsPanelTemplate><StackPanel Spacing="7" /></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                      </ItemsControl>
+                    </Grid>
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <ItemsControl ItemsSource="{Binding NewTasksByExistingProject}" IsVisible="{Binding HasNewTasksByExistingProject}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:ProposalExistingProjectTaskReviewGroup">
+                <Border Classes="list-panel" Margin="0,0,0,8" AutomationProperties.Name="{Binding AccessibleName}">
+                  <StackPanel Spacing="10">
+                    <Grid Classes="review-title-row" ColumnDefinitions="Auto,*" ColumnSpacing="7">
+                      <views:IdentityTypeIcon Classes="review-title-icon" WorkType="Project"
+                          ColourKey="{Binding ProjectColourKey}"
+                          Width="{StaticResource WorkTypeIconSlotWidth}"
+                          Height="{StaticResource WorkTypeIconGlyphSize}" VerticalAlignment="Center" />
+                      <TextBlock Grid.Column="1" Classes="review-title-text" VerticalAlignment="Center"
+                          FontSize="16" FontWeight="SemiBold"
+                          Text="{Binding ProjectName}" TextWrapping="Wrap" />
+                    </Grid>
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                      <views:CategoryIdentityMarker Classes="category-metadata-identity"
+                          CategoryName="{Binding CategoryName}" ColourKey="{Binding CategoryColourKey}" />
+                      <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="12"
+                          Foreground="{DynamicResource QuietTextBrush}" Text="{Binding TaskCountText}" />
+                    </Grid>
+                    <Grid ColumnDefinitions="16,*">
+                      <Border Width="1" Margin="7,0,0,0" HorizontalAlignment="Left"
+                          Background="{DynamicResource LineSoftBrush}" />
+                      <ItemsControl Grid.Column="1" ItemsSource="{Binding Tasks}"
+                          ItemTemplate="{StaticResource CreatedTaskReviewTemplate}">
+                        <ItemsControl.ItemsPanel>
+                          <ItemsPanelTemplate><StackPanel Spacing="7" /></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                      </ItemsControl>
+                    </Grid>
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <StackPanel Spacing="7" IsVisible="{Binding HasNewStandaloneTasks}">
+            <TextBlock Classes="eyebrow" Text="STANDALONE TASKS" />
+            <ItemsControl ItemsSource="{Binding NewStandaloneTasks}"
+                ItemTemplate="{StaticResource CreatedTaskReviewTemplate}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><StackPanel Spacing="7" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+            </ItemsControl>
+          </StackPanel>
+
+          <Border Classes="list-panel" IsVisible="{Binding HasSupportingIdentities}">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="eyebrow" Text="SUPPORTING IDENTITIES" />
+              <ItemsControl ItemsSource="{Binding NewCategories}" IsVisible="{Binding HasNewCategories}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ProposalEffectReviewRow">
+                    <Grid MinHeight="{StaticResource CompactRowHeight}" ColumnDefinitions="Auto,*" ColumnSpacing="7"
+                        AutomationProperties.Name="{Binding SupportingIdentityAccessibleName}">
+                      <views:IdentityTypeIcon WorkType="Category" ColourKey="{Binding TargetColourKey}" />
+                      <TextBlock Grid.Column="1" VerticalAlignment="Center" FontWeight="SemiBold"
+                          Text="{Binding TargetLabel}" TextWrapping="Wrap" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <Border Height="1" Background="{DynamicResource LineSoftBrush}"
+                  IsVisible="{Binding HasBothSupportingIdentityTypes}" />
+              <ItemsControl ItemsSource="{Binding NewParticipants}" IsVisible="{Binding HasNewParticipants}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ProposalEffectReviewRow">
+                    <StackPanel MinHeight="{StaticResource CompactRowHeight}" Spacing="2"
+                        VerticalAlignment="Center"
+                        AutomationProperties.Name="{Binding SupportingIdentityAccessibleName}">
+                      <TextBlock Classes="supporting-person-kind" FontSize="11"
+                          Foreground="{DynamicResource QuietTextBrush}" Text="PERSON" />
+                      <TextBlock Classes="supporting-person-name" FontWeight="SemiBold"
+                          Text="{Binding TargetLabel}" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+
+          <StackPanel Spacing="4" IsVisible="{Binding HasMixedReview}">
+            <TextBlock Classes="eyebrow" Text="EXISTING CHANGES" />
+            <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
+                Text="Each existing item appears once with its direct changes in proposal order." />
+          </StackPanel>
+          <ItemsControl ItemsSource="{Binding ChangedItems}" IsVisible="{Binding HasChangedItems}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:ProposalChangedItemReviewGroup">
+                <Border Classes="list-panel" Margin="0,0,0,8" AutomationProperties.Name="{Binding AccessibleName}">
+                  <StackPanel Spacing="6">
+                    <Grid Classes="review-title-row" ColumnDefinitions="Auto,*" ColumnSpacing="6">
+                      <views:WorkTypeIcon Classes="review-title-icon" WorkType="Task"
+                          IsVisible="{Binding IsTask}" />
+                      <views:IdentityTypeIcon Classes="review-title-icon" WorkType="Project"
+                          ColourKey="{Binding TargetColourKey}" IsVisible="{Binding IsProject}"
+                          Width="{StaticResource WorkTypeIconSlotWidth}"
+                          Height="{StaticResource WorkTypeIconGlyphSize}" VerticalAlignment="Center" />
+                      <TextBlock Grid.Column="1" Classes="work-identity-title review-title-text"
+                          FontWeight="SemiBold" IsVisible="{Binding IsTask}"
+                          Text="{Binding TargetLabel}" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Grid.Column="1" Classes="work-identity-title review-title-text"
+                          FontSize="15" FontWeight="SemiBold" IsVisible="{Binding IsProject}"
+                          Text="{Binding TargetLabel}" TextWrapping="Wrap" />
+                    </Grid>
+                    <views:CategoryIdentityMarker Classes="category-metadata-identity" HorizontalAlignment="Left"
+                        CategoryName="{Binding CategoryName}" ColourKey="{Binding CategoryColourKey}"
+                        IsVisible="{Binding IsProject}" />
+                    <views:CategoryProjectPill HorizontalAlignment="Left" IsVisible="{Binding IsTask}"
+                        CategoryName="{Binding CategoryName}" CategoryColourKey="{Binding CategoryColourKey}"
+                        ProjectName="{Binding ProjectName}" ProjectColourKey="{Binding ProjectColourKey}"
+                        HasOverride="{Binding HasCategoryOverride}" />
+                    <TextBlock Classes="category-override-note" FontSize="11"
+                        Foreground="{DynamicResource QuietTextBrush}" IsVisible="{Binding HasCategoryOverride}"
+                        Text="{Binding CategoryRelationshipText}" />
+                    <TextBlock FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
+                        Text="{Binding ChangeCountText}" />
+                    <ItemsControl ItemsSource="{Binding Changes}"
+                        ItemTemplate="{StaticResource ChangedEffectReviewTemplate}" />
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+        <Border Classes="list-panel" IsVisible="{Binding HasImpliedChanges}">
+          <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
+              Text="{Binding ImpliedChangesNote}" />
+        </Border>
+        <Expander x:Name="ProposalTechnicalDetails" Header="Technical details"
+            AutomationProperties.Name="Show proposal technical details">
+          <StackPanel Margin="0,10,0,0" Spacing="12">
+            <Border Classes="list-panel" IsVisible="{Binding HasSourceDetails}">
+              <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="12" RowSpacing="5">
+                <TextBlock FontWeight="SemiBold" Text="Workspace revision" />
+                <TextBlock Grid.Column="1" Text="{Binding SourceWorkspaceRevision}" />
+                <TextBlock Grid.Row="1" FontWeight="SemiBold" Text="Snapshot identity" />
+                <TextBlock Grid.Row="1" Grid.Column="1" FontFamily="monospace" FontSize="11"
+                    Text="{Binding SourceSnapshotId}" TextWrapping="Wrap" />
+              </Grid>
+            </Border>
+            <StackPanel Spacing="4">
+              <TextBlock FontWeight="SemiBold" Text="Safety limits" />
+              <TextBlock Foreground="{DynamicResource MutedTextBrush}" Text="{Binding ExcludedPowers}" TextWrapping="Wrap" />
+            </StackPanel>
+            <StackPanel Spacing="4">
+              <TextBlock FontWeight="SemiBold" Text="Validation summary" />
+              <TextBlock Foreground="{DynamicResource MutedTextBrush}"
+                  Text="{Binding TechnicalCountSummary}" TextWrapping="Wrap" />
+            </StackPanel>
+          </StackPanel>
+        </Expander>
+      </StackPanel>
+    </ScrollViewer>
+
+    <Grid x:Name="ProposalReviewActions" Grid.Row="2" Margin="32,0,32,28" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="10"
+        IsEnabled="{Binding !NeedsConfirmation}">
+      <TextBlock VerticalAlignment="Center" Foreground="{DynamicResource MutedTextBrush}"
+          IsVisible="{Binding HasStatusMessage}" Text="{Binding StatusMessage}" TextWrapping="Wrap"
+          AutomationProperties.Name="Proposal review status" AutomationProperties.LiveSetting="Polite" />
+      <Button x:Name="RetryProposalMaintenanceButton" Grid.Column="1" Classes="view-action"
+          Content="Retry maintenance" IsVisible="{Binding CanRetryMaintenance}"
+          Click="OnRetryMaintenance" AutomationProperties.Name="Retry committed proposal maintenance without replaying operations" />
+      <Button x:Name="RequestProposalApplyButton" Grid.Column="2" Classes="primary-action"
+          Content="{Binding ApplyButtonText}" IsEnabled="{Binding CanRequestApply}"
+          Click="OnRequestApply" AutomationProperties.Name="{Binding ApplyButtonAccessibleName}" />
+      <Button x:Name="CloseProposalReviewButton" Grid.Column="3" Classes="view-action"
+          Content="Close" IsEnabled="{Binding CanClose}" IsCancel="True"
+          Click="OnClose" AutomationProperties.Name="Close proposal review" />
+    </Grid>
+
+    <Border Grid.RowSpan="3" Classes="decision-overlay" IsVisible="{Binding NeedsConfirmation}">
+      <StackPanel Width="560" Spacing="16" AutomationProperties.LiveSetting="Assertive">
+        <StackPanel Spacing="5">
+          <TextBlock FontSize="20" FontWeight="Bold" Text="{Binding ConfirmationTitle}" />
+          <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
+              Text="{Binding ConfirmationBody}" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Spacing="12">
+          <Button x:Name="ConfirmProposalApplyButton" Classes="primary-action"
+              Content="{Binding ConfirmButtonText}" IsEnabled="{Binding CanConfirmApply}" Click="OnConfirmApply"
+              AutomationProperties.Name="{Binding ConfirmButtonAccessibleName}" />
+          <Button x:Name="CancelProposalApplyButton" Classes="view-action"
+              Content="Cancel" IsEnabled="{Binding CanCancelConfirmation}" Click="OnCancelApply"
+              AutomationProperties.Name="Cancel proposal application" />
+        </StackPanel>
+      </StackPanel>
+    </Border>
+  </Grid>
+</Window>

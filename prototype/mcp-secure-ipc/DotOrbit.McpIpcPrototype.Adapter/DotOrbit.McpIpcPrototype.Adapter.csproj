@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>dot-orbit-mcp-adapter-prototype</AssemblyName>
+    <RuntimeIdentifiers>win-x64;linux-x64;osx-x64;osx-arm64</RuntimeIdentifiers>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(DotOrbitMcpPrototypePackage)' == 'true'">
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../DotOrbit.McpIpcPrototype/DotOrbit.McpIpcPrototype.csproj" />
+  </ItemGroup>
+  <Target Name="RemoveReferencedExecutableRuntimeConfig" AfterTargets="Publish"
+          Condition="'$(DotOrbitMcpPrototypePackage)' == 'true'">
+    <Delete Files="$(PublishDir)dot-orbit-mcp-prototype.runtimeconfig.json" />
+  </Target>
+</Project>

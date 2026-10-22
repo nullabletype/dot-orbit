@@ -4450,6 +4450,13 @@ internal sealed class MemoryWorkspaceWork : IWorkspaceWork
     {
         var current = Array.IndexOf(visibleIds.ToArray(), id);
         if (current < 0) throw new ArgumentException("Task is not visible.", nameof(id));
+        if (move.Kind is TaskOrderMoveKind.BeforeTargetTask or TaskOrderMoveKind.AfterTargetTask)
+        {
+            var anchor = Array.IndexOf(visibleIds, move.TargetTaskId);
+            if (anchor < 0) throw new ArgumentException("The target Task is not in the visible order.", nameof(move));
+            return anchor == current ? current : anchor - (current < anchor ? 1 : 0)
+                + (move.Kind == TaskOrderMoveKind.AfterTargetTask ? 1 : 0);
+        }
         var target = move.Kind switch
         {
             TaskOrderMoveKind.Up => Math.Max(0, current - 1),

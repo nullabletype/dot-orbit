@@ -20,6 +20,9 @@ public sealed partial class App : Application
     internal IInterchangePreferenceService InterchangePreferenceService { get; private set; } =
         new TransientInterchangePreferenceService();
 
+    internal IAiFeaturePreferenceService AiFeaturePreferenceService { get; private set; } =
+        new TransientAiFeaturePreferenceService();
+
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
     public override void OnFrameworkInitializationCompleted()
@@ -32,6 +35,7 @@ public sealed partial class App : Application
             var preferenceStore = JsonDevicePreferenceStore.CreateDefault();
             ThemeService = new ApplicationThemeService(this, preferenceStore);
             InterchangePreferenceService = new InterchangePreferenceService(preferenceStore);
+            AiFeaturePreferenceService = new AiFeaturePreferenceService(preferenceStore);
 
             if (desktop.Args?.Contains("--markdown-link-smoke", StringComparer.Ordinal) == true)
             {

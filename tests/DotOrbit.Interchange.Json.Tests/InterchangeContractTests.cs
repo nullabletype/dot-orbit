@@ -24,7 +24,11 @@ public sealed class InterchangeContractTests
     public void PublishedSchemasAreDraft202012ValidAndEmbedded()
     {
         Assert.Equal(
-            [AgentInterchangeV1.PlanningSnapshotSchemaId, AgentInterchangeV1.ChangeProposalSchemaId],
+            [
+                AgentInterchangeV1.PlanningSnapshotSchemaId,
+                AgentInterchangeV1.ChangeProposalSchemaId,
+                AgentInterchangeV1.NewWorkProposalSchemaId,
+            ],
             InterchangeSchemaCatalogue.ApplicationSchemaIds);
 
         foreach (var id in InterchangeSchemaCatalogue.ApplicationSchemaIds)
@@ -41,6 +45,7 @@ public sealed class InterchangeContractTests
     {
         using var snapshot = ReadExample("planning-snapshot.json");
         using var proposal = ReadExample("change-proposal.json");
+        using var newWork = ReadExample("new-work-proposal.json");
 
         var snapshotValidation = InterchangeSchemaCatalogue.Validate(
             AgentInterchangeV1.PlanningSnapshotSchemaId,
@@ -48,9 +53,13 @@ public sealed class InterchangeContractTests
         var proposalValidation = InterchangeSchemaCatalogue.Validate(
             AgentInterchangeV1.ChangeProposalSchemaId,
             proposal.RootElement);
+        var newWorkValidation = InterchangeSchemaCatalogue.Validate(
+            AgentInterchangeV1.NewWorkProposalSchemaId,
+            newWork.RootElement);
 
         Assert.True(snapshotValidation.IsValid, string.Join(Environment.NewLine, snapshotValidation.Errors));
         Assert.True(proposalValidation.IsValid, string.Join(Environment.NewLine, proposalValidation.Errors));
+        Assert.True(newWorkValidation.IsValid, string.Join(Environment.NewLine, newWorkValidation.Errors));
         var snapshotRoot = JsonNode.Parse(snapshot.RootElement.GetRawText())!.AsObject();
         var publishedId = Assert.IsType<string>(snapshotRoot["snapshotId"]!.GetValue<string>());
         Assert.True(snapshotRoot.Remove("snapshotId"));
@@ -299,6 +308,8 @@ public sealed class InterchangeContractTests
         var text = Encoding.UTF8.GetString(result.Payload!.Value.Span);
         Assert.Contains("Act as a planning assistant", text, StringComparison.Ordinal);
         Assert.Contains("Return exactly one JSON object", text, StringComparison.Ordinal);
+        Assert.Contains("Every operation must produce an actual change", text, StringComparison.Ordinal);
+        Assert.Contains("A standalone Task must use an explicit Category", text, StringComparison.Ordinal);
         foreach (var operation in OperationVocabulary)
         {
             Assert.Contains(operation, text, StringComparison.Ordinal);
@@ -313,6 +324,13 @@ public sealed class InterchangeContractTests
                 AgentInterchangeV1.ChangeProposalSchemaId).Span).ReplaceLineEndings("\n"),
             text,
             StringComparison.Ordinal);
+        Assert.Contains(
+            Encoding.UTF8.GetString(InterchangeSchemaCatalogue.GetApplicationSchema(
+                AgentInterchangeV1.NewWorkProposalSchemaId).Span).ReplaceLineEndings("\n"),
+            text,
+            StringComparison.Ordinal);
+        Assert.Contains("without needing dot-orbit workspace context", text, StringComparison.Ordinal);
+        Assert.Contains(AgentInterchangeV1.NewWorkProposalFormat, text, StringComparison.Ordinal);
         Assert.DoesNotContain("Live Planning snapshot", text, StringComparison.Ordinal);
         Assert.DoesNotContain('\r', text);
     }

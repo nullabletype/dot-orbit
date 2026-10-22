@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>dot-orbit MCP consent state prototype</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #070a10;
+      --rail: #0b0f17;
+      --panel: #101620;
+      --raised: #171e2b;
+      --line: #2d3748;
+      --soft: #202a39;
+      --text: #edf1f7;
+      --muted: #abb7c9;
+      --quiet: #78869b;
+      --accent: #f15aa6;
+      --accent-hover: #ff78b7;
+      --accent-surface: #32182a;
+      --green: #72d5a5;
+      --amber: #f2bc66;
+      --red: #ff7b83;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    button:disabled { cursor: not-allowed; opacity: .48; }
+    .app { display: grid; grid-template-columns: 260px minmax(0, 1fr); min-height: 100vh; }
+    aside { background: var(--rail); border-right: 1px solid var(--line); padding: 28px 20px; }
+    .brand { font-size: 18px; font-weight: 700; letter-spacing: -.02em; }
+    .brand span { color: var(--accent); }
+    .eyebrow { color: var(--quiet); font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+    aside p { color: var(--muted); }
+    .scenario-list { display: grid; gap: 8px; margin-top: 18px; }
+    .scenario {
+      width: 100%; padding: 10px 12px; text-align: left; color: var(--muted);
+      border: 1px solid var(--line); border-radius: 8px; background: transparent;
+    }
+    .scenario:hover { color: var(--text); background: var(--raised); }
+    main { padding: 28px clamp(24px, 4vw, 54px) 48px; }
+    header { display: flex; justify-content: space-between; gap: 24px; align-items: start; margin-bottom: 24px; }
+    h1 { font-size: 25px; line-height: 1.2; margin: 5px 0 8px; letter-spacing: -.025em; }
+    h2 { margin: 0; font-size: 16px; }
+    p { margin: 6px 0 0; }
+    .lede { color: var(--muted); max-width: 760px; }
+    .mode { border: 1px solid var(--line); border-radius: 999px; padding: 7px 11px; color: var(--muted); white-space: nowrap; }
+    .grid { display: grid; grid-template-columns: minmax(320px, .9fr) minmax(360px, 1.1fr); gap: 18px; }
+    .stack { display: grid; gap: 18px; align-content: start; }
+    .panel { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); overflow: hidden; }
+    .panel-head { padding: 16px 18px; border-bottom: 1px solid var(--soft); }
+    .panel-body { padding: 8px 18px; }
+    .row { min-height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid var(--soft); }
+    .row:last-child { border-bottom: 0; }
+    .row-copy strong { display: block; font-weight: 600; }
+    .row-copy small { display: block; color: var(--muted); margin-top: 2px; }
+    .switch { position: relative; width: 42px; height: 24px; flex: 0 0 auto; }
+    .switch input { position: absolute; opacity: 0; }
+    .switch span { position: absolute; inset: 0; background: #475164; border-radius: 999px; transition: .15s; }
+    .switch span::after { content: ""; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; background: white; border-radius: 50%; transition: .15s; }
+    .switch input:checked + span { background: var(--accent); }
+    .switch input:checked + span::after { transform: translateX(18px); }
+    .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 3px; }
+    .status { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 650; }
+    .status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--quiet); }
+    .status.good::before { background: var(--green); }
+    .status.attention::before { background: var(--amber); }
+    .status.bad::before { background: var(--red); }
+    .badge { min-width: 26px; padding: 2px 8px; border-radius: 999px; background: var(--accent); color: #190b13; font-size: 12px; font-weight: 750; text-align: center; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 18px 18px; }
+    .button { min-height: 34px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; background: transparent; color: var(--text); }
+    .button:hover:not(:disabled) { background: var(--raised); border-color: #49566c; }
+    .button.primary { color: #190b13; border-color: var(--accent); background: var(--accent); font-weight: 700; }
+    .button.primary:hover:not(:disabled) { background: var(--accent-hover); }
+    .button.danger { color: var(--red); }
+    .consent { margin: 14px 18px 18px; padding: 16px; background: #1a1820; border: 1px solid #5a4633; border-radius: 9px; }
+    .consent[hidden] { display: none; }
+    .facts { display: grid; grid-template-columns: 145px 1fr; gap: 8px 14px; margin: 14px 0; }
+    .facts dt { color: var(--quiet); }
+    .facts dd { margin: 0; }
+    .asserted { color: var(--amber); }
+    .verified { color: var(--green); }
+    .tool-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 16px 18px 18px; }
+    .tool { text-align: left; min-height: 86px; border: 1px solid var(--line); border-radius: 9px; padding: 12px; color: var(--text); background: transparent; }
+    .tool:hover:not(:disabled) { background: var(--raised); }
+    .tool strong, .tool small { display: block; }
+    .tool small { color: var(--muted); margin-top: 4px; }
+    .notice { margin: 0 18px 18px; padding: 11px 12px; border: 1px solid var(--soft); border-radius: 8px; color: var(--muted); background: #0b111a; }
+    .log { margin: 0; padding: 8px 18px; list-style: none; max-height: 300px; overflow: auto; }
+    .log li { padding: 10px 0; border-bottom: 1px solid var(--soft); color: var(--muted); }
+    .log li:last-child { border-bottom: 0; }
+    .log b { color: var(--text); font-weight: 600; }
+    .empty { color: var(--quiet); }
+    .footer-note { color: var(--quiet); font-size: 12px; margin-top: 18px; }
+    @media (max-width: 900px) {
+      .app { grid-template-columns: 1fr; }
+      aside { border-right: 0; border-bottom: 1px solid var(--line); }
+      .scenario-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside>
+      <div class="brand">dot<span>·</span>orbit</div>
+      <p class="eyebrow" style="margin-top:28px">Guided scenarios</p>
+      <p>These reset the model and walk through the decisions the production UI must make visible.</p>
+      <div class="scenario-list">
+        <button class="scenario" data-scenario="first">1 · First connection</button>
+        <button class="scenario" data-scenario="deny">2 · Deny access</button>
+        <button class="scenario" data-scenario="revoke">3 · Revoke and forget</button>
+        <button class="scenario" data-scenario="restart">4 · Restart retains trust</button>
+        <button class="scenario" data-scenario="proposal">5 · Proposal arrives</button>
+        <button class="scenario" data-scenario="background">6 · Proposal in background</button>
+        <button class="scenario" data-scenario="defer">7 · Review later</button>
+      </div>
+      <p class="eyebrow" style="margin-top:28px">Question under test</p>
+      <p>Can a remembered same-account client avoid repetitive prompts while proposals remain visible, non-interrupting, and explicitly reviewed?</p>
+    </aside>
+
+    <main>
+      <header>
+        <div>
+          <div class="eyebrow">Issue #125 · interaction model</div>
+          <h1>Local MCP connection boundary</h1>
+          <p class="lede">Free-play model for the global AI gate, MCP gate, one-time or remembered consent, scoped reads, proposal submission, lock, revoke, and restart.</p>
+        </div>
+        <div class="mode">Synthetic data only</div>
+      </header>
+
+      <div class="grid">
+        <div class="stack">
+          <section class="panel" aria-labelledby="availability-title">
+            <div class="panel-head"><h2 id="availability-title">Availability</h2></div>
+            <div class="panel-body">
+              <div class="row">
+                <div class="row-copy"><strong>AI features</strong><small>Global gate; off by default in the product.</small></div>
+                <label class="switch"><input id="ai" type="checkbox" aria-label="Enable AI features"><span></span></label>
+              </div>
+              <div class="row">
+                <div class="row-copy"><strong>MCP server</strong><small>Additional opt-in; hidden when AI is off.</small></div>
+                <label class="switch"><input id="mcp" type="checkbox" aria-label="Enable MCP server"><span></span></label>
+              </div>
+              <div class="row">
+                <div class="row-copy"><strong>Workspace</strong><small>Locking closes the endpoint and all sessions.</small></div>
+                <button id="lock" class="button">Lock workspace</button>
+              </div>
+              <div class="row">
+                <div class="row-copy"><strong>Desktop visibility</strong><small>Background arrivals use a content-free system notification.</small></div>
+                <button id="visibility" class="button">Send to background</button>
+              </div>
+              <div class="row">
+                <div class="row-copy"><strong>Private broker</strong><small id="endpoint-help">No listener is created until every gate is open.</small></div>
+                <span id="endpoint" class="status">Unavailable</span>
+              </div>
+            </div>
+            <div class="actions">
+              <button id="restart" class="button">Restart desktop</button>
+              <button id="connect" class="button primary">Simulate connection</button>
+            </div>
+          </section>
+
+          <section class="panel" aria-labelledby="tools-title">
+            <div class="panel-head"><h2 id="tools-title">Approved tools</h2></div>
+            <div class="tool-grid">
+              <button id="read" class="tool"><strong>Read synthetic status</strong><small>No prompt for each read after connection approval.</small></button>
+              <button id="submit" class="tool"><strong>Submit synthetic proposal</strong><small>Creates pending local review; never applies directly.</small></button>
+            </div>
+            <p id="tool-result" class="notice" role="status" aria-live="polite">Connect and approve a session to exercise the tools.</p>
+          </section>
+
+          <section id="review-notice" class="panel" aria-labelledby="review-notice-title" hidden>
+            <div class="panel-head"><h2 id="review-notice-title">Proposal ready for review</h2></div>
+            <div class="panel-body">
+              <p class="lede">A local MCP client submitted a proposal. Nothing has been applied; Review opens the existing proposal-review interface.</p>
+            </div>
+            <div class="actions">
+              <button id="review-now" class="button primary">Review</button>
+              <button id="review-later" class="button">Later</button>
+            </div>
+          </section>
+        </div>
+
+        <div class="stack">
+          <section class="panel" aria-labelledby="connection-title">
+            <div class="panel-head"><h2 id="connection-title">Connection</h2></div>
+            <div class="panel-body">
+              <div class="row">
+                <div class="row-copy"><strong>Current state</strong><small id="connection-help">No client has been approved.</small></div>
+                <span id="connection" class="status">Not connected</span>
+              </div>
+              <div class="row">
+                <div class="row-copy"><strong>Remembered client</strong><small>Bound to this workspace, adapter credential, and exact scopes.</small></div>
+                <span id="trust" class="status">Not remembered</span>
+              </div>
+              <div class="row">
+                <div class="row-copy"><strong>AI navigation</strong><small id="pending-help">No proposals are waiting.</small></div>
+                <button id="pending" class="button" aria-label="Open pending proposal notifications"><span id="pending-count">None</span></button>
+              </div>
+            </div>
+            <div id="consent" class="consent" hidden>
+              <div class="eyebrow">Connection request</div>
+              <h2 style="margin-top:5px">Allow this local adapter?</h2>
+              <dl class="facts">
+                <dt>Application name</dt><dd><span class="asserted">Codex (self-asserted)</span></dd>
+                <dt>OS account</dt><dd><span class="verified">Current account (verified)</span></dd>
+                <dt>Requested access</dt><dd>Read synthetic status; submit a proposal for local review</dd>
+                <dt>Lifetime</dt><dd>Choose this connection only or remember this client</dd>
+              </dl>
+              <p class="lede">A process using your account can imitate the application name. Remembered trust is matched using an opaque adapter credential and the exact scopes, but same-account malware remains a residual risk. Approval never grants direct workspace changes.</p>
+              <div class="actions" style="padding:14px 0 0">
+                <button id="approve-always" class="button primary">Always allow this client</button>
+                <button id="approve-once" class="button">Allow once</button>
+                <button id="deny" class="button">Deny</button>
+              </div>
+            </div>
+            <div class="actions">
+              <button id="revoke" class="button danger">Revoke and forget client</button>
+            </div>
+          </section>
+
+          <section class="panel" aria-labelledby="activity-title">
+            <div class="panel-head"><h2 id="activity-title">Session activity</h2></div>
+            <ol id="log" class="log" aria-live="polite"></ol>
+          </section>
+        </div>
+      </div>
+      <p class="footer-note">Prototype only. Remembered trust exists in page memory only; nothing is written to disk, connected to an application, or read from a workspace.</p>
+    </main>
+  </div>
+
+  <script>
+    const initial = () => ({
+      ai: false, mcp: false, unlocked: true, foreground: true, desktopRun: 1,
+      connection: "none", trusted: false, reads: 0, proposals: 0,
+      pendingProposals: 0, bannerVisible: false, attentionDeferred: false, osNotification: false,
+      result: "Connect and approve a session to exercise the tools.",
+      log: ["Desktop started. AI and MCP are off; no broker endpoint exists."]
+    });
+
+    function endpointAvailable(state) { return state.ai && state.mcp && state.unlocked; }
+
+    function reduce(state, action) {
+      const next = { ...state, log: [...state.log] };
+      const record = message => next.log.unshift(message);
+      const disconnect = reason => {
+        if (next.connection === "approved" || next.connection === "pending") record(reason);
+        next.connection = "none";
+      };
+
+      switch (action.type) {
+        case "AI":
+          next.ai = action.value;
+          if (!next.ai) {
+            next.mcp = false;
+            next.bannerVisible = false;
+            next.osNotification = false;
+            disconnect("AI disabled. Endpoint and sessions closed; pending proposals remain encrypted and hidden.");
+          } else {
+            next.bannerVisible = next.foreground && next.pendingProposals > 0 && !next.attentionDeferred;
+            record(`AI enabled. MCP remains independently off.${next.pendingProposals > 0 ? " Pending proposal attention restored." : ""}`);
+          }
+          break;
+        case "MCP":
+          next.mcp = action.value;
+          if (!next.mcp) disconnect("MCP disabled. Endpoint and sessions closed.");
+          else record("MCP enabled. Private broker is available while the workspace is unlocked.");
+          break;
+        case "LOCK":
+          next.unlocked = !next.unlocked;
+          disconnect(next.unlocked
+            ? `Workspace unlocked. ${next.trusted ? "Remembered trust remains available for reconnect." : "No client is remembered."}`
+            : "Workspace locked. Endpoint and sessions closed; remembered trust is retained.");
+          break;
+        case "VISIBILITY":
+          next.foreground = !next.foreground;
+          next.osNotification = false;
+          next.bannerVisible = next.foreground && next.ai && next.pendingProposals > 0 && !next.attentionDeferred;
+          record(next.foreground ? "Desktop brought forward." : "Desktop sent to the background.");
+          break;
+        case "CONNECT":
+          if (endpointAvailable(next) && next.connection === "none") {
+            if (next.trusted) {
+              next.connection = "approved";
+              next.result = "Remembered client reconnected with a fresh session capability.";
+              record("Remembered client credential and exact scopes matched; a fresh session was approved.");
+            } else {
+              next.connection = "pending";
+              record("Connection requested. Name is self-asserted; OS account is verified.");
+            }
+          }
+          break;
+        case "APPROVE_ONCE":
+          if (next.connection === "pending") { next.connection = "approved"; record("Connection approved once for the two displayed scopes."); }
+          break;
+        case "APPROVE_ALWAYS":
+          if (next.connection === "pending") {
+            next.connection = "approved";
+            next.trusted = true;
+            record("Client remembered for this workspace, adapter credential, and the two displayed scopes.");
+          }
+          break;
+        case "DENY":
+          if (next.connection === "pending") { next.connection = "denied"; next.result = "Connection denied; no capability was issued."; record("Connection denied."); }
+          break;
+        case "REVOKE":
+          if (next.connection !== "none" || next.trusted) {
+            next.connection = "revoked";
+            next.trusted = false;
+            next.result = "Session revoked and remembered trust removed. A new connection needs approval.";
+            record("Connection revoked, remembered trust removed, and in-flight work cancelled.");
+          }
+          break;
+        case "READ":
+          if (next.connection === "approved") { next.reads++; next.result = `Synthetic status read ${next.reads} completed without another prompt.`; record("Synthetic read completed."); }
+          break;
+        case "SUBMIT":
+          if (next.connection === "approved") {
+            next.proposals++;
+            next.pendingProposals++;
+            next.attentionDeferred = false;
+            next.bannerVisible = next.ai && next.foreground;
+            next.osNotification = next.ai && !next.foreground;
+            next.result = `Synthetic proposal ${next.proposals} is encrypted and pending local review. Nothing was applied.`;
+            record(next.foreground
+              ? "Proposal queued; persistent in-app banner and AI navigation badge shown."
+              : "Proposal queued; content-free system notification and AI navigation badge recorded without stealing focus.");
+          }
+          break;
+        case "OPEN_PENDING":
+          if (next.ai && next.pendingProposals > 0) {
+            next.attentionDeferred = false;
+            next.bannerVisible = true;
+            next.osNotification = false;
+            record("Pending proposal attention opened from the AI navigation badge.");
+          }
+          break;
+        case "REVIEW_NOW":
+          if (next.pendingProposals > 0) {
+            next.pendingProposals--;
+            next.attentionDeferred = false;
+            next.bannerVisible = next.pendingProposals > 0;
+            next.osNotification = false;
+            next.result = "Existing proposal-review interface opened. Apply still requires explicit approval.";
+            record("Proposal handed to the existing Review flow; no change was applied automatically.");
+          }
+          break;
+        case "REVIEW_LATER":
+          if (next.pendingProposals > 0) {
+            next.attentionDeferred = true;
+            next.bannerVisible = false;
+            next.osNotification = false;
+            next.result = "Review deferred. The AI navigation badge remains until the proposal is opened.";
+            record("Persistent banner dismissed; pending proposal retained in the encrypted queue.");
+          }
+          break;
+        case "RESTART":
+          next.desktopRun++;
+          next.connection = "none";
+          next.osNotification = false;
+          next.bannerVisible = next.ai && next.foreground && next.pendingProposals > 0 && !next.attentionDeferred;
+          next.result = next.trusted
+            ? "Desktop restarted. Remembered trust remains; the next matching connection will receive a fresh capability."
+            : "Desktop restarted. No client is remembered.";
+          record(next.trusted
+            ? "Desktop restarted. Live sessions and capabilities were destroyed; remembered trust was retained."
+            : "Desktop restarted. Endpoint recreated only because both gates remain on; consent is required again.");
+          break;
+        case "RESET": return initial();
+      }
+      return next;
+    }
+
+    let state = initial();
+    const $ = id => document.getElementById(id);
+    const controls = ["ai", "mcp", "lock", "visibility", "restart", "connect", "approve-always", "approve-once", "deny", "revoke", "read", "submit", "pending", "review-now", "review-later"];
+
+    function dispatch(action) { state = reduce(state, action); render(); }
+
+    function render() {
+      const available = endpointAvailable(state);
+      $("ai").checked = state.ai;
+      $("mcp").checked = state.mcp;
+      $("mcp").disabled = !state.ai;
+      $("lock").textContent = state.unlocked ? "Lock workspace" : "Unlock workspace";
+      $("visibility").textContent = state.foreground ? "Send to background" : "Bring to foreground";
+      $("endpoint").textContent = available ? "Listening privately" : "Unavailable";
+      $("endpoint").className = `status ${available ? "good" : ""}`;
+      $("endpoint-help").textContent = available ? "Same-account endpoint; application identity is not proven." : "No listener is created until every gate is open.";
+
+      const labels = { none: "Not connected", pending: "Approval needed", approved: "Approved", denied: "Denied", revoked: "Revoked" };
+      $("connection").textContent = labels[state.connection];
+      $("connection").className = `status ${state.connection === "approved" ? "good" : state.connection === "pending" ? "attention" : ["denied", "revoked"].includes(state.connection) ? "bad" : ""}`;
+      $("connection-help").textContent = state.trusted
+        ? "Matching reconnects skip the prompt but always receive a fresh capability."
+        : "No remembered approval; the next connection prompts.";
+      $("trust").textContent = state.trusted ? "Remembered" : "Not remembered";
+      $("trust").className = `status ${state.trusted ? "good" : ""}`;
+      $("pending").hidden = !state.ai;
+      $("pending").disabled = state.pendingProposals === 0;
+      $("pending-count").textContent = state.pendingProposals === 0 ? "None" : `${state.pendingProposals} pending`;
+      $("pending-count").className = state.pendingProposals > 0 ? "badge" : "";
+      $("pending-help").textContent = !state.ai
+        ? `${state.pendingProposals} encrypted proposal${state.pendingProposals === 1 ? "" : "s"} hidden while AI is off.`
+        : state.pendingProposals === 0
+          ? "No proposals are waiting."
+          : "Persistent count remains after the banner is deferred.";
+      $("review-notice").hidden = !state.ai || !state.foreground || !state.bannerVisible || state.pendingProposals === 0;
+      $("consent").hidden = state.connection !== "pending";
+      $("connect").disabled = !available || ["pending", "approved"].includes(state.connection);
+      $("revoke").disabled = !["pending", "approved"].includes(state.connection) && !state.trusted;
+      $("read").disabled = state.connection !== "approved";
+      $("submit").disabled = state.connection !== "approved";
+      $("tool-result").textContent = state.result;
+      if (state.osNotification) {
+        $("tool-result").textContent += " A content-free system notification was posted.";
+      }
+      $("log").innerHTML = state.log.length
+        ? state.log.map((entry, index) => `<li><b>${index === 0 ? "Now" : "Earlier"}</b> · ${entry}</li>`).join("")
+        : '<li class="empty">No activity yet.</li>';
+    }
+
+    $("ai").addEventListener("change", event => dispatch({ type: "AI", value: event.target.checked }));
+    $("mcp").addEventListener("change", event => dispatch({ type: "MCP", value: event.target.checked }));
+    $("lock").addEventListener("click", () => dispatch({ type: "LOCK" }));
+    $("visibility").addEventListener("click", () => dispatch({ type: "VISIBILITY" }));
+    $("restart").addEventListener("click", () => dispatch({ type: "RESTART" }));
+    $("connect").addEventListener("click", () => dispatch({ type: "CONNECT" }));
+    $("approve-always").addEventListener("click", () => dispatch({ type: "APPROVE_ALWAYS" }));
+    $("approve-once").addEventListener("click", () => dispatch({ type: "APPROVE_ONCE" }));
+    $("deny").addEventListener("click", () => dispatch({ type: "DENY" }));
+    $("revoke").addEventListener("click", () => dispatch({ type: "REVOKE" }));
+    $("read").addEventListener("click", () => dispatch({ type: "READ" }));
+    $("submit").addEventListener("click", () => dispatch({ type: "SUBMIT" }));
+    $("pending").addEventListener("click", () => dispatch({ type: "OPEN_PENDING" }));
+    $("review-now").addEventListener("click", () => dispatch({ type: "REVIEW_NOW" }));
+    $("review-later").addEventListener("click", () => dispatch({ type: "REVIEW_LATER" }));
+
+    document.querySelectorAll("[data-scenario]").forEach(button => button.addEventListener("click", () => {
+      state = initial();
+      dispatch({ type: "AI", value: true });
+      dispatch({ type: "MCP", value: true });
+      dispatch({ type: "CONNECT" });
+      const scenario = button.dataset.scenario;
+      if (scenario === "deny") dispatch({ type: "DENY" });
+      if (scenario === "revoke") { dispatch({ type: "APPROVE_ALWAYS" }); dispatch({ type: "READ" }); dispatch({ type: "REVOKE" }); dispatch({ type: "RESTART" }); dispatch({ type: "CONNECT" }); }
+      if (scenario === "restart") { dispatch({ type: "APPROVE_ALWAYS" }); dispatch({ type: "RESTART" }); dispatch({ type: "CONNECT" }); }
+      if (scenario === "proposal") { dispatch({ type: "APPROVE_ALWAYS" }); dispatch({ type: "SUBMIT" }); }
+      if (scenario === "background") { dispatch({ type: "APPROVE_ALWAYS" }); dispatch({ type: "VISIBILITY" }); dispatch({ type: "SUBMIT" }); }
+      if (scenario === "defer") { dispatch({ type: "APPROVE_ALWAYS" }); dispatch({ type: "SUBMIT" }); dispatch({ type: "REVIEW_LATER" }); }
+    }));
+
+    render();
+  </script>
+</body>
+</html>

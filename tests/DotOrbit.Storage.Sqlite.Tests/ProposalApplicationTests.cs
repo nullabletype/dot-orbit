@@ -22,6 +22,74 @@ public sealed class ProposalApplicationTests : IDisposable
     private string WorkspacePath => Path.Combine(directory, "workspace.db");
 
     [Fact]
+    public void NewWorkUsesFreshIdsRecoveryAndCurrentRevisionWithoutAProvidedSnapshot()
+    {
+        var recoveryDirectory = Path.Combine(directory, "recovery");
+        var store = new EncryptedWorkspaceStore();
+        using var session = CreateWorkspace(store);
+        Assert.Equal(
+            RecoveryDirectoryConfigurationStatus.Configured,
+            session.Recovery.ConfigureAutomaticRecoveryDirectory(recoveryDirectory).Status);
+        var beforeRevision = Revision(session);
+        var stalePlan = ReviewNewWork(session,
+            new JsonObject
+            {
+                ["operation"] = "createCategory",
+                ["operationId"] = "1",
+                ["localId"] = "category",
+                ["name"] = "Must be reviewed again",
+            });
+        var staleApproval = Assert.IsType<ProposalApproval>(session.ProposalApplication.Approve(stalePlan));
+        session.Work.CreateParticipant("Workspace changed");
+
+        Assert.Equal(
+            ProposalApplyStatus.StaleSource,
+            Apply(session, staleApproval, new Host()).Status);
+        Assert.DoesNotContain(session.Work.Read().Categories, item => item.Name == "Must be reviewed again");
+
+        var reviewedRevision = Revision(session);
+        var plan = ReviewNewWork(session,
+            new JsonObject
+            {
+                ["operation"] = "createCategory",
+                ["operationId"] = "1",
+                ["localId"] = "category",
+                ["name"] = "Transcript work",
+            },
+            new JsonObject
+            {
+                ["operation"] = "createTask",
+                ["operationId"] = "2",
+                ["localId"] = "task",
+                ["title"] = "Follow up from transcript",
+                ["description"] = "",
+                ["project"] = null,
+                ["category"] = new JsonObject
+                {
+                    ["mode"] = "explicit",
+                    ["category"] = Local("category"),
+                },
+                ["dueDate"] = null,
+                ["participants"] = new JsonArray(),
+            });
+        var approval = Assert.IsType<ProposalApproval>(session.ProposalApplication.Approve(plan));
+
+        Assert.Equal(ProposalApplyStatus.Committed, Apply(session, approval, new Host()).Status);
+        Assert.Equal(reviewedRevision + 1, Revision(session));
+        var category = Assert.Single(session.Work.Read().Categories, item => item.Name == "Transcript work");
+        var task = Assert.Single(session.Work.Read().Tasks, item => item.Title == "Follow up from transcript");
+        Assert.Equal(category.Id, task.ExplicitCategoryId);
+        Assert.DoesNotContain("category", category.Id, StringComparison.Ordinal);
+        var recoveryPath = Assert.Single(Directory.GetFiles(
+            recoveryDirectory,
+            "dot-orbit-pre-import-*.dotorbit-recovery"));
+        using var recovered = Assert.IsAssignableFrom<IWorkspaceSession>(store.Open(recoveryPath, passphrase).Session);
+        Assert.DoesNotContain(recovered.Work.Read().Categories, item => item.Name == "Transcript work");
+        Assert.DoesNotContain(recovered.Work.Read().Tasks, item => item.Title == "Follow up from transcript");
+        Assert.True(beforeRevision < reviewedRevision);
+    }
+
+    [Fact]
     public void ApprovedLocalCreatesCommitOnceWithPortablePreImportRecoveryAndReviewedClock()
     {
         var recoveryDirectory = Path.Combine(directory, "recovery");
@@ -241,6 +309,7 @@ public sealed class ProposalApplicationTests : IDisposable
         var identity = document.RootElement.GetProperty("snapshotId").GetString()!;
         var result = new ProposalSemanticPlanner(TimeProvider.System, new AcceptMarkdown()).Validate(
             new ChangeProposal(
+                ProposalKind.WorkspaceChange,
                 AgentInterchangeV1.ChangeProposalFormat,
                 1,
                 identity,
@@ -757,6 +826,28 @@ public sealed class ProposalApplicationTests : IDisposable
             ["operations"] = operationArray,
         };
         var result = new ProposalReviewBoundary(session.Proposals, timeProvider)
+            .Review(JsonSerializer.SerializeToUtf8Bytes(proposal));
+        Assert.Empty(result.Failures);
+        return Assert.IsType<ProposalExecutionPlan>(result.Plan);
+    }
+
+    private static ProposalExecutionPlan ReviewNewWork(
+        IWorkspaceSession session,
+        params JsonObject[] operations)
+    {
+        var operationArray = new JsonArray();
+        foreach (var operation in operations)
+        {
+            operationArray.Add(operation);
+        }
+
+        var proposal = new JsonObject
+        {
+            ["format"] = AgentInterchangeV1.NewWorkProposalFormat,
+            ["schemaVersion"] = 1,
+            ["operations"] = operationArray,
+        };
+        var result = new ProposalReviewBoundary(session.Proposals, TimeProvider.System)
             .Review(JsonSerializer.SerializeToUtf8Bytes(proposal));
         Assert.Empty(result.Failures);
         return Assert.IsType<ProposalExecutionPlan>(result.Plan);

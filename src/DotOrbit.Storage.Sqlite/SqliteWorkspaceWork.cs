@@ -2070,6 +2070,13 @@ internal sealed class SqliteWorkspaceWork(
     {
         var current = visibleIds.IndexOf(id);
         if (current < 0) throw new ArgumentException("The Task is not in the visible order.", nameof(id));
+        if (move.Kind is TaskOrderMoveKind.BeforeTargetTask or TaskOrderMoveKind.AfterTargetTask)
+        {
+            var anchor = visibleIds.IndexOf(move.TargetTaskId ?? throw new ArgumentException("A target Task is required.", nameof(move)));
+            if (anchor < 0) throw new ArgumentException("The target Task is not in the visible order.", nameof(move));
+            return anchor == current ? current : anchor - (current < anchor ? 1 : 0)
+                + (move.Kind == TaskOrderMoveKind.AfterTargetTask ? 1 : 0);
+        }
         return move.Kind switch
         {
             TaskOrderMoveKind.Up => Math.Max(0, current - 1),

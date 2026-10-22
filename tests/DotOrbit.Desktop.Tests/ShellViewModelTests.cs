@@ -30,6 +30,38 @@ public sealed class ShellViewModelTests
         Assert.Null(shell.AiNavigation.CountText);
         Assert.Null(shell.BinNavigation.CountText);
         Assert.Null(shell.SettingsNavigation.CountText);
+        Assert.False(shell.AiFeaturesEnabled);
+        Assert.Null(shell.Ai);
+
+        shell.AiNavigation.SelectCommand.Execute(null);
+
+        Assert.Equal("Today", shell.SelectedItem.Title);
+        Assert.False(shell.ShowAI);
+    }
+
+    [Fact]
+    public void AiFeaturesCanBeEnabledThenDisablingRemovesAuthorityAndNavigatesToSettings()
+    {
+        var preferences = new TransientAiFeaturePreferenceService();
+        var shell = new ShellViewModel(
+            new MemoryWorkspaceWork(),
+            aiFeaturePreferenceService: preferences);
+
+        shell.Settings!.AiFeaturesEnabled = true;
+        shell.AiNavigation.SelectCommand.Execute(null);
+
+        Assert.True(shell.AiFeaturesEnabled);
+        Assert.NotNull(shell.Ai);
+        Assert.True(shell.ShowAI);
+        Assert.Same(shell.AiNavigation, shell.SelectedItem);
+
+        shell.Settings.AiFeaturesEnabled = false;
+
+        Assert.False(shell.AiFeaturesEnabled);
+        Assert.Null(shell.Ai);
+        Assert.False(shell.ShowAI);
+        Assert.True(shell.ShowSettings);
+        Assert.Same(shell.SettingsNavigation, shell.SelectedItem);
     }
 
     [Fact]

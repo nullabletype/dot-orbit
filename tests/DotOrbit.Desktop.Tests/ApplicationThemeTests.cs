@@ -20,10 +20,12 @@ public sealed class ApplicationThemeTests
 
         File.WriteAllText(path, "{not-json");
         Assert.Equal(ApplicationTheme.Dark, store.Load());
+        Assert.False(store.LoadAiFeaturesEnabled());
 
         File.WriteAllText(path, "{\"theme\":\"Sepia\"}");
         Assert.Equal(ApplicationTheme.Dark, store.Load());
         Assert.True(store.LoadIncludeAgentInstructionsAndSchemaWithSnapshot());
+        Assert.False(store.LoadAiFeaturesEnabled());
     }
 
     [Fact]
@@ -60,6 +62,45 @@ public sealed class ApplicationThemeTests
         Assert.True(reloaded.TrySave(ApplicationTheme.Dark));
         Assert.False(reloaded.LoadIncludeAgentInstructionsAndSchemaWithSnapshot());
         Assert.Empty(Directory.GetFiles(directory.Path, "*.tmp"));
+    }
+
+    [Fact]
+    public void AiFeaturesDefaultOffAndPersistWithoutClobberingOtherDevicePreferences()
+    {
+        using var directory = new TemporaryDirectory();
+        var path = Path.Combine(directory.Path, "preferences.json");
+        var store = new JsonDevicePreferenceStore(path);
+
+        Assert.False(store.LoadAiFeaturesEnabled());
+        Assert.True(store.TrySave(ApplicationTheme.Light));
+        Assert.True(store.TrySaveIncludeAgentInstructionsAndSchemaWithSnapshot(false));
+        Assert.True(store.TrySaveAiFeaturesEnabled(true));
+
+        var reloaded = new JsonDevicePreferenceStore(path);
+        Assert.True(reloaded.LoadAiFeaturesEnabled());
+        Assert.Equal(ApplicationTheme.Light, reloaded.Load());
+        Assert.False(reloaded.LoadIncludeAgentInstructionsAndSchemaWithSnapshot());
+
+        Assert.True(reloaded.TrySaveAiFeaturesEnabled(false));
+        Assert.False(reloaded.LoadAiFeaturesEnabled());
+        Assert.Equal(ApplicationTheme.Light, reloaded.Load());
+        Assert.False(reloaded.LoadIncludeAgentInstructionsAndSchemaWithSnapshot());
+        Assert.Empty(Directory.GetFiles(directory.Path, "*.tmp"));
+    }
+
+    [Fact]
+    public void AiFeaturePreferenceServiceChangesStateOnlyAfterPersistenceSucceeds()
+    {
+        var store = new RecordingAiFeaturePreferenceStore();
+        var service = new AiFeaturePreferenceService(store);
+
+        Assert.False(service.AiFeaturesEnabled);
+        Assert.True(service.TrySetAiFeaturesEnabled(true));
+        Assert.True(service.AiFeaturesEnabled);
+
+        store.AllowSave = false;
+        Assert.False(service.TrySetAiFeaturesEnabled(false));
+        Assert.True(service.AiFeaturesEnabled);
     }
 
     [Fact]
@@ -109,6 +150,25 @@ public sealed class ApplicationThemeTests
             new JsonDevicePreferenceStore(Path.Combine(directory.Path, "preferences.json")));
 
         Assert.True(preferences.TrySetIncludeAgentInstructionsAndSchemaWithSnapshot(false));
+
+        Assert.Equal(before, session.Planning.Read().WorkspaceRevision);
+    }
+
+    [Fact]
+    public void AiFeaturePreferencePersistenceDoesNotAdvanceWorkspaceRevision()
+    {
+        using var directory = new TemporaryDirectory();
+        const string passphraseText = "synthetic AI preference revision password";
+        var passphrase = WorkspacePassphrase.Create(passphraseText, passphraseText).Passphrase!;
+        using var session = Assert.IsAssignableFrom<IWorkspaceSession>(new EncryptedWorkspaceStore().Create(
+            Path.Combine(directory.Path, "workspace.db"),
+            passphrase,
+            CategoryName.Create("Home").CategoryName!).Session);
+        var before = session.Planning.Read().WorkspaceRevision;
+        var preferences = new AiFeaturePreferenceService(
+            new JsonDevicePreferenceStore(Path.Combine(directory.Path, "preferences.json")));
+
+        Assert.True(preferences.TrySetAiFeaturesEnabled(true));
 
         Assert.Equal(before, session.Planning.Read().WorkspaceRevision);
     }
@@ -185,6 +245,26 @@ public sealed class ApplicationThemeTests
             }
 
             _include = include;
+            return true;
+        }
+    }
+
+    private sealed class RecordingAiFeaturePreferenceStore : IAiFeaturePreferenceStore
+    {
+        private bool _enabled;
+
+        public bool AllowSave { get; set; } = true;
+
+        public bool LoadAiFeaturesEnabled() => _enabled;
+
+        public bool TrySaveAiFeaturesEnabled(bool enabled)
+        {
+            if (!AllowSave)
+            {
+                return false;
+            }
+
+            _enabled = enabled;
             return true;
         }
     }
