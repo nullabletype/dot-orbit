@@ -258,7 +258,8 @@ internal sealed class TransientAiFeaturePreferenceService(
 internal sealed class JsonDevicePreferenceStore :
     IApplicationThemePreferenceStore,
     IInterchangePreferenceStore,
-    IAiFeaturePreferenceStore
+    IAiFeaturePreferenceStore,
+    IMainWindowSizePreferenceStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -306,6 +307,16 @@ internal sealed class JsonDevicePreferenceStore :
     public bool LoadLocalMcpEnabled() =>
         LoadDocument().LocalMcpEnabled ?? false;
 
+    public MainWindowSize? LoadMainWindowSize()
+    {
+        var document = LoadDocument();
+        MainWindowSize? size = document.MainWindowWidth is { } width
+                               && document.MainWindowHeight is { } height
+            ? new MainWindowSize(width, height)
+            : null;
+        return MainWindowSizePolicy.IsValid(size) ? size : null;
+    }
+
     public bool TrySaveAiFeaturesEnabled(bool enabled)
     {
         var document = LoadDocument();
@@ -327,31 +338,45 @@ internal sealed class JsonDevicePreferenceStore :
         return TrySaveDocument(document with { LocalMcpEnabled = enabled });
     }
 
+    public bool TrySaveMainWindowSize(MainWindowSize size)
+    {
+        if (!MainWindowSizePolicy.IsValid(size))
+        {
+            return false;
+        }
+
+        return TrySaveDocument(LoadDocument() with
+        {
+            MainWindowWidth = size.Width,
+            MainWindowHeight = size.Height,
+        });
+    }
+
     private PreferenceDocument LoadDocument()
     {
         try
         {
             if (!File.Exists(_path))
             {
-                return new(null, null, null, null);
+                return new(null, null, null, null, null, null);
             }
 
             return JsonSerializer.Deserialize<PreferenceDocument>(
                        File.ReadAllText(_path),
                        JsonOptions)
-                   ?? new(null, null, null, null);
+                   ?? new(null, null, null, null, null, null);
         }
         catch (IOException)
         {
-            return new(null, null, null, null);
+            return new(null, null, null, null, null, null);
         }
         catch (UnauthorizedAccessException)
         {
-            return new(null, null, null, null);
+            return new(null, null, null, null, null, null);
         }
         catch (JsonException)
         {
-            return new(null, null, null, null);
+            return new(null, null, null, null, null, null);
         }
     }
 
@@ -403,5 +428,7 @@ internal sealed class JsonDevicePreferenceStore :
         string? Theme,
         bool? IncludeAgentInstructionsAndSchemaWithSnapshot,
         bool? AiFeaturesEnabled,
-        bool? LocalMcpEnabled);
+        bool? LocalMcpEnabled,
+        double? MainWindowWidth,
+        double? MainWindowHeight);
 }

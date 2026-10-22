@@ -56,6 +56,8 @@ public sealed partial class MainWindow : Window
     private readonly IApplicationThemeService _applicationThemeService;
     private readonly IInterchangePreferenceService _interchangePreferenceService;
     private readonly IAiFeaturePreferenceService _aiFeaturePreferenceService;
+    private readonly IMainWindowSizePreferenceStore _mainWindowSizePreferenceStore;
+    private readonly IMainWindowScreenProvider _mainWindowScreenProvider;
     private readonly TimeProvider _timeProvider;
     private readonly Func<IWorkspaceWork, IInspectorSaveWriter> _inspectorSaveWriterFactory;
     private CancellationTokenSource? _proposalIntakeCancellation;
@@ -69,6 +71,8 @@ public sealed partial class MainWindow : Window
     private LocalMcpApprovalWindow? _localMcpApprovalWindow;
     private long _proposalReviewRevision;
     private long _transientMessageRevision;
+    private MainWindowSize _lastNormalWindowSize = MainWindowSizePolicy.DefaultSize;
+    private bool _initialWindowSizeApplied;
 
     internal static TimeSpan TransientMessageDuration { get; } = TimeSpan.FromSeconds(5);
 
@@ -101,7 +105,9 @@ public sealed partial class MainWindow : Window
         IProposalClipboardReader? proposalClipboardReader = null,
         IProposalFilePicker? proposalFilePicker = null,
         IProposalFileIntake? proposalFileIntake = null,
-        IAiFeaturePreferenceService? aiFeaturePreferenceService = null)
+        IAiFeaturePreferenceService? aiFeaturePreferenceService = null,
+        IMainWindowSizePreferenceStore? mainWindowSizePreferenceStore = null,
+        IMainWindowScreenProvider? mainWindowScreenProvider = null)
     {
         _session = session;
         _markdownClipboard = markdownClipboard;
@@ -120,6 +126,11 @@ public sealed partial class MainWindow : Window
         _aiFeaturePreferenceService = aiFeaturePreferenceService
             ?? (Application.Current as App)?.AiFeaturePreferenceService
             ?? new TransientAiFeaturePreferenceService();
+        _mainWindowSizePreferenceStore = mainWindowSizePreferenceStore
+            ?? (Application.Current as App)?.MainWindowSizePreferenceStore
+            ?? new TransientMainWindowSizePreferenceStore();
+        _mainWindowScreenProvider = mainWindowScreenProvider
+            ?? new AvaloniaMainWindowScreenProvider();
         _timeProvider = timeProvider ?? TimeProvider.System;
         _proposalFileIntake = proposalFileIntake ?? new ProposalFileIntake(_timeProvider);
         _inspectorSaveWriterFactory = inspectorSaveWriterFactory
@@ -150,6 +161,7 @@ public sealed partial class MainWindow : Window
             handledEventsToo: true);
         _dateRefreshTimer.Tick += OnDateRefreshTick;
         Opened += OnOpened;
+        Resized += OnWindowResized;
         Activated += OnActivated;
         Deactivated += OnDeactivated;
         SetSessionContext();
@@ -925,8 +937,7 @@ public sealed partial class MainWindow : Window
             _inspectorSaveWriter = null;
             _actionExecutor = null;
         }
-        _closingApproved = true;
-        Close();
+        FinishAcceptedClose();
     }
 
     private void ReplaceSession(IWorkspaceSession session) => _ = ReplaceSessionAsync(session);
@@ -1342,8 +1353,54 @@ public sealed partial class MainWindow : Window
 
     private void OnOpened(object? sender, EventArgs e)
     {
+        ApplyInitialWindowSize();
         RefreshDatePresentation();
         _dateRefreshTimer.Start();
+    }
+
+    private void ApplyInitialWindowSize()
+    {
+        MainWindowSize? frameSize = FrameSize is { } frame
+            ? new MainWindowSize(frame.Width, frame.Height)
+            : null;
+        var restoration = MainWindowSizePolicy.Restore(
+            _mainWindowSizePreferenceStore.LoadMainWindowSize(),
+            _mainWindowScreenProvider.GetUsableLogicalSize(this),
+            new MainWindowSize(Width, Height),
+            MainWindowSizePolicy.CalculateFrameOverhead(
+                new MainWindowSize(ClientSize.Width, ClientSize.Height),
+                frameSize));
+        MinWidth = restoration.MinimumSize.Width;
+        MinHeight = restoration.MinimumSize.Height;
+        _lastNormalWindowSize = restoration.Size;
+        _initialWindowSizeApplied = true;
+        Width = restoration.Size.Width;
+        Height = restoration.Size.Height;
+    }
+
+    private void OnWindowResized(object? sender, WindowResizedEventArgs e)
+    {
+        if (!_initialWindowSizeApplied)
+        {
+            return;
+        }
+
+        RecordWindowSize(
+            new MainWindowSize(e.ClientSize.Width, e.ClientSize.Height),
+            WindowState,
+            e.Reason);
+    }
+
+    internal void RecordWindowSize(
+        MainWindowSize reportedSize,
+        WindowState state,
+        WindowResizeReason reason)
+    {
+        _lastNormalWindowSize = MainWindowSizePolicy.RememberNormalSize(
+            _lastNormalWindowSize,
+            reportedSize,
+            state,
+            reason);
     }
 
     private void OnActivated(object? sender, EventArgs e) => RefreshDatePresentation();
@@ -1513,6 +1570,15 @@ public sealed partial class MainWindow : Window
             await _inspectorSaveWriter.DisposeAsync();
             _inspectorSaveWriter = null;
             _actionExecutor = null;
+        }
+        FinishAcceptedClose();
+    }
+
+    private void FinishAcceptedClose()
+    {
+        if (_initialWindowSizeApplied)
+        {
+            _ = _mainWindowSizePreferenceStore.TrySaveMainWindowSize(_lastNormalWindowSize);
         }
         _closingApproved = true;
         Close();
@@ -1928,6 +1994,7 @@ public sealed partial class MainWindow : Window
     {
         Closed -= OnClosed;
         Opened -= OnOpened;
+        Resized -= OnWindowResized;
         Activated -= OnActivated;
         Deactivated -= OnDeactivated;
         DataContextChanged -= OnDataContextChanged;

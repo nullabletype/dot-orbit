@@ -414,6 +414,7 @@ public sealed class MainWindowTests
                 passphrase,
                 CategoryName.Create("Home").CategoryName!).Session);
         var session = new DecisionWorkspaceSession(innerSession);
+        var windowSizePreferences = new RecordingMainWindowSizePreferenceStore();
         var payload = Encoding.UTF8.GetBytes(ProposalJson(innerSession.Proposals.Read(), "Queued after close"));
         Assert.Equal(
             PendingAgentProposalStoreStatus.Stored,
@@ -430,7 +431,9 @@ public sealed class MainWindowTests
                 payload)).Status);
         var window = new MainWindow(
             session,
-            aiFeaturePreferenceService: new TransientAiFeaturePreferenceService(aiFeaturesEnabled: true));
+            aiFeaturePreferenceService: new TransientAiFeaturePreferenceService(aiFeaturesEnabled: true),
+            mainWindowSizePreferenceStore: windowSizePreferences,
+            mainWindowScreenProvider: new FixedMainWindowScreenProvider(new(1600, 1000)));
         window.Show();
         var shell = Assert.IsType<ShellViewModel>(window.DataContext);
         shell.Work!.NewProjectCommand.Execute(null);
@@ -443,6 +446,7 @@ public sealed class MainWindowTests
 
         Assert.True(window.IsVisible);
         Assert.False(shell.Work.NeedsDecision);
+        Assert.Equal(0, windowSizePreferences.SaveAttempts);
         session.MemoryWork.FailWrites = false;
         shell.AiNavigation.SelectCommand.Execute(null);
         await DrainUiUntilAsync(() => shell.ShowAI);
@@ -455,6 +459,7 @@ public sealed class MainWindowTests
         review.Close();
         window.Close();
         await DrainUiUntilAsync(() => !window.IsVisible);
+        Assert.Equal(1, windowSizePreferences.SaveAttempts);
     }
 
     [AvaloniaFact]
@@ -1392,6 +1397,141 @@ public sealed class MainWindowTests
     }
 
     [AvaloniaFact]
+    public async Task MainWindowRestoresAndPersistsNormalSizeAfterAcceptedClose()
+    {
+        var preferences = new RecordingMainWindowSizePreferenceStore(new(1260, 700));
+        var screen = new FixedMainWindowScreenProvider(new(1600, 1000));
+        var window = new MainWindow(
+            session: null,
+            mainWindowSizePreferenceStore: preferences,
+            mainWindowScreenProvider: screen);
+
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(1260, window.Width);
+        Assert.Equal(700, window.Height);
+        Assert.Equal(1120, window.MinWidth);
+        Assert.Equal(600, window.MinHeight);
+
+        window.Width = 1320;
+        window.Height = 740;
+        Dispatcher.UIThread.RunJobs();
+        window.Close();
+        await DrainUiUntilAsync(() => !window.IsVisible);
+
+        var savedSize = Assert.NotNull(preferences.SavedSize);
+        Assert.Equal(window.ClientSize.Width, savedSize.Width);
+        Assert.Equal(window.ClientSize.Height, savedSize.Height);
+
+        var reopened = new MainWindow(
+            session: null,
+            mainWindowSizePreferenceStore: preferences,
+            mainWindowScreenProvider: screen);
+        reopened.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(savedSize.Width, reopened.Width);
+        Assert.Equal(savedSize.Height, reopened.Height);
+        reopened.Close();
+        await DrainUiUntilAsync(() => !reopened.IsVisible);
+    }
+
+    [AvaloniaTheory]
+    [InlineData(WindowState.Maximized, WindowResizeReason.User)]
+    [InlineData(WindowState.Minimized, WindowResizeReason.User)]
+    [InlineData(WindowState.FullScreen, WindowResizeReason.User)]
+    [InlineData(WindowState.Normal, WindowResizeReason.DpiChange)]
+    public async Task AcceptedCloseDoesNotReclassifyTransientResizeAsNormal(
+        WindowState transientState,
+        WindowResizeReason resizeReason)
+    {
+        var original = new MainWindowSize(1260, 700);
+        var preferences = new RecordingMainWindowSizePreferenceStore(original);
+        var window = new MainWindow(
+            session: null,
+            mainWindowSizePreferenceStore: preferences,
+            mainWindowScreenProvider: new FixedMainWindowScreenProvider(new(1600, 1000)));
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        window.RecordWindowSize(new MainWindowSize(1500, 900), transientState, resizeReason);
+
+        window.Close();
+        await DrainUiUntilAsync(() => !window.IsVisible);
+
+        Assert.Equal(original, preferences.SavedSize);
+    }
+
+    [AvaloniaFact]
+    public async Task ClosingPersistsWindowSizeOnlyAfterWorkspaceWritesDrain()
+    {
+        var session = new DisposalTrackingWorkspaceSession();
+        var project = session.Work.CreateProject("Original", "", "home", null);
+        var preferences = new RecordingMainWindowSizePreferenceStore();
+        BlockingInspectorSaveWriter? writer = null;
+        var window = new MainWindow(
+            session,
+            timeProvider: null,
+            inspectorSaveWriterFactory: work => writer = new BlockingInspectorSaveWriter(work),
+            mainWindowSizePreferenceStore: preferences,
+            mainWindowScreenProvider: new FixedMainWindowScreenProvider(new(1600, 1000)));
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.Work!.SelectProject(project.Id);
+        shell.Work.Title = "Committed before geometry";
+        Assert.True(shell.Work.RunScheduledAutosave());
+        await writer!.Submitted;
+
+        window.Close();
+
+        Assert.Equal(0, preferences.SaveAttempts);
+        writer.Complete();
+        await session.Disposed;
+        Assert.Equal(1, preferences.SaveAttempts);
+    }
+
+    [AvaloniaFact]
+    public async Task WindowSizePreferenceFailureDoesNotBlockShutdown()
+    {
+        var session = new DisposalTrackingWorkspaceSession();
+        var preferences = new RecordingMainWindowSizePreferenceStore(allowSave: false);
+        var window = new MainWindow(
+            session,
+            mainWindowSizePreferenceStore: preferences,
+            mainWindowScreenProvider: new FixedMainWindowScreenProvider(new(1600, 1000)));
+        window.Show();
+
+        window.Close();
+        await session.Disposed;
+
+        Assert.Equal(1, preferences.SaveAttempts);
+        Assert.False(window.IsVisible);
+    }
+
+    [AvaloniaFact]
+    public async Task AuxiliaryWindowCloseDoesNotPersistMainWindowSize()
+    {
+        var preferences = new RecordingMainWindowSizePreferenceStore();
+        var window = new MainWindow(
+            session: null,
+            mainWindowSizePreferenceStore: preferences,
+            mainWindowScreenProvider: new FixedMainWindowScreenProvider(new(1600, 1000)));
+        window.Show();
+        var recovery = new RecoveryWindow(
+            new RecoveryViewModelTests.StubWorkspaceRecovery(),
+            _ => { });
+        recovery.Show(window);
+
+        recovery.Close();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(0, preferences.SaveAttempts);
+        window.Close();
+        await DrainUiUntilAsync(() => !window.IsVisible);
+        Assert.Equal(1, preferences.SaveAttempts);
+    }
+
+    [AvaloniaFact]
     public async Task SessionReplacementDrainsWriterBeforeDisposingOldSession()
     {
         var session = new DisposalTrackingWorkspaceSession();
@@ -1555,7 +1695,11 @@ public sealed class MainWindowTests
     public async Task WorkspaceUnavailableShowsReplacementAndClosesTheShell()
     {
         var replacementShown = 0;
-        var window = new MainWindow();
+        var preferences = new RecordingMainWindowSizePreferenceStore();
+        var window = new MainWindow(
+            session: null,
+            mainWindowSizePreferenceStore: preferences,
+            mainWindowScreenProvider: new FixedMainWindowScreenProvider(new(1600, 1000)));
         window.Show();
 
         window.HandleWorkspaceUnavailable(() => replacementShown++);
@@ -1564,6 +1708,39 @@ public sealed class MainWindowTests
 
         Assert.Equal(1, replacementShown);
         Assert.False(window.IsVisible);
+        Assert.Equal(1, preferences.SaveAttempts);
+    }
+
+    private sealed class RecordingMainWindowSizePreferenceStore(
+        MainWindowSize? loadedSize = null,
+        bool allowSave = true) : IMainWindowSizePreferenceStore
+    {
+        private MainWindowSize? _loadedSize = loadedSize;
+
+        public int SaveAttempts { get; private set; }
+
+        public MainWindowSize? SavedSize { get; private set; }
+
+        public MainWindowSize? LoadMainWindowSize() => _loadedSize;
+
+        public bool TrySaveMainWindowSize(MainWindowSize size)
+        {
+            SaveAttempts++;
+            if (!allowSave)
+            {
+                return false;
+            }
+
+            SavedSize = size;
+            _loadedSize = size;
+            return true;
+        }
+    }
+
+    private sealed class FixedMainWindowScreenProvider(MainWindowSize? size)
+        : IMainWindowScreenProvider
+    {
+        public MainWindowSize? GetUsableLogicalSize(Window window) => size;
     }
 
     private sealed class DisposalTrackingWorkspaceSession : IWorkspaceSession

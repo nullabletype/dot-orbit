@@ -6,6 +6,7 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Input.Raw;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using DotOrbit.Core.Workspaces;
 using DotOrbit.Desktop.ViewModels;
@@ -17,6 +18,41 @@ namespace DotOrbit.Desktop.Tests;
 
 public sealed class WorkspaceAccessWindowTests
 {
+    [AvaloniaFact]
+    public async Task SuccessfulUnlockAppliesRememberedMainWindowGeometry()
+    {
+        var session = new StubWorkspaceSession();
+        var store = new StubWorkspaceStore(
+            exists: true,
+            WorkspaceOpenResult.Opened(session));
+        var preferences = new RecordingMainWindowSizePreferenceStore(new(1270, 710));
+        MainWindow? mainWindow = null;
+        var access = new WorkspaceAccessWindow(
+            store,
+            new StubWorkspacePathProvider("/platform-data/dot-orbit/workspace.orb"),
+            preferences,
+            new FixedMainWindowScreenProvider(new(1600, 1000)),
+            opened => mainWindow = opened);
+        access.Show();
+        var viewModel = Assert.IsType<WorkspaceAccessViewModel>(access.DataContext);
+        viewModel.Passphrase = "correct horse battery";
+
+        viewModel.SubmitCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+
+        var openedMainWindow = Assert.IsType<MainWindow>(mainWindow);
+        Assert.False(access.IsVisible);
+        Assert.True(openedMainWindow.IsVisible);
+        Assert.Equal(1270, openedMainWindow.Width);
+        Assert.Equal(710, openedMainWindow.Height);
+        Assert.Equal(1, preferences.LoadAttempts);
+        Assert.Equal(0, preferences.SaveAttempts);
+
+        openedMainWindow.Close();
+        await DrainUiUntilAsync(() => !openedMainWindow.IsVisible);
+        Assert.Equal(1, preferences.SaveAttempts);
+    }
+
     [AvaloniaFact]
     public void StartupUsesThePlatformWorkspacePathProvider()
     {
@@ -186,6 +222,69 @@ public sealed class WorkspaceAccessWindowTests
             new StubWorkspaceStore(exists),
             "/data/workspace.db",
             _ => { }));
+
+    private static async Task DrainUiUntilAsync(Func<bool> condition)
+    {
+        while (!condition())
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(1, TestContext.Current.CancellationToken);
+        }
+
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    private sealed class RecordingMainWindowSizePreferenceStore(MainWindowSize loadedSize)
+        : IMainWindowSizePreferenceStore
+    {
+        public int LoadAttempts { get; private set; }
+
+        public int SaveAttempts { get; private set; }
+
+        public MainWindowSize? LoadMainWindowSize()
+        {
+            LoadAttempts++;
+            return loadedSize;
+        }
+
+        public bool TrySaveMainWindowSize(MainWindowSize size)
+        {
+            SaveAttempts++;
+            return true;
+        }
+    }
+
+    private sealed class FixedMainWindowScreenProvider(MainWindowSize size)
+        : IMainWindowScreenProvider
+    {
+        public MainWindowSize? GetUsableLogicalSize(Window window) => size;
+    }
+
+    private sealed class StubWorkspaceSession : IWorkspaceSession
+    {
+        public IWorkspaceWork Work { get; } = new MemoryWorkspaceWork();
+
+        public int SchemaVersion => 1;
+
+        public string FirstCategoryName => "Home";
+
+        public IWorkspaceRecovery Recovery => throw new NotSupportedException();
+
+        public DotOrbit.Core.Interchange.IProposalWorkspaceSource Proposals =>
+            throw new NotSupportedException();
+
+        public DotOrbit.Core.Interchange.IPlanningSnapshotSource Planning =>
+            throw new NotSupportedException();
+
+        public PassphraseRotationResult RotatePassphrase(
+            WorkspacePassphrase currentPassphrase,
+            WorkspacePassphrase newPassphrase) =>
+            PassphraseRotationResult.Failed();
+
+        public void Dispose()
+        {
+        }
+    }
 
     private sealed class StubWorkspaceStore(
         bool exists,
