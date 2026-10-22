@@ -12,8 +12,8 @@ Follow the canonical readiness, dependency, admission, and transition contract i
 
 ## Execution
 
-1. Take one ready issue.
-2. Create an isolated branch or worktree from the agreed base.
+1. Take one ready issue and confirm its ownership under [`issue-tracker.md`](../agents/issue-tracker.md).
+2. Create a dedicated branch from the agreed base. For concurrent implementation, follow [`parallel-work.md`](parallel-work.md): use a separate worktree or clone and prepare that checkout before editing.
 3. Reconfirm the issue against current source and docs.
 4. Implement the smallest vertical slice that proves the behaviour.
 5. Run focused checks continuously and the agreed gate at the end.
