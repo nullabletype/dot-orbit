@@ -112,6 +112,62 @@ public sealed class ApplicationThemeTests
     }
 
     [Fact]
+    public void WindowSizePreferenceDefaultsForMissingMalformedAndInvalidValues()
+    {
+        using var directory = new TemporaryDirectory();
+        var path = Path.Combine(directory.Path, "preferences.json");
+        var store = new JsonDevicePreferenceStore(path);
+
+        Assert.Null(store.LoadMainWindowSize());
+
+        foreach (var json in new[]
+                 {
+                     "{not-json",
+                     "{\"mainWindowWidth\":1280}",
+                     "{\"mainWindowHeight\":720}",
+                     "{\"mainWindowWidth\":-1,\"mainWindowHeight\":720}",
+                     "{\"mainWindowWidth\":0,\"mainWindowHeight\":720}",
+                     "{\"mainWindowWidth\":1280,\"mainWindowHeight\":0}",
+                     "{\"mainWindowWidth\":1280,\"mainWindowHeight\":-1}",
+                     "{\"mainWindowWidth\":1e400,\"mainWindowHeight\":720}",
+                 })
+        {
+            File.WriteAllText(path, json);
+            Assert.Null(store.LoadMainWindowSize());
+        }
+
+        var invalidContents = File.ReadAllText(path);
+        Assert.False(store.TrySaveMainWindowSize(new MainWindowSize(double.NaN, 720)));
+        Assert.False(store.TrySaveMainWindowSize(new MainWindowSize(1280, 0)));
+        Assert.Equal(invalidContents, File.ReadAllText(path));
+    }
+
+    [Fact]
+    public void WindowSizePreferenceRoundTripsWithoutClobberingOtherDevicePreferences()
+    {
+        using var directory = new TemporaryDirectory();
+        var path = Path.Combine(directory.Path, "preferences.json");
+        var store = new JsonDevicePreferenceStore(path);
+
+        Assert.True(store.TrySave(ApplicationTheme.Light));
+        Assert.True(store.TrySaveIncludeAgentInstructionsAndSchemaWithSnapshot(false));
+        Assert.True(store.TrySaveAiFeaturesEnabled(true));
+        Assert.True(store.TrySaveLocalMcpEnabled(true));
+        Assert.True(store.TrySaveMainWindowSize(new MainWindowSize(1320.5, 741.25)));
+
+        var reloaded = new JsonDevicePreferenceStore(path);
+        Assert.Equal(new MainWindowSize(1320.5, 741.25), reloaded.LoadMainWindowSize());
+        Assert.Equal(ApplicationTheme.Light, reloaded.Load());
+        Assert.False(reloaded.LoadIncludeAgentInstructionsAndSchemaWithSnapshot());
+        Assert.True(reloaded.LoadAiFeaturesEnabled());
+        Assert.True(reloaded.LoadLocalMcpEnabled());
+
+        Assert.True(reloaded.TrySave(ApplicationTheme.Dark));
+        Assert.Equal(new MainWindowSize(1320.5, 741.25), reloaded.LoadMainWindowSize());
+        Assert.Empty(Directory.GetFiles(directory.Path, "*.tmp"));
+    }
+
+    [Fact]
     public void AiFeaturePreferenceServiceChangesStateOnlyAfterPersistenceSucceeds()
     {
         var store = new RecordingAiFeaturePreferenceStore();
@@ -197,6 +253,25 @@ public sealed class ApplicationThemeTests
     }
 
     [Fact]
+    public void WindowSizePreferencePersistenceDoesNotAdvanceWorkspaceRevision()
+    {
+        using var directory = new TemporaryDirectory();
+        const string passphraseText = "synthetic window preference revision password";
+        var passphrase = WorkspacePassphrase.Create(passphraseText, passphraseText).Passphrase!;
+        using var session = Assert.IsAssignableFrom<IWorkspaceSession>(new EncryptedWorkspaceStore().Create(
+            Path.Combine(directory.Path, "workspace.db"),
+            passphrase,
+            CategoryName.Create("Home").CategoryName!).Session);
+        var before = session.Planning.Read().WorkspaceRevision;
+        var preferences = new JsonDevicePreferenceStore(
+            Path.Combine(directory.Path, "preferences.json"));
+
+        Assert.True(preferences.TrySaveMainWindowSize(new MainWindowSize(1280, 720)));
+
+        Assert.Equal(before, session.Planning.Read().WorkspaceRevision);
+    }
+
+    [Fact]
     public void PreferenceStoreReportsAnUnwritableDestinationWithoutLeavingATemporaryFile()
     {
         using var directory = new TemporaryDirectory();
@@ -205,6 +280,7 @@ public sealed class ApplicationThemeTests
         var store = new JsonDevicePreferenceStore(Path.Combine(blockedParent, "preferences.json"));
 
         Assert.False(store.TrySave(ApplicationTheme.Light));
+        Assert.False(store.TrySaveMainWindowSize(new MainWindowSize(1280, 720)));
         Assert.Equal(["not-a-directory"], Directory.GetFiles(directory.Path).Select(Path.GetFileName));
     }
 
