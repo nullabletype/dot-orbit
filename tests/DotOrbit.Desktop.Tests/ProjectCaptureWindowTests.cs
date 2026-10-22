@@ -293,6 +293,25 @@ public sealed class ProjectCaptureWindowTests
         var identityPill = Assert.Single(binRow.GetVisualDescendants().OfType<CategoryProjectPill>());
         Assert.Equal("Home", identityPill.CategoryName);
         Assert.Equal("Garden", identityPill.ProjectName);
+        var category = ButtonByAutomationId(window, $"task-category-{task.Id}");
+        var parentProject = Assert.Single(binRow.GetVisualDescendants().OfType<Button>(), button =>
+            AutomationProperties.GetAutomationId(button) == $"task-project-{task.Id}");
+        Assert.True(category.IsEffectivelyEnabled);
+        Assert.Equal("Open Category Home", AutomationProperties.GetName(category));
+        Assert.False(parentProject.IsEffectivelyEnabled);
+        Assert.Equal("Open Project Garden", AutomationProperties.GetName(parentProject));
+        Assert.Equal("Restore the parent Project from Bin before opening it.",
+            AutomationProperties.GetHelpText(parentProject));
+        Assert.False(parentProject.Focus());
+        Click(window, parentProject);
+        Assert.False(shell.Work!.HasInspector);
+        Assert.True(shell.BinNavigation.IsSelected);
+
+        Activate(window, category);
+
+        Assert.False(shell.Work!.HasInspector);
+        Assert.True(shell.PrimaryNavigation.Single(item => item.Title == "Categories").IsSelected);
+        Assert.True(ButtonByAutomationId(window, "category-selection-home").IsFocused);
         window.Close();
     }
 
@@ -327,6 +346,12 @@ public sealed class ProjectCaptureWindowTests
         var identityPill = Assert.Single(binRow.GetVisualDescendants().OfType<CategoryProjectPill>());
         Assert.Equal("Home", identityPill.CategoryName);
         Assert.Null(identityPill.ProjectName);
+        Assert.Equal(AccessibilityView.Raw, AutomationProperties.GetAccessibilityView(identityPill));
+        Assert.All(identityPill.GetVisualDescendants().OfType<Button>(), button =>
+        {
+            Assert.False(button.Focusable);
+            Assert.Equal(AccessibilityView.Raw, AutomationProperties.GetAccessibilityView(button));
+        });
         Assert.Equal("Restore Garden Project and its Tasks from Bin", AutomationProperties.GetName(restore));
         Assert.Contains("nearest surviving former positions", AutomationProperties.GetHelpText(restore), StringComparison.Ordinal);
         Assert.True(restore.Focus());
@@ -1574,19 +1599,19 @@ public sealed class ProjectCaptureWindowTests
         var dragOne = ButtonByAutomationId(window, $"backlog-reorder-{movedTask.Id}");
         var target = NamedButton(window, "Two");
         var start = CentreInWindow(dragOne, window);
-        var end = CentreInWindow(target, window);
+        var targetRow = target.GetVisualAncestors().OfType<Border>().First(border => border.Classes.Contains("backlog-row"));
+        var end = targetRow.TranslatePoint(new Point(targetRow.Bounds.Width / 2, targetRow.Bounds.Height * 0.75), window)!.Value;
         window.MouseDown(start, MouseButton.Left, RawInputModifiers.LeftMouseButton);
         window.MouseMove(end, RawInputModifiers.LeftMouseButton);
-        var targetRow = target.GetVisualAncestors().OfType<Border>().First(border => border.Classes.Contains("backlog-row"));
         Assert.Contains("drag-target", targetRow.Classes);
         AssertInsertionPlaceholder(targetRow);
         window.MouseUp(end, MouseButton.Left, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
+        Assert.Equal([otherSameTitle.Id, middleTask.Id, movedTask.Id], shell.Work.Backlog.Select(task => task.Id));
+        Assert.Equal(shell.Work.Backlog.Select(task => task.Id), work.Read().Tasks.Select(task => task.Id));
         targetRow = NamedButton(window, "Two").GetVisualAncestors().OfType<Border>()
             .First(border => border.Classes.Contains("backlog-row"));
         AssertNoInsertionPlaceholder(targetRow, new Thickness(0, 0, 0, 1), Color.Parse("#1D222C"));
-        Assert.Equal([otherSameTitle.Id, middleTask.Id, movedTask.Id], shell.Work.Backlog.Select(task => task.Id));
-        Assert.Equal(shell.Work.Backlog.Select(task => task.Id), work.Read().Tasks.Select(task => task.Id));
         window.Close();
     }
 
@@ -1920,10 +1945,16 @@ public sealed class ProjectCaptureWindowTests
     public void ArchiveSearchShowsContextAndKeyboardActivationOpensTheArchivedTask()
     {
         var work = new MemoryWorkspaceWork();
+        for (var index = 0; index < 18; index++)
+        {
+            var filler = work.CreateProject($"Archived filler {index:D2}", "", "work", null);
+            work.ArchiveProject(filler.Id);
+        }
         var project = work.CreateProject("Garden", "", "home", null);
         var task = work.CreateTaskDraft(project.Id, "Plant bulbs", "Blue **tulips** near the gate", null, null);
         work.SetCompletion(task.Id, new DateTimeOffset(2026, 9, 27, 12, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 27));
         work.ArchiveTask(task.Id);
+        work.ArchiveProject(project.Id);
         var shell = new ShellViewModel(work);
         shell.PrimaryNavigation.Single(item => item.Title == "Archive").SelectCommand.Execute(null);
         var window = new MainWindow { DataContext = shell };
@@ -1947,11 +1978,39 @@ public sealed class ProjectCaptureWindowTests
         Assert.Contains("Completed 27 Sep 2026", accessibleName, StringComparison.Ordinal);
         Assert.Contains("Blue tulips near the gate", accessibleName, StringComparison.Ordinal);
         Assert.DoesNotContain("**", accessibleName, StringComparison.Ordinal);
-        var identityPill = Assert.Single(result.GetVisualDescendants().OfType<CategoryProjectPill>());
+        var resultRow = result.GetVisualAncestors().OfType<Border>()
+            .First(border => border.Classes.Contains("archive-search-row"));
+        var identityPill = Assert.Single(resultRow.GetVisualDescendants().OfType<CategoryProjectPill>());
         Assert.Equal("Home", identityPill.CategoryName);
         Assert.Equal("Garden", identityPill.ProjectName);
         Assert.Equal(WorkType.Category,
             identityPill.GetVisualDescendants().OfType<IdentityTypeIcon>().First().WorkType);
+        var parentProject = Assert.Single(resultRow.GetVisualDescendants().OfType<Button>(), button =>
+            AutomationProperties.GetAutomationId(button) == $"task-project-{task.Id}");
+        Activate(window, parentProject);
+        Assert.False(shell.Work!.HasInspector);
+        Assert.True(work.Read().Projects.Single(item => item.Id == project.Id).IsArchived);
+        Assert.True(shell.PrimaryNavigation.Single(item => item.Title == "Archive").IsSelected);
+        Assert.Empty(shell.Work.ArchiveSearchText);
+        Assert.False(shell.Work.HasArchiveSearchQuery);
+        var archivedProject = ButtonByAutomationId(window, $"archive-project-{project.Id}");
+        Assert.True(archivedProject.IsFocused);
+        var archiveViewer = Assert.Single(archivedProject.GetVisualAncestors().OfType<ScrollViewer>(), candidate =>
+            candidate.IsEffectivelyVisible);
+        var archivedProjectOrigin = archivedProject.TranslatePoint(default, archiveViewer);
+        Assert.NotNull(archivedProjectOrigin);
+        Assert.True(archiveViewer.Offset.Y > 0);
+        var maximumArchiveOffset = archiveViewer.Extent.Height - archiveViewer.Viewport.Height;
+        Assert.InRange(Math.Abs(archiveViewer.Offset.Y - maximumArchiveOffset), 0, 0.5);
+        Assert.True(archivedProjectOrigin.Value.Y > 1);
+        Assert.InRange(
+            archivedProjectOrigin.Value.Y + archivedProject.Bounds.Height,
+            0,
+            archiveViewer.Viewport.Height);
+
+        search.Text = "blue";
+        Dispatcher.UIThread.RunJobs();
+        result = ButtonByAutomationId(window, $"archive-search-task-{task.Id}");
 
         Activate(window, result);
 
@@ -2023,7 +2082,8 @@ public sealed class ProjectCaptureWindowTests
         Assert.Contains("task-title", result.Classes);
         Assert.Contains("row-title", result.Classes);
         Assert.Equal(Colors.Transparent, Assert.IsAssignableFrom<ISolidColorBrush>(result.Background).Color);
-        Assert.InRange(row.Bounds.Height - result.Bounds.Height, 0, 0.5);
+        var identity = Assert.IsType<StackPanel>(result.GetVisualParent());
+        Assert.InRange(row.Bounds.Height - identity.Bounds.Height, 0, 0.5);
 
         var state = Assert.Single(row.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Archived Task");
         window.MouseMove(CentreInWindow(state, window), RawInputModifiers.None);
@@ -2615,10 +2675,26 @@ public sealed class ProjectCaptureWindowTests
             Assert.Equal(hasOverride, pill.HasOverride);
             Assert.True(pill.IsEffectivelyVisible);
             var taskButton = Assert.Single(row.GetVisualDescendants().OfType<Button>(),
-                button => button.Classes.Contains("backlog-task-title"));
+                button => button.Classes.Contains("task-title"));
             var peer = ControlAutomationPeer.CreatePeerForElement(taskButton);
             Assert.Contains($"Task {title}", peer.GetName(), StringComparison.Ordinal);
             Assert.Contains(accessibleRelationship, peer.GetName(), StringComparison.Ordinal);
+            var task = Assert.IsType<TaskRowViewModel>(row.DataContext);
+            var categoryButton = ButtonByAutomationId(window, $"task-category-{task.Id}");
+            Assert.Equal($"Open Category {categoryName}", AutomationProperties.GetName(categoryButton));
+            Assert.Equal(AccessibilityView.Control, AutomationProperties.GetAccessibilityView(categoryButton));
+            if (visibleRelationship == "Standalone")
+            {
+                Assert.DoesNotContain(
+                    pill.GetVisualDescendants().OfType<Button>(),
+                    button => button.Name == "ProjectButton");
+            }
+            else
+            {
+                var projectButton = ButtonByAutomationId(window, $"task-project-{task.Id}");
+                Assert.Equal($"Open Project {visibleRelationship}", AutomationProperties.GetName(projectButton));
+                Assert.Equal(AccessibilityView.Control, AutomationProperties.GetAccessibilityView(projectButton));
+            }
         }
     }
 
@@ -2643,17 +2719,17 @@ public sealed class ProjectCaptureWindowTests
         var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
         window.Show();
 
-        AssertScopedSurface("Projects", attached.Id, "Home");
-        AssertScopedSurface("Backlog", standalone.Id, "Work");
-        AssertScopedSurface("Categories", standalone.Id, "Work");
-        AssertScopedSurface("Completed", completed.Id, "Home");
-        AssertSurfacePill("Today", "Home", "Garden");
-        AssertSurfacePill("Upcoming", "Home", "Garden");
-        AssertSurfacePill("Archive", "Home", null);
-        AssertSurfacePill("Bin", "Work", null);
+        AssertScopedSurface("Projects", attached.Id, "Home", "Garden");
+        AssertScopedSurface("Backlog", standalone.Id, "Work", null);
+        AssertScopedSurface("Categories", standalone.Id, "Work", null);
+        AssertScopedSurface("Completed", completed.Id, "Home", "Garden");
+        AssertSurfacePill("Today", attached.Id, "Home", "Garden");
+        AssertSurfacePill("Upcoming", attached.Id, "Home", "Garden");
+        AssertSurfacePill("Archive", archived.Id, "Home", null);
+        AssertSurfacePill("Bin", binned.Id, "Work", null);
         window.Close();
 
-        void AssertScopedSurface(string view, string taskId, string categoryName)
+        void AssertScopedSurface(string view, string taskId, string categoryName, string? projectName)
         {
             SelectView(shell, view);
             Dispatcher.UIThread.RunJobs();
@@ -2663,19 +2739,70 @@ public sealed class ProjectCaptureWindowTests
                 && (candidate.DataContext is TaskRowViewModel task && task.Id == taskId
                     || candidate.DataContext is CategoryTaskRowViewModel categoryTask && categoryTask.Task.Id == taskId
                     || candidate.DataContext is CompletedTaskRowViewModel completedTask && completedTask.Task.Id == taskId));
-            var pill = Assert.Single(button.GetVisualDescendants().OfType<CategoryProjectPill>(), candidate => candidate.IsEffectivelyVisible);
+            var row = button.GetVisualAncestors().OfType<Border>().First(border =>
+                border.DataContext is TaskRowViewModel task && task.Id == taskId
+                || border.DataContext is CategoryTaskRowViewModel categoryTask && categoryTask.Task.Id == taskId
+                || border.DataContext is CompletedTaskRowViewModel completedTask && completedTask.Task.Id == taskId);
+            var pill = Assert.Single(row.GetVisualDescendants().OfType<CategoryProjectPill>(), candidate => candidate.IsEffectivelyVisible);
             Assert.Equal(categoryName, pill.CategoryName);
-            Assert.Equal(AccessibilityView.Raw, AutomationProperties.GetAccessibilityView(pill));
+            Assert.Equal(AccessibilityView.Content, AutomationProperties.GetAccessibilityView(pill));
+            Assert.Contains(pill.GetVisualDescendants().OfType<Button>(), candidate =>
+                candidate.IsEffectivelyVisible
+                && candidate.IsEffectivelyEnabled
+                && AutomationProperties.GetAccessibilityView(candidate) == AccessibilityView.Control);
+            AssertSegmentNavigation(view, taskId, categoryName, projectName, pill);
         }
 
-        void AssertSurfacePill(string view, string categoryName, string? projectName)
+        void AssertSurfacePill(string view, string taskId, string categoryName, string? projectName)
         {
             SelectView(shell, view);
             Dispatcher.UIThread.RunJobs();
-            Assert.Contains(window.GetVisualDescendants().OfType<CategoryProjectPill>(), pill =>
+            var pill = Assert.Single(window.GetVisualDescendants().OfType<CategoryProjectPill>(), pill =>
                 pill.IsEffectivelyVisible
                 && pill.CategoryName == categoryName
-                && pill.ProjectName == projectName);
+                && pill.ProjectName == projectName
+                && pill.GetVisualDescendants().OfType<Button>().Any(button =>
+                    AutomationProperties.GetAutomationId(button) == $"task-category-{taskId}"));
+            AssertSegmentNavigation(view, taskId, categoryName, projectName, pill);
+        }
+
+        void AssertSegmentNavigation(
+            string view,
+            string taskId,
+            string categoryName,
+            string? projectName,
+            CategoryProjectPill pill)
+        {
+            var category = Assert.Single(pill.GetVisualDescendants().OfType<Button>(), button =>
+                AutomationProperties.GetAutomationId(button) == $"task-category-{taskId}");
+            var parentProject = pill.GetVisualDescendants().OfType<Button>().SingleOrDefault(button =>
+                button.IsEffectivelyVisible
+                && AutomationProperties.GetAutomationId(button) == $"task-project-{taskId}");
+
+            Activate(window, category);
+            Assert.False(shell.Work!.HasInspector);
+            Assert.True(shell.PrimaryNavigation.Single(item => item.Title == "Categories").IsSelected);
+            Assert.True(ButtonByAutomationId(window,
+                $"category-selection-{categoryName.ToLowerInvariant()}").IsFocused);
+
+            if (projectName is not null)
+            {
+                Assert.NotNull(parentProject);
+                SelectView(shell, view);
+                var visibleProject = Assert.Single(window.GetVisualDescendants().OfType<Button>(), button =>
+                    button.IsEffectivelyVisible
+                    && AutomationProperties.GetAutomationId(button) == $"task-project-{taskId}");
+                Activate(window, visibleProject);
+                Assert.False(shell.Work.HasInspector);
+                Assert.True(shell.PrimaryNavigation.Single(item => item.Title == "Projects").IsSelected);
+                Assert.True(ButtonByAutomationId(window, $"project-selection-{project.Id}").IsFocused);
+            }
+            else
+            {
+                Assert.Null(parentProject);
+            }
+
+            if (view == "Projects") Assert.True(shell.Work.Projects.Single(item => item.Id == project.Id).IsExpanded);
         }
     }
 
@@ -2713,7 +2840,9 @@ public sealed class ProjectCaptureWindowTests
         Assert.Null(standalonePill.ProjectName);
         Assert.Equal(WorkType.Category, Assert.Single(standalonePill.GetVisualDescendants().OfType<IdentityTypeIcon>(),
             icon => icon.IsEffectivelyVisible).WorkType);
-        Assert.False(standalonePill.FindControl<Avalonia.Controls.Shapes.Path>("Join")!.IsVisible);
+        Assert.DoesNotContain(
+            standalonePill.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>(),
+            path => path.Name == "Join");
         window.Close();
 
         CategoryProjectPill PillFor(string taskId)
@@ -2722,6 +2851,194 @@ public sealed class ProjectCaptureWindowTests
                 border.Classes.Contains("backlog-row") && border.DataContext is TaskRowViewModel task && task.Id == taskId);
             return Assert.Single(row.GetVisualDescendants().OfType<CategoryProjectPill>());
         }
+    }
+
+    [AvaloniaFact]
+    public void TaskIdentityPillSegmentsAreKeyboardOrderedAndOpenTheirMainViews()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var task = work.CreateTask(project.Id, "Dig");
+        var shell = new ShellViewModel(work);
+        SelectView(shell, "Backlog");
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var row = Assert.Single(window.GetVisualDescendants().OfType<Border>(), border =>
+            border.Classes.Contains("backlog-row")
+            && border.DataContext is TaskRowViewModel candidate
+            && candidate.Id == task.Id);
+        var taskTitle = Assert.Single(row.GetVisualDescendants().OfType<Button>(), button =>
+            button.Classes.Contains("task-title"));
+        var category = ButtonByAutomationId(window, $"task-category-{task.Id}");
+        var parentProject = ButtonByAutomationId(window, $"task-project-{task.Id}");
+
+        Assert.True(taskTitle.Focus());
+        Tab(window);
+        Assert.True(category.IsFocused);
+        Tab(window);
+        Assert.True(parentProject.IsFocused);
+        Tab(window);
+        Assert.True(ToggleByAutomationId(window, $"task-today-{task.Id}").IsFocused);
+        window.KeyPressQwerty(PhysicalKey.Tab, RawInputModifiers.Shift);
+        window.KeyReleaseQwerty(PhysicalKey.Tab, RawInputModifiers.Shift);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(parentProject.IsFocused);
+        window.KeyPressQwerty(PhysicalKey.Tab, RawInputModifiers.Shift);
+        window.KeyReleaseQwerty(PhysicalKey.Tab, RawInputModifiers.Shift);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(category.IsFocused);
+
+        window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(shell.Work!.HasInspector);
+        Assert.True(shell.PrimaryNavigation.Single(item => item.Title == "Categories").IsSelected);
+        Assert.True(ButtonByAutomationId(window, "category-selection-home").IsFocused);
+
+        SelectView(shell, "Backlog");
+        var projectRow = shell.Work.Projects.Single(item => item.Id == project.Id);
+        projectRow.IsExpanded = false;
+        parentProject = Assert.Single(window.GetVisualDescendants().OfType<Button>(), button =>
+            button.IsEffectivelyVisible
+            && AutomationProperties.GetAutomationId(button) == $"task-project-{task.Id}");
+        Assert.True(parentProject.Focus());
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        window.KeyReleaseQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(shell.Work.HasInspector);
+        Assert.True(shell.PrimaryNavigation.Single(item => item.Title == "Projects").IsSelected);
+        Assert.True(ButtonByAutomationId(window, $"project-selection-{project.Id}").IsFocused);
+        Assert.False(projectRow.IsExpanded);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void TaskIdentityPillNavigationScrollsDistantCategoryAndProjectHeadingsIntoView()
+    {
+        var work = new MemoryWorkspaceWork();
+        ProjectRecord? targetProject = null;
+        for (var index = 0; index < 28; index++)
+        {
+            var project = work.CreateProject($"Project {index:D2}", "", "home", null);
+            if (index == 12) targetProject = project;
+        }
+        var projectTask = work.CreateTask(targetProject!.Id, "Open distant project");
+        WorkspaceCategory? targetCategory = null;
+        for (var index = 0; index < 28; index++)
+        {
+            var category = work.CreateCategory($"Category {index:D2}");
+            if (index == 12) targetCategory = category;
+        }
+        var categoryTask = work.CreateStandaloneTask("Open distant category", "", targetCategory!.Id, null);
+        var shell = new ShellViewModel(work);
+        SelectView(shell, "Backlog");
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        Activate(window, VisibleButton($"task-category-{categoryTask.Id}"));
+
+        var categoryTarget = ButtonByAutomationId(window, $"category-selection-{targetCategory.Id}");
+        Assert.True(categoryTarget.IsFocused);
+        AssertTopAlignedWithContentBelow(categoryTarget);
+
+        SelectView(shell, "Backlog");
+        Activate(window, VisibleButton($"task-project-{projectTask.Id}"));
+
+        var projectTarget = ButtonByAutomationId(window, $"project-selection-{targetProject.Id}");
+        Assert.True(projectTarget.IsFocused);
+        AssertTopAlignedWithContentBelow(projectTarget);
+        window.Close();
+
+        Button VisibleButton(string automationId) => Assert.Single(
+            window.GetVisualDescendants().OfType<Button>(), button =>
+                button.IsEffectivelyVisible
+                && AutomationProperties.GetAutomationId(button) == automationId);
+
+        static void AssertTopAlignedWithContentBelow(Button target)
+        {
+            var viewer = Assert.Single(target.GetVisualAncestors().OfType<ScrollViewer>(), candidate =>
+                candidate.IsEffectivelyVisible);
+            var row = Assert.Single(target.GetVisualAncestors().OfType<Border>(), candidate =>
+                candidate.Classes.Contains("project-row") || candidate.Classes.Contains("category-row"));
+            var rowOrigin = row.TranslatePoint(default, viewer);
+            var targetOrigin = target.TranslatePoint(default, viewer);
+            Assert.NotNull(rowOrigin);
+            Assert.NotNull(targetOrigin);
+            Assert.True(viewer.Offset.Y > 0);
+            var maximumOffset = viewer.Extent.Height - viewer.Viewport.Height;
+            Assert.True(maximumOffset - viewer.Offset.Y > 100);
+            Assert.InRange(rowOrigin.Value.Y, -0.5, 1.5);
+            Assert.InRange(targetOrigin.Value.Y, 6, 12);
+        }
+    }
+
+    [AvaloniaFact]
+    public void TaskIdentityPillSegmentsExposeNativeFocusHoverPressAndWholeSegmentPointerTargets()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var task = work.CreateTask(project.Id, "Dig");
+        var shell = new ShellViewModel(work);
+        SelectView(shell, "Backlog");
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var category = ButtonByAutomationId(window, $"task-category-{task.Id}");
+        var parentProject = ButtonByAutomationId(window, $"task-project-{task.Id}");
+        Assert.Equal(AutomationControlType.Button,
+            ControlAutomationPeer.CreatePeerForElement(category).GetAutomationControlType());
+        Assert.Equal(AutomationControlType.Button,
+            ControlAutomationPeer.CreatePeerForElement(parentProject).GetAutomationControlType());
+        Assert.True(category.Focus(NavigationMethod.Tab));
+        var focus = Assert.Single(category.GetVisualDescendants().OfType<Border>(), border =>
+            border.Name == "FocusIndicator");
+        Assert.True(focus.IsVisible);
+
+        var categoryChrome = Assert.Single(category.GetVisualDescendants().OfType<Border>(), border =>
+            border.Name == "SegmentChrome");
+        var segmentCentre = CentreInWindow(category, window);
+        window.MouseMove(segmentCentre, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(category.IsPointerOver);
+        var hover = Assert.IsAssignableFrom<ISolidColorBrush>(categoryChrome.Background).Color;
+        Assert.NotEqual(Colors.Transparent, hover);
+        window.MouseDown(segmentCentre, MouseButton.Left, RawInputModifiers.LeftMouseButton);
+        Dispatcher.UIThread.RunJobs();
+        var pressed = Assert.IsAssignableFrom<ISolidColorBrush>(categoryChrome.Background).Color;
+        Assert.NotEqual(hover, pressed);
+        window.MouseUp(segmentCentre, MouseButton.Left, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(shell.Work!.HasInspector);
+        Assert.True(shell.PrimaryNavigation.Single(item => item.Title == "Categories").IsSelected);
+        Assert.True(ButtonByAutomationId(window, "category-selection-home").IsFocused);
+
+        SelectView(shell, "Backlog");
+        category = Assert.Single(window.GetVisualDescendants().OfType<Button>(), button =>
+            button.IsEffectivelyVisible
+            && AutomationProperties.GetAutomationId(button) == $"task-category-{task.Id}");
+        var categoryPadding = category.TranslatePoint(
+            new Point(category.Bounds.Width - 3, category.Bounds.Height / 2), window)!.Value;
+        ClickSurface(window, categoryPadding);
+        Assert.True(shell.PrimaryNavigation.Single(item => item.Title == "Categories").IsSelected);
+        Assert.True(ButtonByAutomationId(window, "category-selection-home").IsFocused);
+
+        SelectView(shell, "Backlog");
+        parentProject = Assert.Single(window.GetVisualDescendants().OfType<Button>(), button =>
+            button.IsEffectivelyVisible
+            && AutomationProperties.GetAutomationId(button) == $"task-project-{task.Id}");
+        var join = Assert.Single(parentProject.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>(), path =>
+            path.Name == "Join");
+        Click(window, join);
+
+        Assert.False(shell.Work.HasInspector);
+        Assert.True(shell.PrimaryNavigation.Single(item => item.Title == "Projects").IsSelected);
+        Assert.True(ButtonByAutomationId(window, $"project-selection-{project.Id}").IsFocused);
+        window.Close();
     }
 
     [AvaloniaFact]
@@ -2904,7 +3221,7 @@ public sealed class ProjectCaptureWindowTests
             text.IsEffectivelyVisible && (text.Text == "Archived" || text.Text == "Completed 27 Sep 2026" || text.Text == "⚠ Overdue"));
 
         var archivedTitle = Assert.Single(archivedRow.GetVisualDescendants().OfType<Button>(), button =>
-            button.Classes.Contains("project-task-title"));
+            button.Classes.Contains("task-title") && button.DataContext is TaskRowViewModel row && row.Id == archived.Id);
         Assert.Contains("Archived 29 Sep 2026", AutomationProperties.GetName(archivedTitle), StringComparison.Ordinal);
         Assert.DoesNotContain("Completed 27 Sep 2026", AutomationProperties.GetName(archivedTitle), StringComparison.Ordinal);
 
@@ -3084,7 +3401,7 @@ public sealed class ProjectCaptureWindowTests
         var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
         window.Show();
 
-        AssertPillLayout("Projects", "project-task-row", attached.Id, 51);
+        AssertPillLayout("Projects", "project-task-row", attached.Id, 48);
         AssertPillLayout("Backlog", "backlog-row", standalone.Id, 54);
         AssertPillLayout("Categories", "category-task-row", standalone.Id, 54);
         AssertPillLayout("Completed", "completed-row", completed.Id, 54);
@@ -3102,13 +3419,19 @@ public sealed class ProjectCaptureWindowTests
                     || candidate.DataContext is CompletedTaskRowViewModel completedTask && completedTask.Task.Id == taskId));
             var button = Assert.Single(row.GetVisualDescendants().OfType<Button>(), candidate =>
                 candidate.Classes.Contains("task-title"));
-            var pill = Assert.Single(button.GetVisualDescendants().OfType<CategoryProjectPill>());
-            var identity = Assert.IsType<StackPanel>(pill.GetVisualParent());
-            var titleLine = Assert.IsType<Grid>(identity.Children[0]);
-            var measuredGap = pill.Bounds.Y - (titleLine.Bounds.Y + titleLine.Bounds.Height);
+            var identity = Assert.IsType<StackPanel>(button.GetVisualParent());
+            var pill = Assert.Single(identity.GetVisualDescendants().OfType<CategoryProjectPill>());
+            var title = Assert.Single(button.GetVisualDescendants().OfType<TextBlock>(), candidate =>
+                candidate.Classes.Contains("work-identity-title"));
+            var rowOrigin = OriginInWindow(row, window);
+            var titleOrigin = OriginInWindow(title, window);
+            var pillOrigin = OriginInWindow(pill, window);
+            var visibleTitleGap = pillOrigin.Y - (titleOrigin.Y + title.Bounds.Height);
+            var bottomClearance = rowOrigin.Y + row.Bounds.Height - (pillOrigin.Y + pill.Bounds.Height);
 
             Assert.InRange(Math.Abs(row.Bounds.Height - expectedHeight), 0, 0.5);
-            Assert.InRange(Math.Abs(measuredGap - 6), 0, 0.5);
+            Assert.InRange(visibleTitleGap, 5, 7);
+            Assert.True(bottomClearance >= 5);
             Assert.True(pill.Bounds.Height < row.Bounds.Height / 2);
         }
     }
@@ -3220,7 +3543,8 @@ public sealed class ProjectCaptureWindowTests
         var icon = Assert.Single(button.GetVisualDescendants().OfType<WorkTypeIcon>());
         var title = Assert.Single(button.GetVisualDescendants().OfType<TextBlock>(), text =>
             text.Classes.Contains("work-identity-title"));
-        var pill = Assert.Single(button.GetVisualDescendants().OfType<CategoryProjectPill>());
+        var identity = Assert.IsType<StackPanel>(button.GetVisualParent());
+        var pill = Assert.Single(identity.GetVisualDescendants().OfType<CategoryProjectPill>());
         var overrideIcon = Assert.Single(pill.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>(),
             icon => icon.Classes.Contains("category-pill-override-icon") && icon.IsEffectivelyVisible);
         var categoryText = Assert.Single(pill.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == overrideCategory.Name);
@@ -3255,7 +3579,7 @@ public sealed class ProjectCaptureWindowTests
         var projectButton = Assert.Single(window.GetVisualDescendants().OfType<Button>(), button =>
             button.Classes.Contains("project-title") && button.DataContext is ProjectRowViewModel row && row.Id == project.Id);
         var taskButton = Assert.Single(window.GetVisualDescendants().OfType<Button>(), button =>
-            button.Classes.Contains("project-task-title") && button.DataContext is TaskRowViewModel row && row.Id == task.Id);
+            button.Classes.Contains("task-title") && button.DataContext is TaskRowViewModel row && row.Id == task.Id);
 
         AssertOpticallyAlignedTitleIcon(projectButton, window);
         AssertOpticallyAlignedTitleIcon(taskButton, window);
