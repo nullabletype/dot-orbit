@@ -506,6 +506,11 @@ public sealed class ProjectCaptureViewModelTests
         Assert.False(row.CanRestore);
         Assert.True(row.IsRestoreBlocked);
         Assert.Equal("Restore the parent Project from Bin before restoring this Task.", row.RestoreBlockedText);
+        Assert.NotNull(row.OpenCategoryContextCommand);
+        Assert.True(row.OpenCategoryContextCommand.CanExecute(null));
+        Assert.NotNull(row.OpenProjectContextCommand);
+        Assert.False(row.OpenProjectContextCommand.CanExecute(null));
+        Assert.Equal("Restore the parent Project from Bin before opening it.", row.ProjectContextHelpText);
         row.RestoreCommand.Execute(null);
         Assert.Equal(task.Id, Assert.IsType<TaskRecord>(Assert.Single(model.Bin).Task).Id);
     }
@@ -1461,6 +1466,118 @@ public sealed class ProjectCaptureViewModelTests
         var categoryTask = Assert.Single(model.CategoryGroups.Single(category => category.Id == "work").StandaloneTasks);
         Assert.Equal(task.Id, categoryTask.Task.Id);
         Assert.True(categoryTask.Task.IsComplete);
+    }
+
+    [Fact]
+    public void TaskIdentityContextCommandsRequestTheEffectiveCategoryAndParentProjectMainViews()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var inherited = work.CreateTask(project.Id, "Inherited task");
+        var overridden = work.CreateTask(project.Id, "Overridden task");
+        work.UpdateTask(overridden.Id, overridden.Title, "", "work", null);
+        var standalone = work.CreateStandaloneTask("Standalone task", "", "work", null);
+        var model = new ProjectCaptureViewModel(work);
+        var requests = new List<MainViewNavigationRequestedEventArgs>();
+        model.MainViewNavigationRequested += (_, request) => requests.Add(request);
+
+        var inheritedRow = model.Backlog.Single(row => row.Id == inherited.Id);
+        inheritedRow.OpenCategoryContextCommand.Execute(null);
+
+        Assert.Equal(MainViewDestination.Categories, requests[^1].Destination);
+        Assert.Equal("category-selection-home", requests[^1].TargetAutomationId);
+        Assert.False(model.HasInspector);
+
+        var overriddenRow = model.Backlog.Single(row => row.Id == overridden.Id);
+        overriddenRow.OpenCategoryContextCommand.Execute(null);
+
+        Assert.Equal(MainViewDestination.Categories, requests[^1].Destination);
+        Assert.Equal("category-selection-work", requests[^1].TargetAutomationId);
+
+        inheritedRow.OpenProjectContextCommand.Execute(null);
+
+        Assert.Equal(MainViewDestination.Projects, requests[^1].Destination);
+        Assert.Equal($"project-selection-{project.Id}", requests[^1].TargetAutomationId);
+        Assert.Equal(3, requests.Count);
+        Assert.False(model.Backlog.Single(row => row.Id == standalone.Id)
+            .OpenProjectContextCommand.CanExecute(null));
+    }
+
+    [Theory]
+    [InlineData("save", "Renamed work", true)]
+    [InlineData("discard", "Work", true)]
+    [InlineData("stay", "Work", false)]
+    public void TaskIdentityContextNavigationUsesTheCategoryDraftDecisionBoundary(
+        string choice,
+        string persistedName,
+        bool requestsProject)
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var task = work.CreateTask(project.Id, "Dig");
+        var model = new ProjectCaptureViewModel(work);
+        MainViewNavigationRequestedEventArgs? request = null;
+        model.MainViewNavigationRequested += (_, value) => request = value;
+        model.SelectCategory("work");
+        model.Title = "Renamed work";
+
+        model.Backlog.Single(row => row.Id == task.Id).OpenProjectContextCommand.Execute(null);
+
+        Assert.True(model.NeedsDecision);
+        Assert.True(model.ShowCategoryInspector);
+        var command = choice switch
+        {
+            "save" => model.SaveAndLeaveCommand,
+            "discard" => model.DiscardAndLeaveCommand,
+            _ => model.StayCommand,
+        };
+        command.Execute(null);
+
+        Assert.False(model.NeedsDecision);
+        Assert.Equal(requestsProject, request is not null);
+        if (requestsProject)
+        {
+            Assert.Equal(MainViewDestination.Projects, request!.Destination);
+            Assert.Equal($"project-selection-{project.Id}", request.TargetAutomationId);
+            Assert.False(model.HasInspector);
+        }
+        else
+        {
+            Assert.True(model.ShowCategoryInspector);
+            Assert.Equal("Renamed work", model.Title);
+        }
+        Assert.Equal(persistedName, work.Read().Categories.Single(category => category.Id == "work").Name);
+    }
+
+    [Fact]
+    public async Task TaskIdentityContextNavigationRetriesAFailedTaskSaveBeforeRequestingTheCategoryMainView()
+    {
+        var work = new MemoryWorkspaceWork();
+        var edited = work.CreateStandaloneTask("Edited", "", "home", null);
+        var target = work.CreateStandaloneTask("Target", "", "work", null);
+        var writer = new ControlledInspectorSaveWriter(work);
+        var model = new ProjectCaptureViewModel(work, null, writer);
+        MainViewNavigationRequestedEventArgs? request = null;
+        model.MainViewNavigationRequested += (_, value) => request = value;
+        model.SelectTask(edited.Id);
+        model.Title = "Unsaved";
+
+        model.Backlog.Single(row => row.Id == target.Id).OpenCategoryContextCommand.Execute(null);
+        await writer.WaitForSubmissionCountAsync(1);
+        writer.FailNext();
+        await WaitUntilAsync(() => model.NeedsDecision);
+
+        Assert.True(model.HasAutosaveError);
+        Assert.Equal("Unsaved", model.Title);
+        model.SaveAndLeaveCommand.Execute(null);
+        await writer.WaitForSubmissionCountAsync(2);
+        writer.CompleteNext();
+        await WaitUntilAsync(() => request is not null);
+
+        Assert.Equal(MainViewDestination.Categories, request!.Destination);
+        Assert.Equal("category-selection-work", request.TargetAutomationId);
+        Assert.False(model.HasInspector);
+        Assert.Equal("Unsaved", work.Read().Tasks.Single(task => task.Id == edited.Id).Title);
     }
 
     [Theory]

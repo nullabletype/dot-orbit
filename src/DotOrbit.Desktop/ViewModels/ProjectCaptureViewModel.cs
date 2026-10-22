@@ -215,6 +215,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+    internal event EventHandler<MainViewNavigationRequestedEventArgs>? MainViewNavigationRequested;
     public ObservableCollection<ProjectRowViewModel> Projects { get; } = [];
     public ObservableCollection<ArchivedProjectRowViewModel> ArchivedProjects { get; } = [];
     public ObservableCollection<TaskRowViewModel> Backlog { get; } = [];
@@ -994,6 +995,42 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public void SelectProject(string id) => Navigate(() => LoadProject(id));
     public void SelectTask(string id) => Navigate(() => LoadTask(id));
     public void SelectCategory(string id) => Navigate(() => LoadCategory(id));
+
+    internal void OpenCategoryContext(string id) => Navigate(() =>
+    {
+        if (_snapshot.Categories.All(category => category.Id != id))
+        {
+            Message = "The Category is no longer available.";
+            return;
+        }
+        MainViewNavigationRequested?.Invoke(
+            this,
+            new(MainViewDestination.Categories, $"category-selection-{id}"));
+    });
+
+    internal void OpenProjectContext(string id) => Navigate(() =>
+    {
+        var project = _snapshot.Projects.FirstOrDefault(candidate => candidate.Id == id);
+        if (project is null)
+        {
+            Message = "The Project is no longer available.";
+            return;
+        }
+        if (project.IsArchived)
+        {
+            ArchiveSearchText = string.Empty;
+            MainViewNavigationRequested?.Invoke(
+                this,
+                new(MainViewDestination.Archive, $"archive-project-{id}"));
+            return;
+        }
+        MainViewNavigationRequested?.Invoke(
+            this,
+            new(MainViewDestination.Projects, $"project-selection-{id}"));
+    });
+
+    internal bool CanOpenProjectContext(string? id) =>
+        id is not null && _snapshot.Projects.Any(project => project.Id == id);
 
     private void AddParticipant()
     {
@@ -2744,6 +2781,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
                 return BinRowViewModel.ForTask(
                     this,
                     item,
+                    category.Id,
                     category.ColourKey,
                     project?.ColourKey ?? IdentityColourPalette.KeyForProjectPosition(0),
                     TimeZoneInfo.ConvertTime(item.RemovedAt, _timeProvider.LocalTimeZone));
@@ -2842,7 +2880,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             _taskRows.Add(task.Id, row);
         }
         var category = CategoryById(categoryId);
-        row.Refresh(task, category.Name, category.ColourKey, projectTitle,
+        row.Refresh(task, category.Id, category.Name, category.ColourKey, projectTitle,
             project?.ColourKey ?? IdentityColourPalette.KeyForProjectPosition(0), inherited, Today);
         return row;
     }
@@ -3030,18 +3068,18 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             var project = ArchivedProjects.Single(item => item.Project.Id == result.Id).Project;
             if (row is null)
                 return new(this, result, project.RelationshipText, project.CategoryName, project.CategoryColourKey,
-                    project.Title, project.ColourKey, false, string.Empty, isLast);
+                    project.Title, project.ColourKey, false, string.Empty, null, isLast);
             row.Refresh(result, project.RelationshipText, project.CategoryName, project.CategoryColourKey,
-                project.Title, project.ColourKey, false, string.Empty, isLast);
+                project.Title, project.ColourKey, false, string.Empty, null, isLast);
             return row;
         }
 
         var task = _taskRows[result.Id];
         if (row is null)
             return new(this, result, task.BroadRelationshipText, task.CategoryName, task.CategoryColourKey,
-                task.ProjectTitle, task.ProjectColourKey, task.HasCategoryOverride, task.CategoryOverrideText, isLast);
+                task.ProjectTitle, task.ProjectColourKey, task.HasCategoryOverride, task.CategoryOverrideText, task, isLast);
         row.Refresh(result, task.BroadRelationshipText, task.CategoryName, task.CategoryColourKey,
-            task.ProjectTitle, task.ProjectColourKey, task.HasCategoryOverride, task.CategoryOverrideText, isLast);
+            task.ProjectTitle, task.ProjectColourKey, task.HasCategoryOverride, task.CategoryOverrideText, task, isLast);
         return row;
     }
 
@@ -3812,6 +3850,21 @@ internal sealed record WorkspaceActionPerformanceTiming(
     TimeSpan DispatcherApplication,
     TimeSpan TotalCompletion);
 
+internal enum MainViewDestination
+{
+    Categories,
+    Projects,
+    Archive,
+}
+
+internal sealed class MainViewNavigationRequestedEventArgs(
+    MainViewDestination destination,
+    string targetAutomationId) : EventArgs
+{
+    public MainViewDestination Destination { get; } = destination;
+    public string TargetAutomationId { get; } = targetAutomationId;
+}
+
 public sealed record CategoryChoice(string? Id, string Name, string ColourKey = IdentityColourPalette.DefaultKey);
 public sealed record CategoryColourChoice(string Key, string Name);
 public sealed record TaskContextChoice(string? ProjectId, string Name);
@@ -4084,6 +4137,7 @@ public sealed class BinRowViewModel
         ProjectCaptureViewModel owner,
         ProjectBinRecord? projectItem,
         TaskBinRecord? taskItem,
+        string? categoryId,
         string categoryColourKey,
         string projectColourKey,
         DateTimeOffset localRemovedAt)
@@ -4107,6 +4161,18 @@ public sealed class BinRowViewModel
             if (Project is not null) owner.RestoreProjectFromBin(Project.Id);
             else owner.RestoreTaskFromBin(Task!.Id);
         });
+        OpenCategoryContextCommand = taskItem is null
+            ? null
+            : new(() => owner.OpenCategoryContext(categoryId!));
+        OpenProjectContextCommand = taskItem?.Task.ProjectId is not { } projectId
+            ? null
+            : new(
+                () => owner.OpenProjectContext(projectId),
+                () => owner.CanOpenProjectContext(projectId));
+        ProjectContextHelpText = taskItem?.ProjectTitle is not null
+            && !owner.CanOpenProjectContext(taskItem.Task.ProjectId)
+                ? "Restore the parent Project from Bin before opening it."
+                : string.Empty;
     }
 
     public static BinRowViewModel ForProject(
@@ -4114,15 +4180,16 @@ public sealed class BinRowViewModel
         ProjectBinRecord item,
         string categoryColourKey,
         DateTimeOffset localRemovedAt) => new(
-            owner, item, null, categoryColourKey, item.Project.ColourKey, localRemovedAt);
+            owner, item, null, null, categoryColourKey, item.Project.ColourKey, localRemovedAt);
 
     public static BinRowViewModel ForTask(
         ProjectCaptureViewModel owner,
         TaskBinRecord item,
+        string categoryId,
         string categoryColourKey,
         string projectColourKey,
         DateTimeOffset localRemovedAt) => new(
-            owner, null, item, categoryColourKey, projectColourKey, localRemovedAt);
+            owner, null, item, categoryId, categoryColourKey, projectColourKey, localRemovedAt);
 
     public ProjectRecord? Project { get; }
     public TaskRecord? Task { get; }
@@ -4134,6 +4201,9 @@ public sealed class BinRowViewModel
     public string CategoryName { get; }
     public string CategoryColourKey { get; }
     public string ProjectColourKey { get; }
+    public string CategoryContextAutomationId => Task is null ? string.Empty : $"task-category-{Task.Id}";
+    public string ProjectContextAutomationId => Task is null ? string.Empty : $"task-project-{Task.Id}";
+    public string ProjectContextHelpText { get; }
     public int TaskCount { get; }
     public bool IsStandaloneTask => IsTask && ProjectTitle is null;
     public bool HasCategoryOverride => IsTask && ProjectTitle is not null && Task!.ExplicitCategoryId is not null;
@@ -4173,6 +4243,8 @@ public sealed class BinRowViewModel
             : $"Restores {Title} to its nearest surviving former position."
         : RestoreBlockedText;
     public RelayCommand RestoreCommand { get; }
+    public RelayCommand? OpenCategoryContextCommand { get; }
+    public RelayCommand? OpenProjectContextCommand { get; }
 }
 
 public sealed record ArchivedWorkRowViewModel(
@@ -4226,10 +4298,11 @@ public sealed class ArchiveSearchResultViewModel : INotifyPropertyChanged
         string projectColourKey,
         bool hasCategoryOverride,
         string categoryOverrideText,
+        TaskRowViewModel? taskContext,
         bool isLast)
     {
         Refresh(result, relationshipText, categoryName, categoryColourKey, projectTitle,
-            projectColourKey, hasCategoryOverride, categoryOverrideText, isLast);
+            projectColourKey, hasCategoryOverride, categoryOverrideText, taskContext, isLast);
         OpenCommand = new(() =>
         {
             if (Result.RecordType == ArchiveSearchRecordType.Project) owner.SelectProject(Result.Id);
@@ -4265,6 +4338,7 @@ public sealed class ArchiveSearchResultViewModel : INotifyPropertyChanged
     public string ProjectColourKey { get; private set; } = IdentityColourPalette.KeyForProjectPosition(0);
     public bool HasCategoryOverride { get; private set; }
     public string CategoryOverrideText { get; private set; } = string.Empty;
+    public TaskRowViewModel? TaskContext { get; private set; }
     public string ContextText => string.Join(" · ", new[] { RelationshipText, Excerpt }
         .Where(value => !string.IsNullOrWhiteSpace(value)));
     public string AutomationId => $"archive-search-{Result.RecordType.ToString().ToLowerInvariant()}-{Result.Id}";
@@ -4293,6 +4367,7 @@ public sealed class ArchiveSearchResultViewModel : INotifyPropertyChanged
         string projectColourKey,
         bool hasCategoryOverride,
         string categoryOverrideText,
+        TaskRowViewModel? taskContext,
         bool isLast)
     {
         Result = result;
@@ -4303,6 +4378,7 @@ public sealed class ArchiveSearchResultViewModel : INotifyPropertyChanged
         ProjectColourKey = projectColourKey;
         HasCategoryOverride = hasCategoryOverride;
         CategoryOverrideText = categoryOverrideText;
+        TaskContext = taskContext;
         IsLast = isLast;
         foreach (var property in new[]
                  {
@@ -4311,7 +4387,7 @@ public sealed class ArchiveSearchResultViewModel : INotifyPropertyChanged
                      nameof(DateText), nameof(Excerpt), nameof(RelationshipText), nameof(CategoryName),
                      nameof(CategoryColourKey), nameof(ProjectTitle), nameof(PillProjectTitle), nameof(ProjectColourKey),
                      nameof(HasCategoryOverride), nameof(CategoryOverrideText), nameof(ContextText), nameof(AutomationId),
-                     nameof(RestoreAutomationId), nameof(RestoreAccessibleName), nameof(AccessibleName),
+                     nameof(RestoreAutomationId), nameof(RestoreAccessibleName), nameof(AccessibleName), nameof(TaskContext),
                  })
             PropertyChanged?.Invoke(this, new(property));
     }
@@ -4459,6 +4535,7 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
 {
     private readonly ProjectCaptureViewModel _owner;
     private string _title = string.Empty;
+    private string _categoryId = string.Empty;
     private string _categoryName = string.Empty;
     private string _categoryColourKey = IdentityColourPalette.DefaultKey;
     private string _categoryDisplay = string.Empty;
@@ -4492,6 +4569,10 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
         ToggleTodayCommand = new(() => owner.ToggleToday(id));
         ArchiveCommand = new(() => owner.RequestArchiveTask(id));
         RestoreCommand = new(() => owner.RestoreTask(id));
+        OpenCategoryContextCommand = new(() => owner.OpenCategoryContext(_categoryId));
+        OpenProjectContextCommand = new(
+            () => owner.OpenProjectContext(_projectId!),
+            () => owner.CanOpenProjectContext(_projectId));
         MoveProjectTaskUpCommand = new(() => MoveInProject(_projectPosition - 1));
         MoveProjectTaskDownCommand = new(() => MoveInProject(_projectPosition + 1));
         MoveProjectTaskToTopCommand = new(() => MoveInProject(0));
@@ -4500,6 +4581,7 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public string Id { get; }
+    public string CategoryId => _categoryId;
     public string? ProjectId => _projectId;
     public string Title => _title;
     public string CategoryName => _categoryName;
@@ -4507,6 +4589,8 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
     public string CategoryDisplay => _categoryDisplay;
     public string? ProjectTitle => _projectTitle;
     public string ProjectColourKey => _projectColourKey;
+    public string CategoryContextAutomationId => $"task-category-{Id}";
+    public string ProjectContextAutomationId => $"task-project-{Id}";
     public string RelationshipText => _projectTitle ?? "Standalone";
     public string BroadRelationshipText => _projectTitle is null
         ? $"Standalone · {CategoryName}"
@@ -4571,6 +4655,8 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
     public RelayCommand ToggleTodayCommand { get; }
     public RelayCommand ArchiveCommand { get; }
     public RelayCommand RestoreCommand { get; }
+    public RelayCommand OpenCategoryContextCommand { get; }
+    public RelayCommand OpenProjectContextCommand { get; }
     public RelayCommand MoveProjectTaskUpCommand { get; }
     public RelayCommand MoveProjectTaskDownCommand { get; }
     public RelayCommand MoveProjectTaskToTopCommand { get; }
@@ -4578,6 +4664,7 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
 
     public void Refresh(
         TaskRecord task,
+        string categoryId,
         string categoryName,
         string categoryColourKey,
         string? projectTitle,
@@ -4586,6 +4673,7 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
         DateOnly today)
     {
         _title = task.Title;
+        _categoryId = categoryId;
         _categoryName = categoryName;
         _categoryColourKey = categoryColourKey;
         _projectTitle = projectTitle;
@@ -4605,7 +4693,9 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
             : task.IsComplete
                 ? _completionDateText
                 : _isOverdue ? "⚠ Overdue" : string.Empty;
+        OpenProjectContextCommand.RaiseCanExecuteChanged();
         Notify(nameof(Title));
+        Notify(nameof(CategoryId));
         Notify(nameof(CategoryName));
         Notify(nameof(CategoryColourKey));
         Notify(nameof(CategoryDisplay));
@@ -4727,6 +4817,8 @@ public sealed class ProjectRowViewModel : INotifyPropertyChanged
     public bool HasCompletionDate => !string.IsNullOrEmpty(CompletionDateText);
     public string ReorderAccessibleName => $"Reorder {Title} in Projects";
     public string ReorderAutomationId => $"project-reorder-{Id}";
+    public string SelectionAutomationId => $"project-selection-{Id}";
+    public string ArchiveSelectionAutomationId => $"archive-project-{Id}";
     public string MoveUpAccessibleName => $"Move {Title} up in Projects";
     public string MoveDownAccessibleName => $"Move {Title} down in Projects";
     public string MoveToTopAccessibleName => $"Move {Title} to top of Projects";

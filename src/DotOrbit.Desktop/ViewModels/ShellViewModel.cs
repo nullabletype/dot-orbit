@@ -13,6 +13,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     private readonly IUiDispatcher _uiDispatcher;
     private readonly TimeProvider _timeProvider;
     private bool _hasProposalArrivalNotification;
+    private string _mainViewTargetAutomationId = string.Empty;
 
     public ShellViewModel(
         IWorkspaceWork? work = null,
@@ -145,6 +146,11 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             "Manage appearance, reusable Participants, and encrypted recovery options.",
             countText: null);
 
+        if (Work is not null)
+        {
+            Work.MainViewNavigationRequested += OnMainViewNavigationRequested;
+        }
+
         Select(PrimaryNavigation[0]);
         if (Work is not null)
         {
@@ -235,6 +241,8 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     public bool ShowEmpty => !ShowToday && !ShowUpcoming && !ShowProjects && !ShowBacklog && !ShowCompleted && !ShowArchive && !ShowBin && !ShowCategories && !ShowAI && !ShowSettings;
 
     public string ViewTitle => SelectedItem.Title;
+
+    public string MainViewTargetAutomationId => _mainViewTargetAutomationId;
 
     public string ViewSubtitle => SelectedItem.ViewSubtitle;
 
@@ -377,6 +385,20 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         if (Work is not null && wasBin != isBin) Work.SetBinActive(isBin);
         if (Work is not null && wasToday != isToday) Work.SetTodayActive(isToday);
         if (item.Title == "Settings") Settings?.Refresh();
+    }
+
+    private void OnMainViewNavigationRequested(object? sender, MainViewNavigationRequestedEventArgs e)
+    {
+        var title = e.Destination switch
+        {
+            MainViewDestination.Categories => "Categories",
+            MainViewDestination.Projects => "Projects",
+            MainViewDestination.Archive => "Archive",
+            _ => throw new ArgumentOutOfRangeException(nameof(e), e.Destination, "Unknown main-view destination."),
+        };
+        SelectCore(PrimaryNavigation.Single(item => item.Title == title));
+        _mainViewTargetAutomationId = e.TargetAutomationId;
+        OnPropertyChanged(nameof(MainViewTargetAutomationId));
     }
 
     private void UpdateCounts()

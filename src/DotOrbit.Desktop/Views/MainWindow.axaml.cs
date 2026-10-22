@@ -1261,6 +1261,15 @@ public sealed partial class MainWindow : Window
 
     private void OnShellChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(ShellViewModel.MainViewTargetAutomationId)
+            && sender is ShellViewModel { MainViewTargetAutomationId.Length: > 0 } targetShell)
+        {
+            Dispatcher.UIThread.Post(
+                () => BringIntoViewAndFocusAutomationId(targetShell.MainViewTargetAutomationId),
+                DispatcherPriority.ApplicationIdle);
+            return;
+        }
+
         if (e.PropertyName == nameof(ShellViewModel.AiFeaturesEnabled))
         {
             if (sender is ShellViewModel { AiFeaturesEnabled: false })
@@ -1540,6 +1549,36 @@ public sealed partial class MainWindow : Window
     private void FocusAutomationId(string automationId) => this.GetVisualDescendants().OfType<Control>()
         .FirstOrDefault(control => control.IsEffectivelyVisible
             && AutomationProperties.GetAutomationId(control) == automationId)?.Focus();
+
+    private void BringIntoViewAndFocusAutomationId(string automationId)
+    {
+        var target = this.GetVisualDescendants().OfType<Control>()
+            .FirstOrDefault(control => control.IsEffectivelyVisible
+                && AutomationProperties.GetAutomationId(control) == automationId);
+        if (target is null) return;
+
+        var alignmentTarget = target.GetVisualAncestors().OfType<Control>()
+            .FirstOrDefault(control => control.Classes.Contains("project-row")
+                || control.Classes.Contains("category-row")
+                || control.Classes.Contains("archive-row"))
+            ?? target;
+        var viewer = target.GetVisualAncestors().OfType<ScrollViewer>()
+            .FirstOrDefault(candidate => candidate.IsEffectivelyVisible);
+        var origin = viewer is null ? null : alignmentTarget.TranslatePoint(default, viewer);
+        if (viewer is not null && origin is not null)
+        {
+            var maximumOffset = Math.Max(0, viewer.Extent.Height - viewer.Viewport.Height);
+            var targetOffset = viewer.Offset.Y + origin.Value.Y;
+            viewer.Offset = new(
+                viewer.Offset.X,
+                Math.Clamp(targetOffset, 0, maximumOffset));
+        }
+        else
+        {
+            target.BringIntoView();
+        }
+        target.Focus();
+    }
 
     private void Navigate(Action action)
     {
