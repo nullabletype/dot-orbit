@@ -51,7 +51,7 @@ internal static partial class LocalEndpoint
     {
         if (OperatingSystem.IsWindows())
         {
-            return await CreateWindowsBootstrapListenerAsync(cancellationToken).ConfigureAwait(false);
+            return await CreateWindowsBootstrapListenerAsync(runtimeRoot, cancellationToken).ConfigureAwait(false);
         }
 
         PrepareUnixRuntimeRoot(runtimeRoot);
@@ -90,7 +90,7 @@ internal static partial class LocalEndpoint
     {
         if (OperatingSystem.IsWindows())
         {
-            return new EndpointAddress("pipe", GetWindowsBootstrapName());
+            return new EndpointAddress("pipe", GetWindowsBootstrapName(runtimeRoot));
         }
 
         PrepareUnixRuntimeRoot(runtimeRoot);
@@ -391,6 +391,7 @@ internal static partial class LocalEndpoint
 
     [SupportedOSPlatform("windows")]
     private static async Task<LocalEndpointListener> CreateWindowsBootstrapListenerAsync(
+        string runtimeRoot,
         CancellationToken cancellationToken)
     {
         for (var attempt = 0; attempt < 40; attempt++)
@@ -398,7 +399,7 @@ internal static partial class LocalEndpoint
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                return CreateWindowsListener(GetWindowsBootstrapName());
+                return CreateWindowsListener(GetWindowsBootstrapName(runtimeRoot));
             }
             catch (IOException) when (attempt < 39)
             {
@@ -503,11 +504,25 @@ internal static partial class LocalEndpoint
     }
 
     [SupportedOSPlatform("windows")]
-    private static string GetWindowsBootstrapName()
+    private static string GetWindowsBootstrapName(string runtimeRoot)
     {
         using var identity = WindowsIdentity.GetCurrent(TokenAccessLevels.Query);
         var sid = identity.User?.Value ?? throw new UnauthorizedAccessException("current-user-unavailable");
-        var digest = SHA256.HashData(Encoding.UTF8.GetBytes(sid));
+        return BuildWindowsBootstrapName(sid, runtimeRoot);
+    }
+
+    internal static string BuildWindowsBootstrapName(string operatingSystemSid, string runtimeRoot)
+    {
+        if (string.IsNullOrWhiteSpace(operatingSystemSid)
+            || string.IsNullOrWhiteSpace(runtimeRoot)
+            || !Path.IsPathFullyQualified(runtimeRoot))
+        {
+            throw new ProtocolException("runtime-root-invalid");
+        }
+
+        var canonicalRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(runtimeRoot))
+            .ToUpperInvariant();
+        var digest = SHA256.HashData(Encoding.UTF8.GetBytes($"{operatingSystemSid}\0{canonicalRoot}"));
         return $"dot-orbit-mcp-bootstrap-{Convert.ToHexStringLower(digest.AsSpan(0, 8))}";
     }
 

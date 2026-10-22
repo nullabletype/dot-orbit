@@ -12,6 +12,27 @@ namespace DotOrbit.Mcp.Ipc.Tests;
 public sealed class LocalEndpointTests
 {
     [Fact]
+    public void WindowsBootstrapNameIsScopedToTheRuntimeRoot()
+    {
+        using var first = new TemporaryDirectory();
+        using var second = new TemporaryDirectory();
+
+        var firstName = LocalEndpoint.BuildWindowsBootstrapName("S-1-5-21-test", first.Path);
+        var repeatedName = LocalEndpoint.BuildWindowsBootstrapName(
+            "S-1-5-21-test",
+            $"{first.Path}{Path.DirectorySeparatorChar}");
+        var caseVariantName = LocalEndpoint.BuildWindowsBootstrapName(
+            "S-1-5-21-test",
+            first.Path.ToUpperInvariant());
+        var secondName = LocalEndpoint.BuildWindowsBootstrapName("S-1-5-21-test", second.Path);
+
+        Assert.Equal(firstName, repeatedName);
+        Assert.Equal(firstName, caseVariantName);
+        Assert.NotEqual(firstName, secondName);
+        Assert.StartsWith("dot-orbit-mcp-bootstrap-", firstName, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task WindowsEndpointUsesVerifiedCurrentUserAcl()
     {
         if (!OperatingSystem.IsWindows())
