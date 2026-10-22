@@ -130,8 +130,9 @@ public sealed class McpServerTests
         Assert.Equal("retry-1", broker.IdempotencyKey);
         Assert.Equal("{}", System.Text.Encoding.UTF8.GetString(broker.Proposal.Span));
 
+        await streams.ClientOutput.DisposeAsync();
         timeout.Cancel();
-        await running;
+        await running.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
     }
 
     [Fact]
