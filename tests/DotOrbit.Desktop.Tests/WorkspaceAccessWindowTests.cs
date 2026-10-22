@@ -58,14 +58,15 @@ public sealed class WorkspaceAccessWindowTests
     [AvaloniaFact]
     public void StartupUsesThePlatformWorkspacePathProvider()
     {
+        const string providerPath = "/platform-data/dot-orbit/workspace.orb";
         var store = new StubWorkspaceStore(exists: false);
 
         _ = new WorkspaceAccessWindow(
             store,
-            new StubWorkspacePathProvider("/platform-data/dot-orbit/workspace.orb"),
+            new StubWorkspacePathProvider(providerPath),
             workspacePathAvailability: new StoreWorkspacePathAvailability(store));
 
-        Assert.Equal("/platform-data/dot-orbit/workspace.orb", store.LastExistsPath);
+        Assert.Equal(Path.GetFullPath(providerPath), store.LastExistsPath);
     }
 
     [AvaloniaFact]
