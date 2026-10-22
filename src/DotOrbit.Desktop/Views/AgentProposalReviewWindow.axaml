@@ -75,8 +75,7 @@
     </DataTemplate>
   </Window.Resources>
   <Grid RowDefinitions="Auto,*,Auto">
-    <StackPanel x:Name="ProposalReviewHeader" Grid.Row="0" Margin="32,28,32,16" Spacing="10"
-        IsEnabled="{Binding !NeedsConfirmation}">
+    <StackPanel x:Name="ProposalReviewHeader" Grid.Row="0" Margin="32,28,32,16" Spacing="10">
       <TextBlock Classes="eyebrow" Text="PROPOSAL REVIEW" />
       <TextBlock FontSize="28" FontWeight="Bold" Text="Review proposal" />
       <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
@@ -84,9 +83,29 @@
     </StackPanel>
 
     <ScrollViewer x:Name="ProposalReviewContent" Grid.Row="1" Margin="32,0,32,16"
-        Focusable="True" TabIndex="0" IsEnabled="{Binding !NeedsConfirmation}"
+        Focusable="True" TabIndex="0"
         AutomationProperties.Name="Proposal changes to review">
-      <StackPanel Spacing="16">
+      <StackPanel Margin="{StaticResource ScrollContentInset}" Spacing="16">
+        <Border x:Name="ProposalReviewSource" Classes="list-panel"
+            AutomationProperties.Name="Proposal source">
+          <StackPanel Spacing="4">
+            <TextBlock Classes="eyebrow" Text="SOURCE" />
+            <TextBlock FontSize="16" FontWeight="SemiBold" Text="{Binding SourceLabel}" />
+            <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
+                Text="{Binding SourceDetail}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+        <Border x:Name="ProposalRefreshedNotice" Padding="14,11"
+            Background="{DynamicResource AccentSurfaceBrush}"
+            BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" CornerRadius="8"
+            IsVisible="{Binding ProposalWasRefreshed}"
+            AutomationProperties.Name="Workspace changes safely incorporated into proposal review">
+          <StackPanel Spacing="4">
+            <TextBlock FontWeight="SemiBold" Text="Preview refreshed" />
+            <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
+                Text="{Binding RefreshedProposalNotice}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
         <Border Classes="list-panel">
           <StackPanel Spacing="5">
             <TextBlock FontSize="17" FontWeight="SemiBold" Text="{Binding ProposalKindLabel}" />
@@ -308,38 +327,20 @@
       </StackPanel>
     </ScrollViewer>
 
-    <Grid x:Name="ProposalReviewActions" Grid.Row="2" Margin="32,0,32,28" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="10"
-        IsEnabled="{Binding !NeedsConfirmation}">
+    <Grid x:Name="ProposalReviewActions" Grid.Row="2" Margin="32,0,32,28" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="10">
       <TextBlock VerticalAlignment="Center" Foreground="{DynamicResource MutedTextBrush}"
           IsVisible="{Binding HasStatusMessage}" Text="{Binding StatusMessage}" TextWrapping="Wrap"
           AutomationProperties.Name="Proposal review status" AutomationProperties.LiveSetting="Polite" />
       <Button x:Name="RetryProposalMaintenanceButton" Grid.Column="1" Classes="view-action"
           Content="Retry maintenance" IsVisible="{Binding CanRetryMaintenance}"
           Click="OnRetryMaintenance" AutomationProperties.Name="Retry committed proposal maintenance without replaying operations" />
-      <Button x:Name="RequestProposalApplyButton" Grid.Column="2" Classes="primary-action"
-          Content="{Binding ApplyButtonText}" IsEnabled="{Binding CanRequestApply}"
-          Click="OnRequestApply" AutomationProperties.Name="{Binding ApplyButtonAccessibleName}" />
+      <Button x:Name="ApplyProposalButton" Grid.Column="2" Classes="primary-action"
+          Content="{Binding ApplyButtonText}" IsEnabled="{Binding CanApply}"
+          Click="OnApply" AutomationProperties.Name="{Binding ApplyButtonAccessibleName}" />
       <Button x:Name="CloseProposalReviewButton" Grid.Column="3" Classes="view-action"
           Content="Close" IsEnabled="{Binding CanClose}" IsCancel="True"
           Click="OnClose" AutomationProperties.Name="Close proposal review" />
     </Grid>
 
-    <Border Grid.RowSpan="3" Classes="decision-overlay" IsVisible="{Binding NeedsConfirmation}">
-      <StackPanel Width="560" Spacing="16" AutomationProperties.LiveSetting="Assertive">
-        <StackPanel Spacing="5">
-          <TextBlock FontSize="20" FontWeight="Bold" Text="{Binding ConfirmationTitle}" />
-          <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
-              Text="{Binding ConfirmationBody}" />
-        </StackPanel>
-        <StackPanel Orientation="Horizontal" Spacing="12">
-          <Button x:Name="ConfirmProposalApplyButton" Classes="primary-action"
-              Content="{Binding ConfirmButtonText}" IsEnabled="{Binding CanConfirmApply}" Click="OnConfirmApply"
-              AutomationProperties.Name="{Binding ConfirmButtonAccessibleName}" />
-          <Button x:Name="CancelProposalApplyButton" Classes="view-action"
-              Content="Cancel" IsEnabled="{Binding CanCancelConfirmation}" Click="OnCancelApply"
-              AutomationProperties.Name="Cancel proposal application" />
-        </StackPanel>
-      </StackPanel>
-    </Border>
   </Grid>
 </Window>

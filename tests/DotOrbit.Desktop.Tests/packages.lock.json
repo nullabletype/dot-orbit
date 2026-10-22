@@ -305,6 +305,7 @@
           "DotOrbit.Export.Json": "[1.0.0, )",
           "DotOrbit.Interchange.Json": "[1.0.0, )",
           "DotOrbit.Markdown": "[1.0.0, )",
+          "DotOrbit.Mcp.Ipc": "[1.0.0, )",
           "DotOrbit.Storage.Sqlite": "[1.0.0, )"
         }
       },
@@ -330,6 +331,9 @@
         "dependencies": {
           "Markdig": "[1.4.0, )"
         }
+      },
+      "dotorbit.mcp.ipc": {
+        "type": "Project"
       },
       "dotorbit.storage.sqlite": {
         "type": "Project",

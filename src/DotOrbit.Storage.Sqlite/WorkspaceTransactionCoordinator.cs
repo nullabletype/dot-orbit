@@ -192,6 +192,7 @@ internal sealed class WorkspaceTransactionCoordinator
     internal ProposalStorageApplyStatus ExecuteProposal(
         ProposalExecutionPlan plan,
         Action apply,
+        Func<bool>? consumePendingProposal,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(plan);
@@ -269,6 +270,11 @@ internal sealed class WorkspaceTransactionCoordinator
                     {
                         apply();
                         cancellationToken.ThrowIfCancellationRequested();
+                        if (consumePendingProposal is not null && !consumePendingProposal())
+                        {
+                            return ProposalStorageApplyStatus.Failed;
+                        }
+
                         if (!WorkspaceRevisionStorage.HasTrackedChanges(connection, transaction))
                         {
                             return ProposalStorageApplyStatus.Failed;

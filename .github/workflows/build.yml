@@ -16,7 +16,7 @@ jobs:
   build-and-test:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -63,7 +63,3 @@ jobs:
           --
           --evidence
           --expected-sha "${{ github.sha }}"
-      - name: Compare MCP prototype package shapes and redirected stdio
-        run: |
-          dotnet restore DotOrbit.slnx --locked-mode --configfile NuGet.Config
-          dotnet run --project prototype/mcp-secure-ipc/DotOrbit.McpIpcPrototype.PackageCheck/DotOrbit.McpIpcPrototype.PackageCheck.csproj --configuration Release --no-restore -- --repository-root . --runtime ${{ matrix.runtime }}

@@ -332,6 +332,7 @@ public sealed class PackageArchiveTests
         private static readonly string[] PayloadNames =
         [
             "dot-orbit.exe",
+            "dot-orbit-mcp.exe",
             "LICENSE.txt",
             "THIRD-PARTY-NOTICES.md",
             "ANGLE-LICENSE.txt",
@@ -383,7 +384,7 @@ public sealed class PackageArchiveTests
                 .ToArray();
             var manifest = JsonSerializer.Serialize(new
             {
-                schemaVersion = 2,
+                schemaVersion = 3,
                 runtimeIdentifier = "win-x64",
                 version = manifestVersion,
                 configuration = "Release",
@@ -419,6 +420,7 @@ public sealed class PackageArchiveTests
             "win-x64",
             "1.2.3",
             "dot-orbit.exe",
+            "dot-orbit-mcp.exe",
             usesUnixArchive: false);
 
         public void Dispose() => System.IO.Directory.Delete(Directory, recursive: true);

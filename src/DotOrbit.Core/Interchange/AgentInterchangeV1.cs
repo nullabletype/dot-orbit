@@ -7,10 +7,14 @@ public static class AgentInterchangeV1
     public const string NewWorkProposalFormat = "dot-orbit-new-work-proposal";
     public const int SchemaVersion = 1;
     public const int MaximumOutputBytes = 16 * 1024 * 1024;
+    public const int MaximumProposalBytes = 4 * 1024 * 1024;
+    public const int MaximumPendingProposals = 10;
+    public const int MaximumPendingReviewBasisBytes = 4 * 1024 * 1024;
     public const int MaximumIdentifierScalars = 128;
     public const int MaximumTitleScalars = 1024;
     public const int MaximumDescriptionScalars = 65_536;
     public const int MaximumOperations = 512;
+    public const int MaximumPreviewEffects = 2_000;
 
     public const string PlanningSnapshotSchemaId =
         "https://raw.githubusercontent.com/nullabletype/dot-orbit/main/schemas/interchange/v1/planning-snapshot.schema.json";

@@ -3,7 +3,9 @@ using System.Text.Json;
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless.XUnit;
+using Avalonia.Layout;
 using Avalonia.Media.Imaging;
 using Avalonia.Styling;
 using Avalonia.Threading;
@@ -20,6 +22,26 @@ namespace DotOrbit.Desktop.Tests;
 
 public sealed class AgentProposalReviewViewModelTests
 {
+    [Fact]
+    public void ReviewIdentifiesManualAndSelfReportedLocalMcpSources()
+    {
+        var manual = new AgentProposalReviewViewModel(
+            CreatePlan(),
+            new UnavailableApplication(),
+            source: ProposalReviewSource.JsonFileImport);
+        var inbound = new AgentProposalReviewViewModel(
+            CreatePlan(),
+            new UnavailableApplication(),
+            "receipt-1",
+            ProposalReviewSource.LocalMcp("Codex"));
+
+        Assert.Equal("JSON file import", manual.SourceLabel);
+        Assert.DoesNotContain("/", manual.SourceDetail, StringComparison.Ordinal);
+        Assert.Equal("Codex via local MCP", inbound.SourceLabel);
+        Assert.Contains("Self-reported", inbound.SourceDetail, StringComparison.Ordinal);
+        Assert.Contains("operating-system account", inbound.SourceDetail, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void EveryVersionOneOperationHasAnExplicitOrderedReviewLabelAndReference()
     {
@@ -94,9 +116,10 @@ public sealed class AgentProposalReviewViewModelTests
         Assert.Equal(expected, AgentProposalReviewViewModel.EffectName(kind));
 
     [AvaloniaFact]
-    public void ReviewWindowExposesCompleteNamedListsAndWholeProposalConfirmation()
+    public void ReviewWindowAppliesDirectlyWithoutASecondConfirmation()
     {
-        var viewModel = new AgentProposalReviewViewModel(CreatePlan(), new UnavailableApplication());
+        var application = new UnavailableApplication();
+        var viewModel = new AgentProposalReviewViewModel(CreatePlan(), application);
         var window = new AgentProposalReviewWindow(viewModel, new ReadyHost());
         window.Show();
 
@@ -108,14 +131,43 @@ public sealed class AgentProposalReviewViewModelTests
         Assert.True(window.MinWidth > 0);
         Assert.True(window.MinHeight > 0);
 
-        viewModel.RequestApply();
+        var apply = Assert.IsType<Button>(window.FindControl<Button>("ApplyProposalButton"));
+        apply.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
 
-        Assert.True(viewModel.NeedsConfirmation);
-        Assert.False(window.FindControl<StackPanel>("ProposalReviewHeader")!.IsEnabled);
-        Assert.False(window.FindControl<ScrollViewer>("ProposalReviewContent")!.IsEnabled);
-        Assert.False(window.FindControl<Grid>("ProposalReviewActions")!.IsEnabled);
-        var confirm = Assert.IsType<Button>(window.FindControl<Button>("ConfirmProposalApplyButton"));
-        Assert.Equal(viewModel.ConfirmButtonAccessibleName, AutomationProperties.GetName(confirm));
+        Assert.Equal(1, application.ApproveCount);
+        Assert.Null(window.FindControl<Button>("ConfirmProposalApplyButton"));
+        Assert.False(viewModel.CanApply);
+        Assert.Contains("Nothing was applied", viewModel.StatusMessage, StringComparison.Ordinal);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void ReviewContentKeepsCardsClearOfTheVerticalScrollBar()
+    {
+        var viewModel = new AgentProposalReviewViewModel(CreatePlan(), new UnavailableApplication());
+        var window = new AgentProposalReviewWindow(viewModel, new ReadyHost())
+        {
+            Width = 860,
+            Height = 720,
+        };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var content = Assert.IsType<ScrollViewer>(window.FindControl<ScrollViewer>("ProposalReviewContent"));
+        var impliedText = Assert.Single(content.GetVisualDescendants().OfType<TextBlock>(), text =>
+            text.IsEffectivelyVisible
+            && string.Equals(text.Text, viewModel.ImpliedChangesNote, StringComparison.Ordinal));
+        var impliedCard = Assert.IsType<Border>(impliedText.GetVisualParent());
+        var verticalScrollBar = content.GetVisualDescendants().OfType<ScrollBar>()
+            .Where(scrollBar => scrollBar.Orientation == Orientation.Vertical && scrollBar.IsEffectivelyVisible)
+            .MaxBy(scrollBar => scrollBar.Bounds.Height)!;
+        var cardRight = impliedCard.TranslatePoint(new Point(impliedCard.Bounds.Width, 0), window)!.Value.X;
+        var scrollBarLeft = verticalScrollBar.TranslatePoint(default, window)!.Value.X;
+
+        Assert.True(
+            cardRight <= scrollBarLeft - 8,
+            $"Review card right edge {cardRight} must leave an 8px gutter before scrollbar {scrollBarLeft}.");
         window.Close();
     }
 
@@ -154,10 +206,9 @@ public sealed class AgentProposalReviewViewModelTests
         Assert.Contains("1 category", viewModel.ProposalKindSummary, StringComparison.Ordinal);
         Assert.Contains("No existing item is referenced or edited directly", viewModel.ProposalKindSummary, StringComparison.Ordinal);
         Assert.False(viewModel.HasSourceDetails);
-        Assert.Equal("Add all new work…", viewModel.ApplyButtonText);
-        Assert.Contains("adding all shown new work", viewModel.ApplyButtonAccessibleName, StringComparison.Ordinal);
-        Assert.Contains("adding all shown new work", viewModel.ConfirmButtonAccessibleName, StringComparison.Ordinal);
-        Assert.Equal("Add this new work?", viewModel.ConfirmationTitle);
+        Assert.Equal("Add new work", viewModel.ApplyButtonText);
+        Assert.Contains("Add all shown new work", viewModel.ApplyButtonAccessibleName, StringComparison.Ordinal);
+        Assert.Contains("validated encrypted recovery point", viewModel.ApplyButtonAccessibleName, StringComparison.Ordinal);
         Assert.Equal("What will be added", viewModel.ReviewHeading);
         var creation = Assert.Single(viewModel.ReviewEffects, effect => effect.Kind == "Add task");
         Assert.Equal("Synthetic task", creation.TargetLabel);
@@ -537,9 +588,9 @@ public sealed class AgentProposalReviewViewModelTests
         window.Show();
 
         var details = Assert.IsType<Expander>(window.FindControl<Expander>("ProposalTechnicalDetails"));
-        var apply = Assert.IsType<Button>(window.FindControl<Button>("RequestProposalApplyButton"));
+        var apply = Assert.IsType<Button>(window.FindControl<Button>("ApplyProposalButton"));
         Assert.False(details.IsExpanded);
-        Assert.Equal("Add all new work…", apply.Content);
+        Assert.Equal("Add new work", apply.Content);
         Assert.Equal(viewModel.ApplyButtonAccessibleName, AutomationProperties.GetName(apply));
         Assert.IsType<StackPanel>(window.FindControl<StackPanel>("ProposalEffectsList"));
 
@@ -911,7 +962,7 @@ public sealed class AgentProposalReviewViewModelTests
             var scroll = Assert.IsType<ScrollViewer>(window.FindControl<ScrollViewer>("ProposalReviewContent"));
             Assert.True(scroll.Viewport.Height > 0);
             Assert.True(scroll.Extent.Height > scroll.Viewport.Height);
-            Assert.True(window.FindControl<Button>("RequestProposalApplyButton")!.IsEffectivelyVisible);
+            Assert.True(window.FindControl<Button>("ApplyProposalButton")!.IsEffectivelyVisible);
             Assert.True(window.FindControl<Button>("CloseProposalReviewButton")!.IsEffectivelyVisible);
 
             using var bitmap = new RenderTargetBitmap(
@@ -923,27 +974,24 @@ public sealed class AgentProposalReviewViewModelTests
     }
 
     [Fact]
-    public async Task WholeProposalConfirmationCallsApproveOnceAndUnavailableApprovalCannotReplay()
+    public async Task DirectApplyCallsApproveOnceAndUnavailableApprovalCannotReplay()
     {
         var application = new UnavailableApplication();
         var viewModel = new AgentProposalReviewViewModel(CreatePlan(), application);
 
-        Assert.True(viewModel.CanRequestApply);
-        viewModel.RequestApply();
-        Assert.True(viewModel.NeedsConfirmation);
-        Assert.Equal(0, application.ApproveCount);
+        Assert.True(viewModel.CanApply);
 
-        await viewModel.ConfirmApplyAsync(new ReadyHost());
-        await viewModel.ConfirmApplyAsync(new ReadyHost());
+        await viewModel.ApplyAsync(new ReadyHost());
+        await viewModel.ApplyAsync(new ReadyHost());
 
         Assert.Equal(1, application.ApproveCount);
         Assert.Equal(0, application.ApplyCount);
-        Assert.False(viewModel.CanRequestApply);
+        Assert.False(viewModel.CanApply);
         Assert.Contains("Nothing was applied", viewModel.StatusMessage, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task ConfirmedPlanAppliesThroughRealEncryptedStoreAndCannotReplay()
+    public async Task DirectApplyUsesRealEncryptedStoreAndCannotReplay()
     {
         using var directory = new TemporaryDirectory();
         var passphrase = WorkspacePassphrase.Create(
@@ -962,12 +1010,11 @@ public sealed class AgentProposalReviewViewModelTests
             CreatePlan(session.Proposals),
             session.ProposalApplication);
 
-        viewModel.RequestApply();
-        await viewModel.ConfirmApplyAsync(new ReadyHost());
-        await viewModel.ConfirmApplyAsync(new ReadyHost());
+        await viewModel.ApplyAsync(new ReadyHost());
+        await viewModel.ApplyAsync(new ReadyHost());
 
         Assert.Contains("applied atomically", viewModel.StatusMessage, StringComparison.Ordinal);
-        Assert.False(viewModel.CanRequestApply);
+        Assert.False(viewModel.CanApply);
         Assert.False(viewModel.CanRetryMaintenance);
         Assert.Single(session.Work.Read().Tasks, task => task.Title == "Synthetic task");
         Assert.Single(Directory.GetFiles(
@@ -976,17 +1023,13 @@ public sealed class AgentProposalReviewViewModelTests
     }
 
     [Fact]
-    public void DiscardInvalidatesReadyOrConfirmingPlanAndAnnouncesReviewRequirement()
+    public void DiscardInvalidatesReadyPlanAndAnnouncesReviewRequirement()
     {
         var application = new UnavailableApplication();
         var viewModel = new AgentProposalReviewViewModel(CreatePlan(), application);
-        viewModel.RequestApply();
-
         viewModel.Discard();
 
-        Assert.False(viewModel.NeedsConfirmation);
-        Assert.False(viewModel.CanRequestApply);
-        Assert.False(viewModel.CanConfirmApply);
+        Assert.False(viewModel.CanApply);
         Assert.Contains("invalidated", viewModel.StatusMessage, StringComparison.Ordinal);
         Assert.Equal(0, application.ApproveCount);
     }

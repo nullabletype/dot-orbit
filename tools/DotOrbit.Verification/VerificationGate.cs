@@ -87,6 +87,7 @@ internal sealed class VerificationGate(
     IVerificationOutput output)
 {
     private static readonly TimeSpan SmokeTimeout = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan TestTimeout = TimeSpan.FromMinutes(10);
 
     public async Task<int> RunAsync(VerificationOptions options, CancellationToken cancellationToken)
     {
@@ -231,7 +232,14 @@ internal sealed class VerificationGate(
         yield return PackageAudit("deprecation-audit", workingDirectory, "--deprecated");
         yield return Positive("format", workingDirectory, "dotnet", "format", "DotOrbit.slnx", "--no-restore", "--verify-no-changes");
         yield return Positive("build", workingDirectory, "dotnet", "build", "DotOrbit.slnx", "--configuration", "Release", "--no-restore");
-        yield return Positive("tests", workingDirectory, "dotnet", "test", "--solution", "DotOrbit.slnx", "--configuration", "Release", "--no-build");
+        yield return new VerificationPhase(
+            "tests",
+            new ProcessRequest(
+                "dotnet",
+                ["test", "--solution", "DotOrbit.slnx", "--configuration", "Release", "--no-build"],
+                TestTimeout,
+                WorkingDirectory: workingDirectory),
+            result => !result.TimedOut && result.ExitCode == 0);
         yield return Smoke("native-smoke", workingDirectory, "--native-smoke", 0, "native-smoke: phase=complete result=passed shutdown=requested");
         yield return Smoke("native-smoke-startup-control", workingDirectory, "--native-smoke-failure=startup", 20, "native-smoke: phase=startup result=failed code=20");
         yield return Smoke("native-smoke-navigation-control", workingDirectory, "--native-smoke-failure=navigation", 21, "native-smoke: phase=navigation-assertion result=failed code=21");

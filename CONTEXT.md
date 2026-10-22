@@ -76,6 +76,14 @@ An untrusted, ordered JSON document containing typed operations against one Plan
 
 An untrusted, ordered JSON document that creates an entirely new proposal-local graph of Categories, Participants, Projects, and Tasks without requiring a Planning snapshot or naming any durable workspace identity. It cannot update or connect to existing work. Review binds its immutable plan to the current Workspace revision; Apply rejects a changed workspace and otherwise uses the same direct-work review, explicit approval, recovery, and atomic transaction boundary as a Change proposal.
 
+### Local agent client
+
+An external same-user process that reaches an unlocked workspace through the packaged MCP stdio adapter and the private desktop broker. Its display name and version are unverified metadata. Access is granted only to an exact set of read-context and/or submit-proposal scopes after deliberate in-app approval; remembered trust binds the adapter credential verifier, verified operating-system account, workspace, and exact scopes, not the display name.
+
+### Pending proposal
+
+One encrypted inbound proposal waiting in the bounded local-agent review queue. Submission creates review work, not workspace work: it cannot approve or apply itself, and it never replaces or merges another queued proposal or the independent manual draft.
+
 ### Planned: Workspace revision
 
 A durable, monotonically increasing identity for committed user-data state. Each transaction that actually changes user data advances it exactly once, including changes to archived, binned, or otherwise hidden state. Reads, export, snapshot generation, recovery creation and retention, passphrase operations, schema migration, device-local preferences, and derived-index maintenance do not advance it. Replacing working data through recovery restore rebases the restored workspace to a new successor revision.
@@ -132,7 +140,13 @@ A durable, monotonically increasing identity for committed user-data state. Each
 ### Planned agent-interchange invariants
 
 48. Agent interchange uses the same domain actions and invariants as direct user actions; it is not a privileged mutation route.
-49. A Change proposal applies completely and atomically against its exact source Workspace revision and snapshot identity or does not apply; a New-work proposal applies completely against the Workspace revision captured at Review or does not apply.
+49. A Change proposal applies completely and atomically against the exact Workspace revision and snapshot identity shown in its Review or does not apply. Manual intake must still match the shared source exactly. An encrypted queued Change proposal may be replanned at Review against a later Workspace state only when its admission-captured compatibility basis proves that every field, relationship, record, or aggregate its operations depend on is unchanged; unrelated fields and incidental ordering metadata do not make a content edit stale. A New-work proposal applies completely against the Workspace revision captured at Review or does not apply.
 50. Agent interchange cannot directly change Today membership or lanes, shared Task order, Project order, or Category order; ordinary side effects of approved domain actions still occur.
 51. Proposal-local references never become durable identity; every created record receives a fresh application-generated identity.
 52. A New-work proposal is creation-only and local-reference-only; updating or connecting existing work requires a snapshot-bound Change proposal.
+53. Local agent access exists only while the workspace is unlocked and both the global AI gate and local MCP gate are enabled; disabling the global gate also persists the local gate off.
+54. A local agent client may read within an approved scope without a prompt for every read, but no transport capability grants proposal approval or Apply authority.
+55. Local agent submissions enter an encrypted, insertion-ordered queue of at most ten pending proposals, separate from manual proposal intake; a full queue rejects new work without replacement or implicit merge, while an exact idempotent retry retains its original receipt semantics.
+56. Remembered local-agent trust survives restart, but connections and short-lived connection-bound capabilities do not; revoke, disconnect, lock, either disabled gate, or process exit invalidates live authority.
+57. Local same-user IPC excludes other operating-system accounts but does not prove the identity of a particular application or defend against a compromised user session, administrator, root, or process injection.
+58. Queue reconciliation never rewrites, drops, repairs, partially applies, or silently approves proposal operations. An absent, invalid, or changed compatibility basis fails closed, while a safely refreshed preview remains subject to explicit whole-proposal approval and the ordinary exact-state Apply check.

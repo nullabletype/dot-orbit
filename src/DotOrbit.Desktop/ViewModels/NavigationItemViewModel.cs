@@ -8,6 +8,7 @@ public sealed class NavigationItemViewModel : INotifyPropertyChanged
 {
     private bool _isSelected;
     private string? _countText;
+    private string? _attentionText;
 
     internal NavigationItemViewModel(
         string title,
@@ -49,8 +50,32 @@ public sealed class NavigationItemViewModel : INotifyPropertyChanged
 
     public bool HasCount => CountText is not null;
 
+    public string? AttentionText
+    {
+        get => _attentionText;
+        internal set
+        {
+            if (string.Equals(value, _attentionText, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _attentionText = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasAttention));
+            OnPropertyChanged(nameof(AccessibleCount));
+        }
+    }
+
+    public bool HasAttention => AttentionText is not null;
+
     public string AccessibleCount => CountText switch
     {
+        _ when string.Equals(AttentionText, "Review 1", StringComparison.Ordinal) =>
+            "1 proposal awaiting review",
+        _ when AttentionText is not null =>
+            AttentionText.Replace("Review ", string.Empty, StringComparison.Ordinal)
+            + " proposals awaiting review",
         null => string.Empty,
         "1" => "1 item",
         _ => $"{CountText} items",

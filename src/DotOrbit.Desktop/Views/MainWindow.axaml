@@ -45,6 +45,10 @@
               Classes="nav-count"
               IsVisible="{Binding HasCount}"
               Text="{Binding CountText}" />
+          <Border Grid.Column="2" Classes="nav-attention" IsVisible="{Binding HasAttention}">
+            <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}"
+                Text="{Binding AttentionText}" />
+          </Border>
         </Grid>
       </RadioButton>
     </DataTemplate>
@@ -168,7 +172,7 @@
         Background="{DynamicResource BackgroundBrush}"
         BorderBrush="{DynamicResource LineBrush}"
         BorderThickness="0,0,0,1">
-      <Grid ColumnDefinitions="228,*">
+      <Grid ColumnDefinitions="228,*,Auto">
         <StackPanel
             Grid.Column="0"
             Margin="22,0,0,0"
@@ -224,6 +228,26 @@
                 Command="{Binding Work.RetryWorkspaceRefreshCommand}"
                 AutomationProperties.AutomationId="retry-workspace-refresh"
                 AutomationProperties.Name="Retry workspace refresh" />
+          </Grid>
+        </Border>
+        <Border x:Name="ProposalArrivalNotification" Grid.Column="2"
+            Margin="24,0,20,0" Padding="10,5" MaxWidth="540"
+            HorizontalAlignment="Right" VerticalAlignment="Center"
+            Background="{DynamicResource AccentSurfaceBrush}"
+            BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" CornerRadius="10"
+            IsVisible="{Binding HasProposalArrivalNotification}">
+          <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+            <TextBlock VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"
+                Foreground="{DynamicResource AccentBrush}" Text="{Binding ProposalArrivalMessage}"
+                TextWrapping="Wrap" MaxLines="2"
+                AutomationProperties.Name="{Binding ProposalArrivalMessage}"
+                AutomationProperties.LiveSetting="Polite" />
+            <Button Grid.Column="1" Classes="view-action" Padding="9,5" Content="Review"
+                Click="OnOpenPendingProposals"
+                AutomationProperties.Name="Open AI proposals awaiting review" />
+            <Button Grid.Column="2" Classes="view-action" Padding="9,5" Content="Dismiss"
+                Click="OnDismissProposalArrival"
+                AutomationProperties.Name="Dismiss AI proposal arrival message" />
           </Grid>
         </Border>
       </Grid>
@@ -1119,11 +1143,14 @@
                 Text="Off by default. Enable the local, provider-neutral tools for sharing planning context and reviewing agent proposals." />
           </StackPanel>
           <Border Classes="list-panel row-list">
-            <Border Classes="interactive-row separated-row last" MinHeight="54">
+            <StackPanel>
+            <Border Classes="interactive-row separated-row" MinHeight="54">
               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                 <StackPanel VerticalAlignment="Center" Spacing="2">
                   <TextBlock FontWeight="SemiBold" Text="Enable AI features" />
-                  <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
+                  <TextBlock x:Name="SettingsAiFeaturesDescription" FontSize="12"
+                      HorizontalAlignment="Stretch" TextAlignment="Left"
+                      Foreground="{DynamicResource MutedTextBrush}"
                       Text="Stored on this device. Enabling does not contact an AI provider or share workspace data." TextWrapping="Wrap" />
                 </StackPanel>
                 <ToggleSwitch
@@ -1136,7 +1163,62 @@
                     AutomationProperties.ItemStatus="{Binding Settings.AiFeaturesStatus}" />
               </Grid>
             </Border>
+            <Border Classes="interactive-row separated-row last" MinHeight="74"
+                IsVisible="{Binding Settings.ShowLocalMcpSettings}">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <StackPanel VerticalAlignment="Center" Spacing="2">
+                  <TextBlock FontWeight="SemiBold" Text="Enable local MCP" />
+                  <TextBlock x:Name="SettingsLocalMcpDescription" MaxWidth="690" FontSize="12"
+                      HorizontalAlignment="Stretch" TextAlignment="Left"
+                      Foreground="{DynamicResource MutedTextBrush}"
+                      Text="Approved software running as your OS user can read sensitive plaintext current-work context and submit untrusted proposals for your review. It cannot approve or apply changes."
+                      TextWrapping="Wrap" />
+                </StackPanel>
+                <ToggleSwitch
+                    x:Name="SettingsLocalMcpToggle"
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    IsChecked="{Binding Settings.LocalMcpEnabled, Mode=TwoWay}"
+                    AutomationProperties.AutomationId="settings-local-mcp"
+                    AutomationProperties.Name="Enable local MCP"
+                    AutomationProperties.ItemStatus="{Binding Settings.LocalMcpStatus}" />
+              </Grid>
+            </Border>
+            </StackPanel>
           </Border>
+          <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
+              Text="{Binding Settings.LocalMcpStatus}"
+              IsVisible="{Binding Settings.ShowLocalMcpSettings}"
+              AutomationProperties.Name="Local MCP status"
+              AutomationProperties.LiveSetting="Polite" />
+          <StackPanel Spacing="8" IsVisible="{Binding Settings.ShowLocalMcpSettings}">
+            <TextBlock FontWeight="SemiBold" Text="Authorised local clients" />
+            <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
+                Text="No clients are remembered. A new client must be approved in dot-orbit."
+                IsVisible="{Binding Settings.HasNoAuthorizedMcpClients}" TextWrapping="Wrap" />
+            <ItemsControl ItemsSource="{Binding Settings.AuthorizedMcpClients}"
+                IsVisible="{Binding Settings.HasAuthorizedMcpClients}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:AuthorizedMcpClientViewModel">
+                  <Border Classes="list-panel" Margin="0,0,0,6">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                      <StackPanel Spacing="3">
+                        <TextBlock FontWeight="SemiBold" Text="{Binding ClientLabel}" TextWrapping="Wrap" />
+                        <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
+                            Text="{Binding VerifiedAccount}" TextWrapping="Wrap" />
+                        <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
+                            Text="{Binding Scopes}" TextWrapping="Wrap" />
+                      </StackPanel>
+                      <Button Grid.Column="1" Classes="view-action" Content="Revoke"
+                          Command="{Binding RevokeCommand}"
+                          AutomationProperties.AutomationId="{Binding RevokeAutomationId}"
+                          AutomationProperties.Name="{Binding RevokeAccessibleName}" />
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
         </StackPanel>
 
         <StackPanel Spacing="10">
@@ -1346,6 +1428,80 @@
               Text="dot-orbit does not contact an AI provider. Bring a structured proposal from an agent into dot-orbit, review what it will do, then decide whether to apply it." />
         </StackPanel>
 
+        <StackPanel Spacing="10" IsVisible="{Binding Ai.HasPendingInboundProposal}">
+          <Border x:Name="AiPendingProposalSummary" Padding="18,15"
+              Background="{DynamicResource AccentSurfaceBrush}"
+              BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" CornerRadius="10"
+              AutomationProperties.Name="Pending AI proposal summary">
+            <StackPanel Spacing="8">
+              <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="24">
+                <StackPanel Spacing="3">
+                  <TextBlock FontSize="18" FontWeight="Bold" Text="{Binding Ai.PendingProposalHeading}" />
+                  <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
+                      Text="Nothing has been applied. Every request is stored separately." TextWrapping="Wrap" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                  <TextBlock HorizontalAlignment="Right" FontSize="18" FontWeight="Bold"
+                      Foreground="{DynamicResource AccentBrush}" Text="{Binding Ai.PendingCapacityText}" />
+                  <TextBlock FontSize="11" Foreground="{DynamicResource QuietTextBrush}" Text="QUEUE CAPACITY" />
+                </StackPanel>
+                <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                  <TextBlock HorizontalAlignment="Right" FontSize="18" FontWeight="Bold"
+                      Foreground="{DynamicResource AccentBrush}" Text="{Binding Ai.PendingNewWorkCount}" />
+                  <TextBlock FontSize="11" Foreground="{DynamicResource QuietTextBrush}" Text="NEW WORK" />
+                </StackPanel>
+                <StackPanel Grid.Column="3" VerticalAlignment="Center">
+                  <TextBlock HorizontalAlignment="Right" FontSize="18" FontWeight="Bold"
+                      Foreground="{DynamicResource AccentBrush}" Text="{Binding Ai.PendingChangeCount}" />
+                  <TextBlock FontSize="11" Foreground="{DynamicResource QuietTextBrush}" Text="CHANGES" />
+                </StackPanel>
+              </Grid>
+              <TextBlock x:Name="AiPendingProposalReviewStatus" FontSize="12"
+                  Foreground="{DynamicResource AccentBrush}"
+                  Text="{Binding Ai.PendingProposalReviewStatus}" TextWrapping="Wrap"
+                  IsVisible="{Binding Ai.HasPendingProposalReviewStatus}"
+                  AutomationProperties.Name="Pending proposal review status"
+                  AutomationProperties.LiveSetting="Polite" />
+            </StackPanel>
+          </Border>
+          <Border Classes="list-panel row-list" AutomationProperties.Name="AI proposals awaiting review">
+            <ItemsControl x:Name="AiPendingProposalList" Focusable="False"
+                ItemsSource="{Binding Ai.PendingProposals}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:PendingProposalRowViewModel">
+                  <Border Classes="interactive-row separated-row" Classes.last="{Binding IsLast}" MinHeight="76"
+                      AutomationProperties.Name="{Binding AccessibleName}">
+                    <Grid ColumnDefinitions="*,*,150,Auto,Auto" ColumnSpacing="14">
+                      <StackPanel VerticalAlignment="Center" Spacing="3">
+                        <TextBlock FontWeight="SemiBold" Text="{Binding Title}" />
+                        <TextBlock FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
+                            Text="{Binding ReceivedText}" />
+                      </StackPanel>
+                      <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
+                        <TextBlock FontSize="12" FontWeight="SemiBold" Text="{Binding KindLabel}" />
+                        <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
+                            Text="{Binding Summary}" TextWrapping="Wrap" />
+                      </StackPanel>
+                      <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="3">
+                        <TextBlock FontSize="12" FontWeight="SemiBold" Text="{Binding SourceLabel}"
+                            TextTrimming="CharacterEllipsis" />
+                        <TextBlock FontSize="11" Foreground="{DynamicResource QuietTextBrush}"
+                            Text="via local MCP · self-reported" />
+                      </StackPanel>
+                      <Button Grid.Column="3" Classes="view-action" Content="Discard" VerticalAlignment="Center"
+                          Click="OnDiscardInboundProposal"
+                          AutomationProperties.Name="{Binding DiscardAccessibleName}" />
+                      <Button Grid.Column="4" Classes="primary-action" Content="Review" VerticalAlignment="Center"
+                          Click="OnReviewInboundProposal"
+                          AutomationProperties.Name="{Binding ReviewAccessibleName}" />
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </Border>
+        </StackPanel>
+
         <StackPanel Spacing="10">
           <StackPanel Spacing="4">
             <TextBlock FontSize="20" FontWeight="Bold" Text="Bring work into dot-orbit" />
@@ -1371,9 +1527,11 @@
                   AutomationProperties.HelpText="Sensitive untrusted plaintext. Maximum 4 MiB strict UTF-8. Review is required before Apply." />
               <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="10">
                 <Button x:Name="AiProposalPasteButton" Classes="view-action" Content="Paste"
+                    IsEnabled="{Binding Ai.CanReplaceProposalText}"
                     Click="OnPasteProposal" AutomationProperties.AutomationId="ai-proposal-paste"
                     AutomationProperties.Name="Paste an agent proposal from the clipboard" />
                 <Button x:Name="AiProposalLoadButton" Grid.Column="1" Classes="view-action" Content="Load from file…"
+                    IsEnabled="{Binding Ai.CanReplaceProposalText}"
                     Click="OnLoadProposal" AutomationProperties.AutomationId="ai-proposal-load"
                     AutomationProperties.Name="Load an agent proposal from one local JSON file" />
                 <TextBlock Grid.Column="2" VerticalAlignment="Center" Foreground="{DynamicResource QuietTextBrush}"

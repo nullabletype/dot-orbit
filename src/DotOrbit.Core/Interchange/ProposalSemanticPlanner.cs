@@ -15,6 +15,7 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
         source,
         currentSnapshotId,
         proposalDigest,
+        proposalDigest,
         identityVerifier: null,
         applicationSource: null);
 
@@ -24,6 +25,7 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
         ProposalWorkspaceState source,
         string? currentSnapshotId,
         string proposalDigest,
+        string sourcePayloadDigest,
         IPlanningSnapshotIdentityVerifier? identityVerifier)
     {
         ArgumentNullException.ThrowIfNull(applicationSource);
@@ -32,6 +34,7 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
             source,
             currentSnapshotId,
             proposalDigest,
+            sourcePayloadDigest,
             identityVerifier,
             applicationSource);
     }
@@ -41,6 +44,7 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
         ProposalWorkspaceState source,
         string? currentSnapshotId,
         string proposalDigest,
+        string sourcePayloadDigest,
         IPlanningSnapshotIdentityVerifier? identityVerifier,
         IProposalWorkspaceSource? applicationSource)
     {
@@ -70,7 +74,7 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
         try
         {
             simulation.Finish();
-            return new(new(proposal.Kind, currentSnapshotId, source.Revision, proposalDigest,
+            return new(new(proposal.Kind, currentSnapshotId, source.Revision, proposalDigest, sourcePayloadDigest,
                 Array.AsReadOnly(operations), Array.AsReadOnly(simulation.Effects.ToArray()),
                 simulation.Instant, simulation.TimeZone, identityVerifier, applicationSource), []);
         }
@@ -209,7 +213,7 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
         }
         private void Effect(string kind, string key, string before, string after, params string[] markdownFields)
         {
-            Check(Effects.Count < 2000, "preview-effect-limit");
+            Check(Effects.Count < AgentInterchangeV1.MaximumPreviewEffects, "preview-effect-limit");
             var label = tasks.TryGetValue(key, out var task) ? task.Title : projects.TryGetValue(key, out var project) ? project.Title
                 : categories.TryGetValue(key, out var category) ? category.Name : participants.TryGetValue(key, out var participant) ? participant.Label
                 : source.TaskBin.First(item => item.Task.Id == key).Task.Title;
