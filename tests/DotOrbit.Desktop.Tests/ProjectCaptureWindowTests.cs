@@ -5564,6 +5564,70 @@ public sealed class ProjectCaptureWindowTests
             changedOutsideRoundedCorners == 0,
             $"Hover changed {changedOutsideRoundedCorners} pixels outside the panel's rounded corners.");
 
+        var changedOutlinePixels = 0;
+        const int outlineScan = radius + 2;
+        const double innerOutlineRadius = radius - 1;
+        const double outerOutlineRadius = radius + 1;
+        for (var yOffset = 0; yOffset < outlineScan; yOffset++)
+        {
+            for (var xOffset = 0; xOffset < outlineScan; xOffset++)
+            {
+                var horizontalDistance = radius - xOffset - 0.5;
+                var verticalDistance = radius - yOffset - 0.5;
+                var squaredDistance = (horizontalDistance * horizontalDistance)
+                    + (verticalDistance * verticalDistance);
+                if (squaredDistance < innerOutlineRadius * innerOutlineRadius
+                    || squaredDistance > outerOutlineRadius * outerOutlineRadius)
+                {
+                    continue;
+                }
+
+                foreach (var y in new[] { top + yOffset, bottom - yOffset })
+                {
+                    if (resting.GetPixel(left + xOffset, y) != hovered.GetPixel(left + xOffset, y))
+                    {
+                        changedOutlinePixels++;
+                    }
+
+                    if (resting.GetPixel(right - xOffset, y) != hovered.GetPixel(right - xOffset, y))
+                    {
+                        changedOutlinePixels++;
+                    }
+                }
+            }
+        }
+
+        Assert.True(
+            changedOutlinePixels == 0,
+            $"Hover changed {changedOutlinePixels} pixels in the panel's rounded outline. "
+            + $"Panel={panel.Bounds}; row={row.Bounds}; row origin={rowOrigin}; panel origin={panelOrigin}.");
+
+        var rowMiddle = (int)(rowOrigin.Y + (row.Bounds.Height / 2));
+        var innerEdgePoints = new List<PixelPoint>
+        {
+            new(left + (int)panel.BorderThickness.Left, rowMiddle),
+            new(right - (int)panel.BorderThickness.Right, rowMiddle),
+        };
+        if (Math.Abs(rowOrigin.Y - panelOrigin.Y - panel.BorderThickness.Top) < 0.5)
+        {
+            innerEdgePoints.Add(new(
+                (int)(panelOrigin.X + (panel.Bounds.Width / 2)),
+                top + (int)panel.BorderThickness.Top));
+        }
+
+        var rowBottom = rowOrigin.Y + row.Bounds.Height;
+        var panelInnerBottom = panelOrigin.Y + panel.Bounds.Height - panel.BorderThickness.Bottom;
+        if (Math.Abs(rowBottom - panelInnerBottom) < 0.5 && row.BorderThickness.Bottom == 0)
+        {
+            innerEdgePoints.Add(new(
+                (int)(panelOrigin.X + (panel.Bounds.Width / 2)),
+                bottom - (int)panel.BorderThickness.Bottom));
+        }
+
+        Assert.All(innerEdgePoints, point => Assert.NotEqual(
+            resting.GetPixel(point.X, point.Y),
+            hovered.GetPixel(point.X, point.Y)));
+
         var interior = new PixelPoint(
             (int)(panelOrigin.X + panel.Bounds.Width / 2),
             (int)(rowOrigin.Y + row.Bounds.Height) - 4);

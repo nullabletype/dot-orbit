@@ -28,26 +28,36 @@ public sealed class RoundedClip : AvaloniaObject
         if (border.GetValue(IsEnabledProperty))
         {
             border.SizeChanged += OnBorderSizeChanged;
-            UpdateClip(border, border.Bounds.Size);
+            UpdateClip(border);
         }
         else
         {
-            border.Clip = null;
+            ClearClip(border);
         }
     }
 
-    private static void OnBorderSizeChanged(object? sender, SizeChangedEventArgs args)
+    private static void OnBorderSizeChanged(object? sender, SizeChangedEventArgs _)
     {
-        UpdateClip((Border)sender!, args.NewSize);
+        UpdateClip((Border)sender!);
     }
 
-    private static void UpdateClip(Border border, Size size)
+    private static void UpdateClip(Border border)
     {
-        var thickness = border.BorderThickness;
-        var borderInset = Math.Max(
-            Math.Max(thickness.Left, thickness.Top),
-            Math.Max(thickness.Right, thickness.Bottom));
-        var radius = border.CornerRadius.TopLeft + borderInset;
-        border.Clip = new RectangleGeometry(new Rect(size), radius, radius);
+        if (border.Child is not Control child)
+        {
+            return;
+        }
+
+        const double antiAliasGuard = 0.5;
+        var radius = border.CornerRadius.TopLeft + antiAliasGuard;
+        child.Clip = new RectangleGeometry(new Rect(child.Bounds.Size), radius, radius);
+    }
+
+    private static void ClearClip(Border border)
+    {
+        if (border.Child is Control child)
+        {
+            child.Clip = null;
+        }
     }
 }
