@@ -1,6 +1,7 @@
 <Styles
     xmlns="https://github.com/avaloniaui"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:desktop="using:DotOrbit.Desktop">
   <Style Selector="Border.list-panel">
     <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
@@ -11,6 +12,7 @@
   <Style Selector="Border.list-panel.row-list">
     <Setter Property="Padding" Value="0" />
     <Setter Property="ClipToBounds" Value="True" />
+    <Setter Property="desktop:RoundedClip.IsEnabled" Value="True" />
   </Style>
   <Style Selector="Border.attention-panel">
     <Setter Property="Padding" Value="12" />

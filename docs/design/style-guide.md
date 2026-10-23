@@ -38,7 +38,7 @@ The implemented recipes live in `src/DotOrbit.Desktop/Styles/ComponentRecipes.ax
 
 ### Panels and empty states
 
-- `list-panel` supplies the shared surface, border, radius and equal 10px content inset. Add `row-list` to panels containing interactive rows: it removes panel padding and clips row fills to the rounded panel boundary. Rows own their horizontal content padding; non-row headings and controls retain their own insets. Nested groups may add spacing between groups only.
+- `list-panel` supplies the shared surface, border, radius and equal 10px content inset. Add `row-list` to panels containing interactive rows: it removes panel padding and clips row fills to the rounded panel geometry, including its corners. Rows own their horizontal content padding; non-row headings and controls retain their own insets. Nested groups may add spacing between groups only.
 - `attention-panel` supplies the shared bounded surface for warnings and consequential confirmations. It uses the amber semantic token, but its text must carry the meaning without relying on colour.
 - `empty-state` supplies the bounded transparent surface. It needs a plain-language heading, explanation and, when applicable, a keyboard-operable next action.
 - A panel does not gain a raised background merely to create visual layers; reserve the raised surface for interaction or deliberate hierarchy.

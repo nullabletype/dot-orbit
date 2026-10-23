@@ -242,6 +242,91 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
+    public void SettingsThemeHoverStaysInsideRoundedPanelCorners()
+    {
+        var application = Assert.IsType<App>(Application.Current);
+        var originalTheme = application.RequestedThemeVariant;
+        application.RequestedThemeVariant = ThemeVariant.Dark;
+        var shell = new ShellViewModel(new MemoryWorkspaceWork());
+        var window = new MainWindow { DataContext = shell, Width = 1120 };
+        try
+        {
+            window.Show();
+            shell.SettingsNavigation.SelectCommand.Execute(null);
+            Dispatcher.UIThread.RunJobs();
+
+            var picker = window.FindControl<ComboBox>("SettingsThemePicker")!;
+            var row = picker.GetVisualAncestors().OfType<Border>()
+                .First(border => border.Classes.Contains("interactive-row"));
+            var panel = row.GetVisualAncestors().OfType<Border>()
+                .First(border => border.Classes.Contains("list-panel"));
+            AssertHoverStaysInsideRoundedPanel(window, row, panel);
+        }
+        finally
+        {
+            window.Close();
+            application.RequestedThemeVariant = originalTheme;
+        }
+    }
+
+    [AvaloniaFact]
+    public void SettingsAiHoverStaysInsideRoundedPanelWhenOptionalSecondRowIsHidden()
+    {
+        var shell = new ShellViewModel(new MemoryWorkspaceWork());
+        var window = new MainWindow { DataContext = shell, Width = 1120 };
+        try
+        {
+            window.Show();
+            shell.SettingsNavigation.SelectCommand.Execute(null);
+            Dispatcher.UIThread.RunJobs();
+
+            var toggle = window.FindControl<ToggleSwitch>("SettingsAiFeaturesToggle")!;
+            var optionalToggle = window.FindControl<ToggleSwitch>("SettingsLocalMcpToggle")!;
+            var row = toggle.GetVisualAncestors().OfType<Border>()
+                .First(border => border.Classes.Contains("interactive-row"));
+            var panel = row.GetVisualAncestors().OfType<Border>()
+                .First(border => border.Classes.Contains("list-panel"));
+
+            Assert.False(optionalToggle.IsEffectivelyVisible);
+            AssertHoverStaysInsideRoundedPanel(window, row, panel);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void BacklogFirstAndLastRowHoverStayInsideRoundedPanelCorners()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        work.CreateTask(project.Id, "Plant bulbs");
+        work.CreateTask(project.Id, "Order compost");
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow { DataContext = shell, Width = 1120 };
+        try
+        {
+            window.Show();
+            shell.PrimaryNavigation.Single(item => item.Title == "Backlog").SelectCommand.Execute(null);
+            Dispatcher.UIThread.RunJobs();
+
+            var panel = window.FindControl<Border>("BacklogListPanel")!;
+            var rows = window.GetVisualDescendants().OfType<Border>()
+                .Where(border => border.Classes.Contains("backlog-row"))
+                .ToArray();
+            Assert.Equal(2, rows.Length);
+
+            AssertHoverStaysInsideRoundedPanel(window, rows[0], panel);
+            AssertHoverStaysInsideRoundedPanel(window, rows[1], panel);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
     public void MoveAndRestoreTaskBinActionsAreKeyboardOperableNamedAndReturnLogicalFocus()
     {
         var work = new MemoryWorkspaceWork();
@@ -5415,6 +5500,76 @@ public sealed class ProjectCaptureWindowTests
             new PixelSize((int)window.Bounds.Width, (int)window.Bounds.Height),
             new Vector(96, 96));
         bitmap.Render(window);
+    }
+
+    private static SkiaSharp.SKBitmap RenderWindowPixels(Window window)
+    {
+        using var bitmap = new RenderTargetBitmap(
+            new PixelSize((int)window.Bounds.Width, (int)window.Bounds.Height),
+            new Vector(96, 96));
+        bitmap.Render(window);
+        using var stream = new MemoryStream();
+        bitmap.Save(stream, new PngBitmapEncoderOptions());
+        stream.Position = 0;
+        return SkiaSharp.SKBitmap.Decode(stream);
+    }
+
+    private static void AssertHoverStaysInsideRoundedPanel(Window window, Border row, Border panel)
+    {
+        var panelOrigin = OriginInWindow(panel, window);
+        var rowOrigin = OriginInWindow(row, window);
+        window.MouseMove(new Point(2, 2), RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        using var resting = RenderWindowPixels(window);
+
+        window.MouseMove(RowSurfacePoint(row, window), RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(row.IsPointerOver);
+        using var hovered = RenderWindowPixels(window);
+
+        var changedOutsideRoundedCorners = 0;
+        const int radius = 10;
+        var left = (int)panelOrigin.X;
+        var right = (int)(panelOrigin.X + panel.Bounds.Width) - 1;
+        var top = (int)panelOrigin.Y;
+        var bottom = (int)(panelOrigin.Y + panel.Bounds.Height) - 1;
+        for (var yOffset = 0; yOffset < radius; yOffset++)
+        {
+            for (var xOffset = 0; xOffset < radius; xOffset++)
+            {
+                var horizontalDistance = radius - xOffset - 0.5;
+                var verticalDistance = radius - yOffset - 0.5;
+                if ((horizontalDistance * horizontalDistance) + (verticalDistance * verticalDistance)
+                    <= radius * radius)
+                {
+                    continue;
+                }
+
+                foreach (var y in new[] { top + yOffset, bottom - yOffset })
+                {
+                    if (resting.GetPixel(left + xOffset, y) != hovered.GetPixel(left + xOffset, y))
+                    {
+                        changedOutsideRoundedCorners++;
+                    }
+
+                    if (resting.GetPixel(right - xOffset, y) != hovered.GetPixel(right - xOffset, y))
+                    {
+                        changedOutsideRoundedCorners++;
+                    }
+                }
+            }
+        }
+
+        Assert.True(
+            changedOutsideRoundedCorners == 0,
+            $"Hover changed {changedOutsideRoundedCorners} pixels outside the panel's rounded corners.");
+
+        var interior = new PixelPoint(
+            (int)(panelOrigin.X + panel.Bounds.Width / 2),
+            (int)(rowOrigin.Y + row.Bounds.Height) - 4);
+        Assert.NotEqual(
+            resting.GetPixel(interior.X, interior.Y),
+            hovered.GetPixel(interior.X, interior.Y));
     }
 
     private static void SelectView(ShellViewModel shell, string title)
