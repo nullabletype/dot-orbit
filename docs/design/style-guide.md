@@ -114,9 +114,9 @@ The implemented recipes live in `src/DotOrbit.Desktop/Styles/ComponentRecipes.ax
 | Badge | accent surface plus short text | N/A unless actionable | Action owns focus if actionable | Count/state in text | Muted if unavailable | N/A |
 | Inspector field | input surface and strong border | framework hover | visible focus border | Selected value remains textual | Framework-disabled | error border plus correction text |
 | Markdown preview | input surface and sanitised rendered content | raised surface and strong border | pink 2px border | activation swaps to the source editor | copy is disabled when empty | unsafe content never becomes an active element |
-| Date control | input surface and visible value | framework hover | keyboard calendar opening and visible focus | selected date in text | Framework-disabled | error border plus correction text |
+| Date control | input surface and visible value | framework hover | keyboard calendar opening and visible focus | selected date in text; native today highlight remains distinct from selection | Framework-disabled | error border plus correction text |
 
-Inspector date controls retain a fixed 150px width for empty, valid, and invalid input. Unparseable manual input remains visible, cannot be automatically saved as an empty date, and is identified at the field with correction text and accessible help.
+Inspector date controls retain a fixed 150px width for empty, valid, and invalid input. The shared Project and Task calendar keeps the native Avalonia template and today state: dated fields open on the selected date's month, while undated fields open on the current local month with today highlighted but no selected or textual value. The native highlight does not commit data. Unparseable manual input remains visible, cannot be automatically saved as an empty date, and is identified at the field with correction text and accessible help.
 | Empty state | heading and explanation | Action follows its button recipe | Action owns focus | N/A | N/A | N/A |
 | Validation feedback | Absent for valid input | N/A | Invalid field remains focusable | N/A | N/A | error border, explicit text and accessible relationship |
 

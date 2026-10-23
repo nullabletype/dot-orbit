@@ -1782,6 +1782,7 @@
                       x:Name="DraftDate"
                       Classes="inspector-field"
                       Classes.error="{Binding Work.HasDateValidationError}"
+                      IsTodayHighlighted="True"
                       SelectedDateFormat="Custom"
                       CustomDateFormatString="yyyy-MM-dd"
                       Text="{Binding Work.Date, Mode=OneWay}"
