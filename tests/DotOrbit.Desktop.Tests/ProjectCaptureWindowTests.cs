@@ -18,6 +18,7 @@ using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using System.ComponentModel;
+using System.Globalization;
 using DotOrbit.Core.Workspaces;
 using DotOrbit.Desktop.ViewModels;
 using DotOrbit.Desktop.Views;
@@ -3938,6 +3939,166 @@ public sealed class ProjectCaptureWindowTests
         window.KeyReleaseQwerty(PhysicalKey.ArrowDown, RawInputModifiers.Alt);
         Dispatcher.UIThread.RunJobs();
         Assert.True(picker.IsDropDownOpen);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void UndatedCalendarResolvesCurrentLocalDateOnEveryOpenWithoutSelectingOrSaving()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var task = work.CreateTask(project.Id, "Plant bulbs");
+        var zone = TimeZoneInfo.CreateCustomTimeZone(
+            "UTC+02-calendar",
+            TimeSpan.FromHours(2),
+            "UTC+02",
+            "UTC+02");
+        var time = new FixedTimeProvider(
+            new DateTimeOffset(2026, 10, 31, 23, 30, 0, TimeSpan.Zero),
+            zone);
+        var shell = new ShellViewModel(work, time);
+        shell.PrimaryNavigation.Single(item => item.Title == "Projects").SelectCommand.Execute(null);
+        var scheduler = new ManualInspectorAutosaveScheduler();
+        var window = new MainWindow(session: null, autosaveScheduler: scheduler, timeProvider: time)
+        {
+            DataContext = shell,
+        };
+        window.Show();
+        shell.Work!.SelectTask(task.Id);
+        Dispatcher.UIThread.RunJobs();
+
+        var picker = Assert.IsType<InspectorDatePicker>(window.FindControl<CalendarDatePicker>("DraftDate"));
+        var autosaveRevision = shell.Work.AutosaveRevision;
+        picker.DisplayDate = new DateTime(2024, 1, 15);
+        picker.IsDropDownOpen = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new DateTime(2026, 11, 1), picker.DisplayDate.Date);
+        Assert.True(picker.IsTodayHighlighted);
+        Assert.Null(picker.SelectedDate);
+        Assert.Equal(string.Empty, picker.RawText);
+        Assert.Equal(string.Empty, shell.Work.Date);
+        Assert.False(shell.Work.IsDirty);
+        Assert.Equal(autosaveRevision, shell.Work.AutosaveRevision);
+
+        picker.IsDropDownOpen = false;
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(0, scheduler.ScheduleCount);
+        Assert.Null(work.Read().Tasks.Single().DueDate);
+
+        time.Set(new DateTimeOffset(2027, 1, 31, 23, 30, 0, TimeSpan.Zero));
+        picker.DisplayDate = new DateTime(2025, 6, 12);
+        picker.IsDropDownOpen = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new DateTime(2027, 2, 1), picker.DisplayDate.Date);
+        Assert.Null(picker.SelectedDate);
+        Assert.Equal(string.Empty, picker.RawText);
+        Assert.False(shell.Work.IsDirty);
+
+        picker.IsDropDownOpen = false;
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(0, scheduler.ScheduleCount);
+        Assert.Null(work.Read().Tasks.Single().DueDate);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void ReusedCalendarShowsSelectedOrCurrentMonthAcrossProjectAndTaskInspectors()
+    {
+        var work = new MemoryWorkspaceWork();
+        var datedProject = work.CreateProject("Dated project", "", "home", new DateOnly(2026, 8, 12));
+        var undatedProject = work.CreateProject("Undated project", "", "work", null);
+        var undatedTask = work.CreateTask(datedProject.Id, "Undated task");
+        var datedTask = work.CreateTask(undatedProject.Id, "Dated task");
+        work.UpdateTask(
+            datedTask.Id,
+            datedTask.Title,
+            datedTask.Description,
+            datedTask.ExplicitCategoryId,
+            new DateOnly(2027, 2, 5));
+        var time = new FixedTimeProvider(new DateTimeOffset(2026, 11, 1, 12, 0, 0, TimeSpan.Zero));
+        var shell = new ShellViewModel(work, time);
+        shell.PrimaryNavigation.Single(item => item.Title == "Projects").SelectCommand.Execute(null);
+        var scheduler = new ManualInspectorAutosaveScheduler();
+        var window = new MainWindow(session: null, autosaveScheduler: scheduler, timeProvider: time)
+        {
+            DataContext = shell,
+        };
+        window.Show();
+        var picker = Assert.IsType<InspectorDatePicker>(window.FindControl<CalendarDatePicker>("DraftDate"));
+
+        AssertCalendar(datedProject.Id, task: false, new DateTime(2026, 8, 12));
+        AssertCalendar(undatedTask.Id, task: true, null);
+        AssertCalendar(datedTask.Id, task: true, new DateTime(2027, 2, 5));
+        AssertCalendar(undatedProject.Id, task: false, null);
+
+        Assert.False(shell.Work!.IsDirty);
+        Assert.Equal(new DateOnly(2026, 8, 12), work.Read().Projects.Single(item => item.Id == datedProject.Id).TargetDate);
+        Assert.Null(work.Read().Projects.Single(item => item.Id == undatedProject.Id).TargetDate);
+        Assert.Null(work.Read().Tasks.Single(item => item.Id == undatedTask.Id).DueDate);
+        Assert.Equal(new DateOnly(2027, 2, 5), work.Read().Tasks.Single(item => item.Id == datedTask.Id).DueDate);
+        Assert.Equal(0, scheduler.ScheduleCount);
+        window.Close();
+
+        void AssertCalendar(string id, bool task, DateTime? selectedDate)
+        {
+            if (task)
+                shell.Work!.SelectTask(id);
+            else
+                shell.Work!.SelectProject(id);
+            Dispatcher.UIThread.RunJobs();
+
+            picker.IsDropDownOpen = true;
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal(selectedDate?.Date, picker.SelectedDate?.Date);
+            Assert.Equal((selectedDate ?? new DateTime(2026, 11, 1)).Date, picker.DisplayDate.Date);
+            Assert.Equal(
+                selectedDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty,
+                shell.Work!.Date);
+            Assert.True(picker.IsTodayHighlighted);
+            Assert.False(shell.Work.IsDirty);
+
+            picker.IsDropDownOpen = false;
+            Dispatcher.UIThread.RunJobs();
+        }
+    }
+
+    [AvaloniaFact]
+    public void OpeningCalendarOnUntouchedCreateDraftDoesNotCreateWork()
+    {
+        var work = new MemoryWorkspaceWork();
+        work.CreateProject("Existing project", "", "home", null);
+        var time = new FixedTimeProvider(new DateTimeOffset(2026, 11, 1, 12, 0, 0, TimeSpan.Zero));
+        var shell = new ShellViewModel(work, time);
+        shell.PrimaryNavigation.Single(item => item.Title == "Projects").SelectCommand.Execute(null);
+        var scheduler = new ManualInspectorAutosaveScheduler();
+        var window = new MainWindow(session: null, autosaveScheduler: scheduler, timeProvider: time)
+        {
+            DataContext = shell,
+        };
+        window.Show();
+        Activate(window, NamedButton(window, "New project"));
+        Dispatcher.UIThread.RunJobs();
+
+        var picker = Assert.IsType<InspectorDatePicker>(window.FindControl<CalendarDatePicker>("DraftDate"));
+        var autosaveRevision = shell.Work!.AutosaveRevision;
+        picker.DisplayDate = new DateTime(2024, 1, 15);
+        picker.IsDropDownOpen = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new DateTime(2026, 11, 1), picker.DisplayDate.Date);
+        Assert.True(picker.IsTodayHighlighted);
+        Assert.Null(picker.SelectedDate);
+        Assert.Equal(string.Empty, picker.RawText);
+        Assert.False(shell.Work.IsDirty);
+        Assert.Equal(autosaveRevision, shell.Work.AutosaveRevision);
+
+        picker.IsDropDownOpen = false;
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(0, scheduler.ScheduleCount);
+        Assert.Single(work.Read().Projects);
         window.Close();
     }
 

@@ -1428,7 +1428,11 @@ public sealed partial class MainWindow : Window
 
     private void OnCalendarDateOpened(object? sender, EventArgs e)
     {
-        if (sender is CalendarDatePicker picker) _calendarDateAtOpen = picker.SelectedDate;
+        if (sender is not CalendarDatePicker picker) return;
+        _calendarDateAtOpen = picker.SelectedDate;
+        picker.SetCurrentValue(
+            CalendarDatePicker.DisplayDateProperty,
+            picker.SelectedDate ?? _timeProvider.GetLocalNow().Date);
     }
 
     private void OnCalendarDateCommitted(object? sender, EventArgs e)
