@@ -138,7 +138,61 @@ public sealed class AgentProposalReviewViewModelTests
         Assert.Equal(1, application.ApproveCount);
         Assert.Null(window.FindControl<Button>("ConfirmProposalApplyButton"));
         Assert.False(viewModel.CanApply);
-        Assert.Contains("Nothing was applied", viewModel.StatusMessage, StringComparison.Ordinal);
+        Assert.Contains("nothing was changed", viewModel.StatusMessage, StringComparison.Ordinal);
+        var actions = Assert.IsType<Grid>(window.FindControl<Grid>("ProposalReviewActions"));
+        var status = Assert.Single(actions.GetVisualDescendants().OfType<TextBlock>(), text =>
+            string.Equals(
+                AutomationProperties.GetName(text),
+                "Proposal review status",
+                StringComparison.Ordinal));
+        Assert.True(status.IsEffectivelyVisible);
+        Assert.Equal(viewModel.StatusMessage, status.Text);
+        Assert.Equal(AutomationLiveSetting.Polite, AutomationProperties.GetLiveSetting(status));
+        Assert.True(Assert.IsType<Button>(
+            window.FindControl<Button>("CloseProposalReviewButton")).IsFocused);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task CommittedMaintenanceRequiredKeepsStatusInFooterAndFocusesRetry()
+    {
+        using var directory = new TemporaryDirectory();
+        var passphrase = WorkspacePassphrase.Create(
+            "synthetic proposal maintenance password",
+            "synthetic proposal maintenance password").Passphrase!;
+        using var session = Assert.IsAssignableFrom<IWorkspaceSession>(
+            new EncryptedWorkspaceStore().Create(
+                Path.Combine(directory.Path, "workspace.db"),
+                passphrase,
+                CategoryName.Create("Home").CategoryName!).Session);
+        Assert.Equal(
+            RecoveryDirectoryConfigurationStatus.Configured,
+            session.Recovery.ConfigureAutomaticRecoveryDirectory(
+                Path.Combine(directory.Path, "recovery")).Status);
+        var viewModel = new AgentProposalReviewViewModel(
+            CreatePlan(session.Proposals),
+            session.ProposalApplication);
+        var window = new AgentProposalReviewWindow(viewModel, new RefreshFailureHost());
+        window.Show();
+
+        var apply = Assert.IsType<Button>(window.FindControl<Button>("ApplyProposalButton"));
+        apply.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        await DrainUiUntilAsync(() => viewModel.CanRetryMaintenance);
+
+        var actions = Assert.IsType<Grid>(window.FindControl<Grid>("ProposalReviewActions"));
+        var status = Assert.Single(actions.GetVisualDescendants().OfType<TextBlock>(), text =>
+            string.Equals(
+                AutomationProperties.GetName(text),
+                "Proposal review status",
+                StringComparison.Ordinal));
+        Assert.True(status.IsEffectivelyVisible);
+        Assert.Equal(
+            "The changes were applied, but dot-orbit still needs to finish updating. Select Retry maintenance.",
+            status.Text);
+        Assert.Equal(AutomationLiveSetting.Polite, AutomationProperties.GetLiveSetting(status));
+        Assert.True(Assert.IsType<Button>(
+            window.FindControl<Button>("RetryProposalMaintenanceButton")).IsFocused);
+        Assert.Single(session.Work.Read().Tasks, task => task.Title == "Synthetic task");
         window.Close();
     }
 
@@ -207,8 +261,9 @@ public sealed class AgentProposalReviewViewModelTests
         Assert.Contains("No existing item is referenced or edited directly", viewModel.ProposalKindSummary, StringComparison.Ordinal);
         Assert.False(viewModel.HasSourceDetails);
         Assert.Equal("Add new work", viewModel.ApplyButtonText);
-        Assert.Contains("Add all shown new work", viewModel.ApplyButtonAccessibleName, StringComparison.Ordinal);
-        Assert.Contains("validated encrypted recovery point", viewModel.ApplyButtonAccessibleName, StringComparison.Ordinal);
+        Assert.Equal(
+            "Create a data backup and add all shown new work",
+            viewModel.ApplyButtonAccessibleName);
         Assert.Equal("What will be added", viewModel.ReviewHeading);
         var creation = Assert.Single(viewModel.ReviewEffects, effect => effect.Kind == "Add task");
         Assert.Equal("Synthetic task", creation.TargetLabel);
@@ -987,7 +1042,7 @@ public sealed class AgentProposalReviewViewModelTests
         Assert.Equal(1, application.ApproveCount);
         Assert.Equal(0, application.ApplyCount);
         Assert.False(viewModel.CanApply);
-        Assert.Contains("Nothing was applied", viewModel.StatusMessage, StringComparison.Ordinal);
+        Assert.Contains("nothing was changed", viewModel.StatusMessage, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1013,7 +1068,9 @@ public sealed class AgentProposalReviewViewModelTests
         await viewModel.ApplyAsync(new ReadyHost());
         await viewModel.ApplyAsync(new ReadyHost());
 
-        Assert.Contains("applied atomically", viewModel.StatusMessage, StringComparison.Ordinal);
+        Assert.Equal(
+            "Data backup created and changes applied successfully.",
+            viewModel.StatusMessage);
         Assert.False(viewModel.CanApply);
         Assert.False(viewModel.CanRetryMaintenance);
         Assert.Single(session.Work.Read().Tasks, task => task.Title == "Synthetic task");
@@ -1140,6 +1197,23 @@ public sealed class AgentProposalReviewViewModelTests
     {
         public bool FlushPendingInspectorWork() => true;
         public bool RefreshProjections() => true;
+    }
+
+    private sealed class RefreshFailureHost : IProposalApplicationHost
+    {
+        public bool FlushPendingInspectorWork() => true;
+        public bool RefreshProjections() => false;
+    }
+
+    private static async Task DrainUiUntilAsync(Func<bool> condition)
+    {
+        while (!condition())
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(1, TestContext.Current.CancellationToken);
+        }
+
+        Dispatcher.UIThread.RunJobs();
     }
 
     private sealed class TemporaryDirectory : IDisposable

@@ -331,7 +331,9 @@ public sealed class MainWindowTests
         await reviewModel.ApplyAsync(new ReadyProposalApplicationHost());
 
         Assert.True(reviewModel.CanClose);
-        Assert.Contains("applied atomically", reviewModel.StatusMessage, StringComparison.Ordinal);
+        Assert.Equal(
+            "Data backup created and changes applied successfully.",
+            reviewModel.StatusMessage);
         Assert.Equal(1, application.ApproveCount);
         Assert.Equal(1, application.ApplyCount);
         Assert.Single(innerSession.Work.Read().Tasks, task => task.Title == "Approved synthetic task");
@@ -464,30 +466,44 @@ public sealed class MainWindowTests
     }
 
     [AvaloniaFact]
-    public async Task InboundProposalRowUsesExistingModalWithSelfReportedSource()
+    public async Task QueuedApplyFeedbackStaysInModalAndPreservesManualFeedback()
     {
         using var directory = new TemporaryDirectory();
         const string passphraseText = "synthetic inbound modal password";
         var passphrase = WorkspacePassphrase.Create(passphraseText, passphraseText).Passphrase!;
-        var session = Assert.IsAssignableFrom<IWorkspaceSession>(
+        var innerSession = Assert.IsAssignableFrom<IWorkspaceSession>(
             new EncryptedWorkspaceStore().Create(
                 Path.Combine(directory.Path, "workspace.orb"),
                 passphrase,
                 CategoryName.Create("Home").CategoryName!).Session);
-        var payload = Encoding.UTF8.GetBytes(ProposalJson(session.Proposals.Read(), "Inbound modal task"));
         Assert.Equal(
-            PendingAgentProposalStoreStatus.Stored,
-            session.AgentIntegration.TryStorePendingProposal(new PendingAgentProposal(
-                "receipt-modal",
-                "key-modal",
-                "authorization-modal",
-                new string('c', 64),
-                "Codex",
-                DateTimeOffset.UnixEpoch,
-                ProposalKind.NewWork,
-                1,
-                1,
-                payload)).Status);
+            RecoveryDirectoryConfigurationStatus.Configured,
+            innerSession.Recovery.ConfigureAutomaticRecoveryDirectory(
+                Path.Combine(directory.Path, "recovery")).Status);
+        foreach (var (receipt, suffix) in new[]
+                 {
+                     ("receipt-modal", "selected"),
+                     ("receipt-other", "other"),
+                 })
+        {
+            var payload = Encoding.UTF8.GetBytes(NewWorkProposalJson(suffix));
+            Assert.Equal(
+                PendingAgentProposalStoreStatus.Stored,
+                innerSession.AgentIntegration.TryStorePendingProposal(new PendingAgentProposal(
+                    receipt,
+                    $"key-{receipt}",
+                    "authorization-modal",
+                    new string(receipt == "receipt-modal" ? 'c' : 'd', 64),
+                    "Codex",
+                    DateTimeOffset.UnixEpoch,
+                    ProposalKind.NewWork,
+                    2,
+                    2,
+                    payload)).Status);
+        }
+
+        using var application = new BlockingProposalApplication(innerSession.ProposalApplication);
+        var session = new ProposalApplicationWorkspaceSession(innerSession, application);
         var window = new MainWindow(
             session,
             aiFeaturePreferenceService: new TransientAiFeaturePreferenceService(aiFeaturesEnabled: true));
@@ -495,16 +511,76 @@ public sealed class MainWindowTests
         var shell = Assert.IsType<ShellViewModel>(window.DataContext);
         shell.AiNavigation.SelectCommand.Execute(null);
         Dispatcher.UIThread.RunJobs();
-
-        await window.CompleteInboundProposalReviewAsync("receipt-modal");
+        const string manualText = "Seeded manual proposal text.";
+        const string manualStatus = "Seeded manual proposal feedback.";
+        shell.Ai!.ProposalText = manualText;
+        shell.Ai.ReportProposalStatus(manualStatus);
         Dispatcher.UIThread.RunJobs();
+        var manualStatusText = Assert.IsType<SelectableTextBlock>(
+            window.FindControl<SelectableTextBlock>("AiProposalStatus"));
+        Assert.True(manualStatusText.IsEffectivelyVisible);
+        Assert.Equal(manualStatus, manualStatusText.Text);
+
+        var reviewButton = window.GetVisualDescendants().OfType<Button>().Single(button =>
+            button.DataContext is PendingProposalRowViewModel { Receipt: "receipt-modal" }
+            && string.Equals(button.Content as string, "Review", StringComparison.Ordinal));
+        reviewButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await DrainUiUntilAsync(() => window.OwnedWindows.OfType<AgentProposalReviewWindow>().Any());
 
         var review = Assert.Single(window.OwnedWindows.OfType<AgentProposalReviewWindow>());
         var reviewModel = Assert.IsType<AgentProposalReviewViewModel>(review.DataContext);
         Assert.Equal("Codex via local MCP", reviewModel.SourceLabel);
         Assert.Contains("Self-reported", reviewModel.SourceDetail, StringComparison.Ordinal);
-        Assert.Single(session.AgentIntegration.ReadPendingProposals());
-        review.Close();
+        Assert.Equal(manualText, shell.Ai.ProposalText);
+        Assert.Equal(manualStatus, shell.Ai.ProposalStatus);
+
+        var actions = Assert.IsType<Grid>(review.FindControl<Grid>("ProposalReviewActions"));
+        var modalStatus = Assert.Single(actions.GetVisualDescendants().OfType<TextBlock>(), text =>
+            string.Equals(
+                AutomationProperties.GetName(text),
+                "Proposal review status",
+                StringComparison.Ordinal));
+        var apply = Assert.IsType<Button>(review.FindControl<Button>("ApplyProposalButton"));
+        apply.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await application.ApplyStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(modalStatus.IsEffectivelyVisible);
+            Assert.Equal("Creating a data backup and importing the new data…", modalStatus.Text);
+            Assert.Equal("Proposal review status", AutomationProperties.GetName(modalStatus));
+            Assert.Equal(AutomationLiveSetting.Polite, AutomationProperties.GetLiveSetting(modalStatus));
+            Assert.Equal(manualText, shell.Ai.ProposalText);
+            Assert.Equal(manualStatus, shell.Ai.ProposalStatus);
+        }
+        finally
+        {
+            application.ReleaseApply.Set();
+        }
+
+        await DrainUiUntilAsync(() => reviewModel.ProposalWasCommitted);
+
+        Assert.True(modalStatus.IsEffectivelyVisible);
+        Assert.Equal("Data backup created and new data imported successfully.", modalStatus.Text);
+        var close = Assert.IsType<Button>(review.FindControl<Button>("CloseProposalReviewButton"));
+        Assert.True(close.IsFocused);
+        Assert.False(apply.IsEnabled);
+        Assert.Null(innerSession.AgentIntegration.FindPendingProposal("receipt-modal"));
+        Assert.NotNull(innerSession.AgentIntegration.FindPendingProposal("receipt-other"));
+        Assert.Single(innerSession.Work.Read().Tasks, task => task.Title == "Task selected");
+        Assert.DoesNotContain(innerSession.Work.Read().Tasks, task => task.Title == "Task other");
+
+        apply.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(1, application.ApplyCount);
+        Assert.Single(innerSession.Work.Read().Tasks, task => task.Title == "Task selected");
+
+        close.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await DrainUiUntilAsync(() => !review.IsVisible);
+        Assert.Equal(manualText, shell.Ai.ProposalText);
+        Assert.Equal(manualStatus, shell.Ai.ProposalStatus);
+        Assert.Equal(manualStatus, manualStatusText.Text);
+        Assert.True(manualStatusText.IsEffectivelyVisible);
         window.Close();
     }
 
@@ -785,6 +861,8 @@ public sealed class MainWindowTests
         var shell = Assert.IsType<ShellViewModel>(window.DataContext);
         shell.AiNavigation.SelectCommand.Execute(null);
         Dispatcher.UIThread.RunJobs();
+        const string manualStatus = "Seeded manual proposal feedback.";
+        shell.Ai!.ReportProposalStatus(manualStatus);
         var row = window.GetVisualDescendants().OfType<Border>().Single(border =>
             border.DataContext is PendingProposalRowViewModel { Receipt: "receipt-summary-status" });
         var originalHeight = row.Bounds.Height;
@@ -803,14 +881,74 @@ public sealed class MainWindowTests
         Assert.DoesNotContain(
             list.GetVisualDescendants().OfType<TextBlock>(),
             text => text.Text?.Contains("earlier proposal", StringComparison.OrdinalIgnoreCase) == true);
-        Assert.False(Assert.IsType<SelectableTextBlock>(
-            window.FindControl<SelectableTextBlock>("AiProposalStatus")).IsEffectivelyVisible);
+        var pendingStatus = Assert.IsType<TextBlock>(
+            window.FindControl<TextBlock>("AiPendingProposalReviewStatus"));
+        Assert.True(pendingStatus.IsEffectivelyVisible);
+        Assert.Equal("Pending proposal review status", AutomationProperties.GetName(pendingStatus));
+        Assert.Equal(AutomationLiveSetting.Polite, AutomationProperties.GetLiveSetting(pendingStatus));
+        Assert.Equal(manualStatus, shell.Ai.ProposalStatus);
+        Assert.Equal(
+            manualStatus,
+            Assert.IsType<SelectableTextBlock>(
+                window.FindControl<SelectableTextBlock>("AiProposalStatus")).Text);
         Assert.Equal(originalHeight, row.Bounds.Height);
         Assert.All(
             row.GetVisualDescendants().OfType<Button>(),
             button => Assert.Equal(VerticalAlignment.Center, button.VerticalAlignment));
         Assert.Empty(window.OwnedWindows.OfType<AgentProposalReviewWindow>());
         Assert.NotNull(session.AgentIntegration.FindPendingProposal("receipt-summary-status"));
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task MissingQueuedReceiptUsesAggregateStatusAndPreservesManualFeedback()
+    {
+        using var directory = new TemporaryDirectory();
+        const string passphraseText = "synthetic missing inbound receipt password";
+        var passphrase = WorkspacePassphrase.Create(passphraseText, passphraseText).Passphrase!;
+        var session = Assert.IsAssignableFrom<IWorkspaceSession>(
+            new EncryptedWorkspaceStore().Create(
+                Path.Combine(directory.Path, "workspace.orb"),
+                passphrase,
+                CategoryName.Create("Home").CategoryName!).Session);
+        var payload = Encoding.UTF8.GetBytes(NewWorkProposalJson("remaining"));
+        Assert.Equal(
+            PendingAgentProposalStoreStatus.Stored,
+            session.AgentIntegration.TryStorePendingProposal(new PendingAgentProposal(
+                "receipt-remaining",
+                "key-remaining",
+                "authorization-missing",
+                new string('e', 64),
+                "Codex",
+                DateTimeOffset.UnixEpoch,
+                ProposalKind.NewWork,
+                2,
+                2,
+                payload)).Status);
+        var window = new MainWindow(
+            session,
+            aiFeaturePreferenceService: new TransientAiFeaturePreferenceService(aiFeaturesEnabled: true));
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.AiNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        const string manualStatus = "Seeded manual proposal feedback.";
+        shell.Ai!.ReportProposalStatus(manualStatus);
+
+        await window.CompleteInboundProposalReviewAsync("receipt-missing");
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(manualStatus, shell.Ai.ProposalStatus);
+        Assert.Contains(
+            "no longer waiting for review",
+            shell.Ai.PendingProposalReviewStatus,
+            StringComparison.Ordinal);
+        var pendingStatus = Assert.IsType<TextBlock>(
+            window.FindControl<TextBlock>("AiPendingProposalReviewStatus"));
+        Assert.True(pendingStatus.IsEffectivelyVisible);
+        Assert.Equal(AutomationLiveSetting.Polite, AutomationProperties.GetLiveSetting(pendingStatus));
+        Assert.Empty(window.OwnedWindows.OfType<AgentProposalReviewWindow>());
+        Assert.NotNull(session.AgentIntegration.FindPendingProposal("receipt-remaining"));
         window.Close();
     }
 
@@ -1823,6 +1961,7 @@ public sealed class MainWindowTests
         public IWorkspaceRecovery Recovery => inner.Recovery;
         public IPlanningSnapshotSource Planning => inner.Planning;
         public IProposalWorkspaceSource Proposals => inner.Proposals;
+        public IAgentIntegrationStore AgentIntegration => inner.AgentIntegration;
         public IProposalApplication ProposalApplication => proposalApplication;
         public IWorkspaceWork Work => inner.Work;
 
@@ -1854,7 +1993,8 @@ public sealed class MainWindowTests
         public void Dispose() => inner.Dispose();
     }
 
-    private sealed class BlockingProposalApplication(IProposalApplication inner) : IProposalApplication, IDisposable
+    private sealed class BlockingProposalApplication(IProposalApplication inner)
+        : IInboundProposalApplication, IDisposable
     {
         public TaskCompletionSource ApplyStarted { get; } = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1877,6 +2017,22 @@ public sealed class MainWindowTests
             ApplyStarted.TrySetResult();
             ReleaseApply.Wait(cancellationToken);
             return inner.Apply(approval, host, cancellationToken);
+        }
+
+        public ProposalApplyResult ApplyInbound(
+            ProposalApproval approval,
+            string pendingProposalReceipt,
+            IProposalApplicationHost host,
+            CancellationToken cancellationToken = default)
+        {
+            ApplyCount++;
+            ApplyStarted.TrySetResult();
+            ReleaseApply.Wait(cancellationToken);
+            return Assert.IsAssignableFrom<IInboundProposalApplication>(inner).ApplyInbound(
+                approval,
+                pendingProposalReceipt,
+                host,
+                cancellationToken);
         }
 
         public void Dispose() => ReleaseApply.Dispose();
