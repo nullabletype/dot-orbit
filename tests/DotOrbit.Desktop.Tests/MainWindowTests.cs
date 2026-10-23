@@ -9,6 +9,7 @@ using Avalonia.Input.Raw;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using DotOrbit.Core.Interchange;
@@ -2605,20 +2606,81 @@ public sealed class MainWindowTests
     }
 
     [AvaloniaFact]
-    public void SettingsDescriptionsKeepWrappedLinesLeftAligned()
+    public void SettingsAiDescriptionKeepsWrappedLinesLeftAligned()
     {
         var window = new MainWindow();
         window.Show();
 
-        var aiDescription = Assert.IsType<TextBlock>(
+        var description = Assert.IsType<TextBlock>(
             window.FindControl<TextBlock>("SettingsAiFeaturesDescription"));
-        var mcpDescription = Assert.IsType<TextBlock>(
-            window.FindControl<TextBlock>("SettingsLocalMcpDescription"));
 
-        Assert.Equal(TextAlignment.Left, aiDescription.TextAlignment);
-        Assert.Equal(HorizontalAlignment.Stretch, aiDescription.HorizontalAlignment);
-        Assert.Equal(TextAlignment.Left, mcpDescription.TextAlignment);
-        Assert.Equal(HorizontalAlignment.Stretch, mcpDescription.HorizontalAlignment);
+        Assert.Equal(TextAlignment.Left, description.TextAlignment);
+        Assert.Equal(HorizontalAlignment.Stretch, description.HorizontalAlignment);
+
+        window.Close();
+    }
+
+    [AvaloniaTheory]
+    [InlineData(1180, false)]
+    [InlineData(1180, true)]
+    [InlineData(1600, false)]
+    [InlineData(1600, true)]
+    public void SettingsLocalMcpDescriptionAlignsWithLabelAndAvoidsToggleAtSupportedWidthsAndThemes(
+        int width,
+        bool lightTheme)
+    {
+        var window = new MainWindow(
+            new DisposalTrackingWorkspaceSession(),
+            aiFeaturePreferenceService: new TransientAiFeaturePreferenceService(aiFeaturesEnabled: true))
+        {
+            Width = width,
+            RequestedThemeVariant = lightTheme ? ThemeVariant.Light : ThemeVariant.Dark,
+        };
+        window.Show();
+        var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+        shell.SettingsNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+
+        var description = Assert.IsType<TextBlock>(
+            window.FindControl<TextBlock>("SettingsLocalMcpDescription"));
+        var textStack = Assert.IsType<StackPanel>(description.Parent);
+        var label = Assert.Single(
+            textStack.Children.OfType<TextBlock>(),
+            text => text.Text == "Enable local MCP");
+        var toggle = Assert.IsType<ToggleSwitch>(
+            window.FindControl<ToggleSwitch>("SettingsLocalMcpToggle"));
+        var row = textStack.GetVisualAncestors().OfType<Border>()
+            .First(border => border.Classes.Contains("interactive-row"));
+        var labelOrigin = Assert.IsType<Point>(label.TranslatePoint(default, window));
+        var descriptionOrigin = Assert.IsType<Point>(description.TranslatePoint(default, window));
+        var toggleOrigin = Assert.IsType<Point>(toggle.TranslatePoint(default, window));
+        var textStackOrigin = Assert.IsType<Point>(textStack.TranslatePoint(default, window));
+        var rowOrigin = Assert.IsType<Point>(row.TranslatePoint(default, window));
+
+        Assert.Equal(lightTheme ? ThemeVariant.Light : ThemeVariant.Dark, window.ActualThemeVariant);
+        Assert.True(description.IsEffectivelyVisible);
+        Assert.Equal(TextAlignment.Left, description.TextAlignment);
+        Assert.InRange(Math.Abs(descriptionOrigin.X - labelOrigin.X), 0, 0.01);
+        Assert.InRange(description.Bounds.Width, 1, 690);
+        Assert.True(description.TextLayout.TextLines.Count > 1);
+        Assert.True(
+            description.Bounds.Width >= description.TextLayout.Width,
+            $"Local MCP description width {description.Bounds.Width} clips rendered text width {description.TextLayout.Width}.");
+        Assert.True(
+            descriptionOrigin.X + description.Bounds.Width <= toggleOrigin.X,
+            "The local MCP warning must end before the toggle begins.");
+        Assert.InRange(
+            Math.Abs(
+                textStackOrigin.Y + (textStack.Bounds.Height / 2)
+                - rowOrigin.Y - (row.Bounds.Height / 2)),
+            0,
+            0.5);
+        Assert.InRange(
+            Math.Abs(
+                toggleOrigin.Y + (toggle.Bounds.Height / 2)
+                - rowOrigin.Y - (row.Bounds.Height / 2)),
+            0,
+            0.5);
 
         window.Close();
     }
