@@ -1174,7 +1174,7 @@
                 <StackPanel VerticalAlignment="Center" Spacing="2">
                   <TextBlock FontWeight="SemiBold" Text="Enable local MCP" />
                   <TextBlock x:Name="SettingsLocalMcpDescription" MaxWidth="690" FontSize="12"
-                      HorizontalAlignment="Stretch" TextAlignment="Left"
+                      HorizontalAlignment="Left" TextAlignment="Left"
                       Foreground="{DynamicResource MutedTextBrush}"
                       Text="Approved software running as your OS user can read sensitive plaintext current-work context and submit untrusted proposals for your review. It cannot approve or apply changes."
                       TextWrapping="Wrap" />
