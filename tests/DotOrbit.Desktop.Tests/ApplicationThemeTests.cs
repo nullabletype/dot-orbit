@@ -28,22 +28,69 @@ public sealed class ApplicationThemeTests
         Assert.True(store.LoadIncludeAgentInstructionsAndSchemaWithSnapshot());
         Assert.False(store.LoadAiFeaturesEnabled());
         Assert.False(store.LoadLocalMcpEnabled());
+
+        File.WriteAllText(path, "{\"theme\":\"2\"}");
+        Assert.Equal(ApplicationTheme.Dark, store.Load());
     }
 
     [Fact]
-    public void PreferenceStoreRoundTripsLightAndDarkUsingAtomicReplacement()
+    public void PreferenceStoreRoundTripsEveryStableThemeIdUsingAtomicReplacement()
     {
         using var directory = new TemporaryDirectory();
         var path = Path.Combine(directory.Path, "preferences.json");
         var store = new JsonDevicePreferenceStore(path);
 
-        Assert.True(store.TrySave(ApplicationTheme.Light));
-        Assert.Equal(ApplicationTheme.Light, store.Load());
-        Assert.Empty(Directory.GetFiles(directory.Path, "*.tmp"));
+        foreach (var option in ApplicationThemeCatalog.Options)
+        {
+            Assert.True(store.TrySave(option.Value));
+            Assert.Equal(option.Value, store.Load());
+            Assert.Contains($"\"theme\": \"{option.Id}\"", File.ReadAllText(path), StringComparison.Ordinal);
+            Assert.Empty(Directory.GetFiles(directory.Path, "*.tmp"));
+        }
+    }
 
-        Assert.True(store.TrySave(ApplicationTheme.Dark));
-        Assert.Equal(ApplicationTheme.Dark, store.Load());
-        Assert.Empty(Directory.GetFiles(directory.Path, "*.tmp"));
+    [Fact]
+    public void ThemeCatalogHasOrderedUniqueStableIdsAndExplicitAppearances()
+    {
+        Assert.Equal(
+            [
+                "Dark",
+                "Light",
+                "MonokaiClassic",
+                "DraculaClassic",
+                "AlucardClassic",
+                "CatppuccinMocha",
+                "CatppuccinLatte",
+                "GruvboxDark",
+                "GruvboxLight",
+            ],
+            ApplicationThemeCatalog.Options.Select(option => option.Id));
+        Assert.Equal(
+            [
+                "Dark",
+                "Light",
+                "Monokai Classic",
+                "Dracula Classic",
+                "Alucard Classic",
+                "Catppuccin Mocha",
+                "Catppuccin Latte",
+                "Gruvbox Dark",
+                "Gruvbox Light",
+            ],
+            ApplicationThemeCatalog.Options.Select(option => option.Name));
+        Assert.Equal(
+            ApplicationThemeCatalog.Options.Count,
+            ApplicationThemeCatalog.Options.Select(option => option.Id).Distinct(StringComparer.Ordinal).Count());
+        Assert.All(
+            ApplicationThemeCatalog.Options.Where(option => option.Appearance == ApplicationThemeAppearance.Dark),
+            option => Assert.True(
+                option.Variant == ThemeVariant.Dark
+                || option.Variant.InheritVariant == ThemeVariant.Dark));
+        Assert.All(
+            ApplicationThemeCatalog.Options.Where(option => option.Appearance == ApplicationThemeAppearance.Light),
+            option => Assert.True(
+                option.Variant == ThemeVariant.Light
+                || option.Variant.InheritVariant == ThemeVariant.Light));
     }
 
     [Fact]
@@ -331,10 +378,10 @@ public sealed class ApplicationThemeTests
 
             Assert.Equal(ApplicationTheme.Light, service.CurrentTheme);
             Assert.Equal(ThemeVariant.Light, application.RequestedThemeVariant);
-            Assert.True(service.TrySetTheme(ApplicationTheme.Dark));
-            Assert.Equal(ApplicationTheme.Dark, service.CurrentTheme);
-            Assert.Equal(ThemeVariant.Dark, application.RequestedThemeVariant);
-            Assert.Equal(ApplicationTheme.Dark, store.Load());
+            Assert.True(service.TrySetTheme(ApplicationTheme.GruvboxDark));
+            Assert.Equal(ApplicationTheme.GruvboxDark, service.CurrentTheme);
+            Assert.Equal(ApplicationThemeVariants.GruvboxDark, application.RequestedThemeVariant);
+            Assert.Equal(ApplicationTheme.GruvboxDark, store.Load());
         }
         finally
         {

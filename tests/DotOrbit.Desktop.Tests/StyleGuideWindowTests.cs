@@ -146,30 +146,94 @@ public sealed class StyleGuideWindowTests
     }
 
     [AvaloniaFact]
-    public void ComponentReferenceRendersWithDistinctDarkAndLightThemePalettes()
+    public void ComponentReferenceRendersEveryThemeWithDistinctAccessiblePalettes()
     {
         var application = Assert.IsType<App>(Application.Current);
         var originalTheme = application.RequestedThemeVariant;
         try
         {
-            var dark = RenderTheme(ThemeVariant.Dark);
-            var light = RenderTheme(ThemeVariant.Light);
+            var expectedColours = new Dictionary<ApplicationTheme, (string Background, string Foreground)>
+            {
+                [ApplicationTheme.Dark] = ("#090B10", "#F2F4F7"),
+                [ApplicationTheme.Light] = ("#F7F4F6", "#2B2228"),
+                [ApplicationTheme.MonokaiClassic] = ("#272822", "#F8F8F2"),
+                [ApplicationTheme.DraculaClassic] = ("#282A36", "#F8F8F2"),
+                [ApplicationTheme.AlucardClassic] = ("#FFFBEB", "#1F1F1F"),
+                [ApplicationTheme.CatppuccinMocha] = ("#1E1E2E", "#CDD6F4"),
+                [ApplicationTheme.CatppuccinLatte] = ("#EFF1F5", "#4C4F69"),
+                [ApplicationTheme.GruvboxDark] = ("#282828", "#FBF1C7"),
+                [ApplicationTheme.GruvboxLight] = ("#FBF1C7", "#282828"),
+            };
+            var rendered = ApplicationThemeCatalog.Options.ToDictionary(
+                option => option.Value,
+                option => RenderTheme(option.Variant));
 
-            Assert.Equal(Color.Parse("#090B10"), dark.Background);
-            Assert.Equal(Color.Parse("#F7F4F6"), light.Background);
-            Assert.Equal(Color.Parse("#F2F4F7"), dark.Foreground);
-            Assert.Equal(Color.Parse("#2B2228"), light.Foreground);
-            Assert.NotEqual(dark.Panel, light.Panel);
-            Assert.True(ContrastRatio(dark.Foreground, dark.Background) >= 4.5);
-            Assert.True(ContrastRatio(light.Foreground, light.Background) >= 4.5);
-            Assert.True(ContrastRatio(dark.Quiet, dark.Panel) >= 4.5);
-            Assert.True(ContrastRatio(light.Quiet, light.Panel) >= 4.5);
-            Assert.True(ContrastRatio(dark.PlaceholderText, dark.PlaceholderSurface) >= 4.5);
-            Assert.True(ContrastRatio(light.PlaceholderText, light.PlaceholderSurface) >= 4.5);
+            Assert.Equal(
+                ApplicationThemeCatalog.Options.Count,
+                rendered.Values.Select(theme => theme.Background).Distinct().Count());
+            foreach (var option in ApplicationThemeCatalog.Options)
+            {
+                var theme = rendered[option.Value];
+                var expected = expectedColours[option.Value];
+                Assert.Equal(Color.Parse(expected.Background), theme.Background);
+                Assert.Equal(Color.Parse(expected.Foreground), theme.Foreground);
+                Assert.True(
+                    ContrastRatio(theme.Foreground, theme.Background) >= 4.5,
+                    $"{option.Name} foreground must meet WCAG AA contrast.");
+                Assert.True(
+                    ContrastRatio(theme.Quiet, theme.Panel) >= 4.5,
+                    $"{option.Name} quiet text must meet WCAG AA contrast.");
+                Assert.True(
+                    ContrastRatio(theme.PlaceholderText, theme.PlaceholderSurface) >= 4.5,
+                    $"{option.Name} placeholder text must meet WCAG AA contrast.");
+                Assert.True(
+                    ContrastRatio(theme.Accent, theme.AccentSurface) >= 4.5,
+                    $"{option.Name} accent text must meet WCAG AA contrast on the accent surface.");
+                Assert.True(
+                    ContrastRatio(theme.Error, theme.Panel) >= 4.5,
+                    $"{option.Name} validation text {theme.Error} must meet WCAG AA contrast on panel {theme.Panel}; "
+                    + $"actual ratio is {ContrastRatio(theme.Error, theme.Panel):0.00}:1.");
+            }
         }
         finally
         {
             application.RequestedThemeVariant = originalTheme;
+        }
+    }
+
+    [AvaloniaFact]
+    public void EveryThemeDictionaryDefinesTheCompleteSemanticAndIdentityPalette()
+    {
+        var application = Assert.IsType<App>(Application.Current);
+        var tokens = Assert.Single(
+            application.Resources.MergedDictionaries.OfType<IResourceDictionary>(),
+            dictionary => dictionary.ThemeDictionaries.Count == ApplicationThemeCatalog.Options.Count);
+        var expectedKeys = new[]
+        {
+            "BackgroundBrush", "SidebarBrush", "PanelBrush", "PanelRaisedBrush", "PanelInputBrush",
+            "LineBrush", "LineSoftBrush", "ControlHoverBorderBrush",
+            "TextBrush", "MutedTextBrush", "QuietTextBrush",
+            "AccentBrush", "AccentHoverBrush", "AccentPressedBrush", "AccentSurfaceBrush", "AccentContentBrush",
+            "SuccessBrush", "AmberBrush", "ArchivedBrush", "ErrorBrush",
+            "CategoryOrchidBrush", "CategoryVioletBrush", "CategoryIndigoBrush", "CategoryOceanBrush",
+            "CategoryTealBrush", "CategoryLimeBrush", "CategoryTangerineBrush", "CategoryRoseBrush",
+            "CategoryCobaltBrush", "CategoryCyanBrush", "CategoryEmeraldBrush", "CategoryGoldBrush",
+            "CategoryAmberBrush", "CategoryCoralBrush", "CategoryMagentaBrush", "CategorySlateBrush",
+            "InteractionFocusShadow", "CheckedFocusShadow", "OverlayShadow",
+        };
+        var identityKeys = expectedKeys.Where(key => key.StartsWith("Category", StringComparison.Ordinal)).ToArray();
+
+        Assert.Equal(ApplicationThemeCatalog.Options.Count, tokens.ThemeDictionaries.Count);
+        foreach (var option in ApplicationThemeCatalog.Options)
+        {
+            Assert.True(tokens.ThemeDictionaries.TryGetValue(option.Variant, out var provider));
+            var dictionary = Assert.IsAssignableFrom<IResourceDictionary>(provider);
+            Assert.Equal(
+                expectedKeys.Order(StringComparer.Ordinal),
+                dictionary.Keys.Cast<string>().Order(StringComparer.Ordinal));
+            Assert.Equal(
+                identityKeys.Length,
+                identityKeys.Select(key => Assert.IsAssignableFrom<ISolidColorBrush>(dictionary[key]).Color).Distinct().Count());
         }
     }
 
@@ -394,7 +458,16 @@ public sealed class StyleGuideWindowTests
 
     private static ISolidColorBrush Solid(IBrush? brush) => Assert.IsAssignableFrom<ISolidColorBrush>(brush);
 
-    private static (Color Background, Color Foreground, Color Panel, Color Quiet, Color PlaceholderSurface, Color PlaceholderText) RenderTheme(ThemeVariant theme)
+    private static (
+        Color Background,
+        Color Foreground,
+        Color Panel,
+        Color Quiet,
+        Color PlaceholderSurface,
+        Color PlaceholderText,
+        Color Accent,
+        Color AccentSurface,
+        Color Error) RenderTheme(ThemeVariant theme)
     {
         var window = new StyleGuideWindow { RequestedThemeVariant = theme };
         window.Show();
@@ -415,8 +488,16 @@ public sealed class StyleGuideWindowTests
         Assert.Equal(Avalonia.Media.TextTrimming.CharacterEllipsis, labels[0].TextTrimming);
         Assert.True(labels[1].Bounds.Width > 0);
         Assert.True(labels[1].TranslatePoint(default, placeholder)!.Value.Y + labels[1].Bounds.Height <= placeholder.Bounds.Height);
-        var result = (Solid(window.Background).Color, Solid(foreground.Foreground).Color, Solid(panel.Background).Color,
-            Solid(quiet.Stroke ?? quiet.Fill).Color, Solid(placeholder.Background).Color, Solid(labels[1].Foreground).Color);
+        var result = (
+            Solid(window.Background).Color,
+            Solid(foreground.Foreground).Color,
+            Solid(panel.Background).Color,
+            Solid(quiet.Stroke ?? quiet.Fill).Color,
+            Solid(placeholder.Background).Color,
+            Solid(labels[1].Foreground).Color,
+            Assert.IsAssignableFrom<ISolidColorBrush>(window.FindResource(theme, "AccentBrush")).Color,
+            Assert.IsAssignableFrom<ISolidColorBrush>(window.FindResource(theme, "AccentSurfaceBrush")).Color,
+            Assert.IsAssignableFrom<ISolidColorBrush>(window.FindResource(theme, "ErrorBrush")).Color);
         window.Close();
         return result;
     }

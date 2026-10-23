@@ -152,7 +152,7 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
-    public void SettingsThemePickerUsesSharedRowAlignmentAndAppliesLightThemeImmediately()
+    public void SettingsThemePickerUsesSharedRowAlignmentAndAppliesNamedThemeImmediately()
     {
         var application = Assert.IsType<App>(Application.Current);
         var originalTheme = application.RequestedThemeVariant;
@@ -172,7 +172,19 @@ public sealed class ProjectCaptureWindowTests
             Assert.Equal("settings-theme", AutomationProperties.GetAutomationId(picker));
             Assert.Equal("Dark theme selected", AutomationProperties.GetItemStatus(picker));
             Assert.True(picker.Focus(NavigationMethod.Tab));
-            Assert.Equal(["Dark", "Light"], picker.Items.Cast<ApplicationThemeOption>().Select(option => option.Name));
+            Assert.Equal(
+                [
+                    "Dark",
+                    "Light",
+                    "Monokai Classic",
+                    "Dracula Classic",
+                    "Alucard Classic",
+                    "Catppuccin Mocha",
+                    "Catppuccin Latte",
+                    "Gruvbox Dark",
+                    "Gruvbox Light",
+                ],
+                picker.Items.Cast<ApplicationThemeOption>().Select(option => option.Name));
             var themeRow = picker.GetVisualAncestors().OfType<Border>()
                 .First(border => border.Classes.Contains("interactive-row"));
             var themeLabel = Assert.Single(
@@ -213,14 +225,14 @@ public sealed class ProjectCaptureWindowTests
                 0.01);
 
             picker.SelectedItem = picker.Items.Cast<ApplicationThemeOption>()
-                .Single(option => option.Value == ApplicationTheme.Light);
+                .Single(option => option.Value == ApplicationTheme.GruvboxLight);
             Dispatcher.UIThread.RunJobs();
 
-            Assert.Equal(ApplicationTheme.Light, themes.CurrentTheme);
-            Assert.Equal(ThemeVariant.Light, application.RequestedThemeVariant);
-            Assert.Equal(ThemeVariant.Light, window.ActualThemeVariant);
-            Assert.Equal("Light theme selected", AutomationProperties.GetItemStatus(picker));
-            Assert.Equal("Light theme selected.", shell.Settings!.Announcement);
+            Assert.Equal(ApplicationTheme.GruvboxLight, themes.CurrentTheme);
+            Assert.Equal(ApplicationThemeVariants.GruvboxLight, application.RequestedThemeVariant);
+            Assert.Equal(ApplicationThemeVariants.GruvboxLight, window.ActualThemeVariant);
+            Assert.Equal("Gruvbox Light theme selected", AutomationProperties.GetItemStatus(picker));
+            Assert.Equal("Gruvbox Light theme selected.", shell.Settings!.Announcement);
         }
         finally
         {

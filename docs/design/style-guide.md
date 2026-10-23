@@ -1,16 +1,16 @@
 # Desktop UI style guide
 
-Status: implemented reference for the desktop Workbench direction in Dark and Light themes.
+Status: implemented reference for the desktop Workbench direction across all built-in colour themes.
 
 This is the detailed authority for dot-orbit component anatomy, visual states, accessibility and Avalonia reuse. [`ui-specification.md`](ui-specification.md) remains the authority for product-level layout and interaction decisions; the historical HTML prototype remains exploratory evidence rather than a component specification.
 
 ## Principles
 
 - Preserve a dense, calm desktop Workbench: a persistent navigation rail, primary canvas and contextual inspector.
-- Pink communicates interaction: selection, focus, insertion and checked interactive controls. Green communicates completion or another positive outcome. Amber communicates attention or active progress. Violet communicates archived state. Error red communicates invalid input.
+- The theme accent communicates interaction: selection, focus, insertion and checked interactive controls. The exact hue may vary by theme. Success, attention, archived and error tokens communicate their named state, with a non-colour cue alongside them.
 - Never communicate meaning with colour or an icon alone. Pair colour with text, shape, state, an accessible name, or a visible structural change.
 - Use semantic resources and classes. A screen must not recreate hover, focus, checked, disabled, error or reorder rules locally.
-- Keep the first release desktop-first. Dark is the initial theme; Settings offers Dark and Light without changing the layout or semantic hierarchy. Mobile and responsive redesign remain separate product decisions.
+- Keep the first release desktop-first. Dark is the initial theme; Settings offers the dot-orbit Dark and Light themes plus the named Monokai Classic, Dracula Classic, Alucard Classic, Catppuccin Mocha, Catppuccin Latte, Gruvbox Dark, and Gruvbox Light themes without changing the layout or semantic hierarchy. Mobile and responsive redesign remain separate product decisions.
 
 ## Tokens
 
@@ -21,7 +21,7 @@ The implemented tokens live in `src/DotOrbit.Desktop/Styles/Tokens.axaml`. Use t
 | Colour | `BackgroundBrush`, `SidebarBrush`, `PanelBrush`, `PanelRaisedBrush`, `PanelInputBrush` | Theme-specific canvas and layered surfaces. Raised is an interaction state, not decoration. |
 | Lines | `LineBrush`, `LineSoftBrush`, `ControlHoverBorderBrush` | Strong lines bound panels and controls; soft lines separate peer rows. |
 | Text | `TextBrush`, `MutedTextBrush`, `QuietTextBrush` | Main copy, supporting copy and metadata respectively. Do not hide necessary information through low contrast. |
-| Interaction | `AccentBrush`, `AccentHoverBrush`, `AccentPressedBrush`, `AccentSurfaceBrush`, `AccentContentBrush` | Pink family for action, selection, insertion, focus and checked interactive state. |
+| Interaction | `AccentBrush`, `AccentHoverBrush`, `AccentPressedBrush`, `AccentSurfaceBrush`, `AccentContentBrush` | Theme-specific accent family for action, selection, insertion, focus and checked interactive state. |
 | State | `SuccessBrush`, `AmberBrush`, `ArchivedBrush`, `ErrorBrush` | Positive/completed, attention/in-progress, archived and validation/error. Always add a non-colour cue. |
 | Work identity | `CategoryOrchidBrush`, `CategoryVioletBrush`, `CategoryIndigoBrush`, `CategoryOceanBrush`, `CategoryTealBrush`, `CategoryLimeBrush`, `CategoryTangerineBrush`, `CategoryRoseBrush`, `CategoryCobaltBrush`, `CategoryCyanBrush`, `CategoryEmeraldBrush`, `CategoryGoldBrush`, `CategoryAmberBrush`, `CategoryCoralBrush`, `CategoryMagentaBrush`, `CategorySlateBrush` | Category and Project identification only. Persist the corresponding stable lowercase key; never reuse these brushes as interaction or workflow state. |
 | Type | `AppFont`, `TypeSizeEyebrow`, `TypeSizeBody`, `TypeSizeTitle` | Inter; 12px labels/metadata, 14px body, 20px inspector titles. Headings may step above these roles locally. |

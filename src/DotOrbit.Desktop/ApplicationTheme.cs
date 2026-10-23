@@ -8,9 +8,130 @@ public enum ApplicationTheme
 {
     Dark,
     Light,
+    MonokaiClassic,
+    DraculaClassic,
+    AlucardClassic,
+    CatppuccinMocha,
+    CatppuccinLatte,
+    GruvboxDark,
+    GruvboxLight,
 }
 
-public sealed record ApplicationThemeOption(ApplicationTheme Value, string Name);
+public enum ApplicationThemeAppearance
+{
+    Dark,
+    Light,
+}
+
+public static class ApplicationThemeVariants
+{
+    public static readonly ThemeVariant MonokaiClassic = new(
+        nameof(MonokaiClassic),
+        ThemeVariant.Dark);
+
+    public static readonly ThemeVariant DraculaClassic = new(
+        nameof(DraculaClassic),
+        ThemeVariant.Dark);
+
+    public static readonly ThemeVariant AlucardClassic = new(
+        nameof(AlucardClassic),
+        ThemeVariant.Light);
+
+    public static readonly ThemeVariant CatppuccinMocha = new(
+        nameof(CatppuccinMocha),
+        ThemeVariant.Dark);
+
+    public static readonly ThemeVariant CatppuccinLatte = new(
+        nameof(CatppuccinLatte),
+        ThemeVariant.Light);
+
+    public static readonly ThemeVariant GruvboxDark = new(
+        nameof(GruvboxDark),
+        ThemeVariant.Dark);
+
+    public static readonly ThemeVariant GruvboxLight = new(
+        nameof(GruvboxLight),
+        ThemeVariant.Light);
+}
+
+public sealed record ApplicationThemeOption(
+    ApplicationTheme Value,
+    string Id,
+    string Name,
+    ApplicationThemeAppearance Appearance,
+    ThemeVariant Variant);
+
+public static class ApplicationThemeCatalog
+{
+    public static IReadOnlyList<ApplicationThemeOption> Options { get; } =
+    [
+        new(
+            ApplicationTheme.Dark,
+            "Dark",
+            "Dark",
+            ApplicationThemeAppearance.Dark,
+            ThemeVariant.Dark),
+        new(
+            ApplicationTheme.Light,
+            "Light",
+            "Light",
+            ApplicationThemeAppearance.Light,
+            ThemeVariant.Light),
+        new(
+            ApplicationTheme.MonokaiClassic,
+            "MonokaiClassic",
+            "Monokai Classic",
+            ApplicationThemeAppearance.Dark,
+            ApplicationThemeVariants.MonokaiClassic),
+        new(
+            ApplicationTheme.DraculaClassic,
+            "DraculaClassic",
+            "Dracula Classic",
+            ApplicationThemeAppearance.Dark,
+            ApplicationThemeVariants.DraculaClassic),
+        new(
+            ApplicationTheme.AlucardClassic,
+            "AlucardClassic",
+            "Alucard Classic",
+            ApplicationThemeAppearance.Light,
+            ApplicationThemeVariants.AlucardClassic),
+        new(
+            ApplicationTheme.CatppuccinMocha,
+            "CatppuccinMocha",
+            "Catppuccin Mocha",
+            ApplicationThemeAppearance.Dark,
+            ApplicationThemeVariants.CatppuccinMocha),
+        new(
+            ApplicationTheme.CatppuccinLatte,
+            "CatppuccinLatte",
+            "Catppuccin Latte",
+            ApplicationThemeAppearance.Light,
+            ApplicationThemeVariants.CatppuccinLatte),
+        new(
+            ApplicationTheme.GruvboxDark,
+            "GruvboxDark",
+            "Gruvbox Dark",
+            ApplicationThemeAppearance.Dark,
+            ApplicationThemeVariants.GruvboxDark),
+        new(
+            ApplicationTheme.GruvboxLight,
+            "GruvboxLight",
+            "Gruvbox Light",
+            ApplicationThemeAppearance.Light,
+            ApplicationThemeVariants.GruvboxLight),
+    ];
+
+    public static ApplicationThemeOption Get(ApplicationTheme theme) =>
+        Options.SingleOrDefault(option => option.Value == theme)
+        ?? throw new ArgumentOutOfRangeException(nameof(theme));
+
+    public static bool TryGetById(string? id, out ApplicationThemeOption option)
+    {
+        option = Options.FirstOrDefault(candidate =>
+            string.Equals(candidate.Id, id, StringComparison.OrdinalIgnoreCase))!;
+        return option is not null;
+    }
+}
 
 public interface IApplicationThemeService
 {
@@ -129,9 +250,7 @@ internal sealed class ApplicationThemeService : IApplicationThemeService
     }
 
     private void Apply(ApplicationTheme theme) =>
-        _application.RequestedThemeVariant = theme == ApplicationTheme.Light
-            ? ThemeVariant.Light
-            : ThemeVariant.Dark;
+        _application.RequestedThemeVariant = ApplicationThemeCatalog.Get(theme).Variant;
 }
 
 internal sealed class TransientApplicationThemeService : IApplicationThemeService
@@ -168,9 +287,7 @@ internal sealed class TransientApplicationThemeService : IApplicationThemeServic
             return;
         }
 
-        _application.RequestedThemeVariant = theme == ApplicationTheme.Light
-            ? ThemeVariant.Light
-            : ThemeVariant.Dark;
+        _application.RequestedThemeVariant = ApplicationThemeCatalog.Get(theme).Variant;
     }
 }
 
@@ -314,14 +431,13 @@ internal sealed class JsonDevicePreferenceStore :
     public ApplicationTheme Load()
     {
         var document = LoadDocument();
-        return Enum.TryParse<ApplicationTheme>(document.Theme, ignoreCase: true, out var theme)
-            && Enum.IsDefined(theme)
-                ? theme
+        return ApplicationThemeCatalog.TryGetById(document.Theme, out var theme)
+                ? theme.Value
                 : ApplicationTheme.Dark;
     }
 
     public bool TrySave(ApplicationTheme theme) => TrySaveDocument(
-        LoadDocument() with { Theme = theme.ToString() });
+        LoadDocument() with { Theme = ApplicationThemeCatalog.Get(theme).Id });
 
     public bool LoadIncludeAgentInstructionsAndSchemaWithSnapshot() =>
         LoadDocument().IncludeAgentInstructionsAndSchemaWithSnapshot ?? true;

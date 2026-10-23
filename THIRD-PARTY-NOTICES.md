@@ -13,6 +13,12 @@ dot-orbit packages include the .NET runtime and open-source libraries used by th
 - [Tmds.DBus.Protocol](https://github.com/tmds/Tmds.DBus): Copyright Tom Deseyn.
 - [MicroCom.Runtime](https://github.com/kekekeks/MicroCom): Copyright 2021 Nikita Tsukanov.
 - [Model Context Protocol C# SDK](https://github.com/modelcontextprotocol/csharp-sdk): Copyright Anthropic, PBC and contributors.
+- [Monokai colour palette](https://github.com/microsoft/vscode/tree/7cc5e7382b284f2156375fcedc388b44a07c0487/extensions/theme-monokai), adapted from the Visual Studio Code built-in Monokai theme at commit `7cc5e7382b284f2156375fcedc388b44a07c0487`: Copyright Microsoft Corporation.
+- [Dracula Classic and Alucard Classic colour palettes](https://github.com/dracula/draculatheme.com/tree/88fbf0b34e53d8f785546da3c2246b7edb73931e), adapted from the Dracula colour specification at commit `88fbf0b34e53d8f785546da3c2246b7edb73931e`: Copyright 2023 Dracula Theme.
+- [Catppuccin Mocha and Latte colour palettes](https://github.com/catppuccin/catppuccin/tree/d09787dd98ca6fba08af5ef2ae94a7e09f17daca), adapted from the Catppuccin style guide at commit `d09787dd98ca6fba08af5ef2ae94a7e09f17daca`: Copyright 2021 Catppuccin.
+- [Gruvbox Dark and Light colour palettes](https://github.com/gruvbox-community/gruvbox/tree/180ad85971343df68be3422a5630fa84e45a9ab2), adapted from Gruvbox at commit `180ad85971343df68be3422a5630fa84e45a9ab2`: Copyright 2018 Pavel Pertsev.
+
+The named palettes are mapped to dot-orbit's semantic application tokens and adjusted where necessary to preserve readable contrast. dot-orbit does not include third-party logos, icons, fonts, screenshots, or proprietary “Pro” theme assets.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 

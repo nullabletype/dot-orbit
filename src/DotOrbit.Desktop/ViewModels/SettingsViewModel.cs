@@ -33,11 +33,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             ?? new TransientAiFeaturePreferenceService();
         _aiFeaturesChanged = aiFeaturesChanged ?? (_ => { });
         _localMcpChanged = localMcpChanged ?? (_ => { });
-        ThemeOptions =
-        [
-            new(ApplicationTheme.Dark, "Dark"),
-            new(ApplicationTheme.Light, "Light"),
-        ];
+        ThemeOptions = ApplicationThemeCatalog.Options;
         _selectedTheme = ThemeOptions.Single(option =>
             option.Value == _applicationThemeService.CurrentTheme);
         Refresh();
