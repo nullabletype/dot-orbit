@@ -4099,6 +4099,25 @@ public sealed class ProjectCaptureWindowTests
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(0, scheduler.ScheduleCount);
         Assert.Single(work.Read().Projects);
+
+        shell.Work.NewTaskCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        autosaveRevision = shell.Work.AutosaveRevision;
+        picker.DisplayDate = new DateTime(2024, 1, 15);
+        picker.IsDropDownOpen = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new DateTime(2026, 11, 1), picker.DisplayDate.Date);
+        Assert.True(picker.IsTodayHighlighted);
+        Assert.Null(picker.SelectedDate);
+        Assert.Equal(string.Empty, picker.RawText);
+        Assert.False(shell.Work.IsDirty);
+        Assert.Equal(autosaveRevision, shell.Work.AutosaveRevision);
+
+        picker.IsDropDownOpen = false;
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(0, scheduler.ScheduleCount);
+        Assert.Empty(work.Read().Tasks);
         window.Close();
     }
 
