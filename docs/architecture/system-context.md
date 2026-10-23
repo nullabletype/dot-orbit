@@ -41,6 +41,7 @@ No production module depends on the desktop presentation module. A future mobile
 - **Core** owns completion derivation, Category inheritance, Today membership, ordering invariants, and the application actions that change them atomically.
 - **Persistence** is a core-owned seam implemented by the SQLite3MC adapter. It stores records and every independent ordering scope atomically without exposing SQL records or query providers to callers.
 - **Encrypted store lifecycle** owns creation, opening, validation, migration, passphrase rotation, and closing while hiding cipher and key-derivation configuration from callers.
+- **Planned quick unlock** keeps lifecycle policy and typed outcomes platform-neutral while the desktop owns one narrow Windows adapter for HWND-bound Windows Hello verification and DPAPI-NG `LOCAL=user` protect/unprotect operations. The adapter never enters Core, changes SQLite3MC encryption, or becomes a recovery path. Its device-local protected record is outside workspaces, recovery files, exports, and diagnostics and binds one encrypted workspace identity and canonical local-location digest to one passphrase-rotation generation.
 - **Recovery** automatically creates encrypted, validated, cross-platform recovery points without a plaintext intermediate copy. Its destination is a user-selected filesystem directory that may be managed by an external sync service.
 - **Plaintext export** is a separate, explicit manual operation to a user-selected JSON file. It is unencrypted, follows the [versioned public contract](../data/plaintext-export-v3.md), does not use automatic-backup retention, and does not default to the configured recovery directory.
 - **Synchronisation** is outside the first-release system boundary. A synced backup folder does not provide live record synchronisation or conflict resolution.
@@ -69,7 +70,13 @@ flowchart LR
 
 The desktop and a future MCP adapter share the same JSON and Core-owned application contracts. The app-scoped AI-features gate must be enabled before either manual interchange or MCP is available; MCP also has its own off-by-default lifecycle control. Neither transport owns schema semantics, domain validation, preview calculation, recovery, or mutation authority.
 
+## Planned quick-unlock boundary
+
+[ADR 0014](../adr/0014-windows-hello-quick-unlock.md) accepts a Windows-only convenience path. The unlock window requests one HWND-owned Windows Hello verification for one still-current attempt. Only `Verified` permits the Windows native adapter to unprotect the DPAPI-NG record. The lifecycle checks the Windows file-location digest, opens one authenticated validation-only connection, and compares encrypted workspace identity and rotation generation without reading user data before it constructs the ordinary unlocked session. Passphrase submission, window closure, or shutdown invalidates a pending native completion. Every unavailable, cancelled, denied, stale, corrupt, or failed path returns to immediately usable passphrase entry.
+
+The two Windows operations are application-composed rather than cryptographically coupled. DPAPI-NG excludes another account or computer but does not authenticate the Orbit executable or exclude a same-user process, administrator, SYSTEM, malware, or a compromised OS. macOS and Linux expose no quick-unlock capability under the current package and provider contracts.
+
 ## Deferred architecture questions
 
-- Optional post-first-release biometric unlock and operating-system credential-store integration.
+- Provider-specific quick-unlock support beyond the accepted Windows boundary.
 - Agent-interchange compatibility and vocabulary evolution after a real second schema version exists.

@@ -50,11 +50,11 @@ Decided: the first release supports macOS, Linux, and Windows using Avalonia UI 
 
 ## Data and recovery
 
-- What threat model and operating-system credential-store design would be required for optional biometric unlock after the first release?
+Decided: optional post-first-release quick unlock is supported only on capable Windows 11 hosts. It requests Windows Hello system authentication for each current attempt, then uses a DPAPI-NG `LOCAL=user` protected passphrase copy bound to one encrypted workspace identity, canonical local-location digest, and passphrase-rotation generation. Passphrase entry remains immediately available and is the sole recovery and cross-device credential. macOS remains unsupported while distributed as an unsigned bare executable without stable application identity across upgrades; generic Linux Secret Service cannot prove fresh per-use authentication. See [ADR 0014](../adr/0014-windows-hello-quick-unlock.md) and the [platform research](quick-unlock-platform-research.md).
 
 Decided: after stored data changes, routine backups are coalesced to at most one per hour. A validated recovery backup is required before migrations, imports, and restores. Retain 24 hourly, 30 daily, and 12 monthly backups, and never prune the last known-valid backup. The backup destination is configurable and may be a directory managed by an external cloud-sync tool; dot-orbit does not integrate with that provider.
 
-Decided: the first release requires the encryption passphrase on every launch, holds it only in process memory while unlocked, provides no password recovery or backdoor, and requires the current passphrase for rotation. Biometric unlock is deferred beyond the first release.
+Decided: the first release requires the encryption passphrase on every launch, holds it only in process memory while unlocked, provides no password recovery or backdoor, and requires the current passphrase for rotation. The later Windows-only quick-unlock plan does not alter that first-release boundary.
 
 Decided: passphrases require at least 12 characters after consistent Unicode normalisation, with guidance to use 16 or more characters or multiple words. Creation and rotation require confirmation, support paste and show/hide controls, impose no composition rules, and repeat the no-recovery warning.
 

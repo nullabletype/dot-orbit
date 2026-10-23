@@ -35,7 +35,7 @@ Schema version 1 recognises only version 1. It refuses a newer schema through a 
 
 - Canonically equivalent passphrase input reopens the same workspace; compatibility-distinct characters remain distinct.
 - Changing any pinned cipher or KDF value is a storage-format change requiring an explicit migration and portability decision.
-- Losing the passphrase remains unrecoverable. The application retains no verifier, hint, recovery secret, or credential-store copy.
+- Losing the passphrase remains unrecoverable. The first-release application retains no verifier, hint, recovery secret, or credential-store copy. ADR 0014 later permits an optional Windows-only device-local protected passphrase copy for convenience while keeping the portable passphrase as the sole recovery credential.
 - First-run setup cannot publish a workspace unless its first Category is valid and durably present.
 - Wrong passphrases, damage, and tampering share one public failure outcome. SQLite exception details and passphrases do not cross the storage boundary.
 - A legacy filename is never treated as proof of a workspace: wrong-passphrase, damaged, unsupported-schema, and failed-migration opens do not begin filename adoption.

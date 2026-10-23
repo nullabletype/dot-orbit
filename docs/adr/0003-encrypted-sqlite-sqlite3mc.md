@@ -25,6 +25,6 @@ Generate backups from the encrypted database without a plaintext intermediate fi
 - The application carries and verifies native SQLite3MC binaries for each supported runtime identifier.
 - Wrong-password and damaged-data failures should be deliberately indistinguishable to avoid unreliable diagnosis or information leakage.
 - The first release requires a passphrase at every launch, retains it only in process memory while unlocked, provides no recovery backdoor, and requires the current passphrase for rotation.
-- Optional biometric unlock is deferred and must not replace the portable passphrase used to open encrypted backups.
+- Optional quick unlock is deferred beyond the first release and must not replace the portable passphrase used to open encrypted backups. ADR 0014 later accepts a Windows-only device-local convenience contract within that boundary.
 - Schema migrations and recovery remain separate decisions. The behavioural requirements define the accepted backup cadence, retention policy, and configurable filesystem destination.
 - Encryption protects files at rest; it does not by itself protect process memory, swap, crash dumps, filesystem snapshots, or operating-system telemetry.
