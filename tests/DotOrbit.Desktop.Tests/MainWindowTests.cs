@@ -512,9 +512,17 @@ public sealed class MainWindowTests
         const string manualStatus = "Seeded manual proposal feedback.";
         shell.Ai!.ProposalText = manualText;
         shell.Ai.ReportProposalStatus(manualStatus);
-
-        await window.CompleteInboundProposalReviewAsync("receipt-modal");
         Dispatcher.UIThread.RunJobs();
+        var manualStatusText = Assert.IsType<SelectableTextBlock>(
+            window.FindControl<SelectableTextBlock>("AiProposalStatus"));
+        Assert.True(manualStatusText.IsEffectivelyVisible);
+        Assert.Equal(manualStatus, manualStatusText.Text);
+
+        var reviewButton = window.GetVisualDescendants().OfType<Button>().Single(button =>
+            button.DataContext is PendingProposalRowViewModel { Receipt: "receipt-modal" }
+            && string.Equals(button.Content as string, "Review", StringComparison.Ordinal));
+        reviewButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await DrainUiUntilAsync(() => window.OwnedWindows.OfType<AgentProposalReviewWindow>().Any());
 
         var review = Assert.Single(window.OwnedWindows.OfType<AgentProposalReviewWindow>());
         var reviewModel = Assert.IsType<AgentProposalReviewViewModel>(review.DataContext);
@@ -522,9 +530,6 @@ public sealed class MainWindowTests
         Assert.Contains("Self-reported", reviewModel.SourceDetail, StringComparison.Ordinal);
         Assert.Equal(manualText, shell.Ai.ProposalText);
         Assert.Equal(manualStatus, shell.Ai.ProposalStatus);
-        var manualStatusText = Assert.IsType<SelectableTextBlock>(
-            window.FindControl<SelectableTextBlock>("AiProposalStatus"));
-        Assert.Equal(manualStatus, manualStatusText.Text);
 
         var actions = Assert.IsType<Grid>(review.FindControl<Grid>("ProposalReviewActions"));
         var modalStatus = Assert.Single(actions.GetVisualDescendants().OfType<TextBlock>(), text =>
@@ -554,8 +559,8 @@ public sealed class MainWindowTests
 
         Assert.True(modalStatus.IsEffectivelyVisible);
         Assert.Contains("applied atomically", modalStatus.Text, StringComparison.Ordinal);
-        Assert.True(Assert.IsType<Button>(
-            review.FindControl<Button>("CloseProposalReviewButton")).IsFocused);
+        var close = Assert.IsType<Button>(review.FindControl<Button>("CloseProposalReviewButton"));
+        Assert.True(close.IsFocused);
         Assert.False(apply.IsEnabled);
         Assert.Null(innerSession.AgentIntegration.FindPendingProposal("receipt-modal"));
         Assert.NotNull(innerSession.AgentIntegration.FindPendingProposal("receipt-other"));
@@ -567,11 +572,12 @@ public sealed class MainWindowTests
         Assert.Equal(1, application.ApplyCount);
         Assert.Single(innerSession.Work.Read().Tasks, task => task.Title == "Task selected");
 
-        review.Close();
-        Dispatcher.UIThread.RunJobs();
+        close.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await DrainUiUntilAsync(() => !review.IsVisible);
         Assert.Equal(manualText, shell.Ai.ProposalText);
         Assert.Equal(manualStatus, shell.Ai.ProposalStatus);
         Assert.Equal(manualStatus, manualStatusText.Text);
+        Assert.True(manualStatusText.IsEffectivelyVisible);
         window.Close();
     }
 
