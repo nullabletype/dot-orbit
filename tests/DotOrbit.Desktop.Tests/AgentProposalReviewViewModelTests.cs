@@ -138,7 +138,7 @@ public sealed class AgentProposalReviewViewModelTests
         Assert.Equal(1, application.ApproveCount);
         Assert.Null(window.FindControl<Button>("ConfirmProposalApplyButton"));
         Assert.False(viewModel.CanApply);
-        Assert.Contains("Nothing was applied", viewModel.StatusMessage, StringComparison.Ordinal);
+        Assert.Contains("nothing was changed", viewModel.StatusMessage, StringComparison.Ordinal);
         var actions = Assert.IsType<Grid>(window.FindControl<Grid>("ProposalReviewActions"));
         var status = Assert.Single(actions.GetVisualDescendants().OfType<TextBlock>(), text =>
             string.Equals(
@@ -186,7 +186,9 @@ public sealed class AgentProposalReviewViewModelTests
                 "Proposal review status",
                 StringComparison.Ordinal));
         Assert.True(status.IsEffectivelyVisible);
-        Assert.Contains("maintenance is still required", status.Text, StringComparison.Ordinal);
+        Assert.Equal(
+            "The changes were applied, but dot-orbit still needs to finish updating. Select Retry maintenance.",
+            status.Text);
         Assert.Equal(AutomationLiveSetting.Polite, AutomationProperties.GetLiveSetting(status));
         Assert.True(Assert.IsType<Button>(
             window.FindControl<Button>("RetryProposalMaintenanceButton")).IsFocused);
@@ -259,8 +261,9 @@ public sealed class AgentProposalReviewViewModelTests
         Assert.Contains("No existing item is referenced or edited directly", viewModel.ProposalKindSummary, StringComparison.Ordinal);
         Assert.False(viewModel.HasSourceDetails);
         Assert.Equal("Add new work", viewModel.ApplyButtonText);
-        Assert.Contains("Add all shown new work", viewModel.ApplyButtonAccessibleName, StringComparison.Ordinal);
-        Assert.Contains("validated encrypted recovery point", viewModel.ApplyButtonAccessibleName, StringComparison.Ordinal);
+        Assert.Equal(
+            "Create a data backup and add all shown new work",
+            viewModel.ApplyButtonAccessibleName);
         Assert.Equal("What will be added", viewModel.ReviewHeading);
         var creation = Assert.Single(viewModel.ReviewEffects, effect => effect.Kind == "Add task");
         Assert.Equal("Synthetic task", creation.TargetLabel);
@@ -1039,7 +1042,7 @@ public sealed class AgentProposalReviewViewModelTests
         Assert.Equal(1, application.ApproveCount);
         Assert.Equal(0, application.ApplyCount);
         Assert.False(viewModel.CanApply);
-        Assert.Contains("Nothing was applied", viewModel.StatusMessage, StringComparison.Ordinal);
+        Assert.Contains("nothing was changed", viewModel.StatusMessage, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1065,7 +1068,9 @@ public sealed class AgentProposalReviewViewModelTests
         await viewModel.ApplyAsync(new ReadyHost());
         await viewModel.ApplyAsync(new ReadyHost());
 
-        Assert.Contains("applied atomically", viewModel.StatusMessage, StringComparison.Ordinal);
+        Assert.Equal(
+            "Data backup created and changes applied successfully.",
+            viewModel.StatusMessage);
         Assert.False(viewModel.CanApply);
         Assert.False(viewModel.CanRetryMaintenance);
         Assert.Single(session.Work.Read().Tasks, task => task.Title == "Synthetic task");

@@ -330,7 +330,9 @@ public sealed class MainWindowTests
         await reviewModel.ApplyAsync(new ReadyProposalApplicationHost());
 
         Assert.True(reviewModel.CanClose);
-        Assert.Contains("applied atomically", reviewModel.StatusMessage, StringComparison.Ordinal);
+        Assert.Equal(
+            "Data backup created and changes applied successfully.",
+            reviewModel.StatusMessage);
         Assert.Equal(1, application.ApproveCount);
         Assert.Equal(1, application.ApplyCount);
         Assert.Single(innerSession.Work.Read().Tasks, task => task.Title == "Approved synthetic task");
@@ -544,7 +546,7 @@ public sealed class MainWindowTests
         {
             Dispatcher.UIThread.RunJobs();
             Assert.True(modalStatus.IsEffectivelyVisible);
-            Assert.Contains("Applying the approved proposal", modalStatus.Text, StringComparison.Ordinal);
+            Assert.Equal("Creating a data backup and importing the new data…", modalStatus.Text);
             Assert.Equal("Proposal review status", AutomationProperties.GetName(modalStatus));
             Assert.Equal(AutomationLiveSetting.Polite, AutomationProperties.GetLiveSetting(modalStatus));
             Assert.Equal(manualText, shell.Ai.ProposalText);
@@ -558,7 +560,7 @@ public sealed class MainWindowTests
         await DrainUiUntilAsync(() => reviewModel.ProposalWasCommitted);
 
         Assert.True(modalStatus.IsEffectivelyVisible);
-        Assert.Contains("applied atomically", modalStatus.Text, StringComparison.Ordinal);
+        Assert.Equal("Data backup created and new data imported successfully.", modalStatus.Text);
         var close = Assert.IsType<Button>(review.FindControl<Button>("CloseProposalReviewButton"));
         Assert.True(close.IsFocused);
         Assert.False(apply.IsEnabled);

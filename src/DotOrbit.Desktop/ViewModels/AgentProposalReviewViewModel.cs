@@ -338,8 +338,8 @@ internal sealed class AgentProposalReviewViewModel : INotifyPropertyChanged
         ? "Add new work"
         : "Apply changes";
     public string ApplyButtonAccessibleName => _kind == ProposalKind.NewWork
-        ? "Add all shown new work after creating a validated encrypted recovery point"
-        : "Apply all shown changes after creating a validated encrypted recovery point";
+        ? "Create a data backup and add all shown new work"
+        : "Create a data backup and apply all shown changes";
     public string TechnicalCountSummary =>
         $"{OperationCount} proposal {Plural(OperationCount, "instruction", "instructions")} and {EffectCount} total {Plural(EffectCount, "effect", "effects")} were validated.";
     public string ExcludedPowers { get; } =
@@ -377,7 +377,9 @@ internal sealed class AgentProposalReviewViewModel : INotifyPropertyChanged
 
         _plan = null;
         _state = ReviewState.Applying;
-        StatusMessage = "Applying the approved proposal after encrypted recovery validation…";
+        StatusMessage = _kind == ProposalKind.NewWork
+            ? "Creating a data backup and importing the new data…"
+            : "Creating a data backup and applying the changes…";
         NotifyState();
 
         ProposalApproval? approval;
@@ -389,14 +391,14 @@ internal sealed class AgentProposalReviewViewModel : INotifyPropertyChanged
                                           or ObjectDisposedException)
         {
             CompletePreCommitFailure(
-                "Approval is no longer available. Nothing was applied; review the proposal again.");
+                "This review has expired, so nothing was changed. Review the proposal again.");
             return;
         }
 
         if (approval is null)
         {
             CompletePreCommitFailure(
-                "Approval is no longer available. Nothing was applied; review the proposal again.");
+                "This review has expired, so nothing was changed. Review the proposal again.");
             return;
         }
 
@@ -413,7 +415,7 @@ internal sealed class AgentProposalReviewViewModel : INotifyPropertyChanged
                                           or ObjectDisposedException)
         {
             CompletePreCommitFailure(
-                "The proposal could not be applied. Nothing was changed; review it again before retrying.");
+                "We couldn't make the changes. Nothing was changed. Review the proposal and try again.");
             return;
         }
 
@@ -421,24 +423,30 @@ internal sealed class AgentProposalReviewViewModel : INotifyPropertyChanged
         _state = result.Committed ? ReviewState.Committed : ReviewState.Consumed;
         StatusMessage = result.Status switch
         {
+            ProposalApplyStatus.Committed when _kind == ProposalKind.NewWork =>
+                "Data backup created and new data imported successfully.",
             ProposalApplyStatus.Committed =>
-                "Proposal applied atomically after a validated encrypted recovery point was created.",
+                "Data backup created and changes applied successfully.",
+            ProposalApplyStatus.CommittedMaintenanceRequired when _kind == ProposalKind.NewWork =>
+                "The new data was imported, but dot-orbit still needs to finish updating. Select Retry maintenance.",
             ProposalApplyStatus.CommittedMaintenanceRequired =>
-                "Proposal committed, but refresh or recovery maintenance is still required. Do not apply it again; retry maintenance only.",
+                "The changes were applied, but dot-orbit still needs to finish updating. Select Retry maintenance.",
             ProposalApplyStatus.PendingInspectorWork =>
-                "Pending edits could not be saved. Nothing was applied; review the proposal again after resolving them.",
+                "Your current edits couldn't be saved, so nothing was changed. Check them and try again.",
             ProposalApplyStatus.StaleSource when _kind == ProposalKind.NewWork =>
-                "The workspace changed after this review. Nothing was applied; review the proposal again.",
+                "The workspace changed after this review, so nothing was imported. Review the proposal again.",
             ProposalApplyStatus.StaleSource =>
-                "The proposal is stale. Nothing was applied; share fresh workspace context and regenerate it.",
+                "The workspace changed after this review, so nothing was changed. Share the latest workspace and try again.",
+            ProposalApplyStatus.RecoveryPointCreationFailed when _kind == ProposalKind.NewWork =>
+                "A data backup couldn't be created, so nothing was imported.",
             ProposalApplyStatus.RecoveryPointCreationFailed =>
-                "A validated encrypted recovery point could not be created. Nothing was applied.",
+                "A data backup couldn't be created, so nothing was changed.",
             ProposalApplyStatus.Cancelled =>
-                "Apply was cancelled before commit. Nothing was applied; review the proposal again.",
+                "The update was cancelled, so nothing was changed. Review the proposal and try again.",
             ProposalApplyStatus.ApprovalUnavailable =>
-                "Approval is no longer available. Nothing was applied; review the proposal again.",
+                "This review has expired, so nothing was changed. Review the proposal again.",
             _ =>
-                "The proposal could not be applied. Nothing was changed; review it again before retrying.",
+                "We couldn't make the changes. Nothing was changed. Review the proposal and try again.",
         };
         NotifyState();
         ApplyFinished?.Invoke(this, EventArgs.Empty);
@@ -460,15 +468,18 @@ internal sealed class AgentProposalReviewViewModel : INotifyPropertyChanged
         catch (Exception exception) when (exception is InvalidOperationException
                                           or ObjectDisposedException)
         {
-            StatusMessage =
-                "The proposal remains committed, but maintenance still needs attention. No proposal operation was replayed.";
+            StatusMessage = _kind == ProposalKind.NewWork
+                ? "The new data is already imported, but dot-orbit couldn't finish updating. Select Retry maintenance to try again."
+                : "The changes are already applied, but dot-orbit couldn't finish updating. Select Retry maintenance to try again.";
             return;
         }
 
         _maintenance = result.Maintenance;
         StatusMessage = result.Status == ProposalMaintenanceStatus.Completed
-            ? "Committed proposal maintenance completed. No proposal operation was replayed."
-            : "The proposal remains committed, but maintenance still needs attention. No proposal operation was replayed.";
+            ? "dot-orbit finished updating successfully."
+            : _kind == ProposalKind.NewWork
+                ? "The new data is already imported, but dot-orbit couldn't finish updating. Select Retry maintenance to try again."
+                : "The changes are already applied, but dot-orbit couldn't finish updating. Select Retry maintenance to try again.";
         Notify(nameof(CanRetryMaintenance));
         ApplyFinished?.Invoke(this, EventArgs.Empty);
     }
