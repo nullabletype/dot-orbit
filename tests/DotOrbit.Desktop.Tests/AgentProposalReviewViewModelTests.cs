@@ -139,6 +139,58 @@ public sealed class AgentProposalReviewViewModelTests
         Assert.Null(window.FindControl<Button>("ConfirmProposalApplyButton"));
         Assert.False(viewModel.CanApply);
         Assert.Contains("Nothing was applied", viewModel.StatusMessage, StringComparison.Ordinal);
+        var actions = Assert.IsType<Grid>(window.FindControl<Grid>("ProposalReviewActions"));
+        var status = Assert.Single(actions.GetVisualDescendants().OfType<TextBlock>(), text =>
+            string.Equals(
+                AutomationProperties.GetName(text),
+                "Proposal review status",
+                StringComparison.Ordinal));
+        Assert.True(status.IsEffectivelyVisible);
+        Assert.Equal(viewModel.StatusMessage, status.Text);
+        Assert.Equal(AutomationLiveSetting.Polite, AutomationProperties.GetLiveSetting(status));
+        Assert.True(Assert.IsType<Button>(
+            window.FindControl<Button>("CloseProposalReviewButton")).IsFocused);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task CommittedMaintenanceRequiredKeepsStatusInFooterAndFocusesRetry()
+    {
+        using var directory = new TemporaryDirectory();
+        var passphrase = WorkspacePassphrase.Create(
+            "synthetic proposal maintenance password",
+            "synthetic proposal maintenance password").Passphrase!;
+        using var session = Assert.IsAssignableFrom<IWorkspaceSession>(
+            new EncryptedWorkspaceStore().Create(
+                Path.Combine(directory.Path, "workspace.db"),
+                passphrase,
+                CategoryName.Create("Home").CategoryName!).Session);
+        Assert.Equal(
+            RecoveryDirectoryConfigurationStatus.Configured,
+            session.Recovery.ConfigureAutomaticRecoveryDirectory(
+                Path.Combine(directory.Path, "recovery")).Status);
+        var viewModel = new AgentProposalReviewViewModel(
+            CreatePlan(session.Proposals),
+            session.ProposalApplication);
+        var window = new AgentProposalReviewWindow(viewModel, new RefreshFailureHost());
+        window.Show();
+
+        var apply = Assert.IsType<Button>(window.FindControl<Button>("ApplyProposalButton"));
+        apply.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        await DrainUiUntilAsync(() => viewModel.CanRetryMaintenance);
+
+        var actions = Assert.IsType<Grid>(window.FindControl<Grid>("ProposalReviewActions"));
+        var status = Assert.Single(actions.GetVisualDescendants().OfType<TextBlock>(), text =>
+            string.Equals(
+                AutomationProperties.GetName(text),
+                "Proposal review status",
+                StringComparison.Ordinal));
+        Assert.True(status.IsEffectivelyVisible);
+        Assert.Contains("maintenance is still required", status.Text, StringComparison.Ordinal);
+        Assert.Equal(AutomationLiveSetting.Polite, AutomationProperties.GetLiveSetting(status));
+        Assert.True(Assert.IsType<Button>(
+            window.FindControl<Button>("RetryProposalMaintenanceButton")).IsFocused);
+        Assert.Single(session.Work.Read().Tasks, task => task.Title == "Synthetic task");
         window.Close();
     }
 
@@ -1140,6 +1192,23 @@ public sealed class AgentProposalReviewViewModelTests
     {
         public bool FlushPendingInspectorWork() => true;
         public bool RefreshProjections() => true;
+    }
+
+    private sealed class RefreshFailureHost : IProposalApplicationHost
+    {
+        public bool FlushPendingInspectorWork() => true;
+        public bool RefreshProjections() => false;
+    }
+
+    private static async Task DrainUiUntilAsync(Func<bool> condition)
+    {
+        while (!condition())
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(1, TestContext.Current.CancellationToken);
+        }
+
+        Dispatcher.UIThread.RunJobs();
     }
 
     private sealed class TemporaryDirectory : IDisposable
