@@ -71,6 +71,8 @@ public sealed class NavigationItemViewModel : INotifyPropertyChanged
 
     public string AccessibleCount => CountText switch
     {
+        _ when string.Equals(AttentionText, "Update", StringComparison.Ordinal) =>
+            "Application update available",
         _ when string.Equals(AttentionText, "Review 1", StringComparison.Ordinal) =>
             "1 proposal awaiting review",
         _ when AttentionText is not null =>

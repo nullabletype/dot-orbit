@@ -36,6 +36,8 @@ test("release tags reject missing prefixes and non-canonical SemVer", () => {
     "v1.2.3+",
     "v1.2.3.4",
     "v1.2.3/feature",
+    `v1.2.3-${"a".repeat(65)}`,
+    `v${"9".repeat(197)}.0.0`,
   ]) {
     assert.equal(versionFromTag(tag), null, tag);
   }

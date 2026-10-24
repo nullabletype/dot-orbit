@@ -14,7 +14,21 @@ const expectedAssets = [
 ];
 
 export function versionFromTag(tag) {
-  return releaseTagPattern.exec(tag)?.[1] ?? null;
+  const version = releaseTagPattern.exec(tag)?.[1] ?? null;
+  return version !== null && isBoundedSemanticVersion(version) ? version : null;
+}
+
+function isBoundedSemanticVersion(version) {
+  if (version.length > 200) return false;
+  const plus = version.indexOf("+");
+  const precedence = plus < 0 ? version : version.slice(0, plus);
+  const build = plus < 0 ? null : version.slice(plus + 1);
+  const dash = precedence.indexOf("-");
+  const prerelease = dash < 0 ? null : precedence.slice(dash + 1);
+  return [prerelease, build]
+    .filter(value => value !== null)
+    .flatMap(value => value.split("."))
+    .every(identifier => identifier.length <= 64);
 }
 
 export function assertWorkflowPolicy(contents) {
@@ -26,6 +40,8 @@ export function assertWorkflowPolicy(contents) {
     "path: artifacts/packages/${{ matrix.archive }}",
     "archive: false",
     "DOTORBIT_PACKAGE_SMOKE_VERSION: ${{ needs.admit-source.outputs.version }}",
+    "DOTORBIT_PACKAGE_SMOKE_RELEASE_TAG: ${{ needs.admit-source.outputs.release-tag }}",
+    "--release-tag \"${{ needs.admit-source.outputs.release-tag }}\"",
     "if: needs.admit-source.outputs.draft-release == 'true'",
     "permissions:\n      contents: write",
     "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1",
@@ -259,6 +275,7 @@ function writeOutputs(outputPath, classification) {
       `upload=${classification.upload}`,
       `draft-release=${classification.draftRelease}`,
       `version=${classification.version}`,
+      `release-tag=${classification.tag}`,
       "",
     ].join("\n"));
 }

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Avalonia;
 using Avalonia.Styling;
+using DotOrbit.Desktop.ApplicationUpdates;
 
 namespace DotOrbit.Desktop;
 
@@ -407,8 +408,10 @@ internal sealed class JsonDevicePreferenceStore :
     IInterchangePreferenceStore,
     IAiFeaturePreferenceStore,
     IWorkspacePathPreferenceStore,
-    IMainWindowSizePreferenceStore
+    IMainWindowSizePreferenceStore,
+    IApplicationUpdatePreferenceStore
 {
+    internal const int MaximumPreferenceBytes = 64 * 1024;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -416,6 +419,7 @@ internal sealed class JsonDevicePreferenceStore :
     };
 
     private readonly string _path;
+    private readonly object _gate = new();
 
     public JsonDevicePreferenceStore(string path)
     {
@@ -430,33 +434,33 @@ internal sealed class JsonDevicePreferenceStore :
 
     public ApplicationTheme Load()
     {
-        var document = LoadDocument();
+        var document = ReadDocument();
         return ApplicationThemeCatalog.TryGetById(document.Theme, out var theme)
                 ? theme.Value
                 : ApplicationTheme.Dark;
     }
 
-    public bool TrySave(ApplicationTheme theme) => TrySaveDocument(
-        LoadDocument() with { Theme = ApplicationThemeCatalog.Get(theme).Id });
+    public bool TrySave(ApplicationTheme theme) => TryUpdateDocument(
+        document => document with { Theme = ApplicationThemeCatalog.Get(theme).Id });
 
     public bool LoadIncludeAgentInstructionsAndSchemaWithSnapshot() =>
-        LoadDocument().IncludeAgentInstructionsAndSchemaWithSnapshot ?? true;
+        ReadDocument().IncludeAgentInstructionsAndSchemaWithSnapshot ?? true;
 
     public bool TrySaveIncludeAgentInstructionsAndSchemaWithSnapshot(bool include) =>
-        TrySaveDocument(LoadDocument() with
+        TryUpdateDocument(document => document with
         {
             IncludeAgentInstructionsAndSchemaWithSnapshot = include,
         });
 
     public bool LoadAiFeaturesEnabled() =>
-        LoadDocument().AiFeaturesEnabled ?? false;
+        ReadDocument().AiFeaturesEnabled ?? false;
 
     public bool LoadLocalMcpEnabled() =>
-        LoadDocument().LocalMcpEnabled ?? false;
+        ReadDocument().LocalMcpEnabled ?? false;
 
     public string? LoadWorkspacePath()
     {
-        var path = LoadDocument().LastWorkspacePath;
+        var path = ReadDocument().LastWorkspacePath;
         return WorkspacePathPolicy.TryCanonicalize(path, out var canonicalPath)
             ? canonicalPath
             : null;
@@ -464,7 +468,7 @@ internal sealed class JsonDevicePreferenceStore :
 
     public MainWindowSize? LoadMainWindowSize()
     {
-        var document = LoadDocument();
+        var document = ReadDocument();
         MainWindowSize? size = document.MainWindowWidth is { } width
                                && document.MainWindowHeight is { } height
             ? new MainWindowSize(width, height)
@@ -474,8 +478,7 @@ internal sealed class JsonDevicePreferenceStore :
 
     public bool TrySaveAiFeaturesEnabled(bool enabled)
     {
-        var document = LoadDocument();
-        return TrySaveDocument(document with
+        return TryUpdateDocument(document => document with
         {
             AiFeaturesEnabled = enabled,
             LocalMcpEnabled = enabled ? document.LocalMcpEnabled : false,
@@ -484,13 +487,16 @@ internal sealed class JsonDevicePreferenceStore :
 
     public bool TrySaveLocalMcpEnabled(bool enabled)
     {
-        var document = LoadDocument();
-        if (enabled && document.AiFeaturesEnabled is not true)
+        lock (_gate)
         {
-            return false;
-        }
+            var document = LoadDocument();
+            if (enabled && document.AiFeaturesEnabled is not true)
+            {
+                return false;
+            }
 
-        return TrySaveDocument(document with { LocalMcpEnabled = enabled });
+            return TrySaveDocument(document with { LocalMcpEnabled = enabled });
+        }
     }
 
     public bool TrySaveWorkspacePath(string path)
@@ -500,7 +506,7 @@ internal sealed class JsonDevicePreferenceStore :
             return false;
         }
 
-        return TrySaveDocument(LoadDocument() with { LastWorkspacePath = canonicalPath });
+        return TryUpdateDocument(document => document with { LastWorkspacePath = canonicalPath });
     }
 
     public bool TrySaveMainWindowSize(MainWindowSize size)
@@ -510,11 +516,36 @@ internal sealed class JsonDevicePreferenceStore :
             return false;
         }
 
-        return TrySaveDocument(LoadDocument() with
+        return TryUpdateDocument(document => document with
         {
             MainWindowWidth = size.Width,
             MainWindowHeight = size.Height,
         });
+    }
+
+    public ApplicationUpdatePreferences LoadApplicationUpdatePreferences() =>
+        ReadDocument().ApplicationUpdates ?? new();
+
+    public bool TrySaveApplicationUpdatePreferences(ApplicationUpdatePreferences preferences)
+    {
+        ArgumentNullException.ThrowIfNull(preferences);
+        return TryUpdateDocument(document => document with { ApplicationUpdates = preferences });
+    }
+
+    private PreferenceDocument ReadDocument()
+    {
+        lock (_gate)
+        {
+            return LoadDocument();
+        }
+    }
+
+    private bool TryUpdateDocument(Func<PreferenceDocument, PreferenceDocument> update)
+    {
+        lock (_gate)
+        {
+            return TrySaveDocument(update(LoadDocument()));
+        }
     }
 
     private PreferenceDocument LoadDocument()
@@ -523,27 +554,45 @@ internal sealed class JsonDevicePreferenceStore :
         {
             if (!File.Exists(_path))
             {
-                return new(null, null, null, null, null, null, null);
+                return EmptyDocument();
             }
 
-            return JsonSerializer.Deserialize<PreferenceDocument>(
-                       File.ReadAllText(_path),
-                       JsonOptions)
-                   ?? new(null, null, null, null, null, null, null);
+            using var stream = File.Open(
+                _path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read);
+            if (stream.Length > MaximumPreferenceBytes)
+            {
+                return EmptyDocument();
+            }
+
+            var bytes = new byte[(int)stream.Length];
+            stream.ReadExactly(bytes);
+            if (stream.ReadByte() >= 0)
+            {
+                return EmptyDocument();
+            }
+
+            return JsonSerializer.Deserialize<PreferenceDocument>(bytes, JsonOptions)
+                   ?? EmptyDocument();
         }
         catch (IOException)
         {
-            return new(null, null, null, null, null, null, null);
+            return EmptyDocument();
         }
         catch (UnauthorizedAccessException)
         {
-            return new(null, null, null, null, null, null, null);
+            return EmptyDocument();
         }
         catch (JsonException)
         {
-            return new(null, null, null, null, null, null, null);
+            return EmptyDocument();
         }
     }
+
+    private static PreferenceDocument EmptyDocument() =>
+        new(null, null, null, null, null, null, null, null);
 
     private bool TrySaveDocument(PreferenceDocument document)
     {
@@ -596,5 +645,6 @@ internal sealed class JsonDevicePreferenceStore :
         bool? LocalMcpEnabled,
         double? MainWindowWidth,
         double? MainWindowHeight,
-        string? LastWorkspacePath);
+        string? LastWorkspacePath,
+        ApplicationUpdatePreferences? ApplicationUpdates);
 }
