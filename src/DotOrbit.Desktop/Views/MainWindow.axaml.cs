@@ -690,7 +690,10 @@ public sealed partial class MainWindow : Window
             pending = _pendingProposalCoordinator?.FindPendingProposal(pendingReceipt);
             if (pending is null)
             {
-                ai.ReportProposalStatus("That inbound proposal is no longer waiting for review.");
+                ReportProposalReviewStatus(
+                    ai,
+                    pendingReceipt,
+                    "That inbound proposal is no longer waiting for review.");
                 launcher?.Focus();
                 return;
             }
@@ -817,9 +820,13 @@ public sealed partial class MainWindow : Window
                 _activeProposalReviewWindow = null;
             }
 
-            ai.ReportProposalStatus(viewModel.HasStatusMessage
-                ? viewModel.StatusMessage
-                : "Proposal review closed. Review is required again before Apply.");
+            if (pendingReceipt is null)
+            {
+                ai.ReportProposalStatus(viewModel.HasStatusMessage
+                    ? viewModel.StatusMessage
+                    : "Proposal review closed. Review is required again before Apply.");
+            }
+
             Dispatcher.UIThread.Post(() =>
             {
                 if (pendingReceipt is not null
@@ -833,7 +840,12 @@ public sealed partial class MainWindow : Window
                 }
             });
         };
-        ai.ReportProposalStatus("Proposal ready to review. Check everything shown before deciding whether to apply it.");
+        if (pendingReceipt is null)
+        {
+            ai.ReportProposalStatus(
+                "Proposal ready to review. Check everything shown before deciding whether to apply it.");
+        }
+
         _ = review.ShowDialog(this);
     }
 
