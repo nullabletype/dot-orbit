@@ -2,6 +2,8 @@
 
 dot-orbit is a personal, open-source desktop task manager built around projects, deliberate daily focus, and manual ordering.
 
+[Website](https://dot-orbit.app/) · [Download](https://github.com/nullabletype/dot-orbit/releases)
+
 The repository contains the first runnable Avalonia shell and the earlier interactive product prototype. Nothing in `docs/` should be read as evidence of implemented behaviour unless it is explicitly marked as implemented and verified.
 
 ## Start here
@@ -10,6 +12,7 @@ The repository contains the first runnable Avalonia shell and the earlier intera
 - Run `dotnet run --project src/DotOrbit.Desktop/DotOrbit.Desktop.csproj -- --style-guide` to inspect the local, synthetic Workbench component reference without opening a workspace.
 - Generate a reusable encrypted development workspace with the commands in [`docs/development/sample-workspace.md`](docs/development/sample-workspace.md).
 - Build and validate self-contained Release archives with the commands in [`docs/development/release-packaging.md`](docs/development/release-packaging.md).
+- Read [`docs/development/github-pages.md`](docs/development/github-pages.md) for the product-site deployment and custom-domain HTTPS setup.
 - Read [`docs/data/plaintext-export-v3.md`](docs/data/plaintext-export-v3.md) for the implemented versioned unencrypted workspace-export contract.
 - Read [`docs/development/agent-interchange-copy.md`](docs/development/agent-interchange-copy.md) for the implemented Planning snapshot and reusable-instruction clipboard workflow.
 - Read [`docs/development/agent-proposal-review.md`](docs/development/agent-proposal-review.md) for bounded proposal intake, authoritative review, and explicit whole-proposal approval.
