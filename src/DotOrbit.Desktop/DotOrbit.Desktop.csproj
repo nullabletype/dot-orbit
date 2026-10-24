@@ -29,4 +29,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="DotOrbit.Desktop.Tests" />
   </ItemGroup>
+  <ItemGroup Condition="'$(DotOrbitReleaseTag)' != ''">
+    <AssemblyMetadata Include="DotOrbitReleaseTag" Value="$(DotOrbitReleaseTag)" />
+  </ItemGroup>
 </Project>
