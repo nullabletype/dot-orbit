@@ -3702,24 +3702,14 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
-    public void ArchiveAndBinTaskIdentitiesDoNotAddANestedLeftInset()
+    public void BinTaskIdentitiesDoNotAddANestedLeftInset()
     {
         var work = new MemoryWorkspaceWork();
-        var archived = work.CreateStandaloneTask("Archived", "", "home", null);
-        work.CompleteTask(archived.Id);
-        work.ArchiveTask(archived.Id);
         var binned = work.CreateStandaloneTask("Binned", "", "work", null);
         work.MoveTaskToBin(binned.Id);
         var shell = new ShellViewModel(work);
         var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
         window.Show();
-
-        SelectView(shell, "Archive");
-        Dispatcher.UIThread.RunJobs();
-        var archiveRow = ButtonByAutomationId(window, $"task-restore-{archived.Id}")
-            .GetVisualAncestors().OfType<Border>()
-            .First(row => row.Classes.Contains("archive-row"));
-        AssertIdentityInset(archiveRow);
 
         shell.BinNavigation.SelectCommand.Execute(null);
         Dispatcher.UIThread.RunJobs();
@@ -3744,6 +3734,69 @@ public sealed class ProjectCaptureWindowTests
             Assert.InRange(iconOrigin.X - panelOrigin.X, 0, 8);
             Assert.InRange(Math.Abs(pillOrigin.X - iconOrigin.X), 0, 0.5);
         }
+    }
+
+    [AvaloniaFact]
+    public void ArchivedTaskIdentityAlignsWithArchivedProjectIdentity()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Autumn garden", "", "home", null);
+        work.ArchiveProject(project.Id);
+        var task = work.CreateStandaloneTask("Record first conversation", "", "home", null);
+        work.CompleteTask(task.Id);
+        work.ArchiveTask(task.Id);
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+
+        SelectView(shell, "Archive");
+        Dispatcher.UIThread.RunJobs();
+        var rows = window.GetVisualDescendants().OfType<Border>()
+            .Where(candidate => candidate.IsEffectivelyVisible && candidate.Classes.Contains("archive-row"))
+            .ToArray();
+        var projectRow = Assert.Single(rows, candidate =>
+            candidate.DataContext is ArchivedWorkRowViewModel archived && archived.Project?.Id == project.Id);
+        var taskRow = Assert.Single(rows, candidate =>
+            candidate.DataContext is ArchivedWorkRowViewModel archived && archived.Task?.Id == task.Id);
+        var projectTitle = Assert.Single(projectRow.GetVisualDescendants().OfType<TextBlock>(), candidate =>
+            candidate.Classes.Contains("work-identity-title"));
+        var taskTitle = Assert.Single(taskRow.GetVisualDescendants().OfType<TextBlock>(), candidate =>
+            candidate.Classes.Contains("work-identity-title"));
+        var projectPill = Assert.Single(projectRow.GetVisualDescendants().OfType<CategoryProjectPill>(), candidate =>
+            candidate.IsEffectivelyVisible);
+        var taskPill = Assert.Single(taskRow.GetVisualDescendants().OfType<CategoryProjectPill>(), candidate =>
+            candidate.IsEffectivelyVisible);
+        var projectIcon = Assert.Single(projectRow.GetVisualDescendants().OfType<IdentityTypeIcon>(), candidate =>
+            candidate.IsEffectivelyVisible && candidate.WorkType == WorkType.Project);
+        var taskIcon = Assert.Single(taskRow.GetVisualDescendants().OfType<WorkTypeIcon>(), candidate =>
+            candidate.IsEffectivelyVisible && candidate.WorkType == WorkType.Task);
+
+        var projectTitleOffset = OffsetWithinRow(projectTitle, projectRow);
+        var taskTitleOffset = OffsetWithinRow(taskTitle, taskRow);
+        var projectPillOffset = OffsetWithinRow(projectPill, projectRow);
+        var taskPillOffset = OffsetWithinRow(taskPill, taskRow);
+        var projectIconOffset = OffsetWithinRow(projectIcon, projectRow);
+        var taskIconOffset = OffsetWithinRow(taskIcon, taskRow);
+        Assert.True(
+            AreAligned(projectTitleOffset, taskTitleOffset)
+            && AreAligned(projectPillOffset, taskPillOffset)
+            && Math.Abs(projectIconOffset.X - taskIconOffset.X) <= 0.5,
+            $"Expected archived Task identity to align with Project identity. "
+            + $"Project title={projectTitleOffset}, Task title={taskTitleOffset}, "
+            + $"Project pill={projectPillOffset}, Task pill={taskPillOffset}, "
+            + $"Project icon={projectIconOffset}, Task icon={taskIconOffset}.");
+        Assert.Equal(14, projectIcon.Bounds.Width);
+        Assert.Equal(14, projectIcon.Bounds.Height);
+        Assert.Equal(14, taskIcon.Bounds.Width);
+        Assert.Equal(13, taskIcon.Bounds.Height);
+        window.Close();
+
+        static Point OffsetWithinRow(Control control, Border row) =>
+            Assert.IsType<Point>(control.TranslatePoint(default, row));
+
+        static bool AreAligned(Point projectOffset, Point taskOffset) =>
+            Math.Abs(projectOffset.X - taskOffset.X) <= 0.5
+            && Math.Abs(projectOffset.Y - taskOffset.Y) <= 0.5;
     }
 
     [AvaloniaFact]
