@@ -1,6 +1,7 @@
 <Styles
     xmlns="https://github.com/avaloniaui"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:desktop="using:DotOrbit.Desktop">
   <Style Selector="Border.list-panel">
     <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
@@ -11,6 +12,22 @@
   <Style Selector="Border.list-panel.row-list">
     <Setter Property="Padding" Value="0" />
     <Setter Property="ClipToBounds" Value="True" />
+    <Setter Property="desktop:RoundedClip.IsEnabled" Value="True" />
+  </Style>
+  <Style Selector="ToggleSwitch:checked /template/ Border#SwitchKnobBounds">
+    <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+  </Style>
+  <Style Selector="ToggleSwitch:checked:pointerover /template/ Border#SwitchKnobBounds">
+    <Setter Property="Background" Value="{DynamicResource AccentHoverBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentHoverBrush}" />
+  </Style>
+  <Style Selector="ToggleSwitch:checked:pressed /template/ Border#SwitchKnobBounds">
+    <Setter Property="Background" Value="{DynamicResource AccentPressedBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentPressedBrush}" />
+  </Style>
+  <Style Selector="ToggleSwitch:checked /template/ Ellipse#SwitchKnobOn">
+    <Setter Property="Fill" Value="{DynamicResource AccentContentBrush}" />
   </Style>
   <Style Selector="Border.attention-panel">
     <Setter Property="Padding" Value="12" />
@@ -56,7 +73,7 @@
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="BorderBrush" Value="Transparent" />
     <Setter Property="BorderThickness" Value="0" />
-    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="CornerRadius" Value="0" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="VerticalContentAlignment" Value="Stretch" />
     <Setter Property="Template">
@@ -74,6 +91,18 @@
         </Grid>
       </ControlTemplate>
     </Setter>
+  </Style>
+  <Style Selector="Button.identity-pill-segment.category-segment">
+    <Setter Property="CornerRadius" Value="9,0,0,9" />
+  </Style>
+  <Style Selector="Button.identity-pill-segment.category-segment.standalone">
+    <Setter Property="CornerRadius" Value="9" />
+  </Style>
+  <Style Selector="Button.identity-pill-segment.project-segment">
+    <Setter Property="CornerRadius" Value="0,9,9,0" />
+  </Style>
+  <Style Selector="Button.identity-pill-segment.project-segment /template/ Border#SegmentChrome">
+    <Setter Property="Margin" Value="1,0,0,0" />
   </Style>
   <Style Selector="Button.identity-pill-segment:pointerover">
     <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
@@ -284,6 +313,8 @@
   </Style>
   <Style Selector="Border.project-task-row"><Setter Property="Padding" Value="14,0,10,0" /></Style>
   <Style Selector="Border.archive-row, Border.bin-row"><Setter Property="Padding" Value="0,0,10,0" /></Style>
+  <Style Selector="StackPanel.bin-identity"><Setter Property="Margin" Value="13,0,0,0" /></Style>
+  <Style Selector="StackPanel.bin-identity.task"><Setter Property="Margin" Value="13,0,0,1" /></Style>
   <Style Selector="Border.interactive-row:pointerover"><Setter Property="Background" Value="{DynamicResource PanelRaisedBrush}" /></Style>
   <Style Selector="Border.separated-row">
     <Setter Property="BorderBrush" Value="{DynamicResource LineSoftBrush}" />
@@ -328,10 +359,12 @@
   <Style Selector="Border.project-row">
     <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
     <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />
+    <Setter Property="desktop:RoundedClip.IsEnabled" Value="True" />
   </Style>
   <Style Selector="Border.category-row">
     <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
     <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />
+    <Setter Property="desktop:RoundedClip.IsEnabled" Value="True" />
   </Style>
   <Style Selector="Border.expandable-header-row"><Setter Property="CornerRadius" Value="9" /></Style>
   <Style Selector="Border.expandable-header-row.expanded"><Setter Property="CornerRadius" Value="9,9,0,0" /></Style>

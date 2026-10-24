@@ -152,7 +152,7 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
-    public void SettingsThemePickerUsesSharedRowAlignmentAndAppliesLightThemeImmediately()
+    public void SettingsThemePickerUsesSharedRowAlignmentAndAppliesNamedThemeImmediately()
     {
         var application = Assert.IsType<App>(Application.Current);
         var originalTheme = application.RequestedThemeVariant;
@@ -172,7 +172,19 @@ public sealed class ProjectCaptureWindowTests
             Assert.Equal("settings-theme", AutomationProperties.GetAutomationId(picker));
             Assert.Equal("Dark theme selected", AutomationProperties.GetItemStatus(picker));
             Assert.True(picker.Focus(NavigationMethod.Tab));
-            Assert.Equal(["Dark", "Light"], picker.Items.Cast<ApplicationThemeOption>().Select(option => option.Name));
+            Assert.Equal(
+                [
+                    "Dark",
+                    "Light",
+                    "Monokai Classic",
+                    "Dracula Classic",
+                    "Alucard Classic",
+                    "Catppuccin Mocha",
+                    "Catppuccin Latte",
+                    "Gruvbox Dark",
+                    "Gruvbox Light",
+                ],
+                picker.Items.Cast<ApplicationThemeOption>().Select(option => option.Name));
             var themeRow = picker.GetVisualAncestors().OfType<Border>()
                 .First(border => border.Classes.Contains("interactive-row"));
             var themeLabel = Assert.Single(
@@ -213,14 +225,287 @@ public sealed class ProjectCaptureWindowTests
                 0.01);
 
             picker.SelectedItem = picker.Items.Cast<ApplicationThemeOption>()
-                .Single(option => option.Value == ApplicationTheme.Light);
+                .Single(option => option.Value == ApplicationTheme.GruvboxLight);
             Dispatcher.UIThread.RunJobs();
 
-            Assert.Equal(ApplicationTheme.Light, themes.CurrentTheme);
-            Assert.Equal(ThemeVariant.Light, application.RequestedThemeVariant);
-            Assert.Equal(ThemeVariant.Light, window.ActualThemeVariant);
-            Assert.Equal("Light theme selected", AutomationProperties.GetItemStatus(picker));
-            Assert.Equal("Light theme selected.", shell.Settings!.Announcement);
+            Assert.Equal(ApplicationTheme.GruvboxLight, themes.CurrentTheme);
+            Assert.Equal(ApplicationThemeVariants.GruvboxLight, application.RequestedThemeVariant);
+            Assert.Equal(ApplicationThemeVariants.GruvboxLight, window.ActualThemeVariant);
+            Assert.Equal("Gruvbox Light theme selected", AutomationProperties.GetItemStatus(picker));
+            Assert.Equal("Gruvbox Light theme selected.", shell.Settings!.Announcement);
+        }
+        finally
+        {
+            window.Close();
+            application.RequestedThemeVariant = originalTheme;
+        }
+    }
+
+    [AvaloniaFact]
+    public void SettingsThemeHoverStaysInsideRoundedPanelCorners()
+    {
+        var application = Assert.IsType<App>(Application.Current);
+        var originalTheme = application.RequestedThemeVariant;
+        application.RequestedThemeVariant = ThemeVariant.Dark;
+        var shell = new ShellViewModel(new MemoryWorkspaceWork());
+        var window = new MainWindow { DataContext = shell, Width = 1120 };
+        try
+        {
+            window.Show();
+            shell.SettingsNavigation.SelectCommand.Execute(null);
+            Dispatcher.UIThread.RunJobs();
+
+            var picker = window.FindControl<ComboBox>("SettingsThemePicker")!;
+            var row = picker.GetVisualAncestors().OfType<Border>()
+                .First(border => border.Classes.Contains("interactive-row"));
+            var panel = row.GetVisualAncestors().OfType<Border>()
+                .First(border => border.Classes.Contains("list-panel"));
+            AssertHoverStaysInsideRoundedPanel(window, row, panel);
+        }
+        finally
+        {
+            window.Close();
+            application.RequestedThemeVariant = originalTheme;
+        }
+    }
+
+    [AvaloniaFact]
+    public void SettingsAiHoverStaysInsideRoundedPanelWhenOptionalSecondRowIsHidden()
+    {
+        var shell = new ShellViewModel(new MemoryWorkspaceWork());
+        var window = new MainWindow { DataContext = shell, Width = 1120 };
+        try
+        {
+            window.Show();
+            shell.SettingsNavigation.SelectCommand.Execute(null);
+            Dispatcher.UIThread.RunJobs();
+
+            var toggle = window.FindControl<ToggleSwitch>("SettingsAiFeaturesToggle")!;
+            var optionalToggle = window.FindControl<ToggleSwitch>("SettingsLocalMcpToggle")!;
+            var row = toggle.GetVisualAncestors().OfType<Border>()
+                .First(border => border.Classes.Contains("interactive-row"));
+            var panel = row.GetVisualAncestors().OfType<Border>()
+                .First(border => border.Classes.Contains("list-panel"));
+
+            Assert.False(optionalToggle.IsEffectivelyVisible);
+            AssertHoverStaysInsideRoundedPanel(window, row, panel);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void BacklogFirstAndLastRowHoverStayInsideRoundedPanelCorners()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        work.CreateTask(project.Id, "Plant bulbs");
+        work.CreateTask(project.Id, "Order compost");
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow { DataContext = shell, Width = 1120 };
+        try
+        {
+            window.Show();
+            shell.PrimaryNavigation.Single(item => item.Title == "Backlog").SelectCommand.Execute(null);
+            Dispatcher.UIThread.RunJobs();
+
+            var panel = window.FindControl<Border>("BacklogListPanel")!;
+            var rows = window.GetVisualDescendants().OfType<Border>()
+                .Where(border => border.Classes.Contains("backlog-row"))
+                .ToArray();
+            Assert.Equal(2, rows.Length);
+
+            AssertHoverStaysInsideRoundedPanel(window, rows[0], panel);
+            AssertHoverStaysInsideRoundedPanel(window, rows[1], panel);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void ProjectHeaderHoverStaysInsideRoundedCardCornersWhenCollapsedAndExpanded()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var shell = new ShellViewModel(work);
+        SelectView(shell, "Projects");
+        var projectRow = shell.Work!.Projects.Single(item => item.Id == project.Id);
+        projectRow.IsExpanded = false;
+        var window = new MainWindow { DataContext = shell, Width = 1120 };
+        try
+        {
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+
+            var panel = Assert.Single(window.GetVisualDescendants().OfType<Border>(), border =>
+                border.IsEffectivelyVisible && border.Classes.Contains("project-row"));
+            var row = Assert.Single(panel.GetVisualDescendants().OfType<Border>(), border =>
+                border.Classes.Contains("project-header-row"));
+
+            AssertHoverStaysInsideRoundedPanel(window, row, panel);
+
+            projectRow.IsExpanded = true;
+            Dispatcher.UIThread.RunJobs();
+            AssertHoverStaysInsideRoundedPanel(window, row, panel);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void CategoryHeaderHoverStaysInsideRoundedCardCornersWhenCollapsedAndExpanded()
+    {
+        var work = new MemoryWorkspaceWork();
+        work.CreateProject("Garden", "", "home", null);
+        var shell = new ShellViewModel(work);
+        SelectView(shell, "Categories");
+        var categoryRow = shell.Work!.CategoryGroups.Single(group => group.Name == "Home");
+        categoryRow.IsExpanded = false;
+        var window = new MainWindow { DataContext = shell, Width = 1120 };
+        try
+        {
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+
+            var panel = Assert.Single(window.GetVisualDescendants().OfType<Border>(), border =>
+                border.IsEffectivelyVisible
+                && border.Classes.Contains("category-row")
+                && border.DataContext is CategoryGroupViewModel group
+                && group.Name == "Home");
+            var row = Assert.Single(panel.GetVisualDescendants().OfType<Border>(), border =>
+                border.Classes.Contains("category-header-row"));
+
+            AssertHoverStaysInsideRoundedPanel(window, row, panel);
+
+            categoryRow.IsExpanded = true;
+            Dispatcher.UIThread.RunJobs();
+            AssertHoverStaysInsideRoundedPanel(window, row, panel);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void BrandMarkKeepsOfficialColoursAcrossThemes()
+    {
+        var application = Assert.IsType<App>(Application.Current);
+        var originalTheme = application.RequestedThemeVariant;
+        var window = new MainWindow { DataContext = new ShellViewModel(new MemoryWorkspaceWork()) };
+        try
+        {
+            window.Show();
+            var image = Assert.IsType<Image>(window.FindControl<Image>("BrandMarkImage"));
+            foreach (var option in ApplicationThemeCatalog.Options)
+            {
+                application.RequestedThemeVariant = option.Variant;
+                Dispatcher.UIThread.RunJobs();
+
+                var drawingImage = Assert.IsType<DrawingImage>(image.Source);
+                var group = Assert.IsType<DrawingGroup>(drawingImage.Drawing);
+                var orbit = Assert.IsType<GeometryDrawing>(group.Children[1]);
+                var dot = Assert.IsType<GeometryDrawing>(group.Children[2]);
+                Assert.Equal(
+                    Color.Parse("#FF4FA3"),
+                    Assert.IsAssignableFrom<ISolidColorBrush>(orbit.Pen!.Brush).Color);
+                Assert.Equal(
+                    Color.Parse("#7CE7B2"),
+                    Assert.IsAssignableFrom<ISolidColorBrush>(dot.Brush).Color);
+            }
+        }
+        finally
+        {
+            window.Close();
+            application.RequestedThemeVariant = originalTheme;
+        }
+    }
+
+    [AvaloniaFact]
+    public void SettingsTogglesUseEachThemesInteractiveAccent()
+    {
+        var application = Assert.IsType<App>(Application.Current);
+        var originalTheme = application.RequestedThemeVariant;
+        var window = new MainWindow(
+            null,
+            aiFeaturePreferenceService: new TransientAiFeaturePreferenceService(
+                aiFeaturesEnabled: true,
+                localMcpEnabled: true));
+        try
+        {
+            window.Show();
+            var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+            shell.SettingsNavigation.SelectCommand.Execute(null);
+            Dispatcher.UIThread.RunJobs();
+            var toggles = new[]
+            {
+                Assert.IsType<ToggleSwitch>(window.FindControl<ToggleSwitch>("SettingsAiFeaturesToggle")),
+                Assert.IsType<ToggleSwitch>(window.FindControl<ToggleSwitch>("SettingsLocalMcpToggle")),
+            };
+            foreach (var toggle in toggles)
+            {
+                toggle.IsChecked = true;
+            }
+            Dispatcher.UIThread.RunJobs();
+
+            foreach (var option in ApplicationThemeCatalog.Options)
+            {
+                window.MouseMove(new Point(2, 2), RawInputModifiers.None);
+                application.RequestedThemeVariant = option.Variant;
+                Dispatcher.UIThread.RunJobs();
+                var accent = Assert.IsAssignableFrom<ISolidColorBrush>(
+                    window.FindResource(option.Variant, "AccentBrush")).Color;
+                var accentHover = Assert.IsAssignableFrom<ISolidColorBrush>(
+                    window.FindResource(option.Variant, "AccentHoverBrush")).Color;
+                var accentPressed = Assert.IsAssignableFrom<ISolidColorBrush>(
+                    window.FindResource(option.Variant, "AccentPressedBrush")).Color;
+                var accentContent = Assert.IsAssignableFrom<ISolidColorBrush>(
+                    window.FindResource(option.Variant, "AccentContentBrush")).Color;
+
+                Assert.All(toggles, toggle =>
+                {
+                    Assert.True(toggle.IsChecked);
+                    Assert.True(toggle.IsEffectivelyVisible);
+                    var track = Assert.Single(
+                        toggle.GetVisualDescendants().OfType<Border>(),
+                        border => border.Name == "SwitchKnobBounds");
+                    Assert.Equal(accent, Assert.IsAssignableFrom<ISolidColorBrush>(track.Background).Color);
+                    Assert.Equal(accent, Assert.IsAssignableFrom<ISolidColorBrush>(track.BorderBrush).Color);
+                    var knob = Assert.Single(
+                        toggle.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Ellipse>(),
+                        ellipse => ellipse.Name == "SwitchKnobOn");
+                    Assert.Equal(accentContent, Assert.IsAssignableFrom<ISolidColorBrush>(knob.Fill).Color);
+                });
+
+                var interactiveToggle = toggles[0];
+                var interactiveTrack = Assert.Single(
+                    interactiveToggle.GetVisualDescendants().OfType<Border>(),
+                    border => border.Name == "SwitchKnobBounds");
+                var centre = CentreInWindow(interactiveToggle, window);
+                window.MouseMove(centre, RawInputModifiers.None);
+                Assert.Equal(
+                    accentHover,
+                    Assert.IsAssignableFrom<ISolidColorBrush>(interactiveTrack.Background).Color);
+                Assert.Equal(
+                    accentHover,
+                    Assert.IsAssignableFrom<ISolidColorBrush>(interactiveTrack.BorderBrush).Color);
+
+                window.MouseDown(centre, MouseButton.Left, RawInputModifiers.LeftMouseButton);
+                Assert.Equal(
+                    accentPressed,
+                    Assert.IsAssignableFrom<ISolidColorBrush>(interactiveTrack.Background).Color);
+                Assert.Equal(
+                    accentPressed,
+                    Assert.IsAssignableFrom<ISolidColorBrush>(interactiveTrack.BorderBrush).Color);
+                window.MouseUp(centre, MouseButton.Left, RawInputModifiers.None);
+                interactiveToggle.IsChecked = true;
+            }
         }
         finally
         {
@@ -2834,7 +3119,7 @@ public sealed class ProjectCaptureWindowTests
         Assert.Same(WorkTypeIconGeometry.ProjectIdentity, projectGlyph.Data);
         Assert.InRange(Math.Abs(CentreInWindow(categoryGlyph, window).Y - CentreInWindow(attachedPill, window).Y), 0, 0.5);
         Assert.InRange(Math.Abs(CentreInWindow(projectGlyph, window).Y - CentreInWindow(attachedPill, window).Y), 0, 0.5);
-        Assert.True(attachedPill.FindControl<Avalonia.Controls.Shapes.Path>("Join")!.IsEffectivelyVisible);
+        Assert.True(attachedPill.FindControl<Border>("Join")!.IsEffectivelyVisible);
 
         var standalonePill = PillFor(standalone.Id);
         Assert.Equal("Work", standalonePill.CategoryName);
@@ -2842,8 +3127,13 @@ public sealed class ProjectCaptureWindowTests
         Assert.Equal(WorkType.Category, Assert.Single(standalonePill.GetVisualDescendants().OfType<IdentityTypeIcon>(),
             icon => icon.IsEffectivelyVisible).WorkType);
         Assert.DoesNotContain(
-            standalonePill.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>(),
-            path => path.Name == "Join");
+            standalonePill.GetVisualDescendants().OfType<Border>(),
+            border => border.Name == "Join");
+        var standaloneButton = Assert.Single(standalonePill.GetVisualDescendants().OfType<Button>(), button =>
+            button.Classes.Contains("category-segment"));
+        var standaloneChrome = Assert.Single(standaloneButton.GetVisualDescendants().OfType<Border>(), border =>
+            border.Name == "SegmentChrome");
+        Assert.Equal(new CornerRadius(9), standaloneChrome.CornerRadius);
         window.Close();
 
         CategoryProjectPill PillFor(string taskId)
@@ -2913,6 +3203,73 @@ public sealed class ProjectCaptureWindowTests
         Assert.True(ButtonByAutomationId(window, $"project-selection-{project.Id}").IsFocused);
         Assert.False(projectRow.IsExpanded);
         window.Close();
+    }
+
+    [AvaloniaFact]
+    public void TaskIdentityPillUsesFlatDividerAndMirroredSegmentHoverCorners()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var task = work.CreateTask(project.Id, "Dig");
+        var shell = new ShellViewModel(work);
+        SelectView(shell, "Backlog");
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        try
+        {
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+
+            var category = ButtonByAutomationId(window, $"task-category-{task.Id}");
+            var parentProject = ButtonByAutomationId(window, $"task-project-{task.Id}");
+            var pill = Assert.Single(parentProject.GetVisualAncestors().OfType<CategoryProjectPill>());
+            var join = pill.FindControl<Border>("Join")!;
+            var categoryChrome = Assert.Single(category.GetVisualDescendants().OfType<Border>(), border =>
+                border.Name == "SegmentChrome");
+            var projectChrome = Assert.Single(parentProject.GetVisualDescendants().OfType<Border>(), border =>
+                border.Name == "SegmentChrome");
+            var categoryOrigin = Assert.IsType<Point>(categoryChrome.TranslatePoint(default, window));
+            var projectOrigin = Assert.IsType<Point>(projectChrome.TranslatePoint(default, window));
+            var joinOrigin = Assert.IsType<Point>(join.TranslatePoint(default, window));
+
+            Assert.Equal(1, join.Bounds.Width);
+            Assert.Equal(new CornerRadius(9, 0, 0, 9), categoryChrome.CornerRadius);
+            Assert.Equal(new CornerRadius(0, 9, 9, 0), projectChrome.CornerRadius);
+            Assert.InRange(Math.Abs(categoryOrigin.X + categoryChrome.Bounds.Width - joinOrigin.X), 0, 0.5);
+            Assert.InRange(Math.Abs(joinOrigin.X + join.Bounds.Width - projectOrigin.X), 0, 0.5);
+
+            window.MouseMove(CentreInWindow(category, window), RawInputModifiers.None);
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(category.IsPointerOver);
+            using var categoryHovered = RenderWindowPixels(window);
+
+            window.MouseMove(CentreInWindow(parentProject, window), RawInputModifiers.None);
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(parentProject.IsPointerOver);
+            using var projectHovered = RenderWindowPixels(window);
+
+            var changedJoinPixels = 0;
+            var joinLeft = (int)Math.Floor(joinOrigin.X);
+            var joinRight = (int)Math.Ceiling(joinOrigin.X + join.Bounds.Width);
+            var joinTop = (int)Math.Floor(joinOrigin.Y);
+            var joinBottom = (int)Math.Ceiling(joinOrigin.Y + join.Bounds.Height);
+            for (var y = joinTop; y < joinBottom; y++)
+            {
+                for (var x = joinLeft; x < joinRight; x++)
+                {
+                    if (categoryHovered.GetPixel(x, y) != projectHovered.GetPixel(x, y))
+                    {
+                        changedJoinPixels++;
+                    }
+                }
+            }
+
+            Assert.True(changedJoinPixels == 0,
+                $"Switching pill hover targets changed {changedJoinPixels} pixels behind the join marker.");
+        }
+        finally
+        {
+            window.Close();
+        }
     }
 
     [AvaloniaFact]
@@ -3032,9 +3389,12 @@ public sealed class ProjectCaptureWindowTests
         parentProject = Assert.Single(window.GetVisualDescendants().OfType<Button>(), button =>
             button.IsEffectivelyVisible
             && AutomationProperties.GetAutomationId(button) == $"task-project-{task.Id}");
-        var join = Assert.Single(parentProject.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>(), path =>
-            path.Name == "Join");
-        Click(window, join);
+        var join = Assert.Single(parentProject.GetVisualDescendants().OfType<Border>(), border =>
+            border.Name == "Join");
+        Assert.Equal(1, join.Bounds.Width);
+        var projectPadding = parentProject.TranslatePoint(
+            new Point(join.Bounds.Width + 2, parentProject.Bounds.Height / 2), window)!.Value;
+        ClickSurface(window, projectPadding);
 
         Assert.False(shell.Work.HasInspector);
         Assert.True(shell.PrimaryNavigation.Single(item => item.Title == "Projects").IsSelected);
@@ -3345,13 +3705,77 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
-    public void ArchiveAndBinTaskIdentitiesDoNotAddANestedLeftInset()
+    public void BinnedTaskIdentityAlignsWithBinnedProjectIdentity()
     {
         var work = new MemoryWorkspaceWork();
-        var archived = work.CreateStandaloneTask("Archived", "", "home", null);
+        var project = work.CreateProject("Autumn garden", "", "home", null);
+        work.MoveProjectToBin(project.Id);
+        var task = work.CreateStandaloneTask("Record first conversation", "", "home", null);
+        work.MoveTaskToBin(task.Id);
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+
+        shell.BinNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var rows = window.GetVisualDescendants().OfType<Border>()
+            .Where(candidate => candidate.IsEffectivelyVisible && candidate.Classes.Contains("bin-row"))
+            .ToArray();
+        var projectRow = Assert.Single(rows, candidate =>
+            candidate.DataContext is BinRowViewModel binned && binned.Project?.Id == project.Id);
+        var taskRow = Assert.Single(rows, candidate =>
+            candidate.DataContext is BinRowViewModel binned && binned.Task?.Id == task.Id);
+        var projectTitle = Assert.Single(projectRow.GetVisualDescendants().OfType<TextBlock>(), candidate =>
+            candidate.Classes.Contains("work-identity-title"));
+        var taskTitle = Assert.Single(taskRow.GetVisualDescendants().OfType<TextBlock>(), candidate =>
+            candidate.Classes.Contains("work-identity-title"));
+        var projectPill = Assert.Single(projectRow.GetVisualDescendants().OfType<CategoryProjectPill>(), candidate =>
+            candidate.IsEffectivelyVisible);
+        var taskPill = Assert.Single(taskRow.GetVisualDescendants().OfType<CategoryProjectPill>(), candidate =>
+            candidate.IsEffectivelyVisible);
+        var projectIcon = Assert.Single(projectRow.GetVisualDescendants().OfType<IdentityTypeIcon>(), candidate =>
+            candidate.IsEffectivelyVisible && candidate.WorkType == WorkType.Project);
+        var taskIcon = Assert.Single(taskRow.GetVisualDescendants().OfType<WorkTypeIcon>(), candidate =>
+            candidate.IsEffectivelyVisible && candidate.WorkType == WorkType.Task);
+
+        var projectTitleOffset = OffsetWithinRow(projectTitle, projectRow);
+        var taskTitleOffset = OffsetWithinRow(taskTitle, taskRow);
+        var projectPillOffset = OffsetWithinRow(projectPill, projectRow);
+        var taskPillOffset = OffsetWithinRow(taskPill, taskRow);
+        var projectIconOffset = OffsetWithinRow(projectIcon, projectRow);
+        var taskIconOffset = OffsetWithinRow(taskIcon, taskRow);
+        Assert.True(
+            AreAligned(projectTitleOffset, taskTitleOffset)
+            && AreAligned(projectPillOffset, taskPillOffset)
+            && Math.Abs(projectIconOffset.X - taskIconOffset.X) <= 0.5
+            && Math.Abs(projectPillOffset.X - projectIconOffset.X) <= 0.5
+            && Math.Abs(taskPillOffset.X - taskIconOffset.X) <= 0.5,
+            $"Expected binned Task identity to align with Project identity. "
+            + $"Project title={projectTitleOffset}, Task title={taskTitleOffset}, "
+            + $"Project pill={projectPillOffset}, Task pill={taskPillOffset}, "
+            + $"Project icon={projectIconOffset}, Task icon={taskIconOffset}.");
+        Assert.Equal(14, projectIcon.Bounds.Width);
+        Assert.Equal(14, projectIcon.Bounds.Height);
+        Assert.Equal(14, taskIcon.Bounds.Width);
+        Assert.Equal(14, taskIcon.Bounds.Height);
+        window.Close();
+
+        static Point OffsetWithinRow(Control control, Border row) =>
+            Assert.IsType<Point>(control.TranslatePoint(default, row));
+
+        static bool AreAligned(Point projectOffset, Point taskOffset) =>
+            Math.Abs(projectOffset.X - taskOffset.X) <= 0.5
+            && Math.Abs(projectOffset.Y - taskOffset.Y) <= 0.5;
+    }
+
+    [AvaloniaFact]
+    public void BinnedTaskIdentityUsesTheSameInsetAsArchivedTaskIdentity()
+    {
+        var work = new MemoryWorkspaceWork();
+        var archived = work.CreateStandaloneTask("Archived task", "", "home", null);
         work.CompleteTask(archived.Id);
         work.ArchiveTask(archived.Id);
-        var binned = work.CreateStandaloneTask("Binned", "", "work", null);
+        var binned = work.CreateStandaloneTask("Binned task", "", "home", null);
         work.MoveTaskToBin(binned.Id);
         var shell = new ShellViewModel(work);
         var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
@@ -3359,34 +3783,114 @@ public sealed class ProjectCaptureWindowTests
 
         SelectView(shell, "Archive");
         Dispatcher.UIThread.RunJobs();
-        var archiveRow = ButtonByAutomationId(window, $"task-restore-{archived.Id}")
-            .GetVisualAncestors().OfType<Border>()
-            .First(row => row.Classes.Contains("archive-row"));
-        AssertIdentityInset(archiveRow);
+        var archiveRow = Assert.Single(window.GetVisualDescendants().OfType<Border>(), candidate =>
+            candidate.IsEffectivelyVisible
+            && candidate.Classes.Contains("archive-row")
+            && candidate.DataContext is ArchivedWorkRowViewModel archivedRow
+            && archivedRow.Task?.Id == archived.Id);
+        var archiveMetrics = IdentityMetrics(archiveRow);
 
         shell.BinNavigation.SelectCommand.Execute(null);
         Dispatcher.UIThread.RunJobs();
-        var binRow = ButtonByAutomationId(window, $"bin-restore-task-{binned.Id}")
-            .GetVisualAncestors().OfType<Border>()
-            .First(row => row.Classes.Contains("bin-row"));
-        AssertIdentityInset(binRow);
+        var binRow = Assert.Single(window.GetVisualDescendants().OfType<Border>(), candidate =>
+            candidate.IsEffectivelyVisible
+            && candidate.Classes.Contains("bin-row")
+            && candidate.DataContext is BinRowViewModel binRow
+            && binRow.Task?.Id == binned.Id);
+        var binMetrics = IdentityMetrics(binRow);
+
+        Assert.True(
+            AreAligned(archiveMetrics.Panel, binMetrics.Panel)
+            && AreAligned(archiveMetrics.Row, binMetrics.Row)
+            && AreAligned(archiveMetrics.Title, binMetrics.Title)
+            && AreAligned(archiveMetrics.Pill, binMetrics.Pill),
+            $"Expected Bin Task identity to use the Archive inset. "
+            + $"Archive panel={archiveMetrics.Panel}, Bin panel={binMetrics.Panel}, "
+            + $"Archive row={archiveMetrics.Row}, Bin row={binMetrics.Row}, "
+            + $"Archive title={archiveMetrics.Title}, Bin title={binMetrics.Title}, "
+            + $"Archive pill={archiveMetrics.Pill}, Bin pill={binMetrics.Pill}.");
         window.Close();
 
-        void AssertIdentityInset(Border row)
+        (Point Panel, Point Row, Point Title, Point Pill) IdentityMetrics(Border row)
         {
             var panel = Assert.Single(row.GetVisualAncestors().OfType<Border>(), candidate =>
                 candidate.Classes.Contains("list-panel"));
-            var icon = Assert.Single(row.GetVisualDescendants().OfType<WorkTypeIcon>(), candidate =>
-                candidate.IsEffectivelyVisible && candidate.WorkType == WorkType.Task);
+            var title = Assert.Single(row.GetVisualDescendants().OfType<TextBlock>(), candidate =>
+                candidate.Classes.Contains("work-identity-title"));
             var pill = Assert.Single(row.GetVisualDescendants().OfType<CategoryProjectPill>(), candidate =>
                 candidate.IsEffectivelyVisible);
-            var panelOrigin = OriginInWindow(panel, window);
-            var iconOrigin = OriginInWindow(icon, window);
-            var pillOrigin = OriginInWindow(pill, window);
-
-            Assert.InRange(iconOrigin.X - panelOrigin.X, 0, 8);
-            Assert.InRange(Math.Abs(pillOrigin.X - iconOrigin.X), 0, 0.5);
+            return (
+                OriginInWindow(panel, window),
+                OriginInWindow(row, window),
+                OriginInWindow(title, window),
+                OriginInWindow(pill, window));
         }
+
+        static bool AreAligned(Point archive, Point bin) =>
+            Math.Abs(archive.X - bin.X) <= 0.5;
+    }
+
+    [AvaloniaFact]
+    public void ArchivedTaskIdentityAlignsWithArchivedProjectIdentity()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Autumn garden", "", "home", null);
+        work.ArchiveProject(project.Id);
+        var task = work.CreateStandaloneTask("Record first conversation", "", "home", null);
+        work.CompleteTask(task.Id);
+        work.ArchiveTask(task.Id);
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+
+        SelectView(shell, "Archive");
+        Dispatcher.UIThread.RunJobs();
+        var rows = window.GetVisualDescendants().OfType<Border>()
+            .Where(candidate => candidate.IsEffectivelyVisible && candidate.Classes.Contains("archive-row"))
+            .ToArray();
+        var projectRow = Assert.Single(rows, candidate =>
+            candidate.DataContext is ArchivedWorkRowViewModel archived && archived.Project?.Id == project.Id);
+        var taskRow = Assert.Single(rows, candidate =>
+            candidate.DataContext is ArchivedWorkRowViewModel archived && archived.Task?.Id == task.Id);
+        var projectTitle = Assert.Single(projectRow.GetVisualDescendants().OfType<TextBlock>(), candidate =>
+            candidate.Classes.Contains("work-identity-title"));
+        var taskTitle = Assert.Single(taskRow.GetVisualDescendants().OfType<TextBlock>(), candidate =>
+            candidate.Classes.Contains("work-identity-title"));
+        var projectPill = Assert.Single(projectRow.GetVisualDescendants().OfType<CategoryProjectPill>(), candidate =>
+            candidate.IsEffectivelyVisible);
+        var taskPill = Assert.Single(taskRow.GetVisualDescendants().OfType<CategoryProjectPill>(), candidate =>
+            candidate.IsEffectivelyVisible);
+        var projectIcon = Assert.Single(projectRow.GetVisualDescendants().OfType<IdentityTypeIcon>(), candidate =>
+            candidate.IsEffectivelyVisible && candidate.WorkType == WorkType.Project);
+        var taskIcon = Assert.Single(taskRow.GetVisualDescendants().OfType<WorkTypeIcon>(), candidate =>
+            candidate.IsEffectivelyVisible && candidate.WorkType == WorkType.Task);
+
+        var projectTitleOffset = OffsetWithinRow(projectTitle, projectRow);
+        var taskTitleOffset = OffsetWithinRow(taskTitle, taskRow);
+        var projectPillOffset = OffsetWithinRow(projectPill, projectRow);
+        var taskPillOffset = OffsetWithinRow(taskPill, taskRow);
+        var projectIconOffset = OffsetWithinRow(projectIcon, projectRow);
+        var taskIconOffset = OffsetWithinRow(taskIcon, taskRow);
+        Assert.True(
+            AreAligned(projectTitleOffset, taskTitleOffset)
+            && AreAligned(projectPillOffset, taskPillOffset)
+            && Math.Abs(projectIconOffset.X - taskIconOffset.X) <= 0.5,
+            $"Expected archived Task identity to align with Project identity. "
+            + $"Project title={projectTitleOffset}, Task title={taskTitleOffset}, "
+            + $"Project pill={projectPillOffset}, Task pill={taskPillOffset}, "
+            + $"Project icon={projectIconOffset}, Task icon={taskIconOffset}.");
+        Assert.Equal(14, projectIcon.Bounds.Width);
+        Assert.Equal(14, projectIcon.Bounds.Height);
+        Assert.Equal(14, taskIcon.Bounds.Width);
+        Assert.Equal(13, taskIcon.Bounds.Height);
+        window.Close();
+
+        static Point OffsetWithinRow(Control control, Border row) =>
+            Assert.IsType<Point>(control.TranslatePoint(default, row));
+
+        static bool AreAligned(Point projectOffset, Point taskOffset) =>
+            Math.Abs(projectOffset.X - taskOffset.X) <= 0.5
+            && Math.Abs(projectOffset.Y - taskOffset.Y) <= 0.5;
     }
 
     [AvaloniaFact]
@@ -5403,6 +5907,140 @@ public sealed class ProjectCaptureWindowTests
             new PixelSize((int)window.Bounds.Width, (int)window.Bounds.Height),
             new Vector(96, 96));
         bitmap.Render(window);
+    }
+
+    private static SkiaSharp.SKBitmap RenderWindowPixels(Window window)
+    {
+        using var bitmap = new RenderTargetBitmap(
+            new PixelSize((int)window.Bounds.Width, (int)window.Bounds.Height),
+            new Vector(96, 96));
+        bitmap.Render(window);
+        using var stream = new MemoryStream();
+        bitmap.Save(stream, new PngBitmapEncoderOptions());
+        stream.Position = 0;
+        return SkiaSharp.SKBitmap.Decode(stream);
+    }
+
+    private static void AssertHoverStaysInsideRoundedPanel(Window window, Border row, Border panel)
+    {
+        var panelOrigin = OriginInWindow(panel, window);
+        var rowOrigin = OriginInWindow(row, window);
+        window.MouseMove(new Point(2, 2), RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        using var resting = RenderWindowPixels(window);
+
+        window.MouseMove(RowSurfacePoint(row, window), RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(row.IsPointerOver);
+        using var hovered = RenderWindowPixels(window);
+
+        var changedOutsideRoundedCorners = 0;
+        const int radius = 10;
+        var left = (int)panelOrigin.X;
+        var right = (int)(panelOrigin.X + panel.Bounds.Width) - 1;
+        var top = (int)panelOrigin.Y;
+        var bottom = (int)(panelOrigin.Y + panel.Bounds.Height) - 1;
+        for (var yOffset = 0; yOffset < radius; yOffset++)
+        {
+            for (var xOffset = 0; xOffset < radius; xOffset++)
+            {
+                var horizontalDistance = radius - xOffset - 0.5;
+                var verticalDistance = radius - yOffset - 0.5;
+                if ((horizontalDistance * horizontalDistance) + (verticalDistance * verticalDistance)
+                    <= radius * radius)
+                {
+                    continue;
+                }
+
+                foreach (var y in new[] { top + yOffset, bottom - yOffset })
+                {
+                    if (resting.GetPixel(left + xOffset, y) != hovered.GetPixel(left + xOffset, y))
+                    {
+                        changedOutsideRoundedCorners++;
+                    }
+
+                    if (resting.GetPixel(right - xOffset, y) != hovered.GetPixel(right - xOffset, y))
+                    {
+                        changedOutsideRoundedCorners++;
+                    }
+                }
+            }
+        }
+
+        Assert.True(
+            changedOutsideRoundedCorners == 0,
+            $"Hover changed {changedOutsideRoundedCorners} pixels outside the panel's rounded corners.");
+
+        var changedOutlinePixels = 0;
+        const int outlineScan = radius + 2;
+        const double innerOutlineRadius = radius - 1;
+        const double outerOutlineRadius = radius + 1;
+        for (var yOffset = 0; yOffset < outlineScan; yOffset++)
+        {
+            for (var xOffset = 0; xOffset < outlineScan; xOffset++)
+            {
+                var horizontalDistance = radius - xOffset - 0.5;
+                var verticalDistance = radius - yOffset - 0.5;
+                var squaredDistance = (horizontalDistance * horizontalDistance)
+                    + (verticalDistance * verticalDistance);
+                if (squaredDistance < innerOutlineRadius * innerOutlineRadius
+                    || squaredDistance > outerOutlineRadius * outerOutlineRadius)
+                {
+                    continue;
+                }
+
+                foreach (var y in new[] { top + yOffset, bottom - yOffset })
+                {
+                    if (resting.GetPixel(left + xOffset, y) != hovered.GetPixel(left + xOffset, y))
+                    {
+                        changedOutlinePixels++;
+                    }
+
+                    if (resting.GetPixel(right - xOffset, y) != hovered.GetPixel(right - xOffset, y))
+                    {
+                        changedOutlinePixels++;
+                    }
+                }
+            }
+        }
+
+        Assert.True(
+            changedOutlinePixels == 0,
+            $"Hover changed {changedOutlinePixels} pixels in the panel's rounded outline. "
+            + $"Panel={panel.Bounds}; row={row.Bounds}; row origin={rowOrigin}; panel origin={panelOrigin}.");
+
+        var rowMiddle = (int)(rowOrigin.Y + (row.Bounds.Height / 2));
+        var innerEdgePoints = new List<PixelPoint>
+        {
+            new(left + (int)panel.BorderThickness.Left, rowMiddle),
+            new(right - (int)panel.BorderThickness.Right, rowMiddle),
+        };
+        if (Math.Abs(rowOrigin.Y - panelOrigin.Y - panel.BorderThickness.Top) < 0.5)
+        {
+            innerEdgePoints.Add(new(
+                (int)(panelOrigin.X + (panel.Bounds.Width / 2)),
+                top + (int)panel.BorderThickness.Top));
+        }
+
+        var rowBottom = rowOrigin.Y + row.Bounds.Height;
+        var panelInnerBottom = panelOrigin.Y + panel.Bounds.Height - panel.BorderThickness.Bottom;
+        if (Math.Abs(rowBottom - panelInnerBottom) < 0.5 && row.BorderThickness.Bottom == 0)
+        {
+            innerEdgePoints.Add(new(
+                (int)(panelOrigin.X + (panel.Bounds.Width / 2)),
+                bottom - (int)panel.BorderThickness.Bottom));
+        }
+
+        Assert.All(innerEdgePoints, point => Assert.NotEqual(
+            resting.GetPixel(point.X, point.Y),
+            hovered.GetPixel(point.X, point.Y)));
+
+        var interior = new PixelPoint(
+            (int)(panelOrigin.X + panel.Bounds.Width / 2),
+            (int)(rowOrigin.Y + row.Bounds.Height) - 4);
+        Assert.NotEqual(
+            resting.GetPixel(interior.X, interior.Y),
+            hovered.GetPixel(interior.X, interior.Y));
     }
 
     private static void SelectView(ShellViewModel shell, string title)

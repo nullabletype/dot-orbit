@@ -1010,7 +1010,8 @@
                                   AutomationProperties.Name="{Binding Project.AccessibleName}">
                                 <StackPanel Margin="6,0" Spacing="6" VerticalAlignment="Center">
                                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
-                                      <views:IdentityTypeIcon WorkType="Project" ColourKey="{Binding Project.ColourKey}" />
+                                      <views:IdentityTypeIcon Width="14" Height="14"
+                                          WorkType="Project" ColourKey="{Binding Project.ColourKey}" />
                                       <TextBlock Grid.Column="1" Classes="work-identity-title" FontWeight="SemiBold"
                                           Text="{Binding Project.Title}" TextTrimming="CharacterEllipsis" />
                                     </Grid>
@@ -1019,7 +1020,8 @@
                                         ProjectColourKey="{Binding Project.ColourKey}" />
                                 </StackPanel>
                               </Button>
-                              <ContentControl IsVisible="{Binding IsTask}" Content="{Binding Task}"
+                              <ContentControl IsVisible="{Binding IsTask}" Margin="6,4,0,0"
+                                  Content="{Binding Task}"
                                   ContentTemplate="{StaticResource TaskIdentityTemplate}" />
                               <TextBlock Grid.Column="1" Classes="task-completion-date" IsVisible="{Binding IsTask}"
                                   Text="{Binding Task.CompletionDateText}" />
@@ -1085,10 +1087,13 @@
                       MinHeight="{StaticResource StandardRowHeight}"
                       AutomationProperties.Name="{Binding AccessibleName}">
                     <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
-                      <StackPanel Margin="6,0" VerticalAlignment="Center" Spacing="6">
+                      <StackPanel Classes="bin-identity" Classes.task="{Binding IsTask}"
+                          VerticalAlignment="Center" Spacing="6">
                           <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
-                            <views:WorkTypeIcon WorkType="Task" IsVisible="{Binding IsTask}" />
-                            <views:IdentityTypeIcon WorkType="Project" ColourKey="{Binding ProjectColourKey}"
+                            <views:WorkTypeIcon Width="14" Height="14"
+                                WorkType="Task" IsVisible="{Binding IsTask}" />
+                            <views:IdentityTypeIcon Width="14" Height="14"
+                                WorkType="Project" ColourKey="{Binding ProjectColourKey}"
                                 IsVisible="{Binding IsProject}" />
                             <TextBlock Grid.Column="1" Classes="work-identity-title" FontWeight="SemiBold"
                                 Text="{Binding Title}" TextTrimming="CharacterEllipsis" />

@@ -87,18 +87,19 @@ public sealed class SettingsViewModelTests
 
         Assert.Equal("Dark", settings.SelectedTheme.Name);
         Assert.Equal("Dark theme selected", settings.ThemeStatus);
+        Assert.Equal(9, settings.ThemeOptions.Count);
 
-        settings.SelectedTheme = settings.ThemeOptions.Single(option => option.Value == ApplicationTheme.Light);
+        settings.SelectedTheme = settings.ThemeOptions.Single(option => option.Value == ApplicationTheme.CatppuccinLatte);
 
-        Assert.Equal(ApplicationTheme.Light, themes.CurrentTheme);
-        Assert.Equal("Light", settings.SelectedTheme.Name);
-        Assert.Equal("Light theme selected.", settings.Announcement);
+        Assert.Equal(ApplicationTheme.CatppuccinLatte, themes.CurrentTheme);
+        Assert.Equal("Catppuccin Latte", settings.SelectedTheme.Name);
+        Assert.Equal("Catppuccin Latte theme selected.", settings.Announcement);
 
         themes.AllowChange = false;
         settings.SelectedTheme = settings.ThemeOptions.Single(option => option.Value == ApplicationTheme.Dark);
 
-        Assert.Equal(ApplicationTheme.Light, themes.CurrentTheme);
-        Assert.Equal("Light", settings.SelectedTheme.Name);
+        Assert.Equal(ApplicationTheme.CatppuccinLatte, themes.CurrentTheme);
+        Assert.Equal("Catppuccin Latte", settings.SelectedTheme.Name);
         Assert.Contains("previous theme is still active", settings.Announcement, StringComparison.Ordinal);
     }
 

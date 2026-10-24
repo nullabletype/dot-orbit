@@ -20,7 +20,7 @@ One person managing their own work on a desktop. Collaboration, organisational a
 
 ## Initial scope
 
-- Avalonia/.NET desktop application for macOS, Linux, and Windows, with user-selectable Dark and Light themes.
+- Avalonia/.NET desktop application for macOS, Linux, and Windows, with built-in dot-orbit, Monokai Classic, Dracula Classic, Alucard Classic, Catppuccin, and Gruvbox colour themes.
 - Projects with nested Tasks, plus standalone Tasks for work that does not justify a Project.
 - Categories with inheritance and Task overrides.
 - Today, Upcoming, Backlog, Projects, Categories, Completed, and Archive views.

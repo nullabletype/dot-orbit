@@ -22,12 +22,11 @@
       </Button>
       <Button x:Name="ProjectButton" Grid.Column="1" Classes="identity-pill-segment project-segment"
           Command="{Binding ProjectCommand, ElementName=Root}">
-        <Grid ColumnDefinitions="Auto,Auto">
-          <Path x:Name="Join" Width="8" Height="16" VerticalAlignment="Stretch"
-              Data="M0,0 L8,8 L0,16" Fill="Transparent" Stroke="{DynamicResource LineBrush}"
-              StrokeLineCap="Square" StrokeJoin="Miter" StrokeThickness="1"
-              Stretch="Fill" AutomationProperties.AccessibilityView="Raw" />
-          <StackPanel Grid.Column="1" Margin="6,0,7,0" Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+        <Grid ColumnDefinitions="1,Auto">
+          <Border x:Name="Join" Width="1" Height="14" VerticalAlignment="Center"
+              Background="{DynamicResource LineBrush}"
+              AutomationProperties.AccessibilityView="Raw" />
+          <StackPanel Grid.Column="1" Margin="7,0" Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
             <views:IdentityTypeIcon WorkType="Project" ColourKey="{Binding ProjectColourKey, ElementName=Root}" />
             <TextBlock Classes="identity-pill-name" MaxWidth="130" VerticalAlignment="Center"
                 Text="{Binding ProjectName, ElementName=Root}" TextTrimming="CharacterEllipsis" />

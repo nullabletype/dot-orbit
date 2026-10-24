@@ -133,6 +133,11 @@ public sealed partial class CategoryProjectPill : UserControl
         else if (!hasProject && _segments.Children.Contains(_projectButton))
             _segments.Children.Remove(_projectButton);
 
+        if (hasProject)
+            _categoryButton.Classes.Remove("standalone");
+        else if (!_categoryButton.Classes.Contains("standalone"))
+            _categoryButton.Classes.Add("standalone");
+
         var interactive = CategoryCommand is not null || (hasProject && ProjectCommand is not null);
         IsHitTestVisible = interactive;
         AutomationProperties.SetAccessibilityView(this, interactive ? AccessibilityView.Content : AccessibilityView.Raw);
