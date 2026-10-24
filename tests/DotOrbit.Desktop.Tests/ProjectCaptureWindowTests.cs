@@ -3391,7 +3391,10 @@ public sealed class ProjectCaptureWindowTests
             && AutomationProperties.GetAutomationId(button) == $"task-project-{task.Id}");
         var join = Assert.Single(parentProject.GetVisualDescendants().OfType<Border>(), border =>
             border.Name == "Join");
-        Click(window, join);
+        Assert.Equal(1, join.Bounds.Width);
+        var projectPadding = parentProject.TranslatePoint(
+            new Point(join.Bounds.Width + 2, parentProject.Bounds.Height / 2), window)!.Value;
+        ClickSurface(window, projectPadding);
 
         Assert.False(shell.Work.HasInspector);
         Assert.True(shell.PrimaryNavigation.Single(item => item.Title == "Projects").IsSelected);
