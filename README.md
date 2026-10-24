@@ -1,44 +1,50 @@
-# dot-orbit
+<h1><img src="assets/orbit-mark.svg" alt="" width="40" height="40"> dot-orbit</h1>
 
-dot-orbit is a personal, open-source desktop task manager built around projects, deliberate daily focus, and manual ordering.
+A personal, open-source desktop task manager for organising projects, choosing a deliberate daily focus, and keeping work in your own order.
+
+[![Build](https://github.com/nullabletype/dot-orbit/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/nullabletype/dot-orbit/actions/workflows/build.yml?query=branch%3Amain)
+[![Release packages](https://github.com/nullabletype/dot-orbit/actions/workflows/release-packages.yml/badge.svg?branch=main)](https://github.com/nullabletype/dot-orbit/actions/workflows/release-packages.yml?query=branch%3Amain)
+[![Licence: MIT](https://img.shields.io/badge/licence-MIT-7ce7b2.svg)](LICENSE)
 
 [Website](https://dot-orbit.app/) · [Download](https://github.com/nullabletype/dot-orbit/releases)
 
-The repository contains the first runnable Avalonia shell and the earlier interactive product prototype. Nothing in `docs/` should be read as evidence of implemented behaviour unless it is explicitly marked as implemented and verified.
+![The dot-orbit Today view showing planned and in-progress work](site/screenshots/today-dark-current.png)
 
-## Start here
+dot-orbit keeps personal planning local. Create Projects and standalone Tasks, decide what belongs in Today, and arrange work in the order that makes sense to you. Your workspace is encrypted on your computer, with no account or hosted service required.
 
-- Run `dotnet run --project src/DotOrbit.Desktop/DotOrbit.Desktop.csproj` to create or unlock the local encrypted workspace and open the desktop shell.
-- Run `dotnet run --project src/DotOrbit.Desktop/DotOrbit.Desktop.csproj -- --style-guide` to inspect the local, synthetic Workbench component reference without opening a workspace.
-- Generate a reusable encrypted development workspace with the commands in [`docs/development/sample-workspace.md`](docs/development/sample-workspace.md).
-- Build and validate self-contained Release archives with the commands in [`docs/development/release-packaging.md`](docs/development/release-packaging.md).
-- Read [`docs/development/github-pages.md`](docs/development/github-pages.md) for the product-site deployment and custom-domain HTTPS setup.
-- Read [`docs/data/plaintext-export-v3.md`](docs/data/plaintext-export-v3.md) for the implemented versioned unencrypted workspace-export contract.
-- Read [`docs/development/agent-interchange-copy.md`](docs/development/agent-interchange-copy.md) for the implemented Planning snapshot and reusable-instruction clipboard workflow.
-- Read [`docs/development/agent-proposal-review.md`](docs/development/agent-proposal-review.md) for bounded proposal intake, authoritative review, and explicit whole-proposal approval.
-- Read [`docs/development/local-mcp.md`](docs/development/local-mcp.md) for the complete local MCP setup, trust, security, and failure-behaviour guide.
-- Open `prototype/index.html` in a modern desktop browser to explore the broader product direction. It is self-contained and needs no build step.
-- Read `docs/product/brief.md` for the product boundary.
-- Read `docs/product/requirements.md` for the current behavioural specification.
-- Read `docs/design/ui-specification.md` alongside the prototype.
-- Read `docs/agents/issue-tracker.md` for the current issue-readiness contract and `docs/development/agent-loop.md` for delivery.
-- Read `evaluations/agent-loop/README.md` before materially changing agent instructions, templates, skills, or orchestration.
-- Follow `docs/planning/repository-setup.md` when creating the local and GitHub repositories.
+## Highlights
 
-## Current status
+- **Choose today deliberately.** Build a focused Today list without forcing every Task onto a due date.
+- **Keep work connected.** Organise Tasks with Projects, Categories, and reusable Participants.
+- **See the same work from different angles.** Use Today, Upcoming, Backlog, Completed, Archive, and Bin without duplicating Tasks.
+- **Keep your data local.** Use an encrypted workspace with configurable automatic recovery, portable recovery points, passphrase rotation, and explicit plaintext JSON export.
+- **Review assisted planning before it changes anything.** Copy a Planning snapshot for an external tool, then validate, review, and explicitly approve any returned proposal inside dot-orbit.
+- **Make it comfortable.** Use Markdown descriptions, keyboard navigation, manual ordering, and built-in light and dark themes.
 
-- Product requirements: maintained in `docs/product/requirements.md`; implementation work is tracked as admitted GitHub issues rather than an embedded candidate list.
-- UI prototype: interactive and locally verified for the original six views; it predates the accepted Upcoming-view decision and must be updated before serving as evidence for that view.
-- Application platform: Avalonia UI on .NET, targeting macOS, Linux, and Windows.
-- Local persistence: encrypted workspace creation, unlock, automatic recovery and retention, manual recovery, and forward-only migration are implemented with SQLite3MC.
-- Production application: the cross-platform navigation shell, encrypted workspace access and recovery, Project and standalone Task workflows, Today, Upcoming, Completed, Archive, Bin, reusable Participants, persisted ordering, Markdown rendering, theme selection, explicit plaintext JSON export, the dedicated AI destination for Planning snapshot copy plus explicit proposal review and apply, and opt-in local MCP through a packaged stdio adapter and same-user desktop broker are implemented.
-- Licence: MIT.
+## Download and run
 
-## Set up local MCP
+Download the archive for your system from [GitHub Releases](https://github.com/nullabletype/dot-orbit/releases):
 
-Local MCP is off by default and works only while the desktop application is running with an unlocked workspace. In **Settings**, first enable **AI features**, then separately enable **local MCP** and wait for its status to show **Running**.
+| System | Archive |
+| --- | --- |
+| Windows x64 | `dot-orbit-win-x64.zip` |
+| Linux x64 using X11 | `dot-orbit-linux-x64.tar.gz` |
+| macOS on Apple silicon | `dot-orbit-osx-arm64.tar.gz` |
+| macOS on Intel | `dot-orbit-osx-x64.tar.gz` |
 
-Configure your MCP host to launch the `dot-orbit-mcp` executable from the same dot-orbit release archive as the desktop application. Use an absolute path, a stable profile name for this host installation, and one or both scopes:
+The archives are self-contained, so a separate .NET installation is not required. Extract the archive and run `dot-orbit.exe` on Windows or `./dot-orbit` on macOS and Linux. The packaged `dot-orbit-mcp` adapter is included beside the desktop application.
+
+On first launch, create a new encrypted workspace or choose an existing workspace file. Keep the passphrase safe: dot-orbit does not persist it and cannot recover it. Configure encrypted recovery points from **Settings → Recovery**.
+
+Releases are currently unsigned portable archives rather than installers or macOS application bundles. Your operating system may show its normal warning for an unsigned download. Official releases can check GitHub Releases for newer versions, but update discovery is notice-only: dot-orbit never downloads or installs an update automatically.
+
+## Optional local MCP
+
+AI features are off by default. Enabling them does not contact an AI provider. Local MCP is a separate opt-in setting that works only while the desktop application is running with an unlocked workspace.
+
+In **Settings**, enable **AI features**, enable **local MCP**, and wait for its status to show **Running**.
+
+Configure an MCP host to launch the `dot-orbit-mcp` executable from the same release archive. Use an absolute path, a stable profile name, and one or both scopes:
 
 ```json
 {
@@ -54,32 +60,44 @@ Configure your MCP host to launch the `dot-orbit-mcp` executable from the same d
 }
 ```
 
-The `read` scope exposes the reusable proposal instructions and current Planning snapshot. The `submit` scope can place New-work or Change proposals into dot-orbit's encrypted review queue, but it cannot approve or apply them. On the first connection, dot-orbit shows the verified operating-system account separately from the host's unverified name and version and asks whether to allow the connection once or remember it. Remembered clients can be inspected and revoked from Settings.
+The `read` scope exposes reusable proposal instructions and the current Planning snapshot. The `submit` scope can place New-work or Change proposals into the encrypted review queue, but it cannot approve or apply them. The first connection identifies the operating-system account separately from the host's self-reported name and version and asks whether to allow it once or remember it.
 
-The adapter stores its per-profile credential in Windows Credential Manager, macOS Keychain, or Linux Secret Service; there is no plaintext fallback. dot-orbit does not install the adapter into third-party hosts or edit their configuration. See the [local MCP guide](docs/development/local-mcp.md) for profile rules, tools, proposal queue behaviour, revocation, platform security details, and troubleshooting.
+Adapter credentials are stored in Windows Credential Manager, macOS Keychain, or Linux Secret Service; there is no plaintext fallback. See the [local MCP guide](docs/development/local-mcp.md) for scopes, profiles, revocation, security boundaries, and troubleshooting.
 
-## Build and test
+## Build from source
 
-The repository pins .NET SDK 10.0.402 in `global.json`. From the repository root, run the canonical repository gate:
+Building requires Node.js and the .NET SDK; the repository pins .NET SDK 10.0.402 in [`global.json`](global.json). Prepare a checkout and generate its isolated sample workspace with:
+
+```sh
+node tools/setup-workspace.mjs
+```
+
+Launch the application against that sample:
+
+```sh
+dotnet run --project src/DotOrbit.Desktop/DotOrbit.Desktop.csproj -- --sample-workspace
+```
+
+Run the canonical repository gate with:
 
 ```sh
 dotnet run --project tools/DotOrbit.Verification/DotOrbit.Verification.csproj -p:RestoreLockedMode=true
 ```
 
-It performs locked restore through the checked-in NuGet source policy, direct and transitive vulnerability and deprecation audits, formatting verification, a deterministic Release build, all .NET tests, the native desktop smoke journey, and both smoke negative controls. Add `-- --evidence --expected-sha <full-commit-sha>` to validate a detached snapshot of an exact clean commit. The same entry point runs on pinned Ubuntu, Windows, and macOS GitHub-hosted runners. Changes to issue-readiness automation also run `node --test .github/scripts/issue-readiness.test.mjs`; the Orbit-specific agent-evaluation case checks use `node --test evaluations/agent-loop/cases.test.mjs`. CI runs both suites on the pinned Node release. See `docs/development/dependency-baseline.md` for the checked dependency and runner baseline.
+The gate performs a locked restore, dependency audits, formatting verification, a deterministic Release build, all .NET tests, the native desktop smoke journey, and its negative controls. The **Build** badge above reports the combined Node and .NET build, test, and native smoke status across Ubuntu, Windows, macOS Apple silicon, and macOS Intel.
 
-## Optional agent evaluation
+## Project documentation
 
-The reusable [agent evaluation toolkit](https://github.com/nullabletype/agentic-foundation/tree/main/toolkits/agent-evaluation) is maintained in Agentic Foundation. This repository keeps only Orbit-specific issue-readiness and Avalonia accessibility exercises, their scripted reference and the historical baseline. Follow the [case-pack README](evaluations/agent-loop/README.md) to check out the pinned toolkit and run these cases. It is separate from building or testing the application and does not run real agents automatically.
-
-## Licence
-
-dot-orbit is licensed under the [MIT License](LICENSE).
+- [Product brief](docs/product/brief.md) and [behavioural requirements](docs/product/requirements.md)
+- [UI specification](docs/design/ui-specification.md) and [component style guide](docs/design/style-guide.md)
+- [System context](docs/architecture/system-context.md) and [architectural decisions](docs/adr/)
+- [Release packaging](docs/development/release-packaging.md) and [dependency baseline](docs/development/dependency-baseline.md)
+- [Contribution guide](CONTRIBUTING.md) and [agent delivery loop](docs/development/agent-loop.md)
 
 ## Contributing and security
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing changes. Report suspected vulnerabilities privately as described in [SECURITY.md](SECURITY.md), never through a public issue.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing a change. Report suspected vulnerabilities privately as described in [SECURITY.md](SECURITY.md), never through a public issue.
 
-## Name
+## Licence
 
-The public product and repository name is `dot-orbit`. .NET identifiers use `DotOrbit`; executable and package names use `dot-orbit`. The name keeps the preferred Orbit concept, distinguishes the project from existing task managers called Orbit, and signals its .NET roots.
+dot-orbit is available under the [MIT License](LICENSE).
