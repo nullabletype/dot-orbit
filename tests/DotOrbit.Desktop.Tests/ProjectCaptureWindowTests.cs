@@ -428,6 +428,93 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
+    public void SettingsTogglesUseEachThemesInteractiveAccent()
+    {
+        var application = Assert.IsType<App>(Application.Current);
+        var originalTheme = application.RequestedThemeVariant;
+        var window = new MainWindow(
+            null,
+            aiFeaturePreferenceService: new TransientAiFeaturePreferenceService(
+                aiFeaturesEnabled: true,
+                localMcpEnabled: true));
+        try
+        {
+            window.Show();
+            var shell = Assert.IsType<ShellViewModel>(window.DataContext);
+            shell.SettingsNavigation.SelectCommand.Execute(null);
+            Dispatcher.UIThread.RunJobs();
+            var toggles = new[]
+            {
+                Assert.IsType<ToggleSwitch>(window.FindControl<ToggleSwitch>("SettingsAiFeaturesToggle")),
+                Assert.IsType<ToggleSwitch>(window.FindControl<ToggleSwitch>("SettingsLocalMcpToggle")),
+            };
+            foreach (var toggle in toggles)
+            {
+                toggle.IsChecked = true;
+            }
+            Dispatcher.UIThread.RunJobs();
+
+            foreach (var option in ApplicationThemeCatalog.Options)
+            {
+                window.MouseMove(new Point(2, 2), RawInputModifiers.None);
+                application.RequestedThemeVariant = option.Variant;
+                Dispatcher.UIThread.RunJobs();
+                var accent = Assert.IsAssignableFrom<ISolidColorBrush>(
+                    window.FindResource(option.Variant, "AccentBrush")).Color;
+                var accentHover = Assert.IsAssignableFrom<ISolidColorBrush>(
+                    window.FindResource(option.Variant, "AccentHoverBrush")).Color;
+                var accentPressed = Assert.IsAssignableFrom<ISolidColorBrush>(
+                    window.FindResource(option.Variant, "AccentPressedBrush")).Color;
+                var accentContent = Assert.IsAssignableFrom<ISolidColorBrush>(
+                    window.FindResource(option.Variant, "AccentContentBrush")).Color;
+
+                Assert.All(toggles, toggle =>
+                {
+                    Assert.True(toggle.IsChecked);
+                    Assert.True(toggle.IsEffectivelyVisible);
+                    var track = Assert.Single(
+                        toggle.GetVisualDescendants().OfType<Border>(),
+                        border => border.Name == "SwitchKnobBounds");
+                    Assert.Equal(accent, Assert.IsAssignableFrom<ISolidColorBrush>(track.Background).Color);
+                    Assert.Equal(accent, Assert.IsAssignableFrom<ISolidColorBrush>(track.BorderBrush).Color);
+                    var knob = Assert.Single(
+                        toggle.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Ellipse>(),
+                        ellipse => ellipse.Name == "SwitchKnobOn");
+                    Assert.Equal(accentContent, Assert.IsAssignableFrom<ISolidColorBrush>(knob.Fill).Color);
+                });
+
+                var interactiveToggle = toggles[0];
+                var interactiveTrack = Assert.Single(
+                    interactiveToggle.GetVisualDescendants().OfType<Border>(),
+                    border => border.Name == "SwitchKnobBounds");
+                var centre = CentreInWindow(interactiveToggle, window);
+                window.MouseMove(centre, RawInputModifiers.None);
+                Assert.Equal(
+                    accentHover,
+                    Assert.IsAssignableFrom<ISolidColorBrush>(interactiveTrack.Background).Color);
+                Assert.Equal(
+                    accentHover,
+                    Assert.IsAssignableFrom<ISolidColorBrush>(interactiveTrack.BorderBrush).Color);
+
+                window.MouseDown(centre, MouseButton.Left, RawInputModifiers.LeftMouseButton);
+                Assert.Equal(
+                    accentPressed,
+                    Assert.IsAssignableFrom<ISolidColorBrush>(interactiveTrack.Background).Color);
+                Assert.Equal(
+                    accentPressed,
+                    Assert.IsAssignableFrom<ISolidColorBrush>(interactiveTrack.BorderBrush).Color);
+                window.MouseUp(centre, MouseButton.Left, RawInputModifiers.None);
+                interactiveToggle.IsChecked = true;
+            }
+        }
+        finally
+        {
+            window.Close();
+            application.RequestedThemeVariant = originalTheme;
+        }
+    }
+
+    [AvaloniaFact]
     public void MoveAndRestoreTaskBinActionsAreKeyboardOperableNamedAndReturnLogicalFocus()
     {
         var work = new MemoryWorkspaceWork();

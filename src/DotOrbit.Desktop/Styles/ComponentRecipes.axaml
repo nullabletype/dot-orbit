@@ -14,6 +14,21 @@
     <Setter Property="ClipToBounds" Value="True" />
     <Setter Property="desktop:RoundedClip.IsEnabled" Value="True" />
   </Style>
+  <Style Selector="ToggleSwitch:checked /template/ Border#SwitchKnobBounds">
+    <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+  </Style>
+  <Style Selector="ToggleSwitch:checked:pointerover /template/ Border#SwitchKnobBounds">
+    <Setter Property="Background" Value="{DynamicResource AccentHoverBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentHoverBrush}" />
+  </Style>
+  <Style Selector="ToggleSwitch:checked:pressed /template/ Border#SwitchKnobBounds">
+    <Setter Property="Background" Value="{DynamicResource AccentPressedBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentPressedBrush}" />
+  </Style>
+  <Style Selector="ToggleSwitch:checked /template/ Ellipse#SwitchKnobOn">
+    <Setter Property="Fill" Value="{DynamicResource AccentContentBrush}" />
+  </Style>
   <Style Selector="Border.attention-panel">
     <Setter Property="Padding" Value="12" />
     <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
