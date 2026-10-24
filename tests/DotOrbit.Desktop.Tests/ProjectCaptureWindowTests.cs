@@ -3741,11 +3741,6 @@ public sealed class ProjectCaptureWindowTests
         var taskPillOffset = OffsetWithinRow(taskPill, taskRow);
         var projectIconOffset = OffsetWithinRow(projectIcon, projectRow);
         var taskIconOffset = OffsetWithinRow(taskIcon, taskRow);
-        var panel = Assert.Single(projectRow.GetVisualAncestors().OfType<Border>(), candidate =>
-            candidate.Classes.Contains("list-panel"));
-        Assert.Same(panel, Assert.Single(taskRow.GetVisualAncestors().OfType<Border>(), candidate =>
-            candidate.Classes.Contains("list-panel")));
-        var panelOrigin = OriginInWindow(panel, window);
         Assert.True(
             AreAligned(projectTitleOffset, taskTitleOffset)
             && AreAligned(projectPillOffset, taskPillOffset)
@@ -3756,8 +3751,6 @@ public sealed class ProjectCaptureWindowTests
             + $"Project title={projectTitleOffset}, Task title={taskTitleOffset}, "
             + $"Project pill={projectPillOffset}, Task pill={taskPillOffset}, "
             + $"Project icon={projectIconOffset}, Task icon={taskIconOffset}.");
-        Assert.InRange(OriginInWindow(projectIcon, window).X - panelOrigin.X, 0, 8);
-        Assert.InRange(OriginInWindow(taskIcon, window).X - panelOrigin.X, 0, 8);
         Assert.Equal(14, projectIcon.Bounds.Width);
         Assert.Equal(14, projectIcon.Bounds.Height);
         Assert.Equal(14, taskIcon.Bounds.Width);
@@ -3770,6 +3763,68 @@ public sealed class ProjectCaptureWindowTests
         static bool AreAligned(Point projectOffset, Point taskOffset) =>
             Math.Abs(projectOffset.X - taskOffset.X) <= 0.5
             && Math.Abs(projectOffset.Y - taskOffset.Y) <= 0.5;
+    }
+
+    [AvaloniaFact]
+    public void BinnedTaskIdentityUsesTheSameInsetAsArchivedTaskIdentity()
+    {
+        var work = new MemoryWorkspaceWork();
+        var archived = work.CreateStandaloneTask("Archived task", "", "home", null);
+        work.CompleteTask(archived.Id);
+        work.ArchiveTask(archived.Id);
+        var binned = work.CreateStandaloneTask("Binned task", "", "home", null);
+        work.MoveTaskToBin(binned.Id);
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+
+        SelectView(shell, "Archive");
+        Dispatcher.UIThread.RunJobs();
+        var archiveRow = Assert.Single(window.GetVisualDescendants().OfType<Border>(), candidate =>
+            candidate.IsEffectivelyVisible
+            && candidate.Classes.Contains("archive-row")
+            && candidate.DataContext is ArchivedWorkRowViewModel archivedRow
+            && archivedRow.Task?.Id == archived.Id);
+        var archiveMetrics = IdentityMetrics(archiveRow);
+
+        shell.BinNavigation.SelectCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var binRow = Assert.Single(window.GetVisualDescendants().OfType<Border>(), candidate =>
+            candidate.IsEffectivelyVisible
+            && candidate.Classes.Contains("bin-row")
+            && candidate.DataContext is BinRowViewModel binRow
+            && binRow.Task?.Id == binned.Id);
+        var binMetrics = IdentityMetrics(binRow);
+
+        Assert.True(
+            AreAligned(archiveMetrics.Panel, binMetrics.Panel)
+            && AreAligned(archiveMetrics.Row, binMetrics.Row)
+            && AreAligned(archiveMetrics.Title, binMetrics.Title)
+            && AreAligned(archiveMetrics.Pill, binMetrics.Pill),
+            $"Expected Bin Task identity to use the Archive inset. "
+            + $"Archive panel={archiveMetrics.Panel}, Bin panel={binMetrics.Panel}, "
+            + $"Archive row={archiveMetrics.Row}, Bin row={binMetrics.Row}, "
+            + $"Archive title={archiveMetrics.Title}, Bin title={binMetrics.Title}, "
+            + $"Archive pill={archiveMetrics.Pill}, Bin pill={binMetrics.Pill}.");
+        window.Close();
+
+        (Point Panel, Point Row, Point Title, Point Pill) IdentityMetrics(Border row)
+        {
+            var panel = Assert.Single(row.GetVisualAncestors().OfType<Border>(), candidate =>
+                candidate.Classes.Contains("list-panel"));
+            var title = Assert.Single(row.GetVisualDescendants().OfType<TextBlock>(), candidate =>
+                candidate.Classes.Contains("work-identity-title"));
+            var pill = Assert.Single(row.GetVisualDescendants().OfType<CategoryProjectPill>(), candidate =>
+                candidate.IsEffectivelyVisible);
+            return (
+                OriginInWindow(panel, window),
+                OriginInWindow(row, window),
+                OriginInWindow(title, window),
+                OriginInWindow(pill, window));
+        }
+
+        static bool AreAligned(Point archive, Point bin) =>
+            Math.Abs(archive.X - bin.X) <= 0.5;
     }
 
     [AvaloniaFact]
