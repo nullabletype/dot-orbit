@@ -6,10 +6,30 @@ import {
   assertNodeSupported,
   assertSupportReviewCurrent,
   assertActiveRunnerLabels,
+  assertWorkflowArtifactPolicy,
   latestActionRelease,
   latestStable,
   nodeSupportPhase,
 } from "./security-controls.mjs";
+
+function artifactWorkflows(pagesOverride, releaseOverride) {
+  return new Map([
+    [".github/workflows/pages.yml", pagesOverride ?? `
+      if: github.event_name != 'pull_request'
+      uses: actions/upload-pages-artifact@pages-sha
+      with:
+        path: site
+        retention-days: 1
+        include-hidden-files: true
+      uses: actions/deploy-pages@deploy-sha
+    `],
+    [".github/workflows/release-packages.yml", releaseOverride ?? `
+      uses: actions/upload-artifact@release-sha
+      with:
+        path: artifacts/packages/dot-orbit.zip
+    `],
+  ]);
+}
 
 const approvedConfig = `<?xml version="1.0" encoding="utf-8"?>
 <configuration>
@@ -109,4 +129,50 @@ test("Node support gate retains maintenance support until the exact EOL boundary
   assert.throws(
     () => assertNodeSupported(schedule, new Date("2025-10-27T23:59:59Z")),
     /current/u);
+});
+
+test("Artifact policy keeps Pages deployment separate from application releases", () => {
+  assert.doesNotThrow(() => assertWorkflowArtifactPolicy(artifactWorkflows()));
+});
+
+test("Artifact policy rejects the website in release packaging", () => {
+  assert.throws(
+    () => assertWorkflowArtifactPolicy(artifactWorkflows(undefined, `
+      uses: actions/upload-artifact@release-sha
+      with:
+        path: site
+    `)),
+    /release packaging must not include the website/u);
+});
+
+test("Artifact policy rejects Pages uploads outside the dedicated workflow", () => {
+  const workflows = artifactWorkflows();
+  workflows.set(".github/workflows/build.yml", "uses: actions/upload-pages-artifact@pages-sha");
+  assert.throws(() => assertWorkflowArtifactPolicy(workflows), /Pages artifacts may be handled only/u);
+});
+
+test("Artifact policy requires a one-day site-only Pages bundle", () => {
+  assert.throws(
+    () => assertWorkflowArtifactPolicy(artifactWorkflows(`
+      uses: actions/upload-pages-artifact@pages-sha
+      with:
+        path: .
+        retention-days: 7
+        include-hidden-files: false
+      uses: actions/deploy-pages@deploy-sha
+    `)),
+    /upload only site, including \.nojekyll, for one day/u);
+});
+
+test("Artifact policy rejects a Pages upload on pull requests", () => {
+  assert.throws(
+    () => assertWorkflowArtifactPolicy(artifactWorkflows(`
+      uses: actions/upload-pages-artifact@pages-sha
+      with:
+        path: site
+        retention-days: 1
+        include-hidden-files: true
+      uses: actions/deploy-pages@deploy-sha
+    `)),
+    /must not upload an artifact for pull requests/u);
 });

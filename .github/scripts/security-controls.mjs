@@ -84,6 +84,46 @@ export function assertActiveRunnerLabels(catalogue, labels) {
   }
 }
 
+export function assertWorkflowArtifactPolicy(workflows) {
+  const pagesPath = ".github/workflows/pages.yml";
+  const releasePath = ".github/workflows/release-packages.yml";
+
+  for (const [workflowPath, contents] of workflows) {
+    if (contents.includes("actions/upload-artifact@") && workflowPath !== releasePath) {
+      throw new Error(`application artifacts may be uploaded only by ${releasePath}: ${workflowPath}`);
+    }
+    if ((contents.includes("actions/upload-pages-artifact@") || contents.includes("actions/deploy-pages@"))
+        && workflowPath !== pagesPath) {
+      throw new Error(`Pages artifacts may be handled only by ${pagesPath}: ${workflowPath}`);
+    }
+  }
+
+  const pages = workflows.get(pagesPath);
+  if (pages === undefined) throw new Error(`missing ${pagesPath}`);
+  if (!pages.includes("actions/upload-pages-artifact@") || !pages.includes("actions/deploy-pages@")) {
+    throw new Error("Pages workflow must upload and deploy through the dedicated Pages actions");
+  }
+  if (!/^\s+path: site$/mu.test(pages)
+      || !/^\s+retention-days: 1$/mu.test(pages)
+      || !/^\s+include-hidden-files: true$/mu.test(pages)) {
+    throw new Error("Pages workflow must upload only site, including .nojekyll, for one day");
+  }
+  if (!/^\s+if: github\.event_name != 'pull_request'\s+uses: actions\/upload-pages-artifact@/mu.test(pages)) {
+    throw new Error("Pages workflow must not upload an artifact for pull requests");
+  }
+  if (pages.includes("actions/upload-artifact@") || pages.includes("actions/download-artifact@")) {
+    throw new Error("Pages workflow must not use general workflow artifacts");
+  }
+
+  const release = workflows.get(releasePath);
+  if (release === undefined) throw new Error(`missing ${releasePath}`);
+  if (release.includes("actions/upload-pages-artifact@")
+      || release.includes("actions/deploy-pages@")
+      || /^\s+path: site$/mu.test(release)) {
+    throw new Error("release packaging must not include the website or Pages deployment actions");
+  }
+}
+
 function githubHeaders() {
   const headers = { Accept: "application/vnd.github+json", "User-Agent": "dot-orbit-security-check" };
   if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
@@ -146,6 +186,9 @@ async function assertSupportDriftAbsent() {
     ["actions/setup-node", "v7.1.0"],
     ["actions/upload-artifact", "v7.0.2"],
     ["actions/download-artifact", "v8.0.2"],
+    ["actions/configure-pages", "v6.0.0"],
+    ["actions/upload-pages-artifact", "v5.0.0"],
+    ["actions/deploy-pages", "v5.0.1"],
     ["github/codeql-action", "v4.39.0"],
   ];
   for (const [repository, expected] of actions) {
@@ -182,7 +225,17 @@ async function run(arguments_) {
     console.log("security-controls: support-drift=passed");
     return;
   }
-  throw new Error("Usage: node .github/scripts/security-controls.mjs <nuget-policy|support-review|support-drift> [path]");
+  if (command === "artifact-policy") {
+    const workflowRoot = suppliedPath ?? path.join(repositoryRoot, ".github/workflows");
+    const workflows = new Map(
+      fs.readdirSync(workflowRoot)
+        .filter(name => name.endsWith(".yml") || name.endsWith(".yaml"))
+        .map(name => [`.github/workflows/${name}`, fs.readFileSync(path.join(workflowRoot, name), "utf8")]));
+    assertWorkflowArtifactPolicy(workflows);
+    console.log("security-controls: artifact-policy=passed");
+    return;
+  }
+  throw new Error("Usage: node .github/scripts/security-controls.mjs <nuget-policy|support-review|support-drift|artifact-policy> [path]");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
