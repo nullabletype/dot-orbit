@@ -37,6 +37,7 @@ internal static class PackageArchive
         string repositoryRoot,
         string runtimeIdentifier,
         string version,
+        string? releaseTag,
         bool noRestore)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(repositoryRoot);
@@ -85,8 +86,8 @@ internal static class PackageArchive
         RecreateDirectory(extractedRoot);
         Directory.CreateDirectory(packageRoot);
 
-        Publish(desktopProjectPath, desktopPublishRoot, runtimeIdentifier, version, noRestore);
-        Publish(adapterProjectPath, adapterPublishRoot, runtimeIdentifier, version, noRestore);
+        Publish(desktopProjectPath, desktopPublishRoot, runtimeIdentifier, version, releaseTag, noRestore);
+        Publish(adapterProjectPath, adapterPublishRoot, runtimeIdentifier, version, null, noRestore);
         var executablePath = ValidatePublishedFiles(
             desktopPublishRoot,
             runtime.ExecutableName);
@@ -209,6 +210,7 @@ internal static class PackageArchive
         string publishRoot,
         string runtimeIdentifier,
         string version,
+        string? releaseTag,
         bool noRestore)
     {
         var startInfo = new ProcessStartInfo("dotnet")
@@ -220,6 +222,7 @@ internal static class PackageArchive
             publishRoot,
             runtimeIdentifier,
             version,
+            releaseTag,
             noRestore))
         {
             startInfo.ArgumentList.Add(argument);
@@ -239,6 +242,7 @@ internal static class PackageArchive
         string publishRoot,
         string runtimeIdentifier,
         string version,
+        string? releaseTag,
         bool noRestore)
     {
         var arguments = new List<string>
@@ -257,6 +261,11 @@ internal static class PackageArchive
             $"-p:Version={version}",
             "-p:IncludeSourceRevisionInInformationalVersion=false",
         };
+
+        if (!string.IsNullOrEmpty(releaseTag))
+        {
+            arguments.Add($"-p:DotOrbitReleaseTag={releaseTag}");
+        }
 
         if (noRestore)
         {

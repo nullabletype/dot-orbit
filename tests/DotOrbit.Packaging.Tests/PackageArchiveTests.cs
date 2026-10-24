@@ -21,7 +21,31 @@ public sealed class PackageArchiveTests
         ]);
 
         Assert.Equal("1.2.3-rc.1+build.42", options.Version);
+        Assert.Null(options.ReleaseTag);
         Assert.True(options.NoRestore);
+    }
+
+    [Fact]
+    public void PackageOptionsAcceptOnlyAnExactlyMatchingReleaseTag()
+    {
+        var options = PackageOptions.Parse(
+        [
+            "--repository-root", ".",
+            "--runtime", "osx-arm64",
+            "--version", "1.2.3-rc.1",
+            "--release-tag", "v1.2.3-rc.1",
+        ]);
+
+        Assert.Equal("v1.2.3-rc.1", options.ReleaseTag);
+        Assert.Equal(
+            "release-tag-version-mismatch",
+            Assert.Throws<PackageException>(() => PackageOptions.Parse(
+            [
+                "--repository-root", ".",
+                "--runtime", "osx-arm64",
+                "--version", "1.2.3",
+                "--release-tag", "v1.2.4",
+            ])).Message);
     }
 
     [Theory]
@@ -39,6 +63,26 @@ public sealed class PackageArchiveTests
         ]));
 
         Assert.Equal("invalid-version", exception.Message);
+    }
+
+    [Fact]
+    public void PackageOptionsRejectVersionsOutsideTheDesktopParserBounds()
+    {
+        foreach (var version in new[]
+                 {
+                     $"1.2.3-{new string('a', 65)}",
+                     $"{new string('9', 197)}.0.0",
+                 })
+        {
+            var exception = Assert.Throws<PackageException>(() => PackageOptions.Parse(
+            [
+                "--repository-root", ".",
+                "--runtime", "osx-arm64",
+                "--version", version,
+            ]));
+
+            Assert.Equal("invalid-version", exception.Message);
+        }
     }
 
     [Fact]
@@ -61,10 +105,12 @@ public sealed class PackageArchiveTests
             "publish",
             "osx-arm64",
             "1.2.3-rc.1+build.42",
+            "v1.2.3-rc.1+build.42",
             noRestore: true);
 
         Assert.Contains("-p:Version=1.2.3-rc.1+build.42", arguments);
         Assert.Contains("-p:IncludeSourceRevisionInInformationalVersion=false", arguments);
+        Assert.Contains("-p:DotOrbitReleaseTag=v1.2.3-rc.1+build.42", arguments);
         Assert.Contains("--no-restore", arguments);
     }
 

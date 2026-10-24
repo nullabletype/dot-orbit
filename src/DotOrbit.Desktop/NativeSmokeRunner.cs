@@ -7,6 +7,7 @@ using Avalonia.VisualTree;
 using DotOrbit.Core.Workspaces;
 using DotOrbit.Desktop.ViewModels;
 using DotOrbit.Desktop.Views;
+using DotOrbit.Desktop.ApplicationUpdates;
 using DotOrbit.Storage.Sqlite;
 
 namespace DotOrbit.Desktop;
@@ -181,6 +182,7 @@ internal static class PackagedWorkspaceSmoke
 
     private const string PortableRecoveryEnvironmentVariable = "DOTORBIT_PACKAGE_SMOKE_RECOVERY";
     private const string VersionEnvironmentVariable = "DOTORBIT_PACKAGE_SMOKE_VERSION";
+    private const string ReleaseTagEnvironmentVariable = "DOTORBIT_PACKAGE_SMOKE_RELEASE_TAG";
     private const string SyntheticPassphrase = "dot-orbit sample only";
     private const string SyntheticCategory = "Package smoke";
     private const string PortableRecoveryCategory = "Work";
@@ -195,6 +197,16 @@ internal static class PackagedWorkspaceSmoke
         {
             return Fail("version");
         }
+        var expectedReleaseTag = Environment.GetEnvironmentVariable(ReleaseTagEnvironmentVariable);
+        var actualReleaseTag = typeof(Program).Assembly
+            .GetCustomAttributes<AssemblyMetadataAttribute>()
+            .SingleOrDefault(attribute =>
+                string.Equals(attribute.Key, "DotOrbitReleaseTag", StringComparison.Ordinal))?
+            .Value;
+        if (!MatchesExpectedReleaseTag(expectedReleaseTag, actualReleaseTag))
+        {
+            return Fail("release-tag");
+        }
 
         return Run(
             Path.Combine(
@@ -206,6 +218,13 @@ internal static class PackagedWorkspaceSmoke
     internal static bool MatchesExpectedVersion(string? expectedVersion, string? actualVersion) =>
         !string.IsNullOrWhiteSpace(expectedVersion)
         && string.Equals(expectedVersion, actualVersion, StringComparison.Ordinal);
+
+    internal static bool MatchesExpectedReleaseTag(string? expectedTag, string? actualTag) =>
+        string.IsNullOrEmpty(expectedTag)
+            ? actualTag is null
+            : string.Equals(expectedTag, actualTag, StringComparison.Ordinal)
+              && expectedTag.StartsWith('v')
+              && SemanticVersion.TryParse(expectedTag[1..], out _);
 
     internal static int Run(string directory) => Run(directory, null);
 

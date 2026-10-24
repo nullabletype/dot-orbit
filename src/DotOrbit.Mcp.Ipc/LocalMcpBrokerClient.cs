@@ -166,23 +166,7 @@ public sealed class LocalMcpBrokerClient : ILocalMcpBrokerClient
 
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
             deadline.CancelAfter(LocalMcpProtocol.ConsentLifetime + LocalMcpProtocol.BootstrapHandshakeLifetime);
-            await using var bootstrapConnection = await ConnectBootstrapAsync(deadline.Token).ConfigureAwait(false);
-            await JsonLineCodec.WriteAsync(
-                bootstrapConnection.Stream,
-                new BootstrapRequest(
-                    LocalMcpProtocol.Version,
-                    "request-capability",
-                    _clientName,
-                    _clientVersion,
-                    _credentialVerifier,
-                    _scopes),
-                LocalMcpJsonContext.Default.BootstrapRequest,
-                deadline.Token).ConfigureAwait(false);
-            var response = await JsonLineCodec.ReadAsync(
-                bootstrapConnection.Stream,
-                LocalMcpJsonContext.Default.BootstrapResponse,
-                deadline.Token).ConfigureAwait(false)
-                ?? throw new LocalMcpBrokerException("bootstrap-empty");
+            var response = await RequestCapabilityAsync(deadline.Token).ConfigureAwait(false);
             if (response.Version != LocalMcpProtocol.Version)
             {
                 throw new LocalMcpBrokerException("protocol-version-unsupported");
@@ -216,6 +200,42 @@ public sealed class LocalMcpBrokerClient : ILocalMcpBrokerClient
         {
             _connectGate.Release();
         }
+    }
+
+    private async Task<BootstrapResponse> RequestCapabilityAsync(CancellationToken cancellationToken)
+    {
+        const int maximumAttempts = 2;
+        for (var attempt = 0; attempt < maximumAttempts; attempt++)
+        {
+            await using var connection = await ConnectBootstrapAsync(cancellationToken).ConfigureAwait(false);
+            await JsonLineCodec.WriteAsync(
+                connection.Stream,
+                new BootstrapRequest(
+                    LocalMcpProtocol.Version,
+                    "request-capability",
+                    _clientName,
+                    _clientVersion,
+                    _credentialVerifier,
+                    _scopes),
+                LocalMcpJsonContext.Default.BootstrapRequest,
+                cancellationToken).ConfigureAwait(false);
+            var response = await JsonLineCodec.ReadAsync(
+                connection.Stream,
+                LocalMcpJsonContext.Default.BootstrapResponse,
+                cancellationToken).ConfigureAwait(false);
+            if (response is not null)
+            {
+                return response;
+            }
+
+            if (attempt < maximumAttempts - 1)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(10), _timeProvider, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+
+        throw new LocalMcpBrokerException("bootstrap-empty");
     }
 
     private async Task<LocalConnection> ConnectBootstrapAsync(CancellationToken cancellationToken)

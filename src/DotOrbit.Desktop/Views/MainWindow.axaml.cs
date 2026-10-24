@@ -7,6 +7,7 @@ using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
 using Avalonia.Markup.Xaml;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
@@ -15,12 +16,17 @@ using DotOrbit.Core.Workspaces;
 using DotOrbit.Desktop.Clipboard;
 using DotOrbit.Desktop.Markdown;
 using DotOrbit.Desktop.ViewModels;
+using DotOrbit.Desktop.ApplicationUpdates;
 using DotOrbit.Interchange.Json;
 using System.Security.Cryptography;
 using System.Text;
 
 namespace DotOrbit.Desktop.Views;
 
+[SuppressMessage(
+    "Design",
+    "CA1001:Types that own disposable fields should be disposable",
+    Justification = "Avalonia owns the Window lifetime; OnClosed cancels and disposes the update token source.")]
 public sealed partial class MainWindow : Window
 {
     private enum DragScope { None, TodayPlanned, TodayInProgress, Backlog, Projects, ProjectTasks, Categories }
@@ -59,6 +65,9 @@ public sealed partial class MainWindow : Window
     private readonly IMainWindowSizePreferenceStore _mainWindowSizePreferenceStore;
     private readonly IMainWindowScreenProvider _mainWindowScreenProvider;
     private readonly TimeProvider _timeProvider;
+    private readonly IApplicationUpdateService _applicationUpdateService;
+    private readonly IExternalBrowserLauncher _externalBrowserLauncher;
+    private CancellationTokenSource? _applicationUpdateCancellation;
     private readonly Func<IWorkspaceWork, IInspectorSaveWriter> _inspectorSaveWriterFactory;
     private CancellationTokenSource? _proposalIntakeCancellation;
     private AgentProposalReviewViewModel? _activeProposalReview;
@@ -107,7 +116,9 @@ public sealed partial class MainWindow : Window
         IProposalFileIntake? proposalFileIntake = null,
         IAiFeaturePreferenceService? aiFeaturePreferenceService = null,
         IMainWindowSizePreferenceStore? mainWindowSizePreferenceStore = null,
-        IMainWindowScreenProvider? mainWindowScreenProvider = null)
+        IMainWindowScreenProvider? mainWindowScreenProvider = null,
+        IApplicationUpdateService? applicationUpdateService = null,
+        IExternalBrowserLauncher? externalBrowserLauncher = null)
     {
         _session = session;
         _markdownClipboard = markdownClipboard;
@@ -132,10 +143,16 @@ public sealed partial class MainWindow : Window
         _mainWindowScreenProvider = mainWindowScreenProvider
             ?? new AvaloniaMainWindowScreenProvider();
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _applicationUpdateCancellation = new();
+        _applicationUpdateService = applicationUpdateService
+            ?? (Application.Current as App)?.ApplicationUpdateService
+            ?? new TransientApplicationUpdateService();
         _proposalFileIntake = proposalFileIntake ?? new ProposalFileIntake(_timeProvider);
         _inspectorSaveWriterFactory = inspectorSaveWriterFactory
             ?? (work => new SerializedWorkspacePersistenceExecutor(work, _timeProvider));
         AvaloniaXamlLoader.Load(this);
+        _externalBrowserLauncher = externalBrowserLauncher
+            ?? new AvaloniaExternalBrowserLauncher(Launcher);
         DataContextChanged += OnDataContextChanged;
         AddHandler(PointerPressedEvent, OnWorkPointerPressed, RoutingStrategies.Bubble, handledEventsToo: true);
         AddHandler(PointerMovedEvent, OnWorkDragPointerMoved, RoutingStrategies.Bubble, handledEventsToo: true);
@@ -1215,7 +1232,8 @@ public sealed partial class MainWindow : Window
             uiDispatcher: new AvaloniaUiDispatcher(),
             interchangePreferenceService: _interchangePreferenceService,
             aiFeaturePreferenceService: _aiFeaturePreferenceService,
-            pendingProposalCoordinator: _pendingProposalCoordinator);
+            pendingProposalCoordinator: _pendingProposalCoordinator,
+            applicationUpdateService: _applicationUpdateService);
         RefreshAuthorizedMcpClients();
         _ = ReconcileLocalMcpAsync();
     }
@@ -1248,7 +1266,10 @@ public sealed partial class MainWindow : Window
         _autosaveScheduler.Cancel();
         CancelTransientMessageDismissal();
         if (_subscribedShell is not null)
+        {
             _subscribedShell.PropertyChanged -= OnShellChanged;
+            _subscribedShell.Dispose();
+        }
         if (_subscribedWork is not null)
         {
             _subscribedWork.PropertyChanged -= OnWorkChanged;
@@ -1382,6 +1403,52 @@ public sealed partial class MainWindow : Window
         ApplyInitialWindowSize();
         RefreshDatePresentation();
         _dateRefreshTimer.Start();
+        if (_session is not null && _applicationUpdateCancellation is { } cancellation)
+        {
+            var updateCancellationToken = cancellation.Token;
+            Dispatcher.UIThread.Post(
+                async () => await _applicationUpdateService.CheckAutomaticallyAsync(
+                    updateCancellationToken),
+                DispatcherPriority.ApplicationIdle);
+        }
+    }
+
+    private async void OnCheckForUpdates(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not ShellViewModel { Settings: { } settings }
+            || _applicationUpdateCancellation is not { } cancellation) return;
+        try
+        {
+            await settings.CheckForUpdatesAsync(cancellation.Token);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async void OnViewAvailableRelease(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not ShellViewModel { Settings.AvailableUpdatePage: { } releasePage })
+        {
+            return;
+        }
+
+        if (!await _externalBrowserLauncher.TryOpenAsync(releasePage))
+        {
+            (DataContext as ShellViewModel)?.Settings?.ReportReleasePageOpenFailure();
+        }
+    }
+
+    private void OnDismissAvailableUpdate(object? sender, RoutedEventArgs e)
+    {
+        if ((DataContext as ShellViewModel)?.Settings?.DismissAvailableUpdate() != true)
+        {
+            return;
+        }
+
+        Dispatcher.UIThread.Post(
+            () => this.FindControl<Button>("SettingsViewReleaseButton")?.Focus(),
+            DispatcherPriority.ApplicationIdle);
     }
 
     private void ApplyInitialWindowSize()
@@ -2063,6 +2130,10 @@ public sealed partial class MainWindow : Window
         _dateRefreshTimer.Tick -= OnDateRefreshTick;
         _autosaveScheduler.Dispose();
         _transientMessageScheduler.Dispose();
+        var updateCancellation = _applicationUpdateCancellation;
+        _applicationUpdateCancellation = null;
+        updateCancellation?.Cancel();
+        updateCancellation?.Dispose();
         if (_localMcpService is { } localMcpService)
         {
             _localMcpService = null;
@@ -2080,7 +2151,10 @@ public sealed partial class MainWindow : Window
             _subscribedWork.AutosaveRequested -= OnAutosaveRequested;
         }
         if (_subscribedShell is not null)
+        {
             _subscribedShell.PropertyChanged -= OnShellChanged;
+            _subscribedShell.Dispose();
+        }
         // Normal close and session-unavailable close drain the session executor before
         // reaching this event. Never synchronously wait for storage on the UI thread here.
         _session?.Dispose();

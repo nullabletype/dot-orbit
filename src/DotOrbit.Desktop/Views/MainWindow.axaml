@@ -1148,6 +1148,93 @@
 
         <StackPanel Spacing="10">
           <StackPanel Spacing="4">
+            <TextBlock FontSize="20" FontWeight="Bold" Text="About and updates" />
+            <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
+                Text="Update checks contact GitHub after the workspace is unlocked. GitHub receives normal network metadata; dot-orbit sends no workspace content, account, device identifier, telemetry, or installed version." />
+          </StackPanel>
+          <Border Classes="list-panel row-list">
+            <StackPanel>
+              <Border Classes="interactive-row separated-row" MinHeight="54">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                  <StackPanel VerticalAlignment="Center" Spacing="2">
+                    <TextBlock FontWeight="SemiBold" Text="Installed version" />
+                    <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
+                        Text="{Binding Settings.InstalledBuildKind}" />
+                  </StackPanel>
+                  <TextBlock Grid.Column="1" VerticalAlignment="Center"
+                      FontFamily="{StaticResource MonoFont}" MaxWidth="360"
+                      Text="{Binding Settings.InstalledVersion}" TextWrapping="Wrap"
+                      AutomationProperties.Name="Installed dot-orbit version" />
+                </Grid>
+              </Border>
+              <Border Classes="interactive-row separated-row" MinHeight="54">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                  <StackPanel VerticalAlignment="Center" Spacing="2">
+                    <TextBlock FontWeight="SemiBold" Text="Check automatically" />
+                    <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
+                        Text="At most once every 24 hours. Manual checks remain available." TextWrapping="Wrap" />
+                  </StackPanel>
+                  <ToggleSwitch x:Name="SettingsAutomaticUpdatesToggle" Grid.Column="1"
+                      VerticalAlignment="Center"
+                      IsEnabled="{Binding Settings.CanAutomaticallyCheckForUpdates}"
+                      IsChecked="{Binding Settings.AutomaticUpdateChecksEnabled, Mode=TwoWay}"
+                      AutomationProperties.AutomationId="settings-automatic-update-checks"
+                      AutomationProperties.Name="Check for application updates automatically"
+                      AutomationProperties.ItemStatus="{Binding Settings.AutomaticUpdateChecksStatus}" />
+                </Grid>
+              </Border>
+              <Border Classes="interactive-row separated-row last" MinHeight="64">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                  <StackPanel VerticalAlignment="Center" Spacing="3">
+                    <TextBlock FontWeight="SemiBold" Text="Update status" />
+                    <TextBlock x:Name="SettingsUpdateStatusText" FontSize="12"
+                        Foreground="{DynamicResource MutedTextBrush}"
+                        Text="{Binding Settings.UpdateStatus}" TextWrapping="Wrap"
+                        AutomationProperties.AutomationId="settings-update-status"
+                        AutomationProperties.Name="Application update status"
+                        AutomationProperties.LiveSetting="Polite" />
+                    <TextBlock FontSize="11" Foreground="{DynamicResource QuietTextBrush}"
+                        Text="{Binding Settings.LastSuccessfulCheck}" TextWrapping="Wrap" />
+                  </StackPanel>
+                  <Button x:Name="SettingsCheckForUpdatesButton" Grid.Column="1"
+                      Classes="view-action" Content="Check now"
+                      IsEnabled="{Binding !Settings.IsCheckingForUpdates}"
+                      AutomationProperties.AutomationId="settings-check-for-updates"
+                      AutomationProperties.Name="Check for application updates now"
+                      Click="OnCheckForUpdates" />
+                </Grid>
+              </Border>
+            </StackPanel>
+          </Border>
+          <Border Classes="list-panel" IsVisible="{Binding Settings.HasAvailableUpdate}">
+            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+              <StackPanel Spacing="2">
+                <TextBlock FontWeight="SemiBold" Text="{Binding Settings.AvailableReleaseHeading}" />
+                <TextBlock x:Name="SettingsAvailableUpdateVersion" FontSize="12"
+                    Foreground="{DynamicResource MutedTextBrush}"
+                    MaxWidth="360" Text="{Binding Settings.AvailableUpdateVersion}"
+                    TextWrapping="Wrap" />
+                <TextBlock FontSize="11" Foreground="{DynamicResource QuietTextBrush}"
+                    Text="{Binding Settings.AvailableUpdateChannel}" />
+              </StackPanel>
+              <Button x:Name="SettingsViewReleaseButton" Grid.Column="1" Classes="view-action"
+                  Content="View release notes and downloads in browser"
+                  AutomationProperties.AutomationId="settings-open-update-release"
+                  AutomationProperties.Name="View release notes and downloads in browser"
+                  Click="OnViewAvailableRelease" />
+              <Button x:Name="SettingsDismissUpdateButton" Grid.Column="2"
+                  Classes="view-action" Content="Dismiss this version"
+                  IsVisible="{Binding Settings.CanDismissAvailableUpdate}"
+                  AutomationProperties.AutomationId="settings-dismiss-update"
+                  AutomationProperties.Name="Dismiss this version"
+                  AutomationProperties.HelpText="Hides the Settings navigation notice. Update details remain here."
+                  Click="OnDismissAvailableUpdate" />
+            </Grid>
+          </Border>
+        </StackPanel>
+
+        <StackPanel Spacing="10">
+          <StackPanel Spacing="4">
             <TextBlock FontSize="20" FontWeight="Bold" Text="AI features" />
             <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
                 Text="Off by default. Enable the local, provider-neutral tools for sharing planning context and reviewing agent proposals." />

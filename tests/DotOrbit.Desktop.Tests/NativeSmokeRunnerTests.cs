@@ -18,6 +18,19 @@ public sealed class NativeSmokeRunnerTests
         Assert.Equal(matches, PackagedWorkspaceSmoke.MatchesExpectedVersion(expected, actual));
     }
 
+    [Theory]
+    [InlineData(null, null, true)]
+    [InlineData("", null, true)]
+    [InlineData("v1.2.3", "v1.2.3", true)]
+    [InlineData("v1.2.3", null, false)]
+    [InlineData(null, "v1.2.3", false)]
+    [InlineData("1.2.3", "1.2.3", false)]
+    public void PackageSmokeRequiresTheExactTagDerivedEligibilityStamp(
+        string? expected,
+        string? actual,
+        bool matches) =>
+        Assert.Equal(matches, PackagedWorkspaceSmoke.MatchesExpectedReleaseTag(expected, actual));
+
     [Fact]
     public void PackageSmokeArgumentEnablesWorkspaceAndNativeDesktopChecks()
     {
