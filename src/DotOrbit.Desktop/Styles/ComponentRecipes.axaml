@@ -80,6 +80,9 @@
   <Style Selector="Button.identity-pill-segment:pointerover">
     <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
   </Style>
+  <Style Selector="Button.identity-pill-segment.project-segment /template/ Border#SegmentChrome">
+    <Setter Property="Margin" Value="8,0,0,0" />
+  </Style>
   <Style Selector="Button.identity-pill-segment:pressed">
     <Setter Property="Background" Value="{DynamicResource AccentSurfaceBrush}" />
   </Style>

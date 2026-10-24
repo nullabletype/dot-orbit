@@ -3013,6 +3013,70 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
+    public void TaskIdentityPillJoinSitsBetweenHoverTargets()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var task = work.CreateTask(project.Id, "Dig");
+        var shell = new ShellViewModel(work);
+        SelectView(shell, "Backlog");
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        try
+        {
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+
+            var category = ButtonByAutomationId(window, $"task-category-{task.Id}");
+            var parentProject = ButtonByAutomationId(window, $"task-project-{task.Id}");
+            var pill = Assert.Single(parentProject.GetVisualAncestors().OfType<CategoryProjectPill>());
+            var join = pill.FindControl<Avalonia.Controls.Shapes.Path>("Join")!;
+            var categoryChrome = Assert.Single(category.GetVisualDescendants().OfType<Border>(), border =>
+                border.Name == "SegmentChrome");
+            var projectChrome = Assert.Single(parentProject.GetVisualDescendants().OfType<Border>(), border =>
+                border.Name == "SegmentChrome");
+            var categoryOrigin = Assert.IsType<Point>(categoryChrome.TranslatePoint(default, window));
+            var projectOrigin = Assert.IsType<Point>(projectChrome.TranslatePoint(default, window));
+            var joinOrigin = Assert.IsType<Point>(join.TranslatePoint(default, window));
+
+            Assert.InRange(Math.Abs(categoryOrigin.X + categoryChrome.Bounds.Width - joinOrigin.X), 0, 0.5);
+            Assert.InRange(Math.Abs(joinOrigin.X + join.Bounds.Width - projectOrigin.X), 0, 0.5);
+
+            window.MouseMove(CentreInWindow(category, window), RawInputModifiers.None);
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(category.IsPointerOver);
+            using var categoryHovered = RenderWindowPixels(window);
+
+            window.MouseMove(CentreInWindow(parentProject, window), RawInputModifiers.None);
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(parentProject.IsPointerOver);
+            using var projectHovered = RenderWindowPixels(window);
+
+            var changedJoinPixels = 0;
+            var joinLeft = (int)Math.Floor(joinOrigin.X);
+            var joinRight = (int)Math.Ceiling(joinOrigin.X + join.Bounds.Width);
+            var joinTop = (int)Math.Floor(joinOrigin.Y);
+            var joinBottom = (int)Math.Ceiling(joinOrigin.Y + join.Bounds.Height);
+            for (var y = joinTop; y < joinBottom; y++)
+            {
+                for (var x = joinLeft; x < joinRight; x++)
+                {
+                    if (categoryHovered.GetPixel(x, y) != projectHovered.GetPixel(x, y))
+                    {
+                        changedJoinPixels++;
+                    }
+                }
+            }
+
+            Assert.True(changedJoinPixels == 0,
+                $"Switching pill hover targets changed {changedJoinPixels} pixels behind the join marker.");
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
     public void TaskIdentityPillNavigationScrollsDistantCategoryAndProjectHeadingsIntoView()
     {
         var work = new MemoryWorkspaceWork();
