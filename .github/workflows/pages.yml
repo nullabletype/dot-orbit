@@ -43,7 +43,7 @@ jobs:
       - name: Validate production site
         run: node .github/scripts/site-controls.mjs site
       - name: Upload one-day Pages deployment artifact
-        if: github.event_name != 'pull_request'
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: site
@@ -52,7 +52,7 @@ jobs:
 
   deploy:
     name: Deploy site
-    if: github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: validate
     runs-on: ubuntu-24.04
     timeout-minutes: 5

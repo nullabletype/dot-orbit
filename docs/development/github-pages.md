@@ -1,6 +1,6 @@
 # GitHub Pages and custom-domain HTTPS
 
-The product site is the static content under `site/`. `.github/workflows/pages.yml` validates it, creates a one-day GitHub Pages deployment artifact, and deploys that artifact to the `github-pages` environment after a push to `main` or a manual run. Pull requests validate the site but upload nothing.
+The product site is the static content under `site/`. `.github/workflows/pages.yml` validates its exact file allowlist, creates a one-day GitHub Pages deployment artifact, and deploys that artifact to the `github-pages` environment from `main`. Pull requests and manual runs from other branches validate the site but upload nothing.
 
 The Pages bundle is deployment transport only. It is not a desktop release artifact, is not attached to a GitHub Release, and must never contain application packages, test output, logs, or repository files outside `site/`.
 
@@ -8,7 +8,7 @@ The Pages bundle is deployment transport only. It is not a desktop release artif
 
 1. Open **Settings → Pages** in `nullabletype/dot-orbit`.
 2. Under **Build and deployment**, set **Source** to **GitHub Actions**.
-3. Keep the custom domain as `dot-orbit.app`. The checked-in `site/CNAME` preserves it across deployments.
+3. Keep the custom domain as `dot-orbit.app`. For a custom Actions workflow the repository Pages setting is authoritative; `site/CNAME` records the intended domain in the static bundle but does not configure it by itself.
 4. Merge or manually run the Pages workflow and wait for the `github-pages` environment deployment to finish.
 
 The workflow requires `pages: write` and `id-token: write` only in its deployment job. The validation job has read-only repository access.

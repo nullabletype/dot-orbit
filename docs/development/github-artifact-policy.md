@@ -7,7 +7,7 @@ GitHub artifact storage is reserved for clean application builds intended for re
 - Packaged application binaries built in Release configuration for an explicitly supported runtime identifier.
 - PDB files accompanying those binaries, when useful for diagnostics.
 - Files required for the application package to run or satisfy its licence obligations.
-- The static files under `site/`, uploaded by the Pages workflow for one day and consumed only by the GitHub Pages deployment job.
+- The explicitly allowlisted static files under `site/`, including the approved product screenshots used by the page, uploaded by the Pages workflow for one day and consumed only by the GitHub Pages deployment job.
 
 ## Prohibited
 
@@ -15,7 +15,7 @@ GitHub artifact storage is reserved for clean application builds intended for re
 - SDKs, toolchains, or runtime installations uploaded as standalone payloads.
 - NuGet, npm, operating-system, or other dependency caches stored as artifacts.
 - Source trees, `bin` or `obj` directories, intermediate outputs, and unfiltered publish directories.
-- Test results, coverage files, logs, traces, screenshots, generated documentation, and general evidence bundles.
+- Test results, coverage files, logs, traces, generated documentation, general evidence bundles, and screenshots outside the approved product images in the Pages bundle.
 - Debug-configuration application builds.
 
 CI should report tests and verification through job output, checks, pull-request text, or concise summaries. It must not preserve those materials through artifact upload.
@@ -24,6 +24,6 @@ Before adding or changing an artifact upload, verify that its input is either a 
 
 Application artifacts have one upload path: the gated upload step in `.github/workflows/release-packages.yml`. It runs only for pushes to `main` or for a `v`-prefixed SemVer tag whose commit is contained in `main`, and retains each supported runtime archive for seven days. Pull-request and manual runs build, inspect, extract, and smoke packages but upload nothing. The checked-in packager must validate the archive allowlist and versioned manifest before the workflow can reach the upload step.
 
-The only non-application artifact path is `.github/workflows/pages.yml`. It may upload the validated `site/` directory for one day under GitHub's reserved `github-pages` artifact name, solely for the paired Pages deployment job. Pull requests validate without uploading. This artifact must not be attached to a GitHub Release, downloaded into release packaging, or contain application binaries, repository source outside `site/`, test output, logs, or general evidence.
+The only non-application artifact path is `.github/workflows/pages.yml`. It may upload the exact allowlisted contents of the validated `site/` directory for one day under GitHub's reserved `github-pages` artifact name, solely for the paired Pages deployment job. Pull requests and non-main manual runs validate without uploading. This artifact must not be attached to a GitHub Release, downloaded into release packaging, or contain application binaries, repository source outside `site/`, test output, logs, or general evidence. The product screenshots in `site/screenshots/` are page content, not reusable evidence artifacts.
 
 For a valid version tag, the workflow may copy those same four archives from workflow-artifact storage to an unpublished GitHub Release draft after every native smoke job passes. The draft-release job must recheck the tag target and exact asset allowlist, may update only an existing draft, and must fail rather than alter a published release. Its generated release notes, release metadata, and final archives belong to the release; no CI evidence or intermediate output may be attached.

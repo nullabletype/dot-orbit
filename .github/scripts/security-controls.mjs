@@ -108,8 +108,11 @@ export function assertWorkflowArtifactPolicy(workflows) {
       || !/^\s+include-hidden-files: true$/mu.test(pages)) {
     throw new Error("Pages workflow must upload only site, including .nojekyll, for one day");
   }
-  if (!/^\s+if: github\.event_name != 'pull_request'\s+uses: actions\/upload-pages-artifact@/mu.test(pages)) {
-    throw new Error("Pages workflow must not upload an artifact for pull requests");
+  const mainOnlyCondition = "github.ref == 'refs/heads/main' && github.event_name != 'pull_request'";
+  const escapedCondition = mainOnlyCondition.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  if (!new RegExp(`^\\s+if: ${escapedCondition}\\s+uses: actions/upload-pages-artifact@`, "mu").test(pages)
+      || !new RegExp(`^\\s+name: Deploy site\\s+if: ${escapedCondition}`, "mu").test(pages)) {
+    throw new Error("Pages workflow must upload and deploy only from main, never from pull requests");
   }
   if (pages.includes("actions/upload-artifact@") || pages.includes("actions/download-artifact@")) {
     throw new Error("Pages workflow must not use general workflow artifacts");

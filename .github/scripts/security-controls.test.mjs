@@ -15,12 +15,14 @@ import {
 function artifactWorkflows(pagesOverride, releaseOverride) {
   return new Map([
     [".github/workflows/pages.yml", pagesOverride ?? `
-      if: github.event_name != 'pull_request'
+      if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
       uses: actions/upload-pages-artifact@pages-sha
       with:
         path: site
         retention-days: 1
         include-hidden-files: true
+      name: Deploy site
+      if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
       uses: actions/deploy-pages@deploy-sha
     `],
     [".github/workflows/release-packages.yml", releaseOverride ?? `
@@ -164,7 +166,7 @@ test("Artifact policy requires a one-day site-only Pages bundle", () => {
     /upload only site, including \.nojekyll, for one day/u);
 });
 
-test("Artifact policy rejects a Pages upload on pull requests", () => {
+test("Artifact policy rejects Pages deployment outside main", () => {
   assert.throws(
     () => assertWorkflowArtifactPolicy(artifactWorkflows(`
       uses: actions/upload-pages-artifact@pages-sha
@@ -174,5 +176,5 @@ test("Artifact policy rejects a Pages upload on pull requests", () => {
         include-hidden-files: true
       uses: actions/deploy-pages@deploy-sha
     `)),
-    /must not upload an artifact for pull requests/u);
+    /must upload and deploy only from main/u);
 });
