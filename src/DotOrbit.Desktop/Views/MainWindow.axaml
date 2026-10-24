@@ -1087,10 +1087,13 @@
                       MinHeight="{StaticResource StandardRowHeight}"
                       AutomationProperties.Name="{Binding AccessibleName}">
                     <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
-                      <StackPanel Margin="6,0" VerticalAlignment="Center" Spacing="6">
+                      <StackPanel Classes="bin-identity" Classes.task="{Binding IsTask}"
+                          VerticalAlignment="Center" Spacing="6">
                           <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
-                            <views:WorkTypeIcon WorkType="Task" IsVisible="{Binding IsTask}" />
-                            <views:IdentityTypeIcon WorkType="Project" ColourKey="{Binding ProjectColourKey}"
+                            <views:WorkTypeIcon Width="14" Height="14"
+                                WorkType="Task" IsVisible="{Binding IsTask}" />
+                            <views:IdentityTypeIcon Width="14" Height="14"
+                                WorkType="Project" ColourKey="{Binding ProjectColourKey}"
                                 IsVisible="{Binding IsProject}" />
                             <TextBlock Grid.Column="1" Classes="work-identity-title" FontWeight="SemiBold"
                                 Text="{Binding Title}" TextTrimming="CharacterEllipsis" />

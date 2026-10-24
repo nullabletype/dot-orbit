@@ -313,6 +313,8 @@
   </Style>
   <Style Selector="Border.project-task-row"><Setter Property="Padding" Value="14,0,10,0" /></Style>
   <Style Selector="Border.archive-row, Border.bin-row"><Setter Property="Padding" Value="0,0,10,0" /></Style>
+  <Style Selector="StackPanel.bin-identity"><Setter Property="Margin" Value="6,0" /></Style>
+  <Style Selector="StackPanel.bin-identity.task"><Setter Property="Margin" Value="6,0,0,1" /></Style>
   <Style Selector="Border.interactive-row:pointerover"><Setter Property="Background" Value="{DynamicResource PanelRaisedBrush}" /></Style>
   <Style Selector="Border.separated-row">
     <Setter Property="BorderBrush" Value="{DynamicResource LineSoftBrush}" />

@@ -3702,38 +3702,74 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
-    public void BinTaskIdentitiesDoNotAddANestedLeftInset()
+    public void BinnedTaskIdentityAlignsWithBinnedProjectIdentity()
     {
         var work = new MemoryWorkspaceWork();
-        var binned = work.CreateStandaloneTask("Binned", "", "work", null);
-        work.MoveTaskToBin(binned.Id);
+        var project = work.CreateProject("Autumn garden", "", "home", null);
+        work.MoveProjectToBin(project.Id);
+        var task = work.CreateStandaloneTask("Record first conversation", "", "home", null);
+        work.MoveTaskToBin(task.Id);
         var shell = new ShellViewModel(work);
         var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
         window.Show();
 
         shell.BinNavigation.SelectCommand.Execute(null);
         Dispatcher.UIThread.RunJobs();
-        var binRow = ButtonByAutomationId(window, $"bin-restore-task-{binned.Id}")
-            .GetVisualAncestors().OfType<Border>()
-            .First(row => row.Classes.Contains("bin-row"));
-        AssertIdentityInset(binRow);
+        var rows = window.GetVisualDescendants().OfType<Border>()
+            .Where(candidate => candidate.IsEffectivelyVisible && candidate.Classes.Contains("bin-row"))
+            .ToArray();
+        var projectRow = Assert.Single(rows, candidate =>
+            candidate.DataContext is BinRowViewModel binned && binned.Project?.Id == project.Id);
+        var taskRow = Assert.Single(rows, candidate =>
+            candidate.DataContext is BinRowViewModel binned && binned.Task?.Id == task.Id);
+        var projectTitle = Assert.Single(projectRow.GetVisualDescendants().OfType<TextBlock>(), candidate =>
+            candidate.Classes.Contains("work-identity-title"));
+        var taskTitle = Assert.Single(taskRow.GetVisualDescendants().OfType<TextBlock>(), candidate =>
+            candidate.Classes.Contains("work-identity-title"));
+        var projectPill = Assert.Single(projectRow.GetVisualDescendants().OfType<CategoryProjectPill>(), candidate =>
+            candidate.IsEffectivelyVisible);
+        var taskPill = Assert.Single(taskRow.GetVisualDescendants().OfType<CategoryProjectPill>(), candidate =>
+            candidate.IsEffectivelyVisible);
+        var projectIcon = Assert.Single(projectRow.GetVisualDescendants().OfType<IdentityTypeIcon>(), candidate =>
+            candidate.IsEffectivelyVisible && candidate.WorkType == WorkType.Project);
+        var taskIcon = Assert.Single(taskRow.GetVisualDescendants().OfType<WorkTypeIcon>(), candidate =>
+            candidate.IsEffectivelyVisible && candidate.WorkType == WorkType.Task);
+
+        var projectTitleOffset = OffsetWithinRow(projectTitle, projectRow);
+        var taskTitleOffset = OffsetWithinRow(taskTitle, taskRow);
+        var projectPillOffset = OffsetWithinRow(projectPill, projectRow);
+        var taskPillOffset = OffsetWithinRow(taskPill, taskRow);
+        var projectIconOffset = OffsetWithinRow(projectIcon, projectRow);
+        var taskIconOffset = OffsetWithinRow(taskIcon, taskRow);
+        var panel = Assert.Single(projectRow.GetVisualAncestors().OfType<Border>(), candidate =>
+            candidate.Classes.Contains("list-panel"));
+        Assert.Same(panel, Assert.Single(taskRow.GetVisualAncestors().OfType<Border>(), candidate =>
+            candidate.Classes.Contains("list-panel")));
+        var panelOrigin = OriginInWindow(panel, window);
+        Assert.True(
+            AreAligned(projectTitleOffset, taskTitleOffset)
+            && AreAligned(projectPillOffset, taskPillOffset)
+            && Math.Abs(projectIconOffset.X - taskIconOffset.X) <= 0.5
+            && Math.Abs(projectPillOffset.X - projectIconOffset.X) <= 0.5
+            && Math.Abs(taskPillOffset.X - taskIconOffset.X) <= 0.5,
+            $"Expected binned Task identity to align with Project identity. "
+            + $"Project title={projectTitleOffset}, Task title={taskTitleOffset}, "
+            + $"Project pill={projectPillOffset}, Task pill={taskPillOffset}, "
+            + $"Project icon={projectIconOffset}, Task icon={taskIconOffset}.");
+        Assert.InRange(OriginInWindow(projectIcon, window).X - panelOrigin.X, 0, 8);
+        Assert.InRange(OriginInWindow(taskIcon, window).X - panelOrigin.X, 0, 8);
+        Assert.Equal(14, projectIcon.Bounds.Width);
+        Assert.Equal(14, projectIcon.Bounds.Height);
+        Assert.Equal(14, taskIcon.Bounds.Width);
+        Assert.Equal(14, taskIcon.Bounds.Height);
         window.Close();
 
-        void AssertIdentityInset(Border row)
-        {
-            var panel = Assert.Single(row.GetVisualAncestors().OfType<Border>(), candidate =>
-                candidate.Classes.Contains("list-panel"));
-            var icon = Assert.Single(row.GetVisualDescendants().OfType<WorkTypeIcon>(), candidate =>
-                candidate.IsEffectivelyVisible && candidate.WorkType == WorkType.Task);
-            var pill = Assert.Single(row.GetVisualDescendants().OfType<CategoryProjectPill>(), candidate =>
-                candidate.IsEffectivelyVisible);
-            var panelOrigin = OriginInWindow(panel, window);
-            var iconOrigin = OriginInWindow(icon, window);
-            var pillOrigin = OriginInWindow(pill, window);
+        static Point OffsetWithinRow(Control control, Border row) =>
+            Assert.IsType<Point>(control.TranslatePoint(default, row));
 
-            Assert.InRange(iconOrigin.X - panelOrigin.X, 0, 8);
-            Assert.InRange(Math.Abs(pillOrigin.X - iconOrigin.X), 0, 0.5);
-        }
+        static bool AreAligned(Point projectOffset, Point taskOffset) =>
+            Math.Abs(projectOffset.X - taskOffset.X) <= 0.5
+            && Math.Abs(projectOffset.Y - taskOffset.Y) <= 0.5;
     }
 
     [AvaloniaFact]
