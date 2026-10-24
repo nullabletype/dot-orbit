@@ -14,7 +14,7 @@
 - Make time and side effects deterministic through `TimeProvider` and narrow adapters for filesystem, identifier generation, and platform operations. Do not hide domain logic behind broad service abstractions.
 - Never log passwords, encryption keys, plaintext task content, database contents, backup contents, clipboard payloads, or other sensitive user data. Diagnostics must use non-sensitive operational metadata only.
 - Treat accessibility as an acceptance requirement for every new or changed user action: it must be keyboard operable, expose meaningful accessible name, role, and state, preserve logical focus order, announce relevant changes, and never rely on colour or an icon alone.
-- GitHub artifact storage is exclusively for packaged, Release-configuration application binaries for an explicitly supported runtime. PDB files are optional. Never upload Docker/OCI images, container filesystems, SDKs, runtimes as standalone payloads, dependency caches, source trees, intermediate build output, test results, logs, screenshots, or general evidence bundles as GitHub artifacts. See `docs/development/github-artifact-policy.md`.
+- GitHub artifact storage is reserved for packaged, Release-configuration application binaries for an explicitly supported runtime, plus the short-lived deployment bundle consumed only by GitHub Pages. PDB files are optional. Never attach the website to a GitHub Release or upload Docker/OCI images, container filesystems, SDKs, runtimes as standalone payloads, dependency caches, source trees, intermediate build output, test results, logs, screenshots outside the approved Pages product images, or general evidence bundles as GitHub artifacts. See `docs/development/github-artifact-policy.md`.
 
 ## Sources of truth
 

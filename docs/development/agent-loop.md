@@ -37,6 +37,6 @@ Incomplete work must complete [`.github/HANDOFF_TEMPLATE.md`](../../.github/HAND
 - Passing automated checks do not substitute for required visual or desktop behaviour checks.
 - A proposal is not implementation evidence.
 - If independent review was unavailable, state that rather than implying review occurred.
-- Record concise verification evidence in the issue or pull request. Do not upload logs, screenshots, test results, source trees, intermediate outputs, or general evidence bundles to GitHub artifact storage.
-- GitHub artifacts are reserved for packaged, Release-configuration application binaries for supported runtimes; PDB files are optional. Containers and container filesystems are prohibited.
+- Record concise verification evidence in the issue or pull request. Do not upload logs, screenshots outside the approved Pages product images, test results, source trees, intermediate outputs, or general evidence bundles to GitHub artifact storage.
+- GitHub artifacts are reserved for packaged, Release-configuration application binaries for supported runtimes and the allowlisted one-day GitHub Pages deployment bundle. PDB files are optional. The website must never be attached to a GitHub Release. Containers and container filesystems are prohibited.
 - Treat the cross-platform native desktop smoke journey and headless interaction suite as the routine pull-request baseline. Add targeted manual visual or accessibility checks when the changed behaviour needs them, and reserve full assistive-technology and supported-runtime verification for release milestones.

@@ -18,8 +18,8 @@ An issue is complete only when:
 - every direct and transitive dependency, SDK, runtime, action, runner image, and packaging tool used by the change is on a current supported release; checked versions, upstream evidence, and the check date are recorded.
 - package versions are reproducibly pinned and lockfiles are current.
 - deprecated, end-of-life, unmaintained, or affected-but-unpatched components block acceptance.
-- any GitHub artifact upload contains only packaged Release-configuration application binaries for an explicitly supported runtime, plus optional PDB files.
-- no Docker/OCI image, container filesystem, SDK, standalone runtime payload, dependency cache, source tree, intermediate output, test result, log, screenshot, or general evidence bundle is uploaded to GitHub artifact storage.
+- any GitHub artifact upload contains only packaged Release-configuration application binaries for an explicitly supported runtime, plus optional PDB files, or the exact allowlisted static files in the one-day GitHub Pages deployment bundle.
+- no Docker/OCI image, container filesystem, SDK, standalone runtime payload, dependency cache, source tree outside the approved Pages bundle, intermediate output, test result, log, screenshot outside the approved Pages product images, or general evidence bundle is uploaded to GitHub artifact storage; the website is never attached to a GitHub Release.
 
 ## Repository gate
 
