@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-labelledby="title">
+  <title id="title">dot-orbit mark</title>
+  <path
+    d="M 28.43 12.20 A 13 13 0 1 1 19.80 3.57"
+    fill="none"
+    stroke="#ff4fa3"
+    stroke-linecap="round"
+    stroke-width="3" />
+  <circle cx="25.19" cy="6.81" r="3.5" fill="#7ce7b2" />
+</svg>

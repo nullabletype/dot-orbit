@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="dot-orbit is a personal, encrypted desktop task manager with deliberate daily focus, provider-neutral agent handover, and local MCP controls.">
+  <title>dot-orbit — Manage what’s in your personal orbit</title>
+  <link rel="canonical" href="https://dot-orbit.app/">
+  <link rel="icon" href="orbit-mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="shared.css">
+  <style>
+    :root {
+      --bg: #07110e;
+      --panel: #0c1915;
+      --panel-raised: #11231d;
+      --line-local: rgba(141, 242, 193, .16);
+      --copy: #aebeb7;
+      --green-local: #8df2c1;
+      --pink-local: #ff4fa3;
+    }
+    body {
+      color: #f1faf5;
+      background: var(--bg);
+      background-image:
+        radial-gradient(circle at 18% 10%, rgba(255,79,163,.14), transparent 34%),
+        radial-gradient(circle at 82% 84%, rgba(124,231,178,.09), transparent 32%),
+        linear-gradient(rgba(141,242,193,.022) 1px, transparent 1px),
+        linear-gradient(90deg,rgba(141,242,193,.022) 1px, transparent 1px);
+      background-size: auto, auto, 40px 40px, 40px 40px;
+      background-attachment: fixed;
+    }
+    .wrap { width: min(1200px, calc(100% - 48px)); margin: 0 auto; }
+    header { display: flex; align-items: center; justify-content: space-between; height: 84px; border-bottom: 1px solid var(--line-local); }
+    header nav { display: flex; align-items: center; gap: 28px; color: #8ea198; font: 650 12px/1 var(--mono); }
+    header nav a { text-decoration: none; }
+    header nav a:hover { color: white; }
+    .repo { padding: 10px 13px; border: 1px solid var(--line-local); border-radius: 8px; color: #d9eee4; background: rgba(141,242,193,.04); }
+    .eyebrow { color: var(--green-local); font: 750 11px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; }
+    .hero { padding: clamp(80px, 10vw, 132px) 0 130px; }
+    .hero-copy { display: grid; grid-template-columns: 1.2fr .8fr; gap: 80px; align-items: end; }
+    h1 { max-width: 760px; margin: 20px 0 0; font-size: clamp(64px, 9vw, 120px); line-height: .86; letter-spacing: -.078em; }
+    .tagline { max-width: 680px; margin: 28px 0 0; color: #d6e5dd; font-size: clamp(22px,2.4vw,31px); line-height: 1.2; letter-spacing: -.025em; }
+    .intro { max-width: 540px; padding-bottom: 6px; color: var(--copy); font-size: 20px; line-height: 1.62; }
+    .intro strong { color: #f3fbf7; }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+    .button { display: inline-flex; min-height: 46px; padding: 0 18px; align-items: center; justify-content: center; border: 1px solid var(--line-local); border-radius: 9px; color: white; text-decoration: none; font-weight: 730; }
+    .button.primary { border-color: var(--green-local); color: #06120d; background: var(--green-local); }
+    .hero-stage { position: relative; margin-top: 80px; padding: 18px; border: 1px solid var(--line-local); border-radius: 28px; background: linear-gradient(145deg, rgba(141,242,193,.07), rgba(141,242,193,.015)); box-shadow: 0 50px 130px rgba(0,0,0,.42); }
+    .screenshot { display: block; width: 100%; height: auto; border-radius: 18px; box-shadow: 0 28px 80px rgba(0,0,0,.36); }
+    .hero-app { overflow: hidden; border: 1px solid rgba(255,255,255,.08); border-radius: 18px; background: #05090f; }
+    .hero-app .screenshot { border-radius: 0; box-shadow: none; }
+    .hero-stage-meta { display: flex; justify-content: space-between; gap: 24px; align-items: center; margin: 15px 7px 0; }
+    .hero-stage-meta p { margin: 0; color: #789287; font: 700 10px/1.4 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+    .hero-stage-meta a { color: #d9eee4; text-decoration: none; }
+    .hero-stage-meta a:hover { color: white; }
+    .theme-swatches { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin: 0; padding: 0; list-style: none; }
+    .theme-swatches li { width: 13px; height: 13px; border: 1px solid rgba(255,255,255,.34); border-radius: 50%; background: var(--swatch); box-shadow: inset 0 0 0 3px var(--swatch-side); }
+    .themes { padding: 120px 0 145px; border-top: 1px solid var(--line-local); border-bottom: 1px solid var(--line-local); background: rgba(3,10,8,.55); }
+    .themes-head { display: grid; grid-template-columns: .75fr 1.25fr; gap: 70px; align-items: end; margin-bottom: 58px; }
+    .themes h2 { max-width: 740px; margin: 18px 0 0; font-size: clamp(48px,6vw,78px); line-height: .95; letter-spacing: -.06em; }
+    .themes-head p { max-width: 650px; margin: 0; color: var(--copy); font-size: 18px; line-height: 1.68; }
+    .theme-groups { display: grid; gap: 44px; }
+    .theme-group-head { display: flex; justify-content: space-between; gap: 20px; align-items: baseline; margin-bottom: 16px; }
+    .theme-group-head h3 { margin: 0; font-size: 18px; letter-spacing: -.02em; }
+    .theme-group-head span { color: #637c71; font: 700 10px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+    .theme-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin: 0; padding: 0; list-style: none; }
+    .theme-card { overflow: hidden; border: 1px solid var(--line-local); border-radius: 15px; background: rgba(12,25,21,.72); }
+    .theme-preview { display: grid; grid-template-columns: 29% 1fr; min-height: 146px; padding: 14px; gap: 12px; color: var(--theme-text); background: var(--theme-bg); border-bottom: 1px solid rgba(141,242,193,.12); }
+    .theme-preview i { display: block; }
+    .mini-sidebar { display: flex; flex-direction: column; gap: 8px; padding: 9px 7px; border-radius: 7px; background: var(--theme-side); }
+    .mini-brand { width: 22px; height: 5px; margin-bottom: 6px; border-radius: 99px; background: var(--theme-text); opacity: .88; }
+    .mini-nav { height: 5px; border-radius: 99px; background: var(--theme-text); opacity: .26; }
+    .mini-nav.active { background: var(--theme-accent); opacity: 1; }
+    .mini-main { padding: 5px 2px; }
+    .mini-kicker { width: 36%; height: 5px; margin-bottom: 9px; border-radius: 99px; background: var(--theme-accent); }
+    .mini-title { width: 54%; height: 10px; margin-bottom: 15px; border-radius: 99px; background: var(--theme-text); }
+    .mini-row { display: grid; grid-template-columns: 8px 1fr 8px; align-items: center; gap: 7px; height: 20px; padding: 0 6px; margin-top: 5px; border: 1px solid color-mix(in srgb, var(--theme-text) 16%, transparent); border-radius: 5px; }
+    .mini-check { width: 7px; height: 7px; border: 1px solid var(--theme-text); border-radius: 2px; opacity: .68; }
+    .mini-line { height: 4px; border-radius: 99px; background: var(--theme-text); opacity: .42; }
+    .mini-state { width: 6px; height: 6px; border-radius: 50%; background: var(--theme-success); }
+    .theme-meta { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 15px 16px 16px; }
+    .theme-name { font-weight: 760; letter-spacing: -.018em; }
+    .theme-tone { color: #789287; font: 700 9px/1 var(--mono); letter-spacing: .11em; text-transform: uppercase; }
+    .story { padding: 150px 0 90px; }
+    .story-head { display: grid; grid-template-columns: .7fr 1.3fr; gap: 70px; margin-bottom: 90px; }
+    .story h2 { max-width: 790px; margin: 0; font-size: clamp(50px, 7vw, 88px); line-height: .94; letter-spacing: -.065em; }
+    .story-lede { max-width: 650px; margin: 0 0 72px auto; color: var(--copy); font-size: 19px; line-height: 1.7; }
+    .story-lede strong { color: white; }
+    .product-block { display: grid; grid-template-columns: .72fr 1.28fr; gap: 58px; align-items: center; padding: 86px 0; border-top: 1px solid var(--line-local); }
+    .product-block.reverse { grid-template-columns: 1.28fr .72fr; }
+    .product-block.reverse .product-copy { order: 2; }
+    .product-block.reverse .shot-frame { order: 1; }
+    .product-copy .index { color: #5c786d; font: 700 10px/1 var(--mono); letter-spacing: .14em; }
+    .product-copy h3 { margin: 23px 0 16px; font-size: clamp(36px, 4.5vw, 58px); line-height: .98; letter-spacing: -.055em; }
+    .product-copy p { margin: 0; color: var(--copy); font-size: 17px; line-height: 1.7; }
+    .proof-list { display: grid; gap: 11px; margin: 28px 0 0; padding: 0; list-style: none; }
+    .proof-list li { display: flex; gap: 11px; color: #d5e2dc; font-size: 14px; line-height: 1.45; }
+    .proof-list li::before { content: "✓"; color: var(--green-local); font-family: var(--mono); }
+    .shot-frame { padding: 9px; border: 1px solid var(--line-local); border-radius: 20px; background: #050b09; box-shadow: 0 32px 95px rgba(0,0,0,.32); }
+    .shot-frame.light { border-color: rgba(255,255,255,.24); background: #eee9e9; }
+    .shot-frame .screenshot { border-radius: 13px; box-shadow: none; }
+    .feature-shot { margin: 56px 0 0; padding: 9px; border: 1px solid var(--line-local); border-radius: 20px; background: #050b09; box-shadow: 0 32px 95px rgba(0,0,0,.28); }
+    .feature-shot.light { border-color: rgba(255,255,255,.24); background: #eee9e9; }
+    .feature-shot .screenshot { border-radius: 13px; box-shadow: none; }
+    .feature-shot figcaption { margin: 13px 5px 4px; color: #789287; font: 700 10px/1.45 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+    .views { padding: 120px 0; border-top: 1px solid var(--line-local); border-bottom: 1px solid var(--line-local); background: rgba(3,10,8,.62); }
+    .views-head { display: grid; grid-template-columns: 1fr 1fr; gap: 70px; align-items: end; margin-bottom: 52px; }
+    .views h2 { max-width: 620px; margin: 18px 0 0; font-size: clamp(48px,6vw,78px); line-height: .95; letter-spacing: -.06em; }
+    .views-head p { margin: 0; color: var(--copy); font-size: 18px; line-height: 1.65; }
+    .view-grid { display: grid; grid-template-columns: repeat(4,1fr); border: 1px solid var(--line-local); background: var(--line-local); gap: 1px; }
+    .view { min-height: 210px; padding: 23px; background: var(--bg); }
+    .view span { color: #577067; font: 700 10px/1 var(--mono); }
+    .view h3 { margin: 70px 0 10px; font-size: 23px; letter-spacing: -.035em; }
+    .view p { margin: 0; color: #8fa098; font-size: 13px; line-height: 1.55; }
+    .agents { padding: 130px 0; border-bottom: 1px solid var(--line-local); }
+    .agents-head { display: grid; grid-template-columns: .85fr 1.15fr; gap: 70px; align-items: end; margin-bottom: 62px; }
+    .agents h2 { max-width: 760px; margin: 18px 0 0; font-size: clamp(52px,7vw,88px); line-height: .94; letter-spacing: -.065em; }
+    .agents-intro { margin: 0; color: var(--copy); font-size: 19px; line-height: 1.7; }
+    .agents-intro strong { color: white; }
+    .handover { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin: 0; padding: 0; list-style: none; }
+    .handover li { min-height: 290px; padding: 25px; border: 1px solid var(--line-local); border-radius: 16px; background: rgba(12,25,21,.86); }
+    .handover .step { color: #688177; font: 700 10px/1 var(--mono); letter-spacing: .14em; }
+    .handover h3 { margin: 75px 0 12px; font-size: 22px; letter-spacing: -.035em; }
+    .handover p { margin: 0; color: #91a39a; line-height: 1.62; }
+    .mcp-panel { margin-top: 64px; padding: 38px; border: 1px solid rgba(255,79,163,.24); border-radius: 22px; background: linear-gradient(145deg, rgba(255,79,163,.075), rgba(141,242,193,.035)); box-shadow: 0 34px 100px rgba(0,0,0,.24); }
+    .mcp-main { display: grid; grid-template-columns: .74fr 1.26fr; gap: 52px; align-items: end; }
+    .mcp-copy h3 { max-width: 470px; margin: 20px 0 17px; font-size: clamp(38px,4.8vw,60px); line-height: .98; letter-spacing: -.055em; }
+    .mcp-copy p { margin: 0; color: var(--copy); font-size: 17px; line-height: 1.7; }
+    .mcp-route { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; margin: 0; padding: 0; list-style: none; }
+    .mcp-route li { position: relative; min-height: 144px; padding: 17px; border: 1px solid var(--line-local); border-radius: 12px; background: rgba(5,12,10,.72); }
+    .mcp-route li:not(:last-child)::after { content: "→"; position: absolute; z-index: 2; top: 50%; right: -13px; width: 18px; transform: translateY(-50%); color: var(--pink-local); background: #101613; text-align: center; font: 800 15px/1 var(--mono); }
+    .mcp-route span { color: #60786e; font: 700 10px/1 var(--mono); }
+    .mcp-route strong { display: block; margin: 40px 0 5px; font-size: 15px; }
+    .mcp-route small { display: block; color: #81958b; line-height: 1.35; }
+    .scope-note { margin: 22px 0 0; color: #8fa098; font-size: 13px; line-height: 1.6; }
+    .scope-note strong { color: #dce9e3; }
+    .kill-switch { display: grid; grid-template-columns: .85fr 1.15fr; gap: 48px; margin-top: 18px; padding: 30px; border: 1px solid rgba(255,79,163,.24); border-radius: 18px; background: rgba(19,10,15,.78); }
+    .kill-copy h3 { margin: 15px 0 12px; font-size: clamp(32px,4vw,49px); line-height: 1; letter-spacing: -.05em; }
+    .kill-copy p { margin: 0; color: #b4a8ae; line-height: 1.65; }
+    .gates { display: grid; gap: 10px; }
+    .gate { display: grid; grid-template-columns: 1fr auto; gap: 8px 18px; padding: 17px; border: 1px solid rgba(255,255,255,.12); border-radius: 12px; background: rgba(5,9,8,.7); }
+    .gate strong { font-size: 15px; }
+    .gate-state { display: inline-flex; align-items: center; gap: 8px; color: #f7d3e4; font: 750 10px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+    .switch-icon { position: relative; width: 29px; height: 16px; border: 1px solid #9e7789; border-radius: 999px; }
+    .switch-icon::after { content: ""; position: absolute; top: 3px; left: 3px; width: 8px; height: 8px; border-radius: 50%; background: #d8a4bc; }
+    .gate small { grid-column: 1 / -1; color: #897c82; line-height: 1.45; }
+    .privacy-qualifier { margin: 24px 0 0; padding-top: 22px; border-top: 1px solid rgba(255,255,255,.1); color: #9b8e94; font-size: 13px; line-height: 1.65; }
+    .privacy-qualifier strong { color: #e5dce0; }
+    .privacy { padding: 130px 0; }
+    .privacy-head { max-width: 850px; margin-bottom: 65px; }
+    .privacy h2 { margin: 18px 0 22px; font-size: clamp(52px,7vw,88px); line-height: .94; letter-spacing: -.065em; }
+    .privacy-head p { max-width: 710px; margin: 0; color: var(--copy); font-size: 19px; line-height: 1.7; }
+    .boundary { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
+    .boundary article { min-height: 270px; padding: 25px; border: 1px solid var(--line-local); border-radius: 16px; background: var(--panel); }
+    .boundary .number { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 9px; color: #06120d; background: var(--green-local); font-weight: 850; }
+    .boundary h3 { margin: 70px 0 11px; font-size: 21px; }
+    .boundary p { margin: 0; color: #91a39a; line-height: 1.6; }
+    .close { padding: 130px 0 160px; text-align: center; border-top: 1px solid var(--line-local); }
+    .close img { width: 52px; }
+    .close h2 { max-width: 820px; margin: 28px auto 20px; font-size: clamp(52px,7vw,92px); line-height: .92; letter-spacing: -.067em; }
+    .close p { max-width: 650px; margin: 0 auto 32px; color: var(--copy); font-size: 18px; line-height: 1.65; }
+    .close .actions { justify-content: center; }
+    footer { display: flex; justify-content: space-between; padding: 28px 0 100px; border-top: 1px solid var(--line-local); color: #668076; font: 600 11px/1.5 var(--mono); }
+    @media (max-width: 940px) {
+      .hero-copy, .themes-head, .story-head, .views-head, .agents-head, .mcp-main, .kill-switch { grid-template-columns: 1fr; }
+      .intro { max-width: 650px; }
+      .theme-grid { grid-template-columns: 1fr 1fr; }
+      .story-lede { margin: 0 0 56px; }
+      .product-block, .product-block.reverse { grid-template-columns: 1fr; }
+      .product-block.reverse .product-copy, .product-block.reverse .shot-frame { order: initial; }
+      .view-grid { grid-template-columns: 1fr 1fr; }
+      .handover, .boundary { grid-template-columns: 1fr; }
+      .handover li { min-height: 230px; }
+      .handover h3 { margin-top: 48px; }
+      .mcp-route { grid-template-columns: 1fr 1fr; }
+      .mcp-route li:not(:last-child)::after { display: none; }
+      .boundary article { min-height: 220px; }
+      .boundary h3 { margin-top: 45px; }
+    }
+    @media (max-width: 620px) {
+      .wrap { width: min(100% - 24px, 1200px); }
+      header nav a:not(.repo) { display: none; }
+      .hero { padding-top: 65px; }
+      .hero-copy { gap: 42px; }
+      .hero-stage { margin-top: 55px; padding: 7px; border-radius: 16px; }
+      .hero-app { border-radius: 10px; }
+      .hero-stage-meta { align-items: flex-start; margin: 12px 4px 3px; }
+      .hero-stage-meta p { max-width: 150px; }
+      .theme-swatches { max-width: 130px; }
+      .themes { padding: 88px 0 100px; }
+      .themes-head { gap: 30px; margin-bottom: 44px; }
+      .theme-grid { grid-template-columns: 1fr; }
+      .story { padding-top: 105px; }
+      .story-head { margin-bottom: 55px; }
+      .story-lede { margin-bottom: 48px; }
+      .product-block { gap: 38px; padding: 65px 0; }
+      .shot-frame { padding: 5px; border-radius: 12px; }
+      .shot-frame .screenshot { border-radius: 8px; }
+      .feature-shot { margin-top: 42px; padding: 5px; border-radius: 12px; }
+      .feature-shot .screenshot { border-radius: 8px; }
+      .views, .agents, .privacy { padding: 90px 0; }
+      .view-grid { grid-template-columns: 1fr; }
+      .view { min-height: 175px; }
+      .view h3 { margin-top: 48px; }
+      .mcp-panel { margin-top: 48px; padding: 20px; border-radius: 16px; }
+      .mcp-main { gap: 38px; }
+      .mcp-route { grid-template-columns: 1fr; }
+      .mcp-route li { min-height: 126px; }
+      .mcp-route strong { margin-top: 30px; }
+      .kill-switch { gap: 30px; padding: 22px; }
+      .gate { grid-template-columns: 1fr; }
+      .close { padding: 100px 0 130px; }
+      footer { display: block; }
+      footer span { display: block; margin-bottom: 8px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="wrap">
+    <a class="brand" href="/" aria-label="dot-orbit home"><img src="orbit-mark.svg" alt=""><span>dot-orbit</span></a>
+    <nav aria-label="Main navigation"><a href="#themes">Themes</a><a href="#product">The product</a><a href="#agents">Agent handover</a><a href="#privacy">Privacy</a><a class="repo" href="https://github.com/nullabletype/dot-orbit">GitHub ↗</a></nav>
+  </header>
+
+  <main>
+    <section class="hero wrap">
+      <div class="hero-copy">
+        <div><span class="eyebrow">Personal desktop task manager</span><h1>Your work stays yours.</h1><p class="tagline">Manage what’s in your personal orbit.</p></div>
+        <div class="intro">Keep related Tasks in Projects, use Categories across the workspace, then choose what belongs in Today. <strong>The workspace, proposal review and Apply step stay on your computer.</strong> You decide if any context leaves it.<div class="actions"><a class="button primary" href="https://github.com/nullabletype/dot-orbit/releases">Download</a><a class="button" href="#product">View the app</a><a class="button" href="https://github.com/nullabletype/dot-orbit">Source on GitHub</a></div></div>
+      </div>
+      <div class="hero-stage">
+        <div class="hero-app"><img class="screenshot" src="screenshots/today-dark-current.png" alt="dot-orbit Today view in the Dark theme, with Planned and In progress Tasks and Task details"></div>
+        <div class="hero-stage-meta">
+          <p>Dark shown · <a href="#themes">see all nine themes</a></p>
+          <ul class="theme-swatches" aria-label="Nine built-in themes: Dark, Monokai Classic, Dracula Classic, Catppuccin Mocha, Gruvbox Dark, Light, Alucard Classic, Catppuccin Latte and Gruvbox Light">
+            <li style="--swatch:#FF4FA3;--swatch-side:#090B10" title="Dark"></li><li style="--swatch:#FF4D8D;--swatch-side:#272822" title="Monokai Classic"></li><li style="--swatch:#FF79C6;--swatch-side:#282A36" title="Dracula Classic"></li><li style="--swatch:#F5C2E7;--swatch-side:#1E1E2E" title="Catppuccin Mocha"></li><li style="--swatch:#9BC1B5;--swatch-side:#282828" title="Gruvbox Dark"></li><li style="--swatch:#B42368;--swatch-side:#F7F4F6" title="Light"></li><li style="--swatch:#A3144D;--swatch-side:#FFFBEB" title="Alucard Classic"></li><li style="--swatch:#A82B87;--swatch-side:#EFF1F5" title="Catppuccin Latte"></li><li style="--swatch:#076678;--swatch-side:#FBF1C7" title="Gruvbox Light"></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="themes" id="themes" aria-labelledby="themes-title">
+      <div class="wrap">
+        <div class="themes-head">
+          <div><span class="eyebrow">Nine built-in themes</span><h2 id="themes-title">Themes apply across the whole app.</h2></div>
+          <p>There are five dark themes and four light ones. Your choice carries across the workspace, unlock screen and recovery window, then dot-orbit remembers it on this device.</p>
+        </div>
+
+        <div class="theme-groups">
+          <section aria-labelledby="dark-themes-title">
+            <div class="theme-group-head"><h3 id="dark-themes-title">Dark themes</h3><span>5 choices</span></div>
+            <ul class="theme-grid">
+              <li class="theme-card" style="--theme-bg:#090B10;--theme-side:#0C0F15;--theme-text:#F2F4F7;--theme-accent:#FF4FA3;--theme-success:#7CE7B2"><div class="theme-preview" aria-hidden="true"><div class="mini-sidebar"><i class="mini-brand"></i><i class="mini-nav active"></i><i class="mini-nav"></i><i class="mini-nav"></i><i class="mini-nav"></i></div><div class="mini-main"><i class="mini-kicker"></i><i class="mini-title"></i><div class="mini-row"><i class="mini-check"></i><i class="mini-line"></i><i class="mini-state"></i></div><div class="mini-row"><i class="mini-check"></i><i class="mini-line"></i><i class="mini-state"></i></div><div class="mini-row"><i class="mini-check"></i><i class="mini-line"></i><i class="mini-state"></i></div></div></div><div class="theme-meta"><span class="theme-name">Dark</span><span class="theme-tone">Dark</span></div></li>
+              <li class="theme-card" style="--theme-bg:#272822;--theme-side:#1E1F1C;--theme-text:#F8F8F2;--theme-accent:#FF4D8D;--theme-success:#A6E22E"><div class="theme-preview" aria-hidden="true"><div class="mini-sidebar"><i class="mini-brand"></i><i class="mini-nav active"></i><i class="mini-nav"></i><i class="mini-nav"></i><i class="mini-nav"></i></div><div class="mini-main"><i class="mini-kicker"></i><i class="mini-title"></i><div class="mini-row"><i class="mini-check"></i><i class="mini-line"></i><i class="mini-state"></i></div><div class="mini-row"><i class="mini-check"></i><i class="mini-line"></i><i class="mini-state"></i></div><div class="mini-row"><i class="mini-check"></i><i class="mini-line"></i><i class="mini-state"></i></div></div></div><div class="theme-meta"><span class="theme-name">Monokai Classic</span><span class="theme-tone">Dark</span></div></li>
+              <li class="theme-card" style="--theme-bg:#282A36;--theme-side:#21222C;--theme-text:#F8F8F2;--theme-accent:#FF79C6;--theme-success:#50FA7B"><div class="theme-preview" aria-hidden="true"><div class="mini-sidebar"><i class="mini-brand"></i><i class="mini-nav active"></i><i class="mini-nav"></i><i class="mini-nav"></i><i class="mini-nav"></i></div><div class="mini-main"><i class="mini-kicker"></i><i class="mini-title"></i><div class="mini-row"><i class="mini-check"></i><i class="mini-line"></i><i class="mini-state"></i></div><div class="mini-row"><i class="mini-check"></i><i class="mini-line"></i><i class="mini-state"></i></div><div class="mini-row"><i class="mini-check"></i><i class="mini-line"></i><i class="mini-state"></i></div></div></div><div class="theme-meta"><span class="theme-name">Dracula Classic</span><span class="theme-tone">Dark</span></div></li>
+              <li class="theme-card" style="--theme-bg:#1E1E2E;--theme-side:#181825;--theme-text:#CDD6F4;--theme-accent:#F5C2E7;--theme-success:#A6E3A1"><div class="theme-preview" aria-hidden="true"><div class="mini-sidebar"><i class="mini-brand"></i><i class="mini-nav active"></i><i class="mini-nav"></i><i class="mini-nav"></i><i class="mini-nav"></i></div><div class="mini-main"><i class="mini-kicker"></i><i class="mini-title"></i><div class="mini-row"><i class="mini-check"></i><i class="mini-line"></i><i class="mini-state"></i></div><div class="mini-row"><i class="mini-check"></i><i class="mini-line"></i><i class="mini-state"></i></div><div class="mini-row"><i class="mini-check"></i><i class="mini-line"></i><i class="mini-state"></i></div></div></div><div class="theme-meta"><span class="theme-name">Catppuccin Mocha</span><span class="theme-tone">Dark</span></div></li>
+              <li class="theme-card" style="--theme-bg:#282828;--theme-side:#1D2021;--theme-text:#FBF1C7;--theme-accent:#9BC1B5;--theme-success:#B8BB26"><div class="theme-preview" aria-hidden="true"><div class="mini-sidebar"><i class="mini-brand"></i><i class="mini-nav active"></i><i class="mini-nav"></i><i class="mini-nav"></i><i class="mini-nav"></i></div><div class="mini-main"><i class="mini-kicker"></i><i class="mini-title"></i><div class="mini-row"><i class="mini-check"></i><i class="mini-line"></i><i class="mini-state"></i></div><div class="mini-row"><i class="mini-check"></i><i class="mini-line"></i><i class="mini-state"></i></div><div class="mini-row"><i class="mini-check"></i><i class="mini-line"></i><i class="mini-state"></i></div></div></div><div class="theme-meta"><span class="theme-name">Gruvbox Dark</span><span class="theme-tone">Dark</span></div></li>
+            </ul>
+          </section>
+
+          <section aria-labelledby="light-themes-title">
+            <div class="theme-group-head"><h3 id="light-themes-title">Light themes</h3><span>4 choices</span></div>
+            <ul class="theme-grid">
+              <li class="theme-card" style="--theme-bg:#F7F4F6;--theme-side:#F0EBEE;--theme-text:#2B2228;--theme-accent:#B42368;--theme-success:#24734D"><div class="theme-preview" aria-hidden="true"><div class="mini-sidebar"><i class="mini-brand"></i><i class="mini-nav active"></i><i class="mini-nav"></i><i class="mini-nav"></i><i class="mini-nav"></i></div><div class="mini-main"><i class="mini-kicker"></i><i class="mini-title"></i><div class="mini-row"><i class="mini-check"></i><i class="mini-line"></i><i class="mini-state"></i></div><div class="mini-row"><i class="mini-check"></i><i class="mini-line"></i><i class="mini-state"></i></div><div class="mini-row"><i class="mini-check"></i><i class="mini-line"></i><i class="mini-state"></i></div></div></div><div class="theme-meta"><span class="theme-name">Light</span><span class="theme-tone">Light</span></div></li>
+              <li class="theme-card" style="--theme-bg:#FFFBEB;--theme-side:#F3EFD9;--theme-text:#1F1F1F;--theme-accent:#A3144D;--theme-success:#14710A"><div class="theme-preview" aria-hidden="true"><div class="mini-sidebar"><i class="mini-brand"></i><i class="mini-nav active"></i><i class="mini-nav"></i><i class="mini-nav"></i><i class="mini-nav"></i></div><div class="mini-main"><i class="mini-kicker"></i><i class="mini-title"></i><div class="mini-row"><i class="mini-check"></i><i class="mini-line"></i><i class="mini-state"></i></div><div class="mini-row"><i class="mini-check"></i><i class="mini-line"></i><i class="mini-state"></i></div><div class="mini-row"><i class="mini-check"></i><i class="mini-line"></i><i class="mini-state"></i></div></div></div><div class="theme-meta"><span class="theme-name">Alucard Classic</span><span class="theme-tone">Light</span></div></li>
+              <li class="theme-card" style="--theme-bg:#EFF1F5;--theme-side:#E6E9EF;--theme-text:#4C4F69;--theme-accent:#A82B87;--theme-success:#2F7D20"><div class="theme-preview" aria-hidden="true"><div class="mini-sidebar"><i class="mini-brand"></i><i class="mini-nav active"></i><i class="mini-nav"></i><i class="mini-nav"></i><i class="mini-nav"></i></div><div class="mini-main"><i class="mini-kicker"></i><i class="mini-title"></i><div class="mini-row"><i class="mini-check"></i><i class="mini-line"></i><i class="mini-state"></i></div><div class="mini-row"><i class="mini-check"></i><i class="mini-line"></i><i class="mini-state"></i></div><div class="mini-row"><i class="mini-check"></i><i class="mini-line"></i><i class="mini-state"></i></div></div></div><div class="theme-meta"><span class="theme-name">Catppuccin Latte</span><span class="theme-tone">Light</span></div></li>
+              <li class="theme-card" style="--theme-bg:#FBF1C7;--theme-side:#F2E5BC;--theme-text:#282828;--theme-accent:#076678;--theme-success:#625F0A"><div class="theme-preview" aria-hidden="true"><div class="mini-sidebar"><i class="mini-brand"></i><i class="mini-nav active"></i><i class="mini-nav"></i><i class="mini-nav"></i><i class="mini-nav"></i></div><div class="mini-main"><i class="mini-kicker"></i><i class="mini-title"></i><div class="mini-row"><i class="mini-check"></i><i class="mini-line"></i><i class="mini-state"></i></div><div class="mini-row"><i class="mini-check"></i><i class="mini-line"></i><i class="mini-state"></i></div><div class="mini-row"><i class="mini-check"></i><i class="mini-line"></i><i class="mini-state"></i></div></div></div><div class="theme-meta"><span class="theme-name">Gruvbox Light</span><span class="theme-tone">Light</span></div></li>
+            </ul>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <section class="story wrap" id="product">
+      <div class="story-head"><span class="eyebrow">How work is organised</span><h2>Projects, Categories and Today</h2></div>
+      <p class="story-lede">Tasks can sit inside a Project or stand alone. Categories group both. Today is a smaller list that you choose from the same manual order used by the Backlog.</p>
+
+      <article class="product-block">
+        <div class="product-copy"><span class="index">01 / PROJECTS</span><h3>Keep related Tasks together</h3><p>A Project works out its progress from the Tasks inside it. Each Task can still be completed, reordered or dated on its own.</p><ul class="proof-list"><li>Tasks can stand alone without a Project</li><li>Add a Task directly from a Project</li><li>Category and Project identity pills take you back to their source</li></ul></div>
+        <div class="shot-frame"><img class="screenshot" src="screenshots/projects-dark-current.png" alt="dot-orbit Projects view in the Dark theme, with expanded Projects, attached Tasks, progress, dates and Task details"></div>
+      </article>
+
+      <article class="product-block reverse">
+        <div class="product-copy"><span class="index">02 / CATEGORIES</span><h3>Categories cross Project boundaries</h3><p>A Category can contain Projects and standalone Tasks. Tasks inside a Project inherit its Category unless you choose something else.</p><ul class="proof-list"><li>Projects and standalone Tasks appear in separate sections</li><li>Names stay visible beside their colour markers</li><li>Category relationships can be changed in the app</li></ul></div>
+        <div class="shot-frame light"><img class="screenshot" src="screenshots/categories-light-current.png" alt="dot-orbit Categories view in the Light theme, showing Projects and standalone Tasks grouped under named Categories with Category details"></div>
+      </article>
+    </section>
+
+    <section class="views" aria-labelledby="views-title">
+      <div class="wrap"><div class="views-head"><div><span class="eyebrow">Work views</span><h2 id="views-title">Four ways to see the same Tasks</h2></div><p>Today and Backlog share one manual order. Upcoming groups incomplete Tasks by due date. Completed keeps recent results nearby, while Archive holds older Projects and Tasks without putting them back into active work.</p></div><div class="view-grid"><article class="view"><span>01</span><h3>Today</h3><p>Your chosen Tasks, split into Planned and In progress.</p></article><article class="view"><span>02</span><h3>Upcoming</h3><p>Overdue Tasks and work due through the same weekday next week.</p></article><article class="view"><span>03</span><h3>Backlog</h3><p>Every incomplete Task in the shared manual order.</p></article><article class="view"><span>04</span><h3>Completed and Archive</h3><p>Recent completions plus searchable archived Projects and Tasks.</p></article></div></div>
+    </section>
+
+    <section class="agents" id="agents" aria-labelledby="agents-title">
+      <div class="wrap">
+        <div class="agents-head">
+          <div><span class="eyebrow">Provider-neutral agent handover</span><h2 id="agents-title">Agent proposals stop for local review.</h2></div>
+          <p class="agents-intro"><strong>dot-orbit does not choose or contact an AI provider.</strong> You decide what context leaves the app. Imported work is checked against current local state and shown for review before anything changes.</p>
+        </div>
+
+        <ol class="handover" aria-label="Agent handover process">
+          <li><span class="step">01 / CONTEXT</span><h3>Choose the context</h3><p>New work needs no workspace access. For changes involving existing work, inspect and copy a bounded Planning snapshot. Archived and binned work stays out, though visible Category and Participant names may still reveal context.</p></li>
+          <li><span class="step">02 / REVIEW</span><h3>Inspect the proposal</h3><p>Type, paste, load, drop or receive a proposal through local MCP. dot-orbit checks it against current local state and shows what it would add or change.</p></li>
+          <li><span class="step">03 / APPLY</span><h3>Apply it yourself</h3><p>You choose Apply changes or Add new work from the review. dot-orbit creates an encrypted recovery point first, then applies the proposal as one change. The agent cannot approve its own work.</p></li>
+        </ol>
+
+        <figure class="feature-shot light">
+          <img class="screenshot" src="screenshots/ai-light-current.png" alt="dot-orbit AI view in the Light theme, with proposal input and optional workspace context controls">
+          <figcaption>AI view · proposal input and optional workspace context</figcaption>
+        </figure>
+
+        <div class="mcp-panel">
+          <div class="mcp-main">
+            <div class="mcp-copy"><span class="eyebrow">Local MCP</span><h3>MCP connects through the desktop app</h3><p>An MCP host launches dot-orbit’s packaged stdio adapter. It reaches the unlocked desktop through private same-user IPC, with no network listener. The adapter cannot open the workspace, unlock it or receive encryption material.</p></div>
+            <div>
+              <ol class="mcp-route" aria-label="Local MCP access path">
+                <li><span>01</span><strong>MCP host</strong><small>Local client process</small></li>
+                <li><span>02</span><strong>stdio adapter</strong><small>No workspace or key material</small></li>
+                <li><span>03</span><strong>Private broker</strong><small>Same-user, scoped session</small></li>
+                <li><span>04</span><strong>Local review</strong><small>Human approval required</small></li>
+              </ol>
+              <p class="scope-note"><strong>Grant read, submit, or both for each client.</strong> Read access returns only its named current-work scope. Submission enters the same in-app Review flow as manual handover; it never grants autonomous Apply.</p>
+            </div>
+          </div>
+
+          <figure class="feature-shot">
+            <img class="screenshot" src="screenshots/settings-dark-current.png" alt="dot-orbit Settings in the Dark theme, showing separate AI features and Local MCP controls and the Colour theme setting">
+            <figcaption>Settings · separate AI and Local MCP controls</figcaption>
+          </figure>
+
+          <div class="kill-switch">
+            <div class="kill-copy"><span class="eyebrow">Independent controls</span><h3>Either setting can shut MCP down.</h3><p>AI features and Local MCP have separate device-local switches. Both start off. New or changed access needs approval for its exact scopes; an exact remembered match can reconnect under the policy you kept.</p></div>
+            <div class="gates" role="group" aria-label="MCP privacy controls">
+              <div class="gate"><strong>Enable AI features</strong><span class="gate-state"><span class="switch-icon" aria-hidden="true"></span>Off by default</span><small>Global control for every agent-interchange feature.</small></div>
+              <div class="gate"><strong>Enable Local MCP</strong><span class="gate-state"><span class="switch-icon" aria-hidden="true"></span>Off by default</span><small>Independent control for the local broker and MCP sessions.</small></div>
+              <p class="privacy-qualifier"><strong>Kill switch:</strong> turn off either gate, lock the workspace, exit dot-orbit, or revoke the adapter. The broker closes active sessions and invalidates live capabilities. Remembered approval retains policy only—never a live connection.</p>
+            </div>
+          </div>
+          <p class="privacy-qualifier"><strong>Your disclosure boundary still matters.</strong> Clipboard handover writes sensitive unencrypted text only after confirmation. Approved MCP read scopes return plaintext context to the MCP host. dot-orbit does not contact an AI provider, but the host may use one under its own data-handling policy.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="privacy wrap" id="privacy">
+      <div class="privacy-head"><span class="eyebrow">Local by design</span><h2>Your task list is not a service.</h2><p>Your workspace and recovery backups are encrypted with your passphrase. There is no account system or built-in sync. If you want an off-device recovery copy, you choose where it goes.</p></div>
+      <div class="boundary" aria-label="dot-orbit storage boundary"><article><span class="number">1</span><h3>Passphrase access</h3><p>Your passphrase opens the encrypted workspace stored locally on your desktop. There is no remote account recovery.</p></article><article><span class="number">2</span><h3>Local workspace</h3><p>You choose the workspace file. dot-orbit remembers its location on this device; Projects, Tasks, Categories, Today, and history stay inside it.</p></article><article><span class="number">3</span><h3>Encrypted backups</h3><p>Recovery copies remain encrypted. Their destination can be local or a folder managed by an external sync service.</p></article></div>
+    </section>
+
+    <section class="close"><div class="wrap"><img src="orbit-mark.svg" alt=""><h2>dot-orbit is open source.</h2><p>Pre-release builds are available for macOS, Windows and Linux.</p><div class="actions"><a class="button primary" href="https://github.com/nullabletype/dot-orbit/releases">Download</a><a class="button" href="https://github.com/nullabletype/dot-orbit">Source on GitHub ↗</a></div></div></section>
+  </main>
+
+  <footer class="wrap"><span>dot-orbit · MIT licensed</span><span>macOS · Windows · Linux</span></footer>
+</body>
+</html>

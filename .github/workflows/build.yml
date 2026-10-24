@@ -42,6 +42,9 @@ jobs:
           node-version: 24.21.0
       - name: Verify NuGet source policy
         run: node .github/scripts/security-controls.mjs nuget-policy
+      - name: Verify workflow artifact policy
+        if: matrix.os == 'ubuntu-24.04'
+        run: node .github/scripts/security-controls.mjs artifact-policy
       - name: Test security controls
         if: matrix.os == 'ubuntu-24.04'
         run: node --test .github/scripts/security-controls.test.mjs
