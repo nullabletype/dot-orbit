@@ -58,7 +58,7 @@
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="BorderBrush" Value="Transparent" />
     <Setter Property="BorderThickness" Value="0" />
-    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="CornerRadius" Value="0" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="VerticalContentAlignment" Value="Stretch" />
     <Setter Property="Template">
@@ -77,11 +77,20 @@
       </ControlTemplate>
     </Setter>
   </Style>
-  <Style Selector="Button.identity-pill-segment:pointerover">
-    <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
+  <Style Selector="Button.identity-pill-segment.category-segment">
+    <Setter Property="CornerRadius" Value="9,0,0,9" />
+  </Style>
+  <Style Selector="Button.identity-pill-segment.category-segment.standalone">
+    <Setter Property="CornerRadius" Value="9" />
+  </Style>
+  <Style Selector="Button.identity-pill-segment.project-segment">
+    <Setter Property="CornerRadius" Value="0,9,9,0" />
   </Style>
   <Style Selector="Button.identity-pill-segment.project-segment /template/ Border#SegmentChrome">
-    <Setter Property="Margin" Value="8,0,0,0" />
+    <Setter Property="Margin" Value="1,0,0,0" />
+  </Style>
+  <Style Selector="Button.identity-pill-segment:pointerover">
+    <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
   </Style>
   <Style Selector="Button.identity-pill-segment:pressed">
     <Setter Property="Background" Value="{DynamicResource AccentSurfaceBrush}" />
@@ -333,10 +342,12 @@
   <Style Selector="Border.project-row">
     <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
     <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />
+    <Setter Property="desktop:RoundedClip.IsEnabled" Value="True" />
   </Style>
   <Style Selector="Border.category-row">
     <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
     <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />
+    <Setter Property="desktop:RoundedClip.IsEnabled" Value="True" />
   </Style>
   <Style Selector="Border.expandable-header-row"><Setter Property="CornerRadius" Value="9" /></Style>
   <Style Selector="Border.expandable-header-row.expanded"><Setter Property="CornerRadius" Value="9,9,0,0" /></Style>

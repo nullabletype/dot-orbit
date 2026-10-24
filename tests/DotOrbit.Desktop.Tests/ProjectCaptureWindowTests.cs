@@ -327,6 +327,107 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
+    public void ProjectHeaderHoverStaysInsideRoundedCardCornersWhenCollapsedAndExpanded()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var shell = new ShellViewModel(work);
+        SelectView(shell, "Projects");
+        var projectRow = shell.Work!.Projects.Single(item => item.Id == project.Id);
+        projectRow.IsExpanded = false;
+        var window = new MainWindow { DataContext = shell, Width = 1120 };
+        try
+        {
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+
+            var panel = Assert.Single(window.GetVisualDescendants().OfType<Border>(), border =>
+                border.IsEffectivelyVisible && border.Classes.Contains("project-row"));
+            var row = Assert.Single(panel.GetVisualDescendants().OfType<Border>(), border =>
+                border.Classes.Contains("project-header-row"));
+
+            AssertHoverStaysInsideRoundedPanel(window, row, panel);
+
+            projectRow.IsExpanded = true;
+            Dispatcher.UIThread.RunJobs();
+            AssertHoverStaysInsideRoundedPanel(window, row, panel);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void CategoryHeaderHoverStaysInsideRoundedCardCornersWhenCollapsedAndExpanded()
+    {
+        var work = new MemoryWorkspaceWork();
+        work.CreateProject("Garden", "", "home", null);
+        var shell = new ShellViewModel(work);
+        SelectView(shell, "Categories");
+        var categoryRow = shell.Work!.CategoryGroups.Single(group => group.Name == "Home");
+        categoryRow.IsExpanded = false;
+        var window = new MainWindow { DataContext = shell, Width = 1120 };
+        try
+        {
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+
+            var panel = Assert.Single(window.GetVisualDescendants().OfType<Border>(), border =>
+                border.IsEffectivelyVisible
+                && border.Classes.Contains("category-row")
+                && border.DataContext is CategoryGroupViewModel group
+                && group.Name == "Home");
+            var row = Assert.Single(panel.GetVisualDescendants().OfType<Border>(), border =>
+                border.Classes.Contains("category-header-row"));
+
+            AssertHoverStaysInsideRoundedPanel(window, row, panel);
+
+            categoryRow.IsExpanded = true;
+            Dispatcher.UIThread.RunJobs();
+            AssertHoverStaysInsideRoundedPanel(window, row, panel);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void BrandMarkKeepsOfficialColoursAcrossThemes()
+    {
+        var application = Assert.IsType<App>(Application.Current);
+        var originalTheme = application.RequestedThemeVariant;
+        var window = new MainWindow { DataContext = new ShellViewModel(new MemoryWorkspaceWork()) };
+        try
+        {
+            window.Show();
+            var image = Assert.IsType<Image>(window.FindControl<Image>("BrandMarkImage"));
+            foreach (var option in ApplicationThemeCatalog.Options)
+            {
+                application.RequestedThemeVariant = option.Variant;
+                Dispatcher.UIThread.RunJobs();
+
+                var drawingImage = Assert.IsType<DrawingImage>(image.Source);
+                var group = Assert.IsType<DrawingGroup>(drawingImage.Drawing);
+                var orbit = Assert.IsType<GeometryDrawing>(group.Children[1]);
+                var dot = Assert.IsType<GeometryDrawing>(group.Children[2]);
+                Assert.Equal(
+                    Color.Parse("#FF4FA3"),
+                    Assert.IsAssignableFrom<ISolidColorBrush>(orbit.Pen!.Brush).Color);
+                Assert.Equal(
+                    Color.Parse("#7CE7B2"),
+                    Assert.IsAssignableFrom<ISolidColorBrush>(dot.Brush).Color);
+            }
+        }
+        finally
+        {
+            window.Close();
+            application.RequestedThemeVariant = originalTheme;
+        }
+    }
+
+    [AvaloniaFact]
     public void MoveAndRestoreTaskBinActionsAreKeyboardOperableNamedAndReturnLogicalFocus()
     {
         var work = new MemoryWorkspaceWork();
@@ -2931,7 +3032,7 @@ public sealed class ProjectCaptureWindowTests
         Assert.Same(WorkTypeIconGeometry.ProjectIdentity, projectGlyph.Data);
         Assert.InRange(Math.Abs(CentreInWindow(categoryGlyph, window).Y - CentreInWindow(attachedPill, window).Y), 0, 0.5);
         Assert.InRange(Math.Abs(CentreInWindow(projectGlyph, window).Y - CentreInWindow(attachedPill, window).Y), 0, 0.5);
-        Assert.True(attachedPill.FindControl<Avalonia.Controls.Shapes.Path>("Join")!.IsEffectivelyVisible);
+        Assert.True(attachedPill.FindControl<Border>("Join")!.IsEffectivelyVisible);
 
         var standalonePill = PillFor(standalone.Id);
         Assert.Equal("Work", standalonePill.CategoryName);
@@ -2939,8 +3040,13 @@ public sealed class ProjectCaptureWindowTests
         Assert.Equal(WorkType.Category, Assert.Single(standalonePill.GetVisualDescendants().OfType<IdentityTypeIcon>(),
             icon => icon.IsEffectivelyVisible).WorkType);
         Assert.DoesNotContain(
-            standalonePill.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>(),
-            path => path.Name == "Join");
+            standalonePill.GetVisualDescendants().OfType<Border>(),
+            border => border.Name == "Join");
+        var standaloneButton = Assert.Single(standalonePill.GetVisualDescendants().OfType<Button>(), button =>
+            button.Classes.Contains("category-segment"));
+        var standaloneChrome = Assert.Single(standaloneButton.GetVisualDescendants().OfType<Border>(), border =>
+            border.Name == "SegmentChrome");
+        Assert.Equal(new CornerRadius(9), standaloneChrome.CornerRadius);
         window.Close();
 
         CategoryProjectPill PillFor(string taskId)
@@ -3013,7 +3119,7 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
-    public void TaskIdentityPillJoinSitsBetweenHoverTargets()
+    public void TaskIdentityPillUsesFlatDividerAndMirroredSegmentHoverCorners()
     {
         var work = new MemoryWorkspaceWork();
         var project = work.CreateProject("Garden", "", "home", null);
@@ -3029,7 +3135,7 @@ public sealed class ProjectCaptureWindowTests
             var category = ButtonByAutomationId(window, $"task-category-{task.Id}");
             var parentProject = ButtonByAutomationId(window, $"task-project-{task.Id}");
             var pill = Assert.Single(parentProject.GetVisualAncestors().OfType<CategoryProjectPill>());
-            var join = pill.FindControl<Avalonia.Controls.Shapes.Path>("Join")!;
+            var join = pill.FindControl<Border>("Join")!;
             var categoryChrome = Assert.Single(category.GetVisualDescendants().OfType<Border>(), border =>
                 border.Name == "SegmentChrome");
             var projectChrome = Assert.Single(parentProject.GetVisualDescendants().OfType<Border>(), border =>
@@ -3038,6 +3144,9 @@ public sealed class ProjectCaptureWindowTests
             var projectOrigin = Assert.IsType<Point>(projectChrome.TranslatePoint(default, window));
             var joinOrigin = Assert.IsType<Point>(join.TranslatePoint(default, window));
 
+            Assert.Equal(1, join.Bounds.Width);
+            Assert.Equal(new CornerRadius(9, 0, 0, 9), categoryChrome.CornerRadius);
+            Assert.Equal(new CornerRadius(0, 9, 9, 0), projectChrome.CornerRadius);
             Assert.InRange(Math.Abs(categoryOrigin.X + categoryChrome.Bounds.Width - joinOrigin.X), 0, 0.5);
             Assert.InRange(Math.Abs(joinOrigin.X + join.Bounds.Width - projectOrigin.X), 0, 0.5);
 
@@ -3193,8 +3302,8 @@ public sealed class ProjectCaptureWindowTests
         parentProject = Assert.Single(window.GetVisualDescendants().OfType<Button>(), button =>
             button.IsEffectivelyVisible
             && AutomationProperties.GetAutomationId(button) == $"task-project-{task.Id}");
-        var join = Assert.Single(parentProject.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>(), path =>
-            path.Name == "Join");
+        var join = Assert.Single(parentProject.GetVisualDescendants().OfType<Border>(), border =>
+            border.Name == "Join");
         Click(window, join);
 
         Assert.False(shell.Work.HasInspector);
