@@ -84,6 +84,9 @@ export function validateSite(siteRoot) {
         && !html.includes('href="https://github.com/nullabletype/dot-orbit/releases"')) {
       failures.push("production HTML must include the GitHub Releases download link");
     }
+    if (htmlFile === "index.html" && html.includes("Pre-release builds are available")) {
+      failures.push("production HTML must not describe all downloads as pre-release builds");
+    }
 
     const ids = new Set([...html.matchAll(/\bid="([^"]+)"/gu)].map(match => match[1]));
     for (const match of html.matchAll(localReferencePattern)) {
