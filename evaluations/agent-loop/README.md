@@ -17,7 +17,7 @@ node --test evaluations/agent-loop/cases.test.mjs
 
 ## Run the cases with the external toolkit
 
-Use Node.js 24.21.0 and Git. Start with clean committed checkouts. From the Orbit root, create a dedicated toolkit checkout using the exact revision in `toolkit.json` (do not switch an existing working checkout):
+Use Node.js 24.22.1 and Git. Start with clean committed checkouts. From the Orbit root, create a dedicated toolkit checkout using the exact revision in `toolkit.json` (do not switch an existing working checkout):
 
 ```sh
 git clone https://github.com/nullabletype/agentic-foundation.git ../agentic-foundation-evaluations
