@@ -23,4 +23,4 @@ This slice does not add automatic priority, Today lanes, Category inheritance ch
 | Standalone persistence, top insertion, atomic move rollback, and restart | `WorkspaceWorkTests.StandaloneCreationAndAtomicSharedReorderPersistAcrossRestart` |
 | Released schema-3 migration | `WorkspaceMigrationTests.OpenUpgradesReleasedSchemaThreeTasksWithoutChangingMembershipOrRelativeOrder` |
 
-Automated headless checks establish bindings, focus, accessible names, live-region data, and pointer behaviour. Final visual judgement and assistive-technology acceptance remain separate manual work.
+Automated headless checks establish bindings, focus, accessible names, live-region data, and pointer behaviour. Final visual judgement remains separate required manual work. Manual assistive-technology checks are best-effort, with unperformed checks and known gaps recorded.

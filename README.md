@@ -36,7 +36,11 @@ The archives are self-contained, so a separate .NET installation is not required
 
 On first launch, create a new encrypted workspace or choose an existing workspace file. Keep the passphrase safe: dot-orbit does not persist it and cannot recover it. Configure encrypted recovery points from **Settings → Recovery**.
 
-Releases are currently unsigned portable archives rather than installers or macOS application bundles. Your operating system may show its normal warning for an unsigned download. Official releases can check GitHub Releases for newer versions, but update discovery is notice-only: dot-orbit never downloads or installs an update automatically.
+Releases are currently portable archives without platform-trusted publisher signing rather than installers or macOS application bundles. Windows may show its normal first-run warning. Official releases can check GitHub Releases for newer versions, but update discovery is notice-only: dot-orbit never downloads or installs an update automatically.
+
+### macOS first run
+
+The .NET SDK gives the macOS executables an ad hoc Mach-O signature, but they are not signed with an Apple Developer ID or notarised. macOS therefore cannot verify the developer or check them through Apple's notarisation service. Only continue if you downloaded the archive from the official dot-orbit GitHub release. After extracting it, run `./dot-orbit` from Terminal. If macOS blocks it, open **System Settings → Privacy & Security**, choose **Open Anyway** for the blocked item, then confirm **Open**. The optional `dot-orbit-mcp` adapter is a separate executable and may need the same one-time approval when it first runs. Do not disable Gatekeeper globally. See [Apple's guidance](https://support.apple.com/en-gb/guide/mac-help/mh40617/mac) for the current steps.
 
 ## Optional local MCP
 

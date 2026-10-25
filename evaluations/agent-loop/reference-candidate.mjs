@@ -61,7 +61,7 @@ None
 
 The deterministic check proves that the retry action has an accessible name, remains in keyboard order, and exposes failure state as text with a live-setting cue.
 
-Rendered focus order and visual presentation still require human review. Full assistive technology announcement behaviour remains release verification.
+Rendered focus order and visual presentation still require human review. Assistive-technology announcement checks remain best-effort human work; release evidence must disclose unperformed checks and known gaps.
 `);
   },
 };

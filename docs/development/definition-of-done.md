@@ -8,7 +8,7 @@ An issue is complete only when:
 - affected UI has been exercised in the real desktop runtime;
 - changed or new screens reuse the relevant recipes in `docs/design/style-guide.md` instead of recreating local component states;
 - changed or new actions have evidence for keyboard operation, meaningful accessible name, role and state, logical focus order and non-colour cues;
-- visual changes have received rendered human review in the local reference and affected production surfaces before publication;
+- visual changes have received rendered human review in an available local desktop runtime before publication; additional production surfaces are best-effort and any relevant gaps are disclosed;
 - keyboard and assistive-technology behaviour has been considered;
 - failure and empty states relevant to the slice are handled;
 - documentation and ADRs match the implemented behaviour;
@@ -45,11 +45,11 @@ node --test .github/scripts/release-controls.test.mjs
 
 The required Build workflow runs both suites on its pinned Node release before the application gate. The issue-readiness workflow also runs its own suite before any dry-run or label transition.
 
-Self-contained Release packaging uses the checked-in command documented in `docs/development/release-packaging.md`. A valid version tag may prepare an unpublished draft with generated notes, but signing, installers, and release publication remain separate work and are not implied by a validated archive or draft.
+Self-contained Release packaging uses the checked-in command documented in `docs/development/release-packaging.md`. A valid version tag may prepare an unpublished draft with generated notes, but signing, installers, and release publication remain separate work and are not implied by a validated archive or draft. Apple Developer ID signing and notarisation are optional distribution improvements and do not block 1.0; a public release without them must disclose that status and provide current macOS first-run guidance.
 
 ## Desktop verification levels
 
 - Every pull request runs the headless interaction tests and the native desktop smoke journey on the explicit macOS, Windows, and Linux runner matrix. The native journey starts the real application, checks the initial Today view, activates another primary destination by keyboard, checks the changed view and retained focus, and closes cleanly.
-- Changes that affect layout, visual presentation, focus order, accessible names, roles, states, or announcements also require targeted manual visual and accessibility checks. The automated smoke journey is intentionally stable and does not replace those focused checks.
-- Release milestones require the full supported-runtime verification and assistive-technology checks. The per-pull-request smoke gate is a baseline, not release evidence.
+- Changes that affect layout or visual presentation still require targeted rendered human review. Physical-device and assistive-technology checks are best-effort: run the relevant checks when suitable hardware and tools are available, and record any unperformed checks or known gaps. The automated smoke journey is intentionally stable and does not prove every real-device or assistive-technology interaction.
+- Release milestones require the complete hosted macOS, Windows, and Linux Build and package matrices to pass, including native smoke checks for every packaged runtime. Manual checks on physical devices and with platform assistive technologies remain best-effort; release notes must state what was exercised and disclose known issues or untested combinations. Lack of access to a particular device or assistive technology does not by itself block a release.
 - Native smoke diagnostics contain only fixed operational phase, result, exit-code, view, and focus metadata. Routine validation uploads no evidence artifacts.

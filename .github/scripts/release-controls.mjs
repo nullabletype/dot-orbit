@@ -12,6 +12,13 @@ const expectedAssets = [
   "dot-orbit-osx-x64.tar.gz",
   "dot-orbit-win-x64.zip",
 ];
+const releasePreamble = `## macOS first run
+
+The macOS executables have an ad hoc signature, but they are not signed with an Apple Developer ID or notarised. Only continue if you downloaded them from the official dot-orbit GitHub release. After extracting an archive, run \`./dot-orbit\` from Terminal. If macOS blocks it, open **System Settings → Privacy & Security**, choose **Open Anyway** for the blocked item, then confirm **Open**. The optional \`dot-orbit-mcp\` adapter is a separate executable and may need the same one-time approval. Do not disable Gatekeeper globally. See the [dot-orbit first-run guide](https://github.com/nullabletype/dot-orbit#macos-first-run) and [Apple's current guidance](https://support.apple.com/en-gb/guide/mac-help/mh40617/mac).
+
+## Manual verification
+
+Physical-device and assistive-technology checks are best-effort. Before publishing this draft, record the manual checks completed, known issues, and untested combinations here.`;
 
 export function versionFromTag(tag) {
   const version = releaseTagPattern.exec(tag)?.[1] ?? null;
@@ -126,7 +133,7 @@ export async function prepareDraftRelease(options, api = createGitHubApi(options
   const release = {
     tagName: options.tag,
     name: notes.name,
-    body: notes.body,
+    body: `${releasePreamble}\n\n${notes.body}`,
     draft: true,
     prerelease,
   };

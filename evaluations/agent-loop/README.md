@@ -39,7 +39,7 @@ For real agent trials, replace the candidate command and arguments with an exter
 
 Assess affected cases after material changes to agent scope, autonomy or privacy guidance, selected skills, task/handoff/review templates, candidate execution, correction/review behaviour, case fixtures, graders or result semantics. Run the scripted reference first, then at least two real-agent trials per affected case before relying on a new performance comparison. Record unavailable trials as pending. Copy-only corrections that cannot affect behaviour may explain why reevaluation is unnecessary.
 
-Keep raw prompts, process output, traces, environment values and credentials out of results and public evidence. Record only aggregate outcomes and sanitised identities in bounded private local files with a cleanup owner. Worktree separation does not establish isolation. Model evaluation never replaces application tests, cross-platform CI, independent review or required human visual/accessibility checks.
+Keep raw prompts, process output, traces, environment values and credentials out of results and public evidence. Record only aggregate outcomes and sanitised identities in bounded private local files with a cleanup owner. Worktree separation does not establish isolation. Model evaluation never replaces application tests, cross-platform CI, independent review, required human visual review, or best-effort manual assistive-technology checks with disclosed gaps.
 
 ## Historical baseline
 

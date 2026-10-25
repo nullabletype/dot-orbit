@@ -1,6 +1,6 @@
 # Release packaging
 
-Issue #3 adds reproducible self-contained Release archives for `win-x64`, `linux-x64`, `osx-x64`, and `osx-arm64`. Issue #73 adds automatic archive retention for `main` and version tags, plus unpublished draft releases. Neither slice adds installers, signing, notarisation, tag creation, or automatic publication.
+Issue #3 adds reproducible self-contained Release archives for `win-x64`, `linux-x64`, `osx-x64`, and `osx-arm64`. Issue #73 adds automatic archive retention for `main` and version tags, plus unpublished draft releases. Neither slice adds installers, Apple Developer ID signing, notarisation, tag creation, or automatic publication. Developer ID signing and notarisation are not acceptance requirements for 1.0; they can be reconsidered if macOS demand justifies the ongoing programme cost and maintenance.
 
 ## Build one package
 
@@ -46,7 +46,7 @@ The package smoke first requires `DOTORBIT_PACKAGE_SMOKE_VERSION` to equal the e
 
 The adapter smoke independently checks that the extracted second executable starts and carries the same informational version without opening the credential store or a broker endpoint. The solution's MCP SDK integration test performs real initialization, exact three-tool discovery, and tool calls over redirected streams; the native IPC suites exercise the adapter-to-desktop broker protocol.
 
-These packages are portable archives rather than installers or platform application bundles. They have no installation hook or package identity with which to register the `.orb` file association, so opening a workspace by double-clicking it is not part of this packaging slice. No cosmetic MIME metadata is included in the archive.
+These packages are portable archives rather than installers or platform application bundles. They have no installation hook or package identity with which to register the `.orb` file association, so opening a workspace by double-clicking it is not part of this packaging slice. No cosmetic MIME metadata is included in the archive. The .NET SDK gives the 1.0 macOS executables an ad hoc Mach-O signature, but they are not signed with an Apple Developer ID or notarised. Public download guidance and generated release notes must disclose that status and explain Apple's per-executable first-run approval; disabling Gatekeeper globally is never recommended.
 
 ## Native application icon behaviour
 
@@ -68,7 +68,7 @@ Every upload input is the final allowlisted archive itself, not a publish direct
 
 After all four native jobs for a valid tag pass, a separate job downloads exactly those four workflow artifacts and calls the GitHub Releases API with a job-scoped `contents: write` token. It verifies that the tag still resolves to the workflow commit, asks GitHub to generate the title and changelog since the previous release, and creates an unpublished draft with the four archives attached. SemVer prerelease tags produce prerelease drafts.
 
-A rerun may refresh generated notes and replace those four assets only while the release remains a draft. The automation fails if the tag resolves elsewhere, the asset set changes, or a release for the tag has already been published. It never creates a tag or publishes a release. Before a maintainer publishes a draft, the selected commit still requires the canonical exact-SHA gate and the full supported-release evidence; a successful packaging workflow alone is not release approval.
+A rerun may refresh generated notes and replace those four assets only while the release remains a draft. The automation fails if the tag resolves elsewhere, the asset set changes, or a release for the tag has already been published. It never creates a tag or publishes a release. Before a maintainer publishes a draft, the selected commit still requires the canonical exact-SHA gate and a green hosted Build and package matrix for every supported runtime; a successful packaging workflow alone is not release approval. Manual physical-device and assistive-technology checks are best-effort, and the release notes must disclose the coverage obtained, known issues, and untested combinations.
 
 The desktop discovers a release only after a maintainer publishes it and GitHub reports it as immutable. Its tag must remain canonical and its prerelease flag must agree with the SemVer channel. The published release must contain exactly the four runtime archives listed above; every asset must be uploaded, non-empty, and expose a `sha256:` digest. A draft, mutable release, incomplete asset set, or older release that lacks these fields is intentionally invisible to the update notice.
 

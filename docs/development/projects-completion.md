@@ -35,4 +35,4 @@ Schema version 5 adds the latest completion instant and captured local date as a
 | Lost-release pointer cancellation | `ProjectCaptureWindowTests.NewPointerPressCancelsStaleProjectDragAndRemovesItsTargetHighlight` |
 | Text-retaining status colours | `ProjectCaptureWindowTests.ProjectStatusRetainsTextAndUsesNeutralAmberAndGreenTreatments` |
 
-Headless interaction checks establish bindings, keyboard paths, focus, names, checked state and live-region data. Final visual judgement and assistive-technology acceptance remain separate manual evidence.
+Headless interaction checks establish bindings, keyboard paths, focus, names, checked state and live-region data. Final visual judgement remains separate required manual evidence. Manual assistive-technology checks are best-effort, with unperformed checks and known gaps recorded.
