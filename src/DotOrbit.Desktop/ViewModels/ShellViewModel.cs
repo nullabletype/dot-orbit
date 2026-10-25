@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using DotOrbit.Core.Workspaces;
 using System.Runtime.CompilerServices;
+using DotOrbit.Desktop.ApplicationUpdates;
 
 namespace DotOrbit.Desktop.ViewModels;
 
@@ -12,6 +13,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     private readonly PendingProposalCoordinator? _pendingProposalCoordinator;
     private readonly IUiDispatcher _uiDispatcher;
     private readonly TimeProvider _timeProvider;
+    private readonly IApplicationUpdateService _applicationUpdateService;
     private bool _hasProposalArrivalNotification;
     private string _mainViewTargetAutomationId = string.Empty;
 
@@ -29,7 +31,9 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             null,
             null,
             interchangePreferenceService,
-            aiFeaturePreferenceService)
+            aiFeaturePreferenceService,
+            null,
+            null)
     {
     }
 
@@ -42,7 +46,8 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         IUiDispatcher? uiDispatcher = null,
         IInterchangePreferenceService? interchangePreferenceService = null,
         IAiFeaturePreferenceService? aiFeaturePreferenceService = null,
-        PendingProposalCoordinator? pendingProposalCoordinator = null)
+        PendingProposalCoordinator? pendingProposalCoordinator = null,
+        IApplicationUpdateService? applicationUpdateService = null)
     {
         applicationThemeService ??= new TransientApplicationThemeService();
         _interchangePreferenceService = interchangePreferenceService
@@ -52,6 +57,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         _pendingProposalCoordinator = pendingProposalCoordinator;
         _uiDispatcher = uiDispatcher ?? new AvaloniaUiDispatcher();
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _applicationUpdateService = applicationUpdateService ?? new TransientApplicationUpdateService();
         Work = work is null
             ? null
             : inspectorSaveWriter is null
@@ -65,7 +71,8 @@ public sealed class ShellViewModel : INotifyPropertyChanged
                 applicationThemeService,
                 _aiFeaturePreferenceService,
                 OnAiFeaturesChanged,
-                OnLocalMcpChanged);
+                OnLocalMcpChanged,
+                _applicationUpdateService);
         Ai = work is null || !AiFeaturesEnabled
             ? null
             : new AiViewModel(_interchangePreferenceService, _pendingProposalCoordinator, _timeProvider);
@@ -145,6 +152,8 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             "Settings",
             "Manage appearance, reusable Participants, and encrypted recovery options.",
             countText: null);
+        UpdateUpdateAttention();
+        _applicationUpdateService.StateChanged += OnApplicationUpdateStateChanged;
 
         if (Work is not null)
         {
@@ -424,6 +433,23 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             ? null
             : $"Review {count.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
     }
+
+    internal void Dispose()
+    {
+        _applicationUpdateService.StateChanged -= OnApplicationUpdateStateChanged;
+    }
+
+    private void OnApplicationUpdateStateChanged(object? sender, EventArgs e) =>
+        _ = _uiDispatcher.InvokeAsync(() =>
+        {
+            Settings?.RefreshUpdateState();
+            UpdateUpdateAttention();
+        });
+
+    private void UpdateUpdateAttention() =>
+        SettingsNavigation.AttentionText = _applicationUpdateService.Snapshot.ShowNavigationAttention
+            ? "Update"
+            : null;
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));

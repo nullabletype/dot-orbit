@@ -5,6 +5,7 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using System.Diagnostics;
+using DotOrbit.Desktop.ApplicationUpdates;
 using DotOrbit.Core.Workspaces;
 using DotOrbit.Desktop.ViewModels;
 using DotOrbit.Desktop.Views;
@@ -29,6 +30,9 @@ public sealed partial class App : Application
     internal IWorkspacePathPreferenceStore WorkspacePathPreferenceStore { get; private set; } =
         new TransientWorkspacePathPreferenceStore();
 
+    internal IApplicationUpdateService ApplicationUpdateService { get; private set; } =
+        new TransientApplicationUpdateService();
+
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
     public override void OnFrameworkInitializationCompleted()
@@ -44,6 +48,14 @@ public sealed partial class App : Application
             AiFeaturePreferenceService = new AiFeaturePreferenceService(preferenceStore);
             MainWindowSizePreferenceStore = preferenceStore;
             WorkspacePathPreferenceStore = preferenceStore;
+            var updateHttpClient = new HttpClient(ApplicationUpdateHttpClient.CreateHandler())
+            {
+                Timeout = Timeout.InfiniteTimeSpan,
+            };
+            ApplicationUpdateService = new ApplicationUpdateService(
+                InstalledApplicationBuild.FromAssembly(typeof(App).Assembly),
+                new GitHubReleaseCatalogClient(updateHttpClient),
+                preferenceStore);
 
             if (desktop.Args?.Contains("--markdown-link-smoke", StringComparer.Ordinal) == true)
             {
@@ -124,7 +136,8 @@ public sealed partial class App : Application
                 applicationThemeService: null,
                 timeProvider: workspace.TimeProvider,
                 mainWindowSizePreferenceStore: new TransientMainWindowSizePreferenceStore(
-                    new MainWindowSize(1440, 900)))
+                    new MainWindowSize(1440, 900)),
+                applicationUpdateService: new TransientApplicationUpdateService())
             {
                 Width = 1440,
                 Height = 900,
@@ -185,7 +198,8 @@ public sealed partial class App : Application
         var project = session.Work.CreateProject("Markdown smoke", "Read the plan", categoryId, null);
         var window = new MainWindow(
             session,
-            mainWindowSizePreferenceStore: new TransientMainWindowSizePreferenceStore());
+            mainWindowSizePreferenceStore: new TransientMainWindowSizePreferenceStore(),
+            applicationUpdateService: new TransientApplicationUpdateService());
         window.Closed += (_, _) =>
         {
             session.Dispose();

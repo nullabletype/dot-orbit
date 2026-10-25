@@ -16,7 +16,7 @@ One person managing their own work on a desktop. Collaboration, organisational a
 - **Views are projections, not duplicate records.** Today and Backlog show the same Tasks in a shared order.
 - **Derived state stays derived.** Project progress, status, and completion date come from its Tasks.
 - **Editing stays close to context.** Details are edited directly in the inspector rather than through modal forms.
-- **Local and personal by default.** Local data and backups are encrypted. The application does not provide data synchronisation or depend on a cloud provider; a user may place encrypted backups in a folder managed by an external sync service.
+- **Local and personal by default.** Local data and backups are encrypted. The application does not provide data synchronisation or require a cloud provider for workspace use; a user may place encrypted backups in a folder managed by an external sync service. An optional, failure-tolerant application-update notice may query public GitHub release metadata without sending workspace content, account data, device identifiers, telemetry, or the installed version.
 
 ## Initial scope
 

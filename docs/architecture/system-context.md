@@ -20,6 +20,7 @@ flowchart LR
     Recovery --> BackupFolder[Configured recovery directory]
     Export --> ExportFile[User-selected plaintext JSON file]
     Desktop --> Clipboard[Explicit system clipboard write]
+    Desktop -.->|bounded anonymous release metadata| GitHub[GitHub Releases API]
 ```
 
 ## Module and dependency direction
@@ -30,6 +31,7 @@ flowchart LR
 - **`DotOrbit.Export.Json`** maps one transactional workspace snapshot to the documented, deterministic plaintext JSON contract and atomically publishes it to the selected local file. It depends only on `DotOrbit.Core` and owns no file picker, recovery path, schedule, or database access.
 - **`DotOrbit.Interchange.Json`** generates deterministic JCS Planning snapshots, packages the immutable v1 schemas, and composes bounded provider-neutral instruction/snapshot output. It depends on `DotOrbit.Core` and `DotOrbit.Markdown`, owns strict bounded proposal parsing and read-only review composition, and owns no clipboard, UI, mutation capability, provider, or network access.
 - **`DotOrbit.Desktop`** contains Avalonia views, view models, desktop integration, and the composition root. It owns destination selection, passes the selected local path to the export adapter, and wires production adapters into the application.
+- **Application update notices** remain a Desktop-only best-effort capability. The deep update module owns installed-build classification, SemVer and immutable-release admission, bounded anonymous HTTP, cadence, and device-local cache state. It never enters Core or encrypted Workspace persistence, and failure never blocks unlock or workspace use. See [ADR 0014](../adr/0014-bounded-github-update-notices.md).
 - **Markdown and plaintext export adapters** are consumed at the desktop, persistence, or application edge. They may depend inward on core-owned contracts, but `DotOrbit.Core` remains BCL-only and never depends on a Markdown parser, renderer, or output adapter.
 - **Tests** align with the production projects: core unit tests, SQLite3MC integration tests using real temporary encrypted databases, and focused desktop tests plus supported-runtime verification.
 

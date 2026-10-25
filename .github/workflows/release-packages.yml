@@ -39,6 +39,7 @@ jobs:
       upload: ${{ steps.source.outputs.upload }}
       draft-release: ${{ steps.source.outputs.draft-release }}
       version: ${{ steps.source.outputs.version }}
+      release-tag: ${{ steps.source.outputs.release-tag }}
     steps:
       - name: Check out repository and release history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -114,6 +115,7 @@ jobs:
           --repository-root .
           --runtime ${{ matrix.runtime }}
           --version ${{ needs.admit-source.outputs.version }}
+          --release-tag "${{ needs.admit-source.outputs.release-tag }}"
           --no-restore
       - name: Run packaged encrypted desktop smoke
         timeout-minutes: 2
@@ -121,6 +123,7 @@ jobs:
         env:
           DOTORBIT_PACKAGE_SMOKE_RECOVERY: ${{ github.workspace }}/tests/DotOrbit.Storage.Sqlite.Tests/Fixtures/portable-current-v13.dotorbit-recovery
           DOTORBIT_PACKAGE_SMOKE_VERSION: ${{ needs.admit-source.outputs.version }}
+          DOTORBIT_PACKAGE_SMOKE_RELEASE_TAG: ${{ needs.admit-source.outputs.release-tag }}
         run: ${{ matrix.smoke-command }}
       - name: Run packaged MCP adapter smoke
         timeout-minutes: 1

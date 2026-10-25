@@ -424,6 +424,55 @@ public sealed class LocalMcpBrokerTests
     }
 
     [Fact]
+    public async Task ClientRetriesWhenBootstrapListenerRetiresWithoutReply()
+    {
+        using var directory = new TemporaryDirectory();
+        var runtimeRoot = Path.Combine(directory.Path, "runtime");
+        var boundary = new RecordingBoundary();
+        await using var host = new LocalMcpBrokerHost(runtimeRoot, boundary, boundary);
+        LocalEndpointListener? retiringListener = await LocalEndpoint.CreateBootstrapAsync(
+            runtimeRoot,
+            TestContext.Current.CancellationToken);
+        try
+        {
+            await using var client = new LocalMcpBrokerClient(
+                runtimeRoot,
+                "retry-client",
+                "1.0",
+                new string('a', 64),
+                [LocalMcpProtocol.ReadScope]);
+            var request = client.ReadReusableInstructionsAsync(TestContext.Current.CancellationToken);
+
+            await using (var connection = await retiringListener.AcceptAsync(
+                             TestContext.Current.CancellationToken))
+            {
+                var bootstrap = Assert.IsType<BootstrapRequest>(await JsonLineCodec.ReadAsync(
+                    connection.Stream,
+                    LocalMcpJsonContext.Default.BootstrapRequest,
+                    TestContext.Current.CancellationToken));
+                Assert.Equal("retry-client", bootstrap.ClientName);
+            }
+
+            await retiringListener.DisposeAsync();
+            retiringListener = null;
+            host.Start();
+            await host.Ready.WaitAsync(TestContext.Current.CancellationToken);
+
+            var result = await request;
+
+            Assert.Equal("ok", result.Status);
+            Assert.Single(boundary.Clients);
+        }
+        finally
+        {
+            if (retiringListener is not null)
+            {
+                await retiringListener.DisposeAsync();
+            }
+        }
+    }
+
+    [Fact]
     public async Task FifthConcurrentSessionIsRejectedWithoutDisturbingExistingClients()
     {
         using var directory = new TemporaryDirectory();
