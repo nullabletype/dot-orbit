@@ -78,3 +78,13 @@ test("rejects a missing asset referenced by CSS", t => {
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   assert.throws(() => validateSite(root), /local reference does not exist: missing\.png/u);
 });
+
+test("rejects stale pre-release download wording", t => {
+  const root = createSite({
+    "index.html": '<!doctype html><html><head></head><body><a href="https://github.com/nullabletype/dot-orbit/releases">Download</a><p>Pre-release builds are available for macOS, Windows and Linux.</p></body></html>',
+  });
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  assert.throws(
+    () => validateSite(root),
+    /must not describe all downloads as pre-release builds/u);
+});
