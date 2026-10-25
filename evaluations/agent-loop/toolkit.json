@@ -1,5 +1,5 @@
 {
   "repository": "https://github.com/nullabletype/agentic-foundation.git",
-  "commit": "9d0d9fb2470ed07b8e4a2c980b3702b4a60592b3",
+  "commit": "0158541a65bc0eb79a521ab7ec8a833b086e2b87",
   "entrypoint": "toolkits/agent-evaluation/run.mjs"
 }
