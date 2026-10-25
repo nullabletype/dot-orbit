@@ -137,6 +137,14 @@ test("new releases are created as drafts with generated notes and allowlisted as
   assert.ok(create);
   assert.equal(create.release.draft, true);
   assert.equal(create.release.prerelease, false);
+  assert.match(create.release.body, /^## macOS first run\n/u);
+  assert.match(create.release.body, /not signed with an Apple Developer ID or notarised/u);
+  assert.match(create.release.body, /Only continue if you downloaded/u);
+  assert.match(create.release.body, /System Settings → Privacy & Security/u);
+  assert.match(create.release.body, /Open Anyway/u);
+  assert.match(create.release.body, /Do not disable Gatekeeper globally/u);
+  assert.match(create.release.body, /## Manual verification/u);
+  assert.match(create.release.body, /Changes since the previous release$/u);
   assert.equal(calls.filter(call => call.name === "uploadAsset").length, 4);
 });
 
@@ -153,6 +161,8 @@ test("reruns refresh an existing draft and mark prerelease tags", async t => {
   assert.equal(result, "updated");
   const update = calls.find(call => call.name === "updateRelease");
   assert.equal(update?.release.prerelease, true);
+  assert.match(update?.release.body, /^## macOS first run\n/u);
+  assert.match(update?.release.body, /Changes since the previous release$/u);
   assert.deepEqual(
     calls.filter(call => call.name === "deleteAsset").map(call => call.id),
     [11]);

@@ -36,4 +36,4 @@ These are test names, not a claim about an untested commit. Run the repository v
 | Recovery scheduling and closed sessions | `WorkspaceWorkTests.WritesScheduleEncryptedRecoveryAndClosedSessionsRejectWork` |
 | Safe storage failure without sensitive output | `WorkspaceWorkTests.DatabaseWriteFailuresExposeNoTaskOrSqlContentAndRetainStoredState` |
 
-Headless interaction checks establish Avalonia keyboard and focus behaviour. Native rendering and assistive-technology checks remain distinct acceptance evidence; a headless pass does not establish either.
+Headless interaction checks establish Avalonia keyboard and focus behaviour. Required rendered review remains distinct evidence; a headless pass does not establish it. Manual assistive-technology checks are best-effort when suitable tools are available, with unperformed checks and known gaps recorded.
