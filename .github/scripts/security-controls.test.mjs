@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   assertNuGetPolicy,
+  assertCodeQLWorkflow,
   assertNodeCatalogue,
   assertNodeSupported,
   assertSupportReviewCurrent,
@@ -14,6 +15,7 @@ import {
   latestActionRelease,
   latestStable,
   nodeSupportPhase,
+  reviewedCodeQLAction,
 } from "./security-controls.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -166,6 +168,16 @@ test("Workflow Node runtime pins stay aligned with the reviewed release", () => 
     const pins = [...contents.matchAll(/^\s+node-version: ([^\s]+)$/gmu)].map(match => match[1]);
     assert.deepEqual(pins, Array(expectedCount).fill("24.22.1"), fileName);
   }
+});
+
+test("CodeQL workflow pins init and analyze to the reviewed immutable release", () => {
+  const contents = fs.readFileSync(path.join(repositoryRoot, ".github/workflows/security.yml"), "utf8");
+  assert.doesNotThrow(() => assertCodeQLWorkflow(contents));
+
+  const previous = contents
+    .replaceAll(reviewedCodeQLAction.commit, "2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2")
+    .replaceAll(reviewedCodeQLAction.release, "v4.38.2");
+  assert.throws(() => assertCodeQLWorkflow(previous), /CodeQL init and analyze must use v4\.39\.1/u);
 });
 
 test("Artifact policy keeps Pages deployment separate from application releases", () => {
