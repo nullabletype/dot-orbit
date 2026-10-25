@@ -8,6 +8,6 @@ Use GitHub private vulnerability reporting from the repository's Security tab wh
 
 Include the affected version or commit, impact, reproduction steps, and any suggested mitigation. Do not include real personal task data, credentials, passphrases, databases, or backups in the report.
 
-## Supported versions
+## Maintenance expectations
 
-The project has not published a stable application release. Supported versions and security-update expectations will be documented when releases begin.
+dot-orbit is a free, open-source project maintained by one person on a best-effort basis. No response, remediation, or release timeline is guaranteed. Security fixes, when available, are expected to target the latest release; older releases may not receive backports. Users should update to the latest available release.
