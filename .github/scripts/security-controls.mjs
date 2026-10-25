@@ -20,6 +20,11 @@ const expectedNuGetConfig = `<?xml version="1.0" encoding="utf-8"?>
 </configuration>
 `;
 
+export const reviewedCodeQLAction = Object.freeze({
+  release: "v4.39.1",
+  commit: "9b3254085494b55a0f7c4c2b3d2d52cc712ce370",
+});
+
 export function assertNuGetPolicy(contents) {
   if (contents.replaceAll("\r\n", "\n") !== expectedNuGetConfig) {
     throw new Error("NuGet.Config must contain only the approved nuget.org package and audit source policy.");
@@ -68,6 +73,29 @@ export function assertNodeSupported(schedule, today = new Date()) {
   const phase = nodeSupportPhase(schedule, today);
   if (phase !== "active-lts" && phase !== "maintenance") {
     throw new Error(`Node 24 support phase changed to ${phase}`);
+  }
+}
+
+export function assertNodeCatalogue(catalogue) {
+  const currentNode = catalogue.find(release => release.version.startsWith("v24.") && release.lts);
+  if (currentNode?.version !== "v24.22.1") {
+    throw new Error(`Node 24 LTS changed from v24.22.1 to ${currentNode?.version ?? "unknown"}`);
+  }
+}
+
+export function assertCodeQLWorkflow(contents) {
+  const pins = [...contents.matchAll(
+    /^\s+uses: github\/codeql-action\/(init|analyze)@([0-9a-f]{40}) # (v\d+\.\d+\.\d+)$/gmu)]
+    .map(match => ({ phase: match[1], commit: match[2], release: match[3] }));
+  const expected = ["init", "analyze"].map(phase => ({
+    phase,
+    commit: reviewedCodeQLAction.commit,
+    release: reviewedCodeQLAction.release,
+  }));
+
+  if (JSON.stringify(pins) !== JSON.stringify(expected)) {
+    throw new Error(
+      `CodeQL init and analyze must use ${reviewedCodeQLAction.release} at ${reviewedCodeQLAction.commit}.`);
   }
 }
 
@@ -151,10 +179,7 @@ async function assertSupportDriftAbsent() {
   }
 
   const node = await readJson("https://nodejs.org/download/release/index.json");
-  const currentNode = node.find(release => release.version.startsWith("v24.") && release.lts);
-  if (currentNode?.version !== "v24.22.0") {
-    throw new Error(`Node 24 LTS changed from v24.22.0 to ${currentNode?.version ?? "unknown"}`);
-  }
+  assertNodeCatalogue(node);
   const nodeSchedule = await readJson("https://raw.githubusercontent.com/nodejs/Release/main/schedule.json");
   assertNodeSupported(nodeSchedule.v24);
 
@@ -162,7 +187,7 @@ async function assertSupportDriftAbsent() {
   // are recorded separately in docs/development/dependency-baseline.md.
   const packages = new Map([
     ["bebop.jsonschema", "1.1.0"],
-    ["markdig", "1.4.2"],
+    ["markdig", "1.5.0"],
     ["microsoft.extensions.hosting", "10.0.13"],
     ["modelcontextprotocol", "2.3.0"],
     ["avalonia.desktop", "12.1.4"],
@@ -192,7 +217,7 @@ async function assertSupportDriftAbsent() {
     ["actions/configure-pages", "v6.0.0"],
     ["actions/upload-pages-artifact", "v5.0.0"],
     ["actions/deploy-pages", "v5.0.1"],
-    ["github/codeql-action", "v4.39.0"],
+    ["github/codeql-action", reviewedCodeQLAction.release],
   ];
   for (const [repository, expected] of actions) {
     const releases = await readJson(
