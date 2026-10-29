@@ -54,8 +54,11 @@ public sealed class ProposalSemanticPlannerTests
     public void VersionTwoPreviewsEveryTodayTransitionWithoutReordering(TodayLane? before, TodayLane? after, string beforeText, string afterText)
     {
         var source = Source();
-        source = source with { Workspace = source.Workspace with
-        { Tasks = source.Workspace.Tasks.Select(task => task.Id == "a" ? task with { TodayLane = before } : task).ToArray() } };
+        source = source with
+        {
+            Workspace = source.Workspace with
+            { Tasks = source.Workspace.Tasks.Select(task => task.Id == "a" ? task with { TodayLane = before } : task).ToArray() }
+        };
         var result = ValidateV2(source, new SetTaskTodayOperation("1", TaskA, after, "Reviewed placement"));
         var effect = Assert.Single(result.Plan!.Preview, item => item.Kind == "task-today");
         Assert.Equal(TaskA, effect.Target);
@@ -99,8 +102,14 @@ public sealed class ProposalSemanticPlannerTests
         Assert.Equal("invalid-today-lane", Assert.Single(ValidateV2(Source(), new CreateTaskOperation("1", "new", "Task", "", null,
             new(ProposedTaskCategoryMode.Explicit, ProposalReference.Existing("c")), null, [], TodayLane: (TodayLane)99)).Failures).Code);
         var source = Source();
-        source = source with { Workspace = source.Workspace with { Tasks = source.Workspace.Tasks.Select(task => task.Id == "a"
-            ? task with { CompletedAt = DateTimeOffset.UnixEpoch, CompletionDate = new(2020, 1, 1), TodayLane = null } : task).ToArray() } };
+        source = source with
+        {
+            Workspace = source.Workspace with
+            {
+                Tasks = source.Workspace.Tasks.Select(task => task.Id == "a"
+            ? task with { CompletedAt = DateTimeOffset.UnixEpoch, CompletionDate = new(2020, 1, 1), TodayLane = null } : task).ToArray()
+            }
+        };
         Assert.Equal("invalid-today-state", Assert.Single(ValidateV2(source, new SetTaskTodayOperation("1", TaskA, TodayLane.Planned)).Failures).Code);
         var reopened = ValidateV2(source, new ReopenTaskOperation("1", TaskA), new SetTaskTodayOperation("2", TaskA, TodayLane.InProgress));
         Assert.NotNull(reopened.Plan);
@@ -150,8 +159,11 @@ public sealed class ProposalSemanticPlannerTests
     public void UnchangedTodayStateIsRejected(TodayLane? lane)
     {
         var source = Source();
-        source = source with { Workspace = source.Workspace with
-        { Tasks = source.Workspace.Tasks.Select(task => task.Id == "a" ? task with { TodayLane = lane } : task).ToArray() } };
+        source = source with
+        {
+            Workspace = source.Workspace with
+            { Tasks = source.Workspace.Tasks.Select(task => task.Id == "a" ? task with { TodayLane = lane } : task).ToArray() }
+        };
         Assert.Equal("no-op", Assert.Single(ValidateV2(source, new SetTaskTodayOperation("1", TaskA, lane)).Failures).Code);
     }
 

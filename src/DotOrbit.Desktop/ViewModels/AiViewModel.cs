@@ -240,7 +240,7 @@ public sealed class AiViewModel : INotifyPropertyChanged
         try
         {
             await clipboard.WriteTextAsync(result.Payload!.Value);
-            InterchangeStatus = "Reusable agent instructions and v1 schemas copied.";
+            InterchangeStatus = "Reusable agent instructions and v2 schemas copied.";
         }
         catch (Exception)
         {

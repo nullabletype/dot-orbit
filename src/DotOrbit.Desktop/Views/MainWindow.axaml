@@ -1603,7 +1603,7 @@
           <StackPanel Spacing="4">
             <TextBlock FontSize="20" FontWeight="Bold" Text="Bring work into dot-orbit" />
             <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
-                Text="Paste a proposal from an agent. It can add entirely new work without seeing your workspace. To update or connect existing work, share workspace context below first." />
+                Text="Paste a proposal from an agent. It can add entirely new work without seeing your workspace. Proposals can also place tasks in Today for your review. To update or connect existing work, share workspace context below first." />
           </StackPanel>
           <Border x:Name="AiProposalDropSurface" Classes="list-panel" DragDrop.AllowDrop="True"
               DragDrop.DragOver="OnProposalDragOver" DragDrop.Drop="OnProposalDrop"

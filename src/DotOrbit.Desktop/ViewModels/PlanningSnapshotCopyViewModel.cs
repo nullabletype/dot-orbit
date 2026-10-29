@@ -9,7 +9,7 @@ namespace DotOrbit.Desktop.ViewModels;
 internal sealed class PlanningSnapshotCopyViewModel : INotifyPropertyChanged
 {
     internal const string TooLargeStatus =
-        "This workspace is too large for v1 interchange. Nothing was copied.";
+        "This workspace is too large for interchange. Nothing was copied.";
 
     private readonly IPlainTextClipboard _clipboard;
     private readonly ReadOnlyMemory<byte>? _payload;
@@ -63,8 +63,8 @@ internal sealed class PlanningSnapshotCopyViewModel : INotifyPropertyChanged
     public string ExcludedChildScopeText =>
         $"Individually archived child Tasks excluded from included Projects: {ExcludedArchivedChildTaskCount}";
     public string OutputScopeText => IncludeAgentInstructionsAndSchema
-        ? "One text document: provider-neutral instructions, exact v1 schemas, operation vocabulary, output instructions, and this live snapshot with its relationships."
-        : "Snapshot-only mode: one pretty-printed v1 Planning snapshot JSON document with its relationships.";
+        ? "One text document: provider-neutral instructions, exact v2 schemas, operation vocabulary, output instructions, and this live snapshot with its relationships."
+        : "Snapshot-only mode: one pretty-printed v2 Planning snapshot JSON document with its relationships.";
     public bool CanConfirmCopy => _payload is not null && _copyState == CopyState.Ready;
     public bool CanCancelCopy => _payload is not null && _copyState == CopyState.Ready;
 

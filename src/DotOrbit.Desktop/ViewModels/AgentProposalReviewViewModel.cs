@@ -38,6 +38,7 @@ internal sealed record ProposalEffectReviewRow(
     ProposalPreviewIdentity Identity,
     IReadOnlyList<ProposalMarkdownReviewRow> Markdown)
 {
+    public string AccessibleName => $"{TargetLabel}: {Kind}. Current: {Before}. Proposed: {After}.";
     public bool HasOrderProject => !string.IsNullOrEmpty(OrderProject);
     public bool IsCreation => Kind.StartsWith("Add ", StringComparison.Ordinal);
     public bool HasBefore => !string.IsNullOrEmpty(Before);
@@ -343,7 +344,7 @@ internal sealed class AgentProposalReviewViewModel : INotifyPropertyChanged
     public string TechnicalCountSummary =>
         $"{OperationCount} proposal {Plural(OperationCount, "instruction", "instructions")} and {EffectCount} total {Plural(EffectCount, "effect", "effects")} were validated.";
     public string ExcludedPowers { get; } =
-        "Excluded powers: no direct Today or lane changes, global ordering, hidden restore, duplication, Empty Bin, permanent deletion, or global Category or Participant mutation.";
+        "Excluded powers: no shared Task, Today-lane, Project or Category ordering, hidden restore, duplication, Empty Bin, permanent deletion, or global Category or Participant mutation.";
     public bool CanApply => _state == ReviewState.Ready && _plan is not null;
     public bool CanClose => _state != ReviewState.Applying;
     public bool CanRetryMaintenance => _maintenance is not null && _state == ReviewState.Committed;
@@ -523,6 +524,7 @@ internal sealed class AgentProposalReviewViewModel : INotifyPropertyChanged
             MoveProjectToBinOperation item => Reference(item.Project),
             EditTaskOperation item => Reference(item.Task),
             SetTaskCategoryOperation item => Reference(item.Task),
+            SetTaskTodayOperation item => Reference(item.Task),
             ReplaceTaskParticipantsOperation item => Reference(item.Task),
             AttachTaskOperation item => $"{Reference(item.Task)} → {Reference(item.Project)}",
             DetachTaskOperation item => Reference(item.Task),
@@ -591,7 +593,7 @@ internal sealed class AgentProposalReviewViewModel : INotifyPropertyChanged
         "create-project" or "project-content" or "project-category" or "project-archive" or "project-bin"
             => WorkType.Project,
         "create-task" or "task-content" or "task-category" or "participants" or "relationship"
-            or "task-reorder" or "completion" or "task-archive" or "task-bin" => WorkType.Task,
+            or "task-today" or "task-reorder" or "completion" or "task-archive" or "task-bin" => WorkType.Task,
         _ => null,
     };
 
@@ -637,6 +639,7 @@ internal sealed class AgentProposalReviewViewModel : INotifyPropertyChanged
         "task-content" or
         "project-category" or
         "task-category" or
+        "task-today" or
         "participants" or
         "relationship" or
         "task-reorder" or
@@ -677,6 +680,7 @@ internal sealed class AgentProposalReviewViewModel : INotifyPropertyChanged
         CreateTaskOperation => "Create Task",
         EditTaskOperation => "Edit Task",
         SetTaskCategoryOperation => "Set Task Category",
+        SetTaskTodayOperation => "Set Task Today",
         ReplaceTaskParticipantsOperation => "Replace Task Participants",
         AttachTaskOperation => "Attach Task",
         DetachTaskOperation => "Detach Task",
@@ -708,6 +712,7 @@ internal sealed class AgentProposalReviewViewModel : INotifyPropertyChanged
         "relationship" => "Move task",
         "task-reorder" => "Reorder task",
         "completion" => "Change completion",
+        "task-today" => "Change Today placement",
         "today-removal" => "Today removal",
         "project-archive" => "Archive project",
         "project-bin" => "Move project to Bin",

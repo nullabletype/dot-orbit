@@ -1063,10 +1063,16 @@ public sealed class ProposalApplicationTests : IDisposable
                 new JsonObject { ["operation"] = "createCategory", ["operationId"] = "1", ["localId"] = "category", ["name"] = "New category" },
                 new JsonObject
                 {
-                    ["operation"] = "createTask", ["operationId"] = "2", ["localId"] = "task", ["title"] = "Today creation",
-                    ["description"] = "", ["project"] = null,
+                    ["operation"] = "createTask",
+                    ["operationId"] = "2",
+                    ["localId"] = "task",
+                    ["title"] = "Today creation",
+                    ["description"] = "",
+                    ["project"] = null,
                     ["category"] = new JsonObject { ["mode"] = "explicit", ["category"] = Local("category") },
-                    ["dueDate"] = null, ["participants"] = new JsonArray(), ["todayLane"] = state,
+                    ["dueDate"] = null,
+                    ["participants"] = new JsonArray(),
+                    ["todayLane"] = state,
                 }),
         });
         var review = new ProposalReviewBoundary(session.Proposals, TimeProvider.System).Review(bytes);
@@ -1109,9 +1115,19 @@ public sealed class ProposalApplicationTests : IDisposable
             SetToday("1", task.Id, "inProgress"),
             new JsonObject { ["operation"] = "reopenTask", ["operationId"] = "2", ["task"] = Existing(completed.Id) },
             SetToday("3", completed.Id, "planned"),
-            new JsonObject { ["operation"] = "createTask", ["operationId"] = "4", ["localId"] = "new", ["title"] = "Roll back creation",
-                ["description"] = "", ["project"] = null, ["category"] = new JsonObject { ["mode"] = "explicit", ["category"] = Existing(category.Id) },
-                ["dueDate"] = null, ["participants"] = new JsonArray(), ["todayLane"] = "inProgress" });
+            new JsonObject
+            {
+                ["operation"] = "createTask",
+                ["operationId"] = "4",
+                ["localId"] = "new",
+                ["title"] = "Roll back creation",
+                ["description"] = "",
+                ["project"] = null,
+                ["category"] = new JsonObject { ["mode"] = "explicit", ["category"] = Existing(category.Id) },
+                ["dueDate"] = null,
+                ["participants"] = new JsonArray(),
+                ["todayLane"] = "inProgress"
+            });
         var approval = Assert.IsType<ProposalApproval>(session.ProposalApplication.Approve(plan));
 
         Assert.Equal(ProposalApplyStatus.Failed, Apply(session, approval, new Host()).Status);
@@ -1192,7 +1208,8 @@ public sealed class ProposalApplicationTests : IDisposable
             using var document = JsonDocument.Parse(snapshot.Payload!.Value);
             bytes = JsonSerializer.SerializeToUtf8Bytes(new JsonObject
             {
-                ["format"] = AgentInterchangeV1.ChangeProposalFormat, ["schemaVersion"] = 2,
+                ["format"] = AgentInterchangeV1.ChangeProposalFormat,
+                ["schemaVersion"] = 2,
                 ["sourceSnapshotId"] = document.RootElement.GetProperty("snapshotId").GetString(),
                 ["sourceWorkspaceRevision"] = initialRevision.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 ["operations"] = new JsonArray(SetToday("1", taskId, "inProgress"), SetToday("2", removedId, "none")),
@@ -1240,7 +1257,10 @@ public sealed class ProposalApplicationTests : IDisposable
 
     private static JsonObject SetToday(string operationId, string task, string state) => new()
     {
-        ["operation"] = "setTaskToday", ["operationId"] = operationId, ["task"] = Existing(task), ["todayLane"] = state,
+        ["operation"] = "setTaskToday",
+        ["operationId"] = operationId,
+        ["task"] = Existing(task),
+        ["todayLane"] = state,
     };
 
     private static ProposalExecutionPlan ReviewVersion(IWorkspaceSession session, int version, params JsonObject[] operations)
@@ -1251,7 +1271,8 @@ public sealed class ProposalApplicationTests : IDisposable
         foreach (var operation in operations) operationArray.Add(operation);
         var proposal = new JsonObject
         {
-            ["format"] = AgentInterchangeV1.ChangeProposalFormat, ["schemaVersion"] = version,
+            ["format"] = AgentInterchangeV1.ChangeProposalFormat,
+            ["schemaVersion"] = version,
             ["sourceSnapshotId"] = document.RootElement.GetProperty("snapshotId").GetString(),
             ["sourceWorkspaceRevision"] = session.Planning.Read().WorkspaceRevision.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["operations"] = operationArray,

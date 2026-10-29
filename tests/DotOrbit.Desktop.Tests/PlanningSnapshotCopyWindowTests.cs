@@ -265,7 +265,7 @@ public sealed class PlanningSnapshotCopyWindowTests
         Assert.Equal(1, source.ReadCount);
         Assert.Equal(1, clipboard.WriteCount);
         Assert.Equal(
-            "Reusable agent instructions and v1 schemas copied.",
+            "Reusable agent instructions and v2 schemas copied.",
             shell.Ai.InterchangeStatus);
         window.Close();
     }
@@ -322,7 +322,7 @@ public sealed class PlanningSnapshotCopyWindowTests
         var status = Assert.IsType<TextBlock>(window.FindControl<TextBlock>("AiInterchangeStatus"));
         var outcomes = new[]
         {
-            "Reusable agent instructions and v1 schemas copied.",
+            "Reusable agent instructions and v2 schemas copied.",
             "Reusable agent instructions and schemas could not be copied. Try again.",
             "The system clipboard is unavailable. Nothing was copied.",
             "The Planning snapshot could not be prepared. Nothing was copied.",

@@ -428,12 +428,18 @@ internal sealed class LocalMcpDesktopService :
             return new("unavailable", ReadOnlyMemory<byte>.Empty, Error: "mcp-disabled");
         }
 
+        if (request.Operation is LocalMcpOperation.ReadReusableInstructions or LocalMcpOperation.ReadPlanningSnapshot
+            && request.SchemaVersion is not (1 or 2))
+        {
+            return new("rejected", ReadOnlyMemory<byte>.Empty, Error: "unsupported-version");
+        }
+
         try
         {
             return request.Operation switch
             {
-                LocalMcpOperation.ReadReusableInstructions => Instructions(),
-                LocalMcpOperation.ReadPlanningSnapshot => Snapshot(),
+                LocalMcpOperation.ReadReusableInstructions => Instructions(request.SchemaVersion),
+                LocalMcpOperation.ReadPlanningSnapshot => Snapshot(request.SchemaVersion),
                 LocalMcpOperation.SubmitProposal => await SubmitAsync(
                     authorizationId,
                     request,
@@ -447,18 +453,18 @@ internal sealed class LocalMcpDesktopService :
         }
     }
 
-    private static LocalMcpOperationResult Instructions()
+    private static LocalMcpOperationResult Instructions(int schemaVersion)
     {
-        var generated = AgentInterchangeDocumentComposer.ComposeReusableInstructionsAndSchemas();
+        var generated = AgentInterchangeDocumentComposer.ComposeReusableInstructionsAndSchemas(schemaVersion);
         return Generated(generated);
     }
 
-    private LocalMcpOperationResult Snapshot()
+    private LocalMcpOperationResult Snapshot(int schemaVersion)
     {
         var snapshot = _planning.Read();
         var generated = PlanningInterchangeCopyComposer.ComposeSnapshot(
             snapshot,
-            includeAgentInstructionsAndSchema: false);
+            includeAgentInstructionsAndSchema: false, schemaVersion);
         return Generated(generated);
     }
 

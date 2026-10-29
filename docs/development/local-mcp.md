@@ -34,7 +34,7 @@ Current Codex, VS Code, and Claude MCP configuration fields change independently
 The first connection opens an in-app approval window. Check the OS-verified account and available process ID separately from the self-asserted client name and version, then review the exact scopes:
 
 - `read` permits reusable instructions/schema reads and complete current Planning snapshots without a prompt on every read;
-- `submit` permits a v1 New-work or Change proposal to enter the local review surface, but cannot approve or apply it.
+- `submit` permits a v1 or v2 New-work or Change proposal to enter the local review surface, but cannot approve or apply it.
 
 **Allow once** lasts only for the live connection. **Always allow** stores an encrypted workspace-local record bound to the exact credential verifier, verified OS account, and scope set. A restart may reuse that remembered trust, but creates a new connection and capability. Adding a scope, changing profile credentials or OS account, using another workspace, or revoking the record requires approval again.
 
@@ -44,9 +44,13 @@ Remembered clients appear in Settings with a **Revoke** action. Revocation remov
 
 The adapter exposes exactly three tools:
 
-- `orbit_get_instructions` returns immutable reusable v1 instructions and schemas;
-- `orbit_get_planning_snapshot` returns one atomic revision-bearing snapshot, excluding archived and Bin Project/Task content while retaining the complete Category and Participant catalogues;
-- `orbit_submit_proposal` accepts one strict UTF-8 v1 proposal and a caller-generated idempotency key.
+- `orbit_get_instructions` returns reusable instructions and schemas for v2 by default, or v1 with `schemaVersion: 1`;
+- `orbit_get_planning_snapshot` returns one atomic revision-bearing snapshot (v2 by default, or v1 with `schemaVersion: 1`), excluding archived and Bin Project/Task content while retaining the complete Category and Participant catalogues;
+- `orbit_submit_proposal` accepts one strict UTF-8 v1 or v2 proposal and a caller-generated idempotency key.
+
+Discovery also lists `orbit://interchange/v1/instructions`, `orbit://interchange/v1/planning-snapshot`, and the corresponding `/v2/` resources. Instruction resources include the matching schemas. All reads require the existing read scope; unknown versions fail closed. Legacy unversioned private IPC read routes retain v1 semantics.
+
+Version 2 submissions may request Today placement, but gain no approve or Apply tool. Each submitted document uses the same declared-version validation, immutable plan, and Review as manual intake.
 
 Reads are observational and do not flush an editor, navigate the UI, mutate the workspace, or advance its revision. Responses are complete or rejected before output; the limit is 16 MiB.
 

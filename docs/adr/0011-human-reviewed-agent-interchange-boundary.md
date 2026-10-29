@@ -54,3 +54,9 @@ Assign module responsibilities without scaffolding an unused module:
 - Cross-platform integration tests must prove SQLite lock retention across backup and commit, exact revision increments, rollback, hidden aggregate previews, bounded input, and no replay after post-commit maintenance failure.
 - Future transports and schema versions must reuse or explicitly evolve this boundary. They cannot introduce transport-specific document shapes, a second mutation model, or autonomous approval.
 - ADR 0006 remains the module-direction foundation, ADR 0008 recovery generations remain distinct from Workspace revision, and ADR 0009 governs the eventual forward-only revision migration.
+
+## Version 2 extension (#164)
+
+Adopt the [version 2 Today-placement contract](../planning/agent-interchange-v2-contract.md). Version 1 schemas, reusable instructions, proposal semantics, queued proposals, and application remain supported unchanged. The latest generated resources are v2. Explicit versioned resources retain v1. Each proposal uses its declared version for schema validation and snapshot identity checks.
+
+Version 2 adds an optional initial Today lane to `createTask` and a typed `setTaskToday` operation for an existing Task. Direct Today effects are part of the authoritative Review. Final-state validation, immutable approval, exclusive recovery-backed atomic Apply, revision checks, and replay prevention remain the existing boundary. Neither manual intake nor local MCP can bypass approval or directly reorder Today lanes or shared Tasks.
