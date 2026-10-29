@@ -29,6 +29,9 @@ public static class InterchangeSchemaCatalogue
     private static readonly Dictionary<string, byte[]> ApplicationSchemaBytes =
         new Dictionary<string, byte[]>(StringComparer.Ordinal)
         {
+            [AgentInterchangeV2.PlanningSnapshotSchemaId] = ReadResource("DotOrbit.Interchange.Json.Schemas.v2.planning-snapshot.schema.json"),
+            [AgentInterchangeV2.ChangeProposalSchemaId] = ReadResource("DotOrbit.Interchange.Json.Schemas.v2.change-proposal.schema.json"),
+            [AgentInterchangeV2.NewWorkProposalSchemaId] = ReadResource("DotOrbit.Interchange.Json.Schemas.v2.new-work-proposal.schema.json"),
             [AgentInterchangeV1.PlanningSnapshotSchemaId] = ReadResource(PlanningResourceName),
             [AgentInterchangeV1.ChangeProposalSchemaId] = ReadResource(ProposalResourceName),
             [AgentInterchangeV1.NewWorkProposalSchemaId] = ReadResource(NewWorkProposalResourceName),
@@ -42,6 +45,9 @@ public static class InterchangeSchemaCatalogue
         AgentInterchangeV1.PlanningSnapshotSchemaId,
         AgentInterchangeV1.ChangeProposalSchemaId,
         AgentInterchangeV1.NewWorkProposalSchemaId,
+        AgentInterchangeV2.PlanningSnapshotSchemaId,
+        AgentInterchangeV2.ChangeProposalSchemaId,
+        AgentInterchangeV2.NewWorkProposalSchemaId,
     ];
 
     public static ReadOnlyMemory<byte> GetApplicationSchema(string schemaId)
@@ -49,7 +55,7 @@ public static class InterchangeSchemaCatalogue
         ArgumentException.ThrowIfNullOrWhiteSpace(schemaId);
         return ApplicationSchemaBytes.TryGetValue(schemaId, out var schema)
             ? schema
-            : throw new ArgumentException("The schema identifier is not in the v1 catalogue.", nameof(schemaId));
+            : throw new ArgumentException("The schema identifier is not in the interchange catalogue.", nameof(schemaId));
     }
 
     public static InterchangeSchemaValidationResult Validate(
@@ -58,7 +64,7 @@ public static class InterchangeSchemaCatalogue
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(schemaId);
         if (!Schemas.TryGetValue(schemaId, out var schema))
-            throw new ArgumentException("The schema identifier is not in the v1 catalogue.", nameof(schemaId));
+            throw new ArgumentException("The schema identifier is not in the interchange catalogue.", nameof(schemaId));
 
         var isValid = schema.Schema.Validate(instance, NonCollectingErrors)
             .AsTask()
@@ -162,7 +168,7 @@ public static class InterchangeSchemaCatalogue
                         if (!reference.StartsWith('#')
                             && reference != "https://json-schema.org/draft/2020-12/schema")
                         {
-                            throw new InvalidDataException("The v1 schema catalogue is closed.");
+                            throw new InvalidDataException("The interchange schema catalogue is closed.");
                         }
                     }
 

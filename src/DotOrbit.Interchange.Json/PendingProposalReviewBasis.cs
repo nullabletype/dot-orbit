@@ -218,6 +218,13 @@ internal static class PendingProposalReviewBasis
                         AddCurrentParent(movedTaskId);
                     }
                     break;
+                case SetTaskTodayOperation item:
+                    AddReference(item.Task, "task");
+                    if (item.Task.ExistingId is { } todayTaskId)
+                    {
+                        AddCurrentParent(todayTaskId);
+                    }
+                    break;
                 case CompleteTaskOperation item:
                     AddReference(item.Task, "task");
                     break;

@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using DotOrbit.Core.Interchange;
+using DotOrbit.Core.Workspaces;
 
 namespace DotOrbit.Interchange.Json;
 
@@ -13,7 +14,7 @@ public sealed record ChangeProposalParseResult(ChangeProposal? Proposal, string?
     public override string ToString() => IsValid ? "Valid proposal." : $"Rejected proposal: {ErrorCode}.";
 }
 
-/// <summary>Parses the closed v1 wire format without resolving references or changing workspace data.</summary>
+/// <summary>Parses the closed versioned wire formats without resolving references or changing workspace data.</summary>
 public static class ChangeProposalJsonParser
 {
     public const int MaximumInputBytes = 4 * 1024 * 1024;
@@ -47,7 +48,7 @@ public static class ChangeProposalJsonParser
             if (root.ValueKind != JsonValueKind.Object) return Failure("invalid-json");
             if (!root.TryGetProperty("schemaVersion", out var version)
                 || version.ValueKind != JsonValueKind.Number || !version.TryGetInt32(out var number)
-                || number != AgentInterchangeV1.SchemaVersion) return Failure("unsupported-version");
+                || number is not (AgentInterchangeV1.SchemaVersion or AgentInterchangeV2.SchemaVersion)) return Failure("unsupported-version");
             if (!root.TryGetProperty("format", out var formatElement)
                 || formatElement.ValueKind != JsonValueKind.String
                 || formatElement.GetString() is not { } format)
@@ -60,9 +61,13 @@ public static class ChangeProposalJsonParser
             };
             if (kind is null)
                 return Failure("invalid-schema");
-            var schemaId = kind == ProposalKind.NewWork
-                ? AgentInterchangeV1.NewWorkProposalSchemaId
-                : AgentInterchangeV1.ChangeProposalSchemaId;
+            var schemaId = (number, kind) switch
+            {
+                (1, ProposalKind.NewWork) => AgentInterchangeV1.NewWorkProposalSchemaId,
+                (1, _) => AgentInterchangeV1.ChangeProposalSchemaId,
+                (2, ProposalKind.NewWork) => AgentInterchangeV2.NewWorkProposalSchemaId,
+                _ => AgentInterchangeV2.ChangeProposalSchemaId,
+            };
             if (!InterchangeSchemaCatalogue.Validate(schemaId, root).IsValid)
                 return Failure("invalid-schema");
             var operations = root.GetProperty("operations").EnumerateArray().Select(ReadOperation).ToArray();
@@ -171,6 +176,15 @@ public static class ChangeProposalJsonParser
             : new(ProjectTaskPlacementKind.After, Ref(value, "after"));
     }
 
+    private static TodayLane? Today(JsonElement value) => value.ValueKind == JsonValueKind.Null
+        ? null : value.GetString() switch
+        {
+            "planned" => TodayLane.Planned,
+            "inProgress" => TodayLane.InProgress,
+            "none" => null,
+            _ => throw new InvalidOperationException("Invalid Today lane."),
+        };
+
     private static ChangeOperation ReadOperation(JsonElement value)
     {
         var id = Text(value, "operationId");
@@ -182,7 +196,8 @@ public static class ChangeProposalJsonParser
             "createProject" => new CreateProjectOperation(id, Text(value, "localId"), Text(value, "title"), Text(value, "description"), Ref(value, "category"), Date(value.GetProperty("targetDate")), explanation),
             "editProject" => new EditProjectOperation(id, Ref(value, "project"), ProjectChanges(value.GetProperty("changes")), explanation),
             "setProjectCategory" => new SetProjectCategoryOperation(id, Ref(value, "project"), Ref(value, "category"), explanation),
-            "createTask" => new CreateTaskOperation(id, Text(value, "localId"), Text(value, "title"), Text(value, "description"), value.GetProperty("project").ValueKind == JsonValueKind.Null ? null : Ref(value, "project"), Category(value.GetProperty("category")), Date(value.GetProperty("dueDate")), Participants(value), explanation),
+            "createTask" => new CreateTaskOperation(id, Text(value, "localId"), Text(value, "title"), Text(value, "description"), value.GetProperty("project").ValueKind == JsonValueKind.Null ? null : Ref(value, "project"), Category(value.GetProperty("category")), Date(value.GetProperty("dueDate")), Participants(value), explanation, value.TryGetProperty("todayLane", out var lane) ? Today(lane) : null),
+            "setTaskToday" => new SetTaskTodayOperation(id, Ref(value, "task"), Today(value.GetProperty("todayLane")), explanation),
             "editTask" => new EditTaskOperation(id, Ref(value, "task"), TaskChanges(value.GetProperty("changes")), explanation),
             "setTaskCategory" => new SetTaskCategoryOperation(id, Ref(value, "task"), Category(value.GetProperty("category")), explanation),
             "replaceTaskParticipants" => new ReplaceTaskParticipantsOperation(id, Ref(value, "task"), Participants(value), explanation),

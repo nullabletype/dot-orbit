@@ -87,29 +87,44 @@ public static class AgentInterchangeDocumentComposer
 
     private static readonly byte[] LineFeed = Encoding.UTF8.GetBytes("\n");
 
+    private static readonly byte[] IntroductionV2 = Encoding.UTF8.GetBytes(
+        Encoding.UTF8.GetString(Introduction)
+            .Replace("interchange v1", "interchange v2", StringComparison.Ordinal)
+            .Replace("Always use schemaVersion 1.", "Always use schemaVersion 2.", StringComparison.Ordinal)
+            .Replace("- Do not propose Today membership or lane changes, global Category, Project, or shared Task reordering, restore, permanent deletion, Bin emptying, or duplication.",
+                "- A createTask operation may specify todayLane planned or inProgress; omit it or use null to start outside Today. A Change proposal may use setTaskToday with an existing Task reference and todayLane planned, inProgress, or none to remove membership. Only active incomplete Tasks may end in Today. Reject repeated, contradictory, and no-op Today changes. Today placement never changes shared Task order.\n- Do not propose global Category, Project, shared Task, or Today-lane reordering, restore, permanent deletion, Bin emptying, or duplication.", StringComparison.Ordinal)
+            .Replace("createTask, editTask", "createTask, setTaskToday, editTask", StringComparison.Ordinal));
+
     public static InterchangeGenerationResult ComposeReusableInstructionsAndSchemas() =>
-        ComposeNormalized(
-            Introduction,
-            InterchangeSchemaCatalogue.GetApplicationSchema(AgentInterchangeV1.PlanningSnapshotSchemaId),
-            BeforeNewWorkSchema,
-            InterchangeSchemaCatalogue.GetApplicationSchema(AgentInterchangeV1.NewWorkProposalSchemaId),
-            BeforeChangeSchema,
-            InterchangeSchemaCatalogue.GetApplicationSchema(AgentInterchangeV1.ChangeProposalSchemaId),
-            EndSchemas);
+        ComposeReusableInstructionsAndSchemas(AgentInterchangeV2.SchemaVersion);
+
+    public static InterchangeGenerationResult ComposeReusableInstructionsAndSchemas(int schemaVersion) =>
+        ComposeNormalized(SchemaSegments(schemaVersion));
 
     public static InterchangeGenerationResult ComposeWithSnapshot(ReadOnlyMemory<byte> snapshot) =>
-        ComposeNormalized(
-            Introduction,
-            InterchangeSchemaCatalogue.GetApplicationSchema(AgentInterchangeV1.PlanningSnapshotSchemaId),
+        ComposeWithSnapshot(snapshot, AgentInterchangeV2.SchemaVersion);
+
+    public static InterchangeGenerationResult ComposeWithSnapshot(ReadOnlyMemory<byte> snapshot, int schemaVersion) =>
+        ComposeNormalized([.. SchemaSegments(schemaVersion), BeforeSnapshot, LineFeed, snapshot, EndSnapshot]);
+
+    private static ReadOnlyMemory<byte>[] SchemaSegments(int schemaVersion)
+    {
+        PlanningSnapshotJsonGenerator.EnsureSupportedVersion(schemaVersion);
+        var latest = schemaVersion == AgentInterchangeV2.SchemaVersion;
+        return
+        [
+            latest ? IntroductionV2 : Introduction,
+            InterchangeSchemaCatalogue.GetApplicationSchema(latest
+                ? AgentInterchangeV2.PlanningSnapshotSchemaId : AgentInterchangeV1.PlanningSnapshotSchemaId),
             BeforeNewWorkSchema,
-            InterchangeSchemaCatalogue.GetApplicationSchema(AgentInterchangeV1.NewWorkProposalSchemaId),
+            InterchangeSchemaCatalogue.GetApplicationSchema(latest
+                ? AgentInterchangeV2.NewWorkProposalSchemaId : AgentInterchangeV1.NewWorkProposalSchemaId),
             BeforeChangeSchema,
-            InterchangeSchemaCatalogue.GetApplicationSchema(AgentInterchangeV1.ChangeProposalSchemaId),
+            InterchangeSchemaCatalogue.GetApplicationSchema(latest
+                ? AgentInterchangeV2.ChangeProposalSchemaId : AgentInterchangeV1.ChangeProposalSchemaId),
             EndSchemas,
-            BeforeSnapshot,
-            LineFeed,
-            snapshot,
-            EndSnapshot);
+        ];
+    }
 
     private static InterchangeGenerationResult ComposeNormalized(params ReadOnlyMemory<byte>[] segments)
     {
@@ -161,10 +176,16 @@ public static class PlanningInterchangeCopyComposer
 
     public static InterchangeGenerationResult ComposeSnapshot(
         PlanningSnapshotContent snapshot,
-        bool includeAgentInstructionsAndSchema)
+        bool includeAgentInstructionsAndSchema) =>
+        ComposeSnapshot(snapshot, includeAgentInstructionsAndSchema, AgentInterchangeV2.SchemaVersion);
+
+    public static InterchangeGenerationResult ComposeSnapshot(
+        PlanningSnapshotContent snapshot,
+        bool includeAgentInstructionsAndSchema,
+        int schemaVersion)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        var generated = PlanningSnapshotJsonGenerator.Generate(snapshot);
+        var generated = PlanningSnapshotJsonGenerator.Generate(snapshot, schemaVersion);
         if (!generated.Succeeded)
         {
             return generated;
@@ -173,7 +194,7 @@ public static class PlanningInterchangeCopyComposer
         using var document = JsonDocument.Parse(generated.Payload!.Value);
         var prettySnapshot = JsonSerializer.SerializeToUtf8Bytes(document.RootElement, PrettyJson);
         return includeAgentInstructionsAndSchema
-            ? AgentInterchangeDocumentComposer.ComposeWithSnapshot(prettySnapshot)
+            ? AgentInterchangeDocumentComposer.ComposeWithSnapshot(prettySnapshot, schemaVersion)
             : InterchangePayloadComposer.Compose(prettySnapshot);
     }
 }

@@ -1,0 +1,198 @@
+{
+  "format": "dot-orbit-change-proposal",
+  "schemaVersion": 2,
+  "sourceSnapshotId": "sha256:a0f7428be46990967d7b8e53ba1a920c7df501fe52c5255fadfea70f3c7eb968",
+  "sourceWorkspaceRevision": "7",
+  "operations": [
+    {
+      "operation": "createCategory",
+      "operationId": "op-01",
+      "localId": "category-new",
+      "name": "Errands"
+    },
+    {
+      "operation": "createParticipant",
+      "operationId": "op-02",
+      "localId": "participant-new",
+      "label": "Sam"
+    },
+    {
+      "operation": "createProject",
+      "operationId": "op-03",
+      "localId": "project-new",
+      "title": "Plan the garden",
+      "description": "",
+      "category": {
+        "localId": "category-new"
+      },
+      "targetDate": null
+    },
+    {
+      "operation": "editProject",
+      "operationId": "op-04",
+      "project": {
+        "existingId": "project-edit"
+      },
+      "changes": {
+        "description": "Updated plan."
+      }
+    },
+    {
+      "operation": "setProjectCategory",
+      "operationId": "op-05",
+      "project": {
+        "existingId": "project-category"
+      },
+      "category": {
+        "existingId": "category-home"
+      }
+    },
+    {
+      "operation": "createTask",
+      "operationId": "op-06",
+      "localId": "task-new",
+      "title": "Buy seeds",
+      "description": "",
+      "project": {
+        "localId": "project-new"
+      },
+      "category": {
+        "mode": "inherit"
+      },
+      "dueDate": null,
+      "participants": [
+        {
+          "localId": "participant-new"
+        }
+      ],
+      "todayLane": "inProgress"
+    },
+    {
+      "operation": "editTask",
+      "operationId": "op-07",
+      "task": {
+        "existingId": "task-edit"
+      },
+      "changes": {
+        "dueDate": "2026-11-01"
+      }
+    },
+    {
+      "operation": "setTaskCategory",
+      "operationId": "op-08",
+      "task": {
+        "existingId": "task-category"
+      },
+      "category": {
+        "mode": "explicit",
+        "category": {
+          "existingId": "category-work"
+        }
+      }
+    },
+    {
+      "operation": "replaceTaskParticipants",
+      "operationId": "op-09",
+      "task": {
+        "existingId": "task-participants"
+      },
+      "participants": [
+        {
+          "existingId": "participant-alex"
+        }
+      ]
+    },
+    {
+      "operation": "attachTask",
+      "operationId": "op-10",
+      "task": {
+        "existingId": "task-attach"
+      },
+      "project": {
+        "existingId": "project-kitchen"
+      },
+      "categoryChoice": "preserveAsOverride"
+    },
+    {
+      "operation": "detachTask",
+      "operationId": "op-11",
+      "task": {
+        "existingId": "task-detach"
+      }
+    },
+    {
+      "operation": "moveTask",
+      "operationId": "op-12",
+      "task": {
+        "existingId": "task-move"
+      },
+      "project": {
+        "existingId": "project-kitchen"
+      },
+      "categoryChoice": "adoptProjectCategory"
+    },
+    {
+      "operation": "completeTask",
+      "operationId": "op-13",
+      "task": {
+        "existingId": "task-incomplete"
+      }
+    },
+    {
+      "operation": "reopenTask",
+      "operationId": "op-14",
+      "task": {
+        "existingId": "task-complete"
+      }
+    },
+    {
+      "operation": "reorderProjectTask",
+      "operationId": "op-15",
+      "task": {
+        "existingId": "task-order"
+      },
+      "placement": {
+        "before": {
+          "existingId": "task-measure"
+        }
+      }
+    },
+    {
+      "operation": "archiveProject",
+      "operationId": "op-16",
+      "project": {
+        "existingId": "project-archive"
+      }
+    },
+    {
+      "operation": "archiveTask",
+      "operationId": "op-17",
+      "task": {
+        "existingId": "task-archive"
+      }
+    },
+    {
+      "operation": "moveProjectToBin",
+      "operationId": "op-18",
+      "project": {
+        "existingId": "project-bin"
+      }
+    },
+    {
+      "operation": "moveTaskToBin",
+      "operationId": "op-19",
+      "task": {
+        "existingId": "task-bin"
+      },
+      "explanation": "Remove obsolete work."
+    },
+    {
+      "operation": "setTaskToday",
+      "operationId": "op-today",
+      "task": {
+        "existingId": "task-measure"
+      },
+      "todayLane": "planned"
+    }
+  ]
+}

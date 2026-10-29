@@ -1,0 +1,89 @@
+{
+  "format": "dot-orbit-planning-snapshot",
+  "schemaVersion": 2,
+  "workspaceRevision": "7",
+  "categories": [
+    {
+      "id": "category-home",
+      "name": "Home"
+    },
+    {
+      "id": "category-work",
+      "name": "Work"
+    }
+  ],
+  "participants": [
+    {
+      "id": "participant-alex",
+      "label": "Alex"
+    }
+  ],
+  "projects": [
+    {
+      "id": "project-kitchen",
+      "title": "Refresh the kitchen",
+      "description": "A small, staged refresh.",
+      "categoryId": "category-home",
+      "targetDate": "2026-11-30",
+      "status": "inProgress",
+      "progress": {
+        "completedTaskCount": 1,
+        "taskCount": 2
+      },
+      "completionDate": null,
+      "excludedArchivedTaskCount": 1,
+      "taskIds": [
+        "task-measure",
+        "task-order"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "task-measure",
+      "projectId": "project-kitchen",
+      "title": "Measure the worktop",
+      "description": "Record the final dimensions.",
+      "category": {
+        "mode": "inherited",
+        "categoryId": "category-home"
+      },
+      "dueDate": "2026-10-20",
+      "isComplete": true,
+      "completionDate": "2026-10-12",
+      "participantIds": [
+        "participant-alex"
+      ],
+      "todayLane": null
+    },
+    {
+      "id": "task-order",
+      "projectId": "project-kitchen",
+      "title": "Order paint",
+      "description": "Use the low-VOC finish.",
+      "category": {
+        "mode": "explicit",
+        "categoryId": "category-work"
+      },
+      "dueDate": null,
+      "isComplete": false,
+      "completionDate": null,
+      "participantIds": [],
+      "todayLane": "planned"
+    }
+  ],
+  "orders": {
+    "categoryIds": [
+      "category-home",
+      "category-work"
+    ],
+    "projectIds": [
+      "project-kitchen"
+    ],
+    "sharedTaskIds": [
+      "task-measure",
+      "task-order"
+    ]
+  },
+  "snapshotId": "sha256:a0f7428be46990967d7b8e53ba1a920c7df501fe52c5255fadfea70f3c7eb968"
+}

@@ -79,8 +79,8 @@ public sealed class ChangeProposalJsonParserTests
     [InlineData("1.0", "invalid-number")]
     [InlineData("1e0", "invalid-number")]
     [InlineData("0", "unsupported-version")]
-    [InlineData("2", "unsupported-version")]
-    public void RejectsNonV1IntegerVersions(string version, string code) =>
+    [InlineData("3", "unsupported-version")]
+    public void RejectsUnsupportedIntegerVersions(string version, string code) =>
         Assert.Equal(code, ChangeProposalJsonParser.Parse(Empty.Replace("\"schemaVersion\":1", $"\"schemaVersion\":{version}", StringComparison.Ordinal)).ErrorCode);
 
     [Theory]

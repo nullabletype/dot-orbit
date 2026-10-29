@@ -24,17 +24,24 @@ public static class PlanningSnapshotJsonGenerator
         encoderShouldEmitUTF8Identifier: false,
         throwOnInvalidBytes: true);
 
-    public static InterchangeGenerationResult Generate(IPlanningSnapshotSource source)
+    public static InterchangeGenerationResult Generate(IPlanningSnapshotSource source) =>
+        Generate(source, AgentInterchangeV2.SchemaVersion);
+
+    public static InterchangeGenerationResult Generate(IPlanningSnapshotSource source, int schemaVersion)
     {
         ArgumentNullException.ThrowIfNull(source);
-        return Generate(source.Read());
+        return Generate(source.Read(), schemaVersion);
     }
 
-    public static InterchangeGenerationResult Generate(PlanningSnapshotContent snapshot)
+    public static InterchangeGenerationResult Generate(PlanningSnapshotContent snapshot) =>
+        Generate(snapshot, AgentInterchangeV2.SchemaVersion);
+
+    public static InterchangeGenerationResult Generate(PlanningSnapshotContent snapshot, int schemaVersion)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
+        EnsureSupportedVersion(schemaVersion);
         if (StoredTextExceedsLimit(snapshot)) return InterchangeGenerationResult.TooLarge();
-        var root = CreateRoot(snapshot);
+        var root = CreateRoot(snapshot, schemaVersion);
         using var withoutId = JsonDocument.Parse(root.ToJsonString());
         var canonicalWithoutId = Rfc8785Canonicalizer.Canonicalize(withoutId.RootElement);
         var digest = Convert.ToHexString(SHA256.HashData(canonicalWithoutId)).ToLowerInvariant();
@@ -44,6 +51,12 @@ public static class PlanningSnapshotJsonGenerator
         return payload.Length <= AgentInterchangeV1.MaximumOutputBytes
             ? InterchangeGenerationResult.Success(payload)
             : InterchangeGenerationResult.TooLarge();
+    }
+
+    internal static void EnsureSupportedVersion(int schemaVersion)
+    {
+        if (schemaVersion is not (AgentInterchangeV1.SchemaVersion or AgentInterchangeV2.SchemaVersion))
+            throw new ArgumentOutOfRangeException(nameof(schemaVersion), "Unsupported interchange version.");
     }
 
     private static bool StoredTextExceedsLimit(PlanningSnapshotContent snapshot)
@@ -98,10 +111,10 @@ public static class PlanningSnapshotJsonGenerator
         foreach (var id in snapshot.Orders.SharedTaskIds) yield return id;
     }
 
-    private static JsonObject CreateRoot(PlanningSnapshotContent snapshot) => new()
+    private static JsonObject CreateRoot(PlanningSnapshotContent snapshot, int schemaVersion) => new()
     {
         ["format"] = AgentInterchangeV1.PlanningSnapshotFormat,
-        ["schemaVersion"] = AgentInterchangeV1.SchemaVersion,
+        ["schemaVersion"] = schemaVersion,
         ["workspaceRevision"] = snapshot.WorkspaceRevision.ToString(),
         ["categories"] = new JsonArray(snapshot.Categories.Select(category => (JsonNode)new JsonObject
         {
