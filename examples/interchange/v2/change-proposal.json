@@ -190,9 +190,9 @@
       "operation": "setTaskToday",
       "operationId": "op-today",
       "task": {
-        "existingId": "task-measure"
+        "existingId": "task-order"
       },
-      "todayLane": "planned"
+      "todayLane": "inProgress"
     }
   ]
 }

@@ -30,6 +30,7 @@ public static class PlanningSnapshotJsonGenerator
     public static InterchangeGenerationResult Generate(IPlanningSnapshotSource source, int schemaVersion)
     {
         ArgumentNullException.ThrowIfNull(source);
+        EnsureSupportedVersion(schemaVersion);
         return Generate(source.Read(), schemaVersion);
     }
 
