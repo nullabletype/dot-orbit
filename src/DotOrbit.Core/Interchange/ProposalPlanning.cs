@@ -16,13 +16,15 @@ public sealed record ProposalValidationFailure(string Code, int? OperationIndex 
 {
     public string Guidance => Code switch
     {
-        "unsupported-version" => "Regenerate a version 1 proposal or update dot-orbit for a supported version.",
+        "unsupported-version" => "Regenerate a version 1 or version 2 proposal or update dot-orbit for a supported version.",
         "stale-source" => "The workspace changed. Review the proposal again, or share fresh workspace context before regenerating a proposal that changes existing work.",
         "source-conflict" => "Related work changed after this proposal arrived. Share fresh workspace context and regenerate it before applying these changes.",
         "missing-review-basis" => "This earlier proposal cannot be safely refreshed. Discard it, share fresh workspace context, and ask the client to submit it again.",
         "review-basis-limit" => "This proposal is too complex to retain safely for later review. Supply a smaller proposal.",
         "invalid-schema" => "Paste a complete New-work or Change proposal returned by the AI assistant. Workspace context is not itself a proposal.",
         "invalid-json" => "Paste one complete JSON object only, without Markdown fences or surrounding prose, and correct any JSON syntax errors.",
+        "invalid-today-state" => "Only active, incomplete Tasks may belong to Today. Reopen the Task first, or remove the Today operation.",
+        "today-conflict" => "Remove the Today placement or the later completion, archive, or Bin operation so the requested Today placement remains in the final workspace.",
         "no-op" => "Remove this operation because it would not change the current workspace or an earlier result in this proposal.",
         "duplicate-category-name" => "Choose a different Category name because that name already exists in the workspace or earlier in this proposal.",
         "duplicate-participant-label" => "Choose a different Participant label because that label already exists in the workspace or earlier in this proposal.",
