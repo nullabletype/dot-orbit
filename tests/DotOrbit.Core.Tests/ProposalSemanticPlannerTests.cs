@@ -108,6 +108,29 @@ public sealed class ProposalSemanticPlannerTests
     }
 
     [Fact]
+    public void TodayCannotTargetBinnedTaskOrChildOfArchivedProject()
+    {
+        var source = Source();
+        var binned = source.Workspace.Tasks.Single(task => task.Id == "a");
+        var binSource = source with
+        {
+            Workspace = source.Workspace with { Tasks = source.Workspace.Tasks.Where(task => task.Id != "a").ToArray() },
+            TaskBin = [new(binned, DateTimeOffset.UnixEpoch, "Project", "Category", true, null)],
+        };
+        Assert.Equal("invalid-reference", Assert.Single(ValidateV2(binSource, new SetTaskTodayOperation("1", TaskA, TodayLane.InProgress)).Failures).Code);
+        var archivedSource = source with
+        {
+            Workspace = source.Workspace with
+            {
+                Projects = source.Workspace.Projects.Select(project => project.Id == "p"
+                    ? project with { ArchivedAt = DateTimeOffset.UnixEpoch, ArchiveDate = new(2020, 1, 1) } : project).ToArray(),
+                Tasks = source.Workspace.Tasks.Select(task => task with { TodayLane = null }).ToArray(),
+            },
+        };
+        Assert.Equal("invalid-reference", Assert.Single(ValidateV2(archivedSource, new SetTaskTodayOperation("1", TaskA, TodayLane.Planned)).Failures).Code);
+    }
+
+    [Fact]
     public void TodayExistingOperationCannotTargetCreatedLocalTaskOrAppearInNewWork()
     {
         var operation = new SetTaskTodayOperation("2", ProposalReference.Local("new"), TodayLane.Planned);
@@ -123,10 +146,13 @@ public sealed class ProposalSemanticPlannerTests
     [Theory]
     [InlineData(null)]
     [InlineData(TodayLane.Planned)]
+    [InlineData(TodayLane.InProgress)]
     public void UnchangedTodayStateIsRejected(TodayLane? lane)
     {
-        var reference = lane is null ? ProposalReference.Existing("b") : TaskA;
-        Assert.Equal("no-op", Assert.Single(ValidateV2(Source(), new SetTaskTodayOperation("1", reference, lane)).Failures).Code);
+        var source = Source();
+        source = source with { Workspace = source.Workspace with
+        { Tasks = source.Workspace.Tasks.Select(task => task.Id == "a" ? task with { TodayLane = lane } : task).ToArray() } };
+        Assert.Equal("no-op", Assert.Single(ValidateV2(source, new SetTaskTodayOperation("1", TaskA, lane)).Failures).Code);
     }
 
     [Theory]

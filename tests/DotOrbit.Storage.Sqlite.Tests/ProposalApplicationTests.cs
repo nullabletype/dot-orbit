@@ -304,7 +304,7 @@ public sealed class ProposalApplicationTests : IDisposable
         var store = new EncryptedWorkspaceStore();
         using var session = CreateWorkspace(store);
         var source = session.Proposals.Read();
-        var snapshot = PlanningSnapshotJsonGenerator.Generate(session.Planning.Read());
+        var snapshot = PlanningSnapshotJsonGenerator.Generate(session.Planning.Read(), 1);
         using var document = JsonDocument.Parse(snapshot.Payload!.Value);
         var identity = document.RootElement.GetProperty("snapshotId").GetString()!;
         var result = new ProposalSemanticPlanner(TimeProvider.System, new AcceptMarkdown()).Validate(
@@ -970,6 +970,297 @@ public sealed class ProposalApplicationTests : IDisposable
         Assert.Contains(session.Work.ReadTaskBin(), item => item.Task.Id == binTask.Id);
     }
 
+    [Theory]
+    [InlineData(null, "planned", TodayLane.Planned)]
+    [InlineData(null, "inProgress", TodayLane.InProgress)]
+    [InlineData(TodayLane.Planned, "inProgress", TodayLane.InProgress)]
+    [InlineData(TodayLane.InProgress, "planned", TodayLane.Planned)]
+    [InlineData(TodayLane.Planned, "none", null)]
+    [InlineData(TodayLane.InProgress, "none", null)]
+    public void EveryVersionTwoTodayTransitionPreservesTaskSharedPosition(TodayLane? before, string state, TodayLane? expected)
+    {
+        var store = new EncryptedWorkspaceStore();
+        using var session = CreateWorkspace(store);
+        var category = Assert.Single(session.Work.Read().Categories);
+        var task = session.Work.CreateStandaloneTask("Transition", "", category.Id, null);
+        session.Work.CreateStandaloneTask("Neighbour", "", category.Id, null);
+        if (before is not null) session.Work.SetTaskTodayLane(task.Id, before);
+        var original = session.Work.Read().Tasks.Select(item => (item.Id, item.SharedPosition)).ToArray();
+        var revision = Revision(session);
+        var plan = ReviewVersion(session, 2, SetToday("1", task.Id, state));
+        var approval = Assert.IsType<ProposalApproval>(session.ProposalApplication.Approve(plan));
+
+        Assert.Equal(ProposalApplyStatus.Committed, Apply(session, approval, new Host()).Status);
+
+        Assert.Equal(expected, session.Work.Read().Tasks.Single(item => item.Id == task.Id).TodayLane);
+        Assert.Equal(original, session.Work.Read().Tasks.Select(item => (item.Id, item.SharedPosition)));
+        Assert.Equal(revision + 1, Revision(session));
+    }
+
+    [Fact]
+    public void VersionTwoTodayMutationsCommitOneRevisionPreserveOrderAndRecoverPriorMembership()
+    {
+        var recoveryDirectory = Path.Combine(directory, "recovery");
+        var store = new EncryptedWorkspaceStore();
+        using var session = CreateWorkspace(store);
+        Assert.Equal(RecoveryDirectoryConfigurationStatus.Configured,
+            session.Recovery.ConfigureAutomaticRecoveryDirectory(recoveryDirectory).Status);
+        var category = Assert.Single(session.Work.Read().Categories);
+        var add = session.Work.CreateStandaloneTask("Add", "", category.Id, null);
+        var move = session.Work.CreateStandaloneTask("Move", "", category.Id, null);
+        var remove = session.Work.CreateStandaloneTask("Remove", "", category.Id, null);
+        var reopen = session.Work.CreateStandaloneTask("Reopen", "", category.Id, null);
+        session.Work.SetTaskTodayLane(move.Id, TodayLane.Planned);
+        session.Work.SetTaskTodayLane(remove.Id, TodayLane.InProgress);
+        session.Work.CompleteTask(reopen.Id);
+        var before = session.Proposals.Read();
+        var plan = ReviewVersion(session, 2,
+            SetToday("1", add.Id, "planned"),
+            SetToday("2", move.Id, "inProgress"),
+            SetToday("3", remove.Id, "none"),
+            new JsonObject { ["operation"] = "reopenTask", ["operationId"] = "4", ["task"] = Existing(reopen.Id) },
+            SetToday("5", reopen.Id, "inProgress"));
+        var approval = Assert.IsType<ProposalApproval>(session.ProposalApplication.Approve(plan));
+
+        Assert.Equal(ProposalApplyStatus.Committed, Apply(session, approval, new Host()).Status);
+
+        var after = session.Proposals.Read();
+        Assert.Equal(before.Revision.Value + 1, after.Revision.Value);
+        Assert.Equal(before.Workspace.Tasks.Select(item => (item.Id, item.SharedPosition)),
+            after.Workspace.Tasks.Select(item => (item.Id, item.SharedPosition)));
+        Assert.Equal(TodayLane.Planned, after.Workspace.Tasks.Single(item => item.Id == add.Id).TodayLane);
+        Assert.Equal(TodayLane.InProgress, after.Workspace.Tasks.Single(item => item.Id == move.Id).TodayLane);
+        Assert.Null(after.Workspace.Tasks.Single(item => item.Id == remove.Id).TodayLane);
+        var reopened = after.Workspace.Tasks.Single(item => item.Id == reopen.Id);
+        Assert.False(reopened.IsComplete);
+        Assert.Null(reopened.CompletionDate);
+        Assert.Equal(TodayLane.InProgress, reopened.TodayLane);
+        Assert.Equal(ProposalApplyStatus.ApprovalUnavailable, Apply(session, approval, new Host()).Status);
+        Assert.Null(session.ProposalApplication.Approve(plan));
+        Assert.Equal(after.Revision, session.Proposals.Read().Revision);
+        var recoveryPath = Assert.Single(Directory.GetFiles(recoveryDirectory, "dot-orbit-pre-import-*.dotorbit-recovery"));
+        using var recovered = Assert.IsAssignableFrom<IWorkspaceSession>(store.Open(recoveryPath, passphrase).Session);
+        var recoveryTasks = recovered.Work.Read().Tasks;
+        Assert.Null(recoveryTasks.Single(item => item.Id == add.Id).TodayLane);
+        Assert.Equal(TodayLane.Planned, recoveryTasks.Single(item => item.Id == move.Id).TodayLane);
+        Assert.Equal(TodayLane.InProgress, recoveryTasks.Single(item => item.Id == remove.Id).TodayLane);
+        Assert.True(recoveryTasks.Single(item => item.Id == reopen.Id).IsComplete);
+    }
+
+    [Theory]
+    [InlineData("planned", TodayLane.Planned)]
+    [InlineData("inProgress", TodayLane.InProgress)]
+    public void VersionTwoNewWorkCreatesTodayWithFreshIdentityInOneTransaction(string state, TodayLane lane)
+    {
+        var store = new EncryptedWorkspaceStore();
+        using var session = CreateWorkspace(store);
+        var before = Revision(session);
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(new JsonObject
+        {
+            ["format"] = AgentInterchangeV1.NewWorkProposalFormat,
+            ["schemaVersion"] = 2,
+            ["operations"] = new JsonArray(
+                new JsonObject { ["operation"] = "createCategory", ["operationId"] = "1", ["localId"] = "category", ["name"] = "New category" },
+                new JsonObject
+                {
+                    ["operation"] = "createTask", ["operationId"] = "2", ["localId"] = "task", ["title"] = "Today creation",
+                    ["description"] = "", ["project"] = null,
+                    ["category"] = new JsonObject { ["mode"] = "explicit", ["category"] = Local("category") },
+                    ["dueDate"] = null, ["participants"] = new JsonArray(), ["todayLane"] = state,
+                }),
+        });
+        var review = new ProposalReviewBoundary(session.Proposals, TimeProvider.System).Review(bytes);
+        Assert.Empty(review.Failures);
+        var plan = Assert.IsType<ProposalExecutionPlan>(review.Plan);
+        var approval = Assert.IsType<ProposalApproval>(session.ProposalApplication.Approve(plan));
+
+        Assert.Equal(ProposalApplyStatus.Committed, Apply(session, approval, new Host()).Status);
+
+        Assert.Equal(before + 1, Revision(session));
+        var task = Assert.Single(session.Work.Read().Tasks);
+        Assert.NotEqual("task", task.Id);
+        Assert.Equal(lane, task.TodayLane);
+        Assert.False(task.IsComplete);
+        Assert.Equal(Assert.Single(session.Work.Read().Categories, item => item.Name == "New category").Id, task.ExplicitCategoryId);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(-1)]
+    public void VersionTwoTodayFailureRollsBackAllOperationsAndConsumesApproval(int failIndex)
+    {
+        var store = new EncryptedWorkspaceStore(new SystemIdentifierGenerator(), new WorkspaceFileOperations(), TimeProvider.System,
+            proposalApplyCheckpoint: (checkpoint, _, index) =>
+            {
+                if (failIndex == -1 ? checkpoint == ProposalApplyCheckpoint.BeforeCommit
+                    : checkpoint == ProposalApplyCheckpoint.OperationCompleted && index == failIndex)
+                    throw new IOException("Synthetic failure.");
+            });
+        using var session = CreateWorkspace(store);
+        var category = Assert.Single(session.Work.Read().Categories);
+        var task = session.Work.CreateStandaloneTask("Keep", "", category.Id, null);
+        var completed = session.Work.CreateStandaloneTask("Completed", "", category.Id, null);
+        session.Work.CompleteTask(completed.Id);
+        var before = session.Proposals.Read();
+        var plan = ReviewVersion(session, 2,
+            SetToday("1", task.Id, "inProgress"),
+            new JsonObject { ["operation"] = "reopenTask", ["operationId"] = "2", ["task"] = Existing(completed.Id) },
+            SetToday("3", completed.Id, "planned"),
+            new JsonObject { ["operation"] = "createTask", ["operationId"] = "4", ["localId"] = "new", ["title"] = "Roll back creation",
+                ["description"] = "", ["project"] = null, ["category"] = new JsonObject { ["mode"] = "explicit", ["category"] = Existing(category.Id) },
+                ["dueDate"] = null, ["participants"] = new JsonArray(), ["todayLane"] = "inProgress" });
+        var approval = Assert.IsType<ProposalApproval>(session.ProposalApplication.Approve(plan));
+
+        Assert.Equal(ProposalApplyStatus.Failed, Apply(session, approval, new Host()).Status);
+
+        var after = session.Proposals.Read();
+        Assert.Equal(before.Revision, after.Revision);
+        Assert.Equal(before.Workspace.Tasks.Select(item => (item.Id, item.SharedPosition, item.TodayLane, item.CompletedAt)),
+            after.Workspace.Tasks.Select(item => (item.Id, item.SharedPosition, item.TodayLane, item.CompletedAt)));
+        Assert.Equal(ProposalApplyStatus.ApprovalUnavailable, Apply(session, approval, new Host()).Status);
+    }
+
+    [Fact]
+    public void StaleVersionTwoTodayApprovalCannotChangeMembership()
+    {
+        var store = new EncryptedWorkspaceStore();
+        using var session = CreateWorkspace(store);
+        var task = session.Work.CreateStandaloneTask("Keep", "", Assert.Single(session.Work.Read().Categories).Id, null);
+        var plan = ReviewVersion(session, 2, SetToday("1", task.Id, "planned"));
+        var approval = Assert.IsType<ProposalApproval>(session.ProposalApplication.Approve(plan));
+        session.Work.CreateParticipant("Unrelated revision");
+        var before = Revision(session);
+
+        Assert.Equal(ProposalApplyStatus.StaleSource, Apply(session, approval, new Host()).Status);
+
+        Assert.Null(Assert.Single(session.Work.Read().Tasks).TodayLane);
+        Assert.Equal(before, Revision(session));
+        Assert.Equal(ProposalApplyStatus.ApprovalUnavailable, Apply(session, approval, new Host()).Status);
+    }
+
+    [Fact]
+    public void VersionTwoTodayRecoveryFailureCannotMutateMembershipOrRevision()
+    {
+        var files = new FailingProposalRecoveryFileOperations();
+        var store = new EncryptedWorkspaceStore(new SystemIdentifierGenerator(), files);
+        using var session = CreateWorkspace(store);
+        Assert.Equal(RecoveryDirectoryConfigurationStatus.Configured,
+            session.Recovery.ConfigureAutomaticRecoveryDirectory(Path.Combine(directory, "recovery")).Status);
+        var task = session.Work.CreateStandaloneTask("Keep", "", Assert.Single(session.Work.Read().Categories).Id, null);
+        var plan = ReviewVersion(session, 2, SetToday("1", task.Id, "inProgress"));
+        var approval = Assert.IsType<ProposalApproval>(session.ProposalApplication.Approve(plan));
+        var before = Revision(session);
+        files.FailProposalRecoveryPublish = true;
+
+        Assert.Equal(ProposalApplyStatus.RecoveryPointCreationFailed, Apply(session, approval, new Host()).Status);
+
+        Assert.Null(Assert.Single(session.Work.Read().Tasks).TodayLane);
+        Assert.Equal(before, Revision(session));
+        Assert.Equal(ProposalApplyStatus.ApprovalUnavailable, Apply(session, approval, new Host()).Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void QueuedVersionTwoTodaySurvivesRestartAndConsumesReceiptOnlyWithAtomicCommit(bool failAfterFirstOperation)
+    {
+        var injectFailure = false;
+        var store = new EncryptedWorkspaceStore(new SystemIdentifierGenerator(), new WorkspaceFileOperations(), TimeProvider.System,
+            proposalApplyCheckpoint: (checkpoint, _, index) =>
+            {
+                if (injectFailure && checkpoint == ProposalApplyCheckpoint.OperationCompleted && index == 0)
+                    throw new IOException("Synthetic failure after Today mutation.");
+            });
+        const string receipt = "today-receipt";
+        const string key = "today-idempotency-key";
+        var clientIdentity = new string('a', 64);
+        byte[] bytes;
+        string taskId;
+        string removedId;
+        long initialRevision;
+        using (var session = CreateWorkspace(store))
+        {
+            var category = Assert.Single(session.Work.Read().Categories);
+            taskId = session.Work.CreateStandaloneTask("Queued add", "", category.Id, null).Id;
+            removedId = session.Work.CreateStandaloneTask("Queued removal", "", category.Id, null).Id;
+            session.Work.SetTaskTodayLane(removedId, TodayLane.Planned);
+            initialRevision = Revision(session);
+            var snapshot = PlanningSnapshotJsonGenerator.Generate(session.Planning.Read(), 2);
+            using var document = JsonDocument.Parse(snapshot.Payload!.Value);
+            bytes = JsonSerializer.SerializeToUtf8Bytes(new JsonObject
+            {
+                ["format"] = AgentInterchangeV1.ChangeProposalFormat, ["schemaVersion"] = 2,
+                ["sourceSnapshotId"] = document.RootElement.GetProperty("snapshotId").GetString(),
+                ["sourceWorkspaceRevision"] = initialRevision.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ["operations"] = new JsonArray(SetToday("1", taskId, "inProgress"), SetToday("2", removedId, "none")),
+            });
+            var admitted = new ProposalReviewBoundary(session.Proposals, TimeProvider.System).PrepareQueued(bytes);
+            Assert.Empty(admitted.Failures);
+            var plan = Assert.IsType<ProposalExecutionPlan>(admitted.Plan);
+            Assert.Equal(PendingAgentProposalStoreStatus.Stored, session.AgentIntegration.TryStorePendingProposal(new(
+                receipt, key, "authorization", clientIdentity, "Synthetic client",
+                DateTimeOffset.UnixEpoch, plan.Kind, plan.Operations.Count, plan.Preview.Count, reviewBasis: admitted.ReviewBasis.Span, strictUtf8: bytes)).Status);
+            Assert.Null(session.Work.Read().Tasks.Single(item => item.Id == taskId).TodayLane);
+            Assert.Equal(initialRevision, Revision(session));
+        }
+
+        using (var session = Assert.IsAssignableFrom<IWorkspaceSession>(store.Open(WorkspacePath, passphrase).Session))
+        {
+            var pending = Assert.Single(session.AgentIntegration.ReadPendingProposals());
+            Assert.True(bytes.AsSpan().SequenceEqual(pending.StrictUtf8.Span));
+            var reviewed = new ProposalReviewBoundary(session.Proposals, TimeProvider.System).ReviewQueued(pending.StrictUtf8, pending.ReviewBasis);
+            Assert.Empty(reviewed.Failures);
+            var plan = Assert.IsType<ProposalExecutionPlan>(reviewed.Plan);
+            var approval = Assert.IsType<ProposalApproval>(session.ProposalApplication.Approve(plan));
+            injectFailure = failAfterFirstOperation;
+            var result = Assert.IsAssignableFrom<IInboundProposalApplication>(session.ProposalApplication)
+                .ApplyInbound(approval, receipt, new Host(), TestContext.Current.CancellationToken);
+            Assert.Equal(failAfterFirstOperation ? ProposalApplyStatus.Failed : ProposalApplyStatus.Committed, result.Status);
+            Assert.Equal(ProposalApplyStatus.ApprovalUnavailable, Apply(session, approval, new Host()).Status);
+        }
+
+        using var finalSession = Assert.IsAssignableFrom<IWorkspaceSession>(store.Open(WorkspacePath, passphrase).Session);
+        Assert.Equal(initialRevision + (failAfterFirstOperation ? 0 : 1), Revision(finalSession));
+        Assert.Equal(failAfterFirstOperation ? null : TodayLane.InProgress,
+            finalSession.Work.Read().Tasks.Single(item => item.Id == taskId).TodayLane);
+        Assert.Equal(failAfterFirstOperation ? TodayLane.Planned : null,
+            finalSession.Work.Read().Tasks.Single(item => item.Id == removedId).TodayLane);
+        if (failAfterFirstOperation) Assert.Equal(receipt, Assert.Single(finalSession.AgentIntegration.ReadPendingProposals()).Receipt);
+        else Assert.Empty(finalSession.AgentIntegration.ReadPendingProposals());
+        var replay = finalSession.AgentIntegration.TryStorePendingProposal(new(
+            "replayed-receipt", key, "new-authorization", clientIdentity, "Synthetic client", DateTimeOffset.UnixEpoch,
+            ProposalKind.WorkspaceChange, 2, 2, bytes));
+        Assert.Equal(PendingAgentProposalStoreStatus.Duplicate, replay.Status);
+        Assert.Equal(receipt, replay.Receipt);
+        Assert.Equal(failAfterFirstOperation ? 1 : 0, finalSession.AgentIntegration.ReadPendingProposals().Count);
+    }
+
+    private static JsonObject SetToday(string operationId, string task, string state) => new()
+    {
+        ["operation"] = "setTaskToday", ["operationId"] = operationId, ["task"] = Existing(task), ["todayLane"] = state,
+    };
+
+    private static ProposalExecutionPlan ReviewVersion(IWorkspaceSession session, int version, params JsonObject[] operations)
+    {
+        var snapshot = PlanningSnapshotJsonGenerator.Generate(session.Planning.Read(), version);
+        using var document = JsonDocument.Parse(snapshot.Payload!.Value);
+        var operationArray = new JsonArray();
+        foreach (var operation in operations) operationArray.Add(operation);
+        var proposal = new JsonObject
+        {
+            ["format"] = AgentInterchangeV1.ChangeProposalFormat, ["schemaVersion"] = version,
+            ["sourceSnapshotId"] = document.RootElement.GetProperty("snapshotId").GetString(),
+            ["sourceWorkspaceRevision"] = session.Planning.Read().WorkspaceRevision.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["operations"] = operationArray,
+        };
+        var result = new ProposalReviewBoundary(session.Proposals, TimeProvider.System).Review(JsonSerializer.SerializeToUtf8Bytes(proposal));
+        Assert.Empty(result.Failures);
+        return Assert.IsType<ProposalExecutionPlan>(result.Plan);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(directory))
@@ -1000,7 +1291,7 @@ public sealed class ProposalApplicationTests : IDisposable
         TimeProvider timeProvider,
         params JsonObject[] operations)
     {
-        var snapshot = PlanningSnapshotJsonGenerator.Generate(session.Planning.Read());
+        var snapshot = PlanningSnapshotJsonGenerator.Generate(session.Planning.Read(), 1);
         using var document = JsonDocument.Parse(snapshot.Payload!.Value);
         var operationArray = new JsonArray();
         foreach (var operation in operations)

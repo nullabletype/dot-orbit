@@ -231,7 +231,7 @@ public sealed class AgentIntegrationStoreTests : IDisposable
             var state = session.Proposals.Read();
             var categoryId = Assert.Single(state.Workspace.Categories).Id;
             using var snapshot = JsonDocument.Parse(PlanningSnapshotJsonGenerator.Generate(
-                PlanningSnapshotProjection.Create(state.Revision, state.Workspace)).Payload!.Value);
+                PlanningSnapshotProjection.Create(state.Revision, state.Workspace), 1).Payload!.Value);
             payload = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
             {
                 format = "dot-orbit-change-proposal",

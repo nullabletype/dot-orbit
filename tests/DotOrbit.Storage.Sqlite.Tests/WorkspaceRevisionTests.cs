@@ -21,8 +21,10 @@ public sealed class WorkspaceRevisionTests : IDisposable
 
     private string WorkspacePath => Path.Combine(_directory, "workspace.db");
 
-    [Fact]
-    public void ReviewUsesCurrentAtomicIdentityAndNeverWritesIncludingAfterHiddenMutationOrRestart()
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void ReviewUsesCurrentAtomicIdentityAndNeverWritesIncludingAfterHiddenMutationOrRestart(int version)
     {
         string input;
         long revision;
@@ -30,13 +32,13 @@ public sealed class WorkspaceRevisionTests : IDisposable
         {
             var category = Assert.Single(session.Work.Read().Categories);
             var task = session.Work.CreateStandaloneTask("Synthetic task", "", category.Id, null);
-            var payload = PlanningSnapshotJsonGenerator.Generate(session.Planning.Read()).Payload!.Value;
+            var payload = PlanningSnapshotJsonGenerator.Generate(session.Planning.Read(), version).Payload!.Value;
             using var snapshot = JsonDocument.Parse(payload);
             revision = Revision(session);
             input = JsonSerializer.Serialize(new
             {
                 format = "dot-orbit-change-proposal",
-                schemaVersion = 1,
+                schemaVersion = version,
                 sourceSnapshotId = snapshot.RootElement.GetProperty("snapshotId").GetString(),
                 sourceWorkspaceRevision = revision.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 operations = new[] { new { operation = "completeTask", operationId = "synthetic-complete",
