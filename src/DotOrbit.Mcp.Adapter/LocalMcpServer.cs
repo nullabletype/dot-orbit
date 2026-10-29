@@ -109,6 +109,7 @@ internal static class LocalMcpServer
         var server = builder.Services.AddMcpServer();
         server.WithStreamServerTransport(input, output);
         server.WithTools<OrbitTools>();
+        server.WithResources<OrbitResources>();
         return builder.Build();
     }
 
@@ -186,26 +187,30 @@ internal sealed class OrbitTools(ILocalMcpBrokerClient broker)
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
     [McpServerTool(Name = "orbit_get_instructions")]
-    [Description("Returns immutable dot-orbit proposal instructions and schemas from the unlocked local desktop app.")]
-    public async Task<OrbitTextResult> GetInstructionsAsync(CancellationToken cancellationToken = default)
+    [Description("Returns dot-orbit proposal instructions and schemas. Supported schema versions: 1 and 2 (default/latest). Versioned resources retain the v1 contract.")]
+    public async Task<OrbitTextResult> GetInstructionsAsync(
+        [Description("Interchange schema version: 1 or 2. Defaults to latest supported version 2.")] int schemaVersion = 2,
+        CancellationToken cancellationToken = default)
     {
         using var deadline = RequestDeadline(cancellationToken);
-        return ToText(await broker.ReadReusableInstructionsAsync(deadline.Token).ConfigureAwait(false));
+        return ToText(await broker.ReadReusableInstructionsAsync(schemaVersion, deadline.Token).ConfigureAwait(false));
     }
 
     [McpServerTool(Name = "orbit_get_planning_snapshot")]
     [Description("Returns one atomic revision-bearing Planning snapshot from the unlocked local desktop app. It excludes Archive and Bin content.")]
-    public async Task<OrbitTextResult> GetPlanningSnapshotAsync(CancellationToken cancellationToken = default)
+    public async Task<OrbitTextResult> GetPlanningSnapshotAsync(
+        [Description("Interchange schema version: 1 or 2. Defaults to latest supported version 2.")] int schemaVersion = 2,
+        CancellationToken cancellationToken = default)
     {
         using var deadline = RequestDeadline(cancellationToken);
-        return ToText(await broker.ReadPlanningSnapshotAsync(deadline.Token).ConfigureAwait(false));
+        return ToText(await broker.ReadPlanningSnapshotAsync(schemaVersion, deadline.Token).ConfigureAwait(false));
     }
 
     [McpServerTool(Name = "orbit_submit_proposal")]
-    [Description("Submits one v1 dot-orbit proposal for local human review. This cannot approve or apply changes.")]
+    [Description("Submits one v1 or v2 dot-orbit proposal for local human review. This cannot approve or apply changes.")]
     public async Task<OrbitSubmissionResult> SubmitProposalAsync(
         [Description("Caller-generated retry key, up to 128 characters.")] string idempotencyKey,
-        [Description("Complete strict UTF-8 v1 New-work or Change proposal JSON, up to 4 MiB.")] string proposal,
+        [Description("Complete strict UTF-8 v1 or v2 New-work or Change proposal JSON, up to 4 MiB.")] string proposal,
         CancellationToken cancellationToken = default)
     {
         using var deadline = RequestDeadline(cancellationToken);

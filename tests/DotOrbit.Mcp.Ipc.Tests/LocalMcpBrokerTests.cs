@@ -6,6 +6,56 @@ namespace DotOrbit.Mcp.Ipc.Tests;
 public sealed class LocalMcpBrokerTests
 {
     [Fact]
+    public async Task VersionedReadRoutesPreserveLegacyV1AndRejectUnsupportedVersions()
+    {
+        using var directory = new TemporaryDirectory();
+        var boundary = new RecordingBoundary();
+        await using var host = new LocalMcpBrokerHost(directory.Path, boundary, boundary);
+        host.Start();
+        await host.Ready.WaitAsync(TestContext.Current.CancellationToken);
+        await using var client = new LocalMcpBrokerClient(directory.Path, "test-client", "1.0", new string('a', 64), [LocalMcpProtocol.ReadScope]);
+        _ = await client.ReadReusableInstructionsAsync(TestContext.Current.CancellationToken);
+        _ = await client.ReadPlanningSnapshotAsync(TestContext.Current.CancellationToken);
+        _ = await client.ReadReusableInstructionsAsync(1, TestContext.Current.CancellationToken);
+        _ = await client.ReadPlanningSnapshotAsync(1, TestContext.Current.CancellationToken);
+        _ = await client.ReadReusableInstructionsAsync(2, TestContext.Current.CancellationToken);
+        _ = await client.ReadPlanningSnapshotAsync(2, TestContext.Current.CancellationToken);
+
+        Assert.Equal([1, 1, 1, 1, 2, 2], boundary.ReadVersions);
+        Assert.Equal(
+            [LocalMcpOperation.ReadReusableInstructions, LocalMcpOperation.ReadPlanningSnapshot,
+             LocalMcpOperation.ReadReusableInstructions, LocalMcpOperation.ReadPlanningSnapshot,
+             LocalMcpOperation.ReadReusableInstructions, LocalMcpOperation.ReadPlanningSnapshot],
+            boundary.ReadOperations);
+        foreach (var version in new[] { 0, 3, -1 })
+        {
+            var instructions = await Assert.ThrowsAsync<LocalMcpBrokerException>(() => client.ReadReusableInstructionsAsync(version, TestContext.Current.CancellationToken));
+            var snapshot = await Assert.ThrowsAsync<LocalMcpBrokerException>(() => client.ReadPlanningSnapshotAsync(version, TestContext.Current.CancellationToken));
+            Assert.Equal("schema-version-unsupported", instructions.Code);
+            Assert.Equal("schema-version-unsupported", snapshot.Code);
+        }
+        Assert.Equal(6, boundary.HandleCount);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task VersionedReadsRequireReadScope(int version)
+    {
+        using var directory = new TemporaryDirectory();
+        var boundary = new RecordingBoundary();
+        await using var host = new LocalMcpBrokerHost(directory.Path, boundary, boundary);
+        host.Start();
+        await host.Ready.WaitAsync(TestContext.Current.CancellationToken);
+        await using var client = new LocalMcpBrokerClient(directory.Path, "test-client", "1.0", new string('a', 64), [LocalMcpProtocol.SubmitScope]);
+        var instructions = await Assert.ThrowsAsync<LocalMcpBrokerException>(() => client.ReadReusableInstructionsAsync(version, TestContext.Current.CancellationToken));
+        var snapshot = await Assert.ThrowsAsync<LocalMcpBrokerException>(() => client.ReadPlanningSnapshotAsync(version, TestContext.Current.CancellationToken));
+        Assert.Equal("scope-denied", instructions.Code);
+        Assert.Equal("scope-denied", snapshot.Code);
+        Assert.Equal(0, boundary.HandleCount);
+    }
+
+    [Fact]
     public async Task DistinctRuntimeRootsRouteToTheirOwnBroker()
     {
         using var directory = new TemporaryDirectory();
@@ -567,6 +617,8 @@ public sealed class LocalMcpBrokerTests
         ILocalMcpAuthorizationHandler,
         ILocalMcpOperationHandler
     {
+        public List<int> ReadVersions { get; } = [];
+        public List<LocalMcpOperation> ReadOperations { get; } = [];
         public byte[] Snapshot { get; } = snapshot ?? Enumerable.Range(0, 160 * 1024)
             .Select(index => (byte)(index % 239))
             .ToArray();
@@ -601,6 +653,11 @@ public sealed class LocalMcpBrokerTests
             CancellationToken cancellationToken)
         {
             HandleCount++;
+            if (request.Operation is LocalMcpOperation.ReadReusableInstructions or LocalMcpOperation.ReadPlanningSnapshot)
+            {
+                ReadVersions.Add(request.SchemaVersion);
+                ReadOperations.Add(request.Operation);
+            }
             return request.Operation switch
             {
                 LocalMcpOperation.ReadReusableInstructions =>

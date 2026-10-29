@@ -49,7 +49,8 @@ public enum LocalMcpOperation
 public sealed record LocalMcpOperationRequest(
     LocalMcpOperation Operation,
     string? IdempotencyKey,
-    ReadOnlyMemory<byte> Payload);
+    ReadOnlyMemory<byte> Payload,
+    int SchemaVersion = 1);
 
 public sealed record LocalMcpOperationResult(
     string Status,
@@ -810,7 +811,9 @@ public sealed class LocalMcpBrokerHost(
             error = null;
             switch (header.Operation)
             {
-                case "read.instructions" or "read.snapshot":
+                case "read.instructions" or "read.snapshot"
+                    or "read.instructions.v1" or "read.snapshot.v1"
+                    or "read.instructions.v2" or "read.snapshot.v2":
                     if (!scopes.HasFlag(LocalMcpScopes.ReadInterchangeContext) || payload.Length != 0)
                     {
                         error = "scope-denied";
@@ -818,11 +821,12 @@ public sealed class LocalMcpBrokerHost(
                     }
 
                     request = new(
-                        header.Operation == "read.instructions"
+                        header.Operation.StartsWith("read.instructions", StringComparison.Ordinal)
                             ? LocalMcpOperation.ReadReusableInstructions
                             : LocalMcpOperation.ReadPlanningSnapshot,
                         null,
-                        ReadOnlyMemory<byte>.Empty);
+                        ReadOnlyMemory<byte>.Empty,
+                        header.Operation.EndsWith(".v2", StringComparison.Ordinal) ? 2 : 1);
                     return true;
                 case "submit.proposal":
                     if (!scopes.HasFlag(LocalMcpScopes.SubmitProposals))

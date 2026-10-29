@@ -109,10 +109,29 @@ public sealed class McpServerTests
         await using var client = await McpClient.CreateAsync(transport, cancellationToken: timeout.Token);
 
         var tools = await client.ListToolsAsync(cancellationToken: timeout.Token);
+        var resources = await client.ListResourcesAsync(cancellationToken: timeout.Token);
+        Assert.Equal(
+            ["orbit://interchange/v1/instructions", "orbit://interchange/v1/planning-snapshot",
+             "orbit://interchange/v2/instructions", "orbit://interchange/v2/planning-snapshot"],
+            resources.Select(resource => resource.Uri).Order(StringComparer.Ordinal));
+        foreach (var resource in resources)
+        {
+            var result = await client.ReadResourceAsync(resource.Uri, cancellationToken: timeout.Token);
+            var content = Assert.IsType<TextResourceContents>(Assert.Single(result.Contents));
+            var kind = resource.Uri.EndsWith("/instructions", StringComparison.Ordinal) ? "instructions" : "snapshot";
+            var version = resource.Uri.Contains("/v1/", StringComparison.Ordinal) ? 1 : 2;
+            Assert.Equal($"{kind}-version-{version}", content.Text);
+        }
+
+        broker.ReadVersions.Clear();
+        _ = await client.CallToolAsync("orbit_get_instructions", new Dictionary<string, object?>(), cancellationToken: timeout.Token);
         var snapshot = await client.CallToolAsync(
             "orbit_get_planning_snapshot",
             new Dictionary<string, object?>(),
             cancellationToken: timeout.Token);
+        _ = await client.CallToolAsync("orbit_get_instructions", new Dictionary<string, object?> { ["schemaVersion"] = 1 }, cancellationToken: timeout.Token);
+        _ = await client.CallToolAsync("orbit_get_planning_snapshot", new Dictionary<string, object?> { ["schemaVersion"] = 1 }, cancellationToken: timeout.Token);
+        Assert.Equal([2, 2, 1, 1], broker.ReadVersions);
         var submitted = await client.CallToolAsync(
             "orbit_submit_proposal",
             new Dictionary<string, object?>
@@ -155,7 +174,21 @@ public sealed class McpServerTests
         string submissionStatus = "pending-local-review",
         bool duplicate = false) : ILocalMcpBrokerClient
     {
+        public List<int> ReadVersions { get; } = [];
         public string? IdempotencyKey { get; private set; }
+
+        public Task<LocalMcpBrokerResponse> ReadReusableInstructionsAsync(int schemaVersion, CancellationToken cancellationToken = default) =>
+            ReadVersion("instructions", schemaVersion);
+
+        public Task<LocalMcpBrokerResponse> ReadPlanningSnapshotAsync(int schemaVersion, CancellationToken cancellationToken = default) =>
+            ReadVersion("snapshot", schemaVersion);
+
+        private Task<LocalMcpBrokerResponse> ReadVersion(string kind, int schemaVersion)
+        {
+            ReadVersions.Add(schemaVersion);
+            return Task.FromResult(new LocalMcpBrokerResponse("ok", Encoding.UTF8.GetBytes($"{kind}-version-{schemaVersion}")));
+        }
+
         public ReadOnlyMemory<byte> Proposal { get; private set; }
 
         public Task<LocalMcpBrokerResponse> ReadReusableInstructionsAsync(
