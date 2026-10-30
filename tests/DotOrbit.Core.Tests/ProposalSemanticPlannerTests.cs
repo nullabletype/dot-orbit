@@ -32,6 +32,181 @@ public sealed class ProposalSemanticPlannerTests
             Source(),
             null,
             "digest");
+    private static ProposalPlanResult ValidateV2(ProposalWorkspaceState source, params ChangeOperation[] operations) =>
+        new ProposalSemanticPlanner(TimeProvider.System, new Markdown()).Validate(
+            new(AgentInterchangeV1.ChangeProposalFormat, 2, Identity, source.Revision, operations), source, Identity, "digest");
+
+    [Fact]
+    public void VersionOneCannotAcquireTodayAuthorityThroughTypedOperations()
+    {
+        Assert.Equal("unsupported-operation", Assert.Single(Validate(new SetTaskTodayOperation("1", TaskA, null)).Failures).Code);
+        Assert.Equal("unsupported-operation", Assert.Single(Validate(new CreateTaskOperation("1", "new", "Task", "", null,
+            new(ProposedTaskCategoryMode.Explicit, ProposalReference.Existing("c")), null, [], TodayLane: TodayLane.Planned)).Failures).Code);
+    }
+
+    [Theory]
+    [InlineData(null, TodayLane.Planned, "Not in Today", "Today: Planned")]
+    [InlineData(null, TodayLane.InProgress, "Not in Today", "Today: In progress")]
+    [InlineData(TodayLane.Planned, TodayLane.InProgress, "Today: Planned", "Today: In progress")]
+    [InlineData(TodayLane.InProgress, TodayLane.Planned, "Today: In progress", "Today: Planned")]
+    [InlineData(TodayLane.Planned, null, "Today: Planned", "Not in Today")]
+    [InlineData(TodayLane.InProgress, null, "Today: In progress", "Not in Today")]
+    public void VersionTwoPreviewsEveryTodayTransitionWithoutReordering(TodayLane? before, TodayLane? after, string beforeText, string afterText)
+    {
+        var source = Source();
+        source = source with
+        {
+            Workspace = source.Workspace with
+            { Tasks = source.Workspace.Tasks.Select(task => task.Id == "a" ? task with { TodayLane = before } : task).ToArray() }
+        };
+        var result = ValidateV2(source, new SetTaskTodayOperation("1", TaskA, after, "Reviewed placement"));
+        var effect = Assert.Single(result.Plan!.Preview, item => item.Kind == "task-today");
+        Assert.Equal(TaskA, effect.Target);
+        Assert.Equal(beforeText, effect.Before);
+        Assert.Equal(afterText, effect.After);
+        Assert.Contains(result.Plan.Preview, item => item.Kind == "explanation");
+        Assert.DoesNotContain(result.Plan.Preview, item => item.Kind.Contains("order", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(TodayLane.Planned)]
+    [InlineData(TodayLane.InProgress)]
+    public void VersionTwoNewWorkCreatesWithOptionalTodayPlacement(TodayLane? lane)
+    {
+        var result = new ProposalSemanticPlanner(TimeProvider.System, new Markdown()).Validate(
+            new(ProposalKind.NewWork, AgentInterchangeV1.NewWorkProposalFormat, 2, null, null,
+                [new CreateCategoryOperation("1", "category", "Fresh"),
+                 new CreateTaskOperation("2", "task", "Task", "", null,
+                     new(ProposedTaskCategoryMode.Explicit, ProposalReference.Local("category")), null, [], TodayLane: lane)]),
+            Source(), null, "digest");
+        var task = Assert.IsType<CreateTaskOperation>(result.Plan!.Operations[1]);
+        Assert.Equal(lane, task.TodayLane);
+        if (lane is null) Assert.DoesNotContain(result.Plan.Preview, item => item.Kind == "task-today");
+        else
+        {
+            var effect = Assert.Single(result.Plan.Preview, item => item.Kind == "task-today");
+            Assert.Equal("task", effect.Target.LocalId);
+            Assert.Equal("Not in Today", effect.Before);
+            Assert.Equal(lane == TodayLane.Planned ? "Today: Planned" : "Today: In progress", effect.After);
+        }
+    }
+
+    [Fact]
+    public void TodayRequiresExistingActiveIncompleteTaskAndDefinedLane()
+    {
+        Assert.Equal("invalid-reference", Assert.Single(ValidateV2(Source(), new SetTaskTodayOperation("1", ProposalReference.Existing("missing"), TodayLane.Planned)).Failures).Code);
+        Assert.Equal("invalid-reference", Assert.Single(ValidateV2(Source(), new SetTaskTodayOperation("1", ProposalReference.Existing("hidden"), TodayLane.Planned)).Failures).Code);
+        Assert.Equal("invalid-reference", Assert.Single(ValidateV2(Source(), new SetTaskTodayOperation("1", Project, TodayLane.Planned)).Failures).Code);
+        Assert.Equal("invalid-today-lane", Assert.Single(ValidateV2(Source(), new SetTaskTodayOperation("1", TaskA, (TodayLane)99)).Failures).Code);
+        Assert.Equal("invalid-today-lane", Assert.Single(ValidateV2(Source(), new CreateTaskOperation("1", "new", "Task", "", null,
+            new(ProposedTaskCategoryMode.Explicit, ProposalReference.Existing("c")), null, [], TodayLane: (TodayLane)99)).Failures).Code);
+        var source = Source();
+        source = source with
+        {
+            Workspace = source.Workspace with
+            {
+                Tasks = source.Workspace.Tasks.Select(task => task.Id == "a"
+            ? task with { CompletedAt = DateTimeOffset.UnixEpoch, CompletionDate = new(2020, 1, 1), TodayLane = null } : task).ToArray()
+            }
+        };
+        Assert.Equal("invalid-today-state", Assert.Single(ValidateV2(source, new SetTaskTodayOperation("1", TaskA, TodayLane.Planned)).Failures).Code);
+        var reopened = ValidateV2(source, new ReopenTaskOperation("1", TaskA), new SetTaskTodayOperation("2", TaskA, TodayLane.InProgress));
+        Assert.NotNull(reopened.Plan);
+        Assert.Contains(reopened.Plan.Preview, item => item.Kind == "task-today" && item.After == "Today: In progress");
+    }
+
+    [Fact]
+    public void TodayCannotTargetBinnedTaskOrChildOfArchivedProject()
+    {
+        var source = Source();
+        var binned = source.Workspace.Tasks.Single(task => task.Id == "a");
+        var binSource = source with
+        {
+            Workspace = source.Workspace with { Tasks = source.Workspace.Tasks.Where(task => task.Id != "a").ToArray() },
+            TaskBin = [new(binned, DateTimeOffset.UnixEpoch, "Project", "Category", true, null)],
+        };
+        Assert.Equal("invalid-reference", Assert.Single(ValidateV2(binSource, new SetTaskTodayOperation("1", TaskA, TodayLane.InProgress)).Failures).Code);
+        var archivedSource = source with
+        {
+            Workspace = source.Workspace with
+            {
+                Projects = source.Workspace.Projects.Select(project => project.Id == "p"
+                    ? project with { ArchivedAt = DateTimeOffset.UnixEpoch, ArchiveDate = new(2020, 1, 1) } : project).ToArray(),
+                Tasks = source.Workspace.Tasks.Select(task => task with { TodayLane = null }).ToArray(),
+            },
+        };
+        Assert.Equal("invalid-reference", Assert.Single(ValidateV2(archivedSource, new SetTaskTodayOperation("1", TaskA, TodayLane.Planned)).Failures).Code);
+    }
+
+    [Fact]
+    public void TodayExistingOperationCannotTargetCreatedLocalTaskOrAppearInNewWork()
+    {
+        var operation = new SetTaskTodayOperation("2", ProposalReference.Local("new"), TodayLane.Planned);
+        var result = ValidateV2(Source(), new CreateTaskOperation("1", "new", "Task", "", null,
+            new(ProposedTaskCategoryMode.Explicit, ProposalReference.Existing("c")), null, []), operation);
+        Assert.Equal("invalid-reference", Assert.Single(result.Failures).Code);
+        var newWork = new ProposalSemanticPlanner(TimeProvider.System, new Markdown()).Validate(
+            new(ProposalKind.NewWork, AgentInterchangeV1.NewWorkProposalFormat, 2, null, null,
+                [new SetTaskTodayOperation("1", TaskA, TodayLane.InProgress)]), Source(), null, "digest");
+        Assert.Equal("invalid-new-work", Assert.Single(newWork.Failures).Code);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(TodayLane.Planned)]
+    [InlineData(TodayLane.InProgress)]
+    public void UnchangedTodayStateIsRejected(TodayLane? lane)
+    {
+        var source = Source();
+        source = source with
+        {
+            Workspace = source.Workspace with
+            { Tasks = source.Workspace.Tasks.Select(task => task.Id == "a" ? task with { TodayLane = lane } : task).ToArray() }
+        };
+        Assert.Equal("no-op", Assert.Single(ValidateV2(source, new SetTaskTodayOperation("1", TaskA, lane)).Failures).Code);
+    }
+
+    [Theory]
+    [InlineData(TodayLane.InProgress)]
+    [InlineData(TodayLane.Planned)]
+    [InlineData(null)]
+    public void RepeatedOrContradictoryTodayChangesAreRejected(TodayLane? second)
+    {
+        var result = ValidateV2(Source(), new SetTaskTodayOperation("1", TaskA, TodayLane.InProgress),
+            new SetTaskTodayOperation("2", TaskA, second));
+        Assert.Equal("facet-conflict", Assert.Single(result.Failures).Code);
+    }
+
+    [Fact]
+    public void RequestedTodayPlacementMustSurviveLaterCompletionBinAndParentArchive()
+    {
+        var add = new SetTaskTodayOperation("1", TaskA, TodayLane.InProgress);
+        foreach (var terminal in new ChangeOperation[]
+        {
+            new CompleteTaskOperation("2", TaskA),
+            new MoveTaskToBinOperation("2", TaskA),
+            new ArchiveProjectOperation("2", Project),
+            new MoveProjectToBinOperation("2", Project),
+        })
+            Assert.Equal("today-conflict", Assert.Single(ValidateV2(Source(), add, terminal).Failures).Code);
+        Assert.Equal("today-conflict", Assert.Single(ValidateV2(Source(), add,
+            new CompleteTaskOperation("2", TaskA), new ArchiveTaskOperation("3", TaskA)).Failures).Code);
+        Assert.Equal("today-conflict", Assert.Single(ValidateV2(Source(),
+            new CreateTaskOperation("1", "new", "Task", "", null,
+                new(ProposedTaskCategoryMode.Explicit, ProposalReference.Existing("c")), null, [], TodayLane: TodayLane.Planned),
+            new CompleteTaskOperation("2", ProposalReference.Local("new"))).Failures).Code);
+    }
+
+    [Fact]
+    public void ExplicitTodayRemovalCanPrecedeCompletion()
+    {
+        var result = ValidateV2(Source(), new SetTaskTodayOperation("1", TaskA, null), new CompleteTaskOperation("2", TaskA));
+        Assert.NotNull(result.Plan);
+        Assert.Single(result.Plan.Preview, item => item.Kind == "task-today");
+        Assert.DoesNotContain(result.Plan.Preview, item => item.Kind == "today-removal");
+    }
+
     private sealed class Markdown : IProposalMarkdownValidator
     { public ProposalMarkdownValidation Validate(string markdown, bool proposed) => new(true, markdown.Length == 0 ? 0 : 1, 0); }
 

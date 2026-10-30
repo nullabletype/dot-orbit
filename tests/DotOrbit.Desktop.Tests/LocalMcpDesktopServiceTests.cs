@@ -1,4 +1,6 @@
 using System.Text;
+using System.Text.Json;
+using DotOrbit.Interchange.Json;
 using DotOrbit.Core.Interchange;
 using DotOrbit.Core.Workspaces;
 using DotOrbit.Mcp.Ipc;
@@ -19,6 +21,73 @@ public sealed class LocalMcpDesktopServiceTests
           ]
         }
         """);
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task VersionedDesktopReadsReturnTheRequestedContract(int version)
+    {
+        using var directory = new TemporaryDirectory();
+        var store = new MemoryAgentIntegrationStore();
+        var session = new AgentWorkspaceSession(store);
+        using var coordinator = new PendingProposalCoordinator(store, session.Proposals, TimeProvider.System);
+        await using var service = new LocalMcpDesktopService(session.Planning, store, coordinator, TimeProvider.System, directory.Path);
+        await service.StartAsync();
+        var instructions = await service.HandleAsync("read", new(LocalMcpOperation.ReadReusableInstructions, null, ReadOnlyMemory<byte>.Empty, version), TestContext.Current.CancellationToken);
+        var snapshot = await service.HandleAsync("read", new(LocalMcpOperation.ReadPlanningSnapshot, null, ReadOnlyMemory<byte>.Empty, version), TestContext.Current.CancellationToken);
+        Assert.Equal("ok", instructions.Status);
+        Assert.Contains($"dot-orbit planning interchange v{version}", Encoding.UTF8.GetString(instructions.Payload.Span), StringComparison.Ordinal);
+        using var document = JsonDocument.Parse(snapshot.Payload);
+        Assert.Equal(version, document.RootElement.GetProperty("schemaVersion").GetInt32());
+        var rejected = await service.HandleAsync("read", new(LocalMcpOperation.ReadPlanningSnapshot, null, ReadOnlyMemory<byte>.Empty, 3), TestContext.Current.CancellationToken);
+        Assert.Equal("unsupported-version", rejected.Error);
+        Assert.Empty(rejected.Payload.ToArray());
+        Assert.Equal(1, session.PlanningSource.ReadCount);
+    }
+
+    [Theory]
+    [InlineData("planned")]
+    [InlineData("inProgress")]
+    [InlineData("none")]
+    public async Task VersionTwoMcpAndManualTodayProposalsProduceTheSameReview(string lane)
+    {
+        using var directory = new TemporaryDirectory();
+        var store = new MemoryAgentIntegrationStore();
+        var session = new AgentWorkspaceSession(store);
+        var source = new TodayProposalSource(lane == "planned" ? null : TodayLane.Planned);
+        using var coordinator = new PendingProposalCoordinator(store, source, TimeProvider.System);
+        await using var service = new LocalMcpDesktopService(session.Planning, store, coordinator, TimeProvider.System, directory.Path);
+        await service.StartAsync();
+        service.ApprovalRequested += (_, request) => request.Resolve(LocalMcpApprovalChoice.AllowOnce);
+        var authorization = await service.AuthorizeAsync(Client(LocalMcpScopes.SubmitProposals), TestContext.Current.CancellationToken);
+        var state = source.Read();
+        using var snapshot = JsonDocument.Parse(PlanningSnapshotJsonGenerator.Generate(PlanningSnapshotProjection.Create(state.Revision, state.Workspace), 2).Payload!.Value);
+        var payload = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            format = AgentInterchangeV1.ChangeProposalFormat,
+            schemaVersion = 2,
+            sourceSnapshotId = snapshot.RootElement.GetProperty("snapshotId").GetString(),
+            sourceWorkspaceRevision = state.Revision.ToString(),
+            operations = new[] { new { operation = "setTaskToday", operationId = "today", task = new { existingId = "task" }, todayLane = lane } },
+        });
+        var boundary = new ProposalReviewBoundary(source, TimeProvider.System);
+        var manual = Assert.IsType<ProposalExecutionPlan>(boundary.Review(payload).Plan);
+        var submitted = await service.HandleAsync(authorization.AuthorizationId!, new(LocalMcpOperation.SubmitProposal, "today-key", payload), TestContext.Current.CancellationToken);
+        Assert.Equal("pending-local-review", submitted.Status);
+        var pending = Assert.Single(coordinator.PendingProposals);
+        var queued = Assert.IsType<ProposalExecutionPlan>(boundary.ReviewQueued(pending.StrictUtf8, pending.ReviewBasis).Plan);
+        Assert.Equal(manual.Operations, queued.Operations);
+        Assert.Equal(manual.Preview.Select(effect => (effect.Kind, effect.Target, effect.Before, effect.After)), queued.Preview.Select(effect => (effect.Kind, effect.Target, effect.Before, effect.After)));
+        Assert.Equal("task-today", Assert.Single(queued.Preview).Kind);
+        Assert.Equal(0, session.ApplyCount);
+        Assert.Equal(lane == "planned" ? null : TodayLane.Planned, Assert.Single(source.Read().Workspace.Tasks).TodayLane);
+    }
+
+    private sealed class TodayProposalSource(TodayLane? lane) : IProposalWorkspaceSource
+    {
+        public ProposalWorkspaceState Read() => new(new(7), new([new("home", "Home", 0)], [],
+            [new("task", null, "Synthetic task", "", "home", null, 0, null, TodayLane: lane)]), [], []);
+    }
 
     [Fact]
     public async Task ApprovalCanBeRememberedThenReusedOnlyForExactAccountCredentialAndScopes()

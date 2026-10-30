@@ -50,8 +50,12 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
     {
         ArgumentNullException.ThrowIfNull(proposal);
         ArgumentNullException.ThrowIfNull(source);
-        if (!MatchesFormat(proposal) || proposal.SchemaVersion != 1)
+        if (!MatchesFormat(proposal) || proposal.SchemaVersion is not (1 or 2))
             return Failed("unsupported-version");
+        if (proposal.SchemaVersion == 1
+            && proposal.Operations.Any(operation => operation is SetTaskTodayOperation
+                or CreateTaskOperation { TodayLane: not null }))
+            return Failed("unsupported-operation");
         if (proposal.Kind == ProposalKind.WorkspaceChange
             && (proposal.SourceWorkspaceRevision != source.Revision
                 || proposal.SourceSnapshotId != currentSnapshotId))
@@ -126,6 +130,7 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
         private readonly HashSet<string> operationIds = new(StringComparer.Ordinal);
         private readonly HashSet<(string Key, string Facet)> facets = [];
         private readonly HashSet<string> terminal = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, TodayLane> requestedToday = new(StringComparer.Ordinal);
         private readonly HashSet<string> targetedTasks = new(StringComparer.Ordinal);
         private readonly HashSet<string> touchedParents = new(StringComparer.Ordinal);
         private readonly HashSet<string> terminalProjects = new(StringComparer.Ordinal);
@@ -346,11 +351,18 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
                 case CreateTaskOperation x:
                     {
                         var parent = x.Project is { } reference ? Resolve(reference, "project") : null;
+                        Check(x.TodayLane is null || Enum.IsDefined(x.TodayLane.Value), "invalid-today-lane");
                         var category = Category(x.Category, parent); var associations = Associations(x.Participants); Markdown(x.Description);
                         var position = parent is null ? (long?)null : EndPosition(parent);
                         var id = Create(x.LocalId, "task"); foreach (var existing in tasks.Keys.ToArray()) tasks[existing] = tasks[existing] with { SharedPosition = tasks[existing].SharedPosition + 1 };
-                        tasks.Add(id, new(id, parent, WorkTitle.Normalize(x.Title), x.Description, category, x.DueDate, 0, position, ParticipantIds: associations));
-                        targetedTasks.Add(id); if (parent is not null) touchedParents.Add(parent); Effect("create-task", id, "", TaskText(tasks[id]), x.Description); break;
+                        tasks.Add(id, new(id, parent, WorkTitle.Normalize(x.Title), x.Description, category, x.DueDate, 0, position, ParticipantIds: associations, TodayLane: x.TodayLane));
+                        targetedTasks.Add(id); if (parent is not null) touchedParents.Add(parent); Effect("create-task", id, "", TaskText(tasks[id]), x.Description);
+                        if (x.TodayLane is { } lane)
+                        {
+                            Write(id, "today"); requestedToday.Add(id, lane);
+                            Effect("task-today", id, TodayText(null), TodayText(lane));
+                        }
+                        break;
                     }
                 case EditProjectOperation x:
                     {
@@ -410,6 +422,17 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
                         var parent = task.ProjectId!; tasks[id] = task with { ProjectId = null, ProjectPosition = null, ExplicitCategoryId = Effective(task) }; SetOrder(parent, Order(parent));
                         Effect("relationship", id, projects[parent].Title + "; " + CategoryText(task), "Standalone; " + CategoryText(tasks[id])); break;
                     }
+                case SetTaskTodayOperation x:
+                    {
+                        Check(x.Task.ExistingId is not null && x.Task.LocalId is null, "invalid-reference");
+                        Check(x.TodayLane is null || Enum.IsDefined(x.TodayLane.Value), "invalid-today-lane");
+                        var id = Resolve(x.Task, "task"); Write(id, "today"); var task = tasks[id];
+                        Check(!task.IsComplete, "invalid-today-state");
+                        Check(task.TodayLane != x.TodayLane, "no-op");
+                        tasks[id] = task with { TodayLane = x.TodayLane };
+                        if (x.TodayLane is { } lane) requestedToday.Add(id, lane);
+                        Effect("task-today", id, TodayText(task.TodayLane), TodayText(x.TodayLane)); break;
+                    }
                 case CompleteTaskOperation x: Completion(x.Task, true); break;
                 case ReopenTaskOperation x: Completion(x.Task, false); break;
                 case ReorderProjectTaskOperation x: Reorder(x); break;
@@ -439,6 +462,7 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
                 AttachTaskOperation x => x.Task,
                 DetachTaskOperation x => x.Task,
                 MoveTaskOperation x => x.Task,
+                SetTaskTodayOperation x => x.Task,
                 CompleteTaskOperation x => x.Task,
                 ReopenTaskOperation x => x.Task,
                 ReorderProjectTaskOperation x => x.Task,
@@ -541,9 +565,20 @@ public sealed class ProposalSemanticPlanner(TimeProvider timeProvider, IProposal
         private string TaskText(TaskRecord task) => task.Title + "\n" + task.Description + "\n" + CategoryText(task) + "\nDue date: " + DateText(task.DueDate)
             + "\nProject: " + (task.ProjectId is null ? "Standalone" : projects[task.ProjectId].Title)
             + "\nParticipants: " + string.Join(", ", task.Participants.Select(p => participants[p].Label));
+        private static string TodayText(TodayLane? lane) => lane switch
+        {
+            TodayLane.Planned => "Today: Planned",
+            TodayLane.InProgress => "Today: In progress",
+            _ => "Not in Today",
+        };
         private static string DateText(DateOnly? value) => value?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "None";
         public void Finish()
         {
+            foreach (var (id, lane) in requestedToday)
+                Check(tasks[id].TodayLane == lane && !tasks[id].IsComplete && !tasks[id].IsArchived
+                    && !binnedTasks.Contains(id)
+                    && (tasks[id].ProjectId is not { } parent || !projects[parent].IsArchived && !binnedProjects.Contains(parent)),
+                    "today-conflict");
             Check(!touchedParents.Overlaps(terminalProjects), "aggregate-child-conflict");
             foreach (var id in targetedTasks)
                 Check(!terminalProjects.Contains(originalParents.GetValueOrDefault(id) ?? "")

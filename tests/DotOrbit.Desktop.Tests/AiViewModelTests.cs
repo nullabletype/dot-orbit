@@ -70,7 +70,7 @@ public sealed class AiViewModelTests
         await ai.CopyReusableInstructionsAsync(clipboard);
 
         Assert.Equal(1, clipboard.WriteCount);
-        Assert.Equal("Reusable agent instructions and v1 schemas copied.", ai.InterchangeStatus);
+        Assert.Equal("Reusable agent instructions and v2 schemas copied.", ai.InterchangeStatus);
 
         await ai.CopyReusableInstructionsAsync(
             new PlanningSnapshotCopyViewModelTests.RecordingPlainTextClipboard(

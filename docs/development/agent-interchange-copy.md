@@ -1,6 +1,6 @@
 # Agent-interchange copy workflow
 
-The implemented outbound version 1 workflow is manual and provider-neutral. dot-orbit prepares text for an external planning tool but does not select or call a provider, send data over the network, read existing clipboard content, or monitor the clipboard.
+The implemented outbound version 2 workflow is manual and provider-neutral. dot-orbit prepares text for an external planning tool but does not select or call a provider, send data over the network, read existing clipboard content, or monitor the clipboard.
 
 ## Copy a current Planning snapshot
 
@@ -28,4 +28,4 @@ Each complete final output—snapshot JSON, reusable instructions/schemas, or th
 
 Clipboard payloads are sensitive unencrypted plaintext. Payload content, labels, identifiers, digests, and clipboard values must not appear in logs, telemetry, exception messages, screenshots, test reports, CI output, or GitHub artifacts. Success, cancellation, unavailable clipboard, generation failure, and clipboard failure use fixed non-sensitive status text.
 
-Copying a planning snapshot does not itself import or apply a Change proposal and does not replace the complete plaintext workspace export. Return to the AI destination with a proposal and follow [Agent proposal review](agent-proposal-review.md) for bounded intake, authoritative review, and explicit whole-proposal approval under the same version 1 contract.
+Copying a planning snapshot does not itself import or apply a Change proposal and does not replace the complete plaintext workspace export. Return to the AI destination with a proposal and follow [Agent proposal review](agent-proposal-review.md) for bounded intake, authoritative review, and explicit whole-proposal approval under the same version-aware contract.

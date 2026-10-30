@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/nullabletype/dot-orbit/main/schemas/interchange/v2/change-proposal.schema.json",
+  "title": "dot-orbit change proposal v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "schemaVersion", "sourceSnapshotId", "sourceWorkspaceRevision", "operations"],
+  "properties": {
+    "format": { "const": "dot-orbit-change-proposal" },
+    "schemaVersion": { "const": 2 },
+    "sourceSnapshotId": { "$ref": "#/$defs/snapshotId" },
+    "sourceWorkspaceRevision": { "$ref": "#/$defs/revision" },
+    "operations": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/createCategory" },
+          { "$ref": "#/$defs/createParticipant" },
+          { "$ref": "#/$defs/createProject" },
+          { "$ref": "#/$defs/editProject" },
+          { "$ref": "#/$defs/setProjectCategory" },
+          { "$ref": "#/$defs/createTask" },
+          { "$ref": "#/$defs/setTaskToday" },
+          { "$ref": "#/$defs/editTask" },
+          { "$ref": "#/$defs/setTaskCategory" },
+          { "$ref": "#/$defs/replaceTaskParticipants" },
+          { "$ref": "#/$defs/attachTask" },
+          { "$ref": "#/$defs/detachTask" },
+          { "$ref": "#/$defs/moveTask" },
+          { "$ref": "#/$defs/completeTask" },
+          { "$ref": "#/$defs/reopenTask" },
+          { "$ref": "#/$defs/reorderProjectTask" },
+          { "$ref": "#/$defs/archiveProject" },
+          { "$ref": "#/$defs/archiveTask" },
+          { "$ref": "#/$defs/moveProjectToBin" },
+          { "$ref": "#/$defs/moveTaskToBin" }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "identifier": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "title": { "type": "string", "minLength": 1, "maxLength": 1024 },
+    "description": { "type": "string", "maxLength": 65536 },
+    "explanation": { "type": "string", "maxLength": 65536 },
+    "revision": { "type": "string", "pattern": "^(?:[1-9][0-9]{0,17}|[1-8][0-9]{18}|9[0-1][0-9]{17}|92[0-1][0-9]{16}|922[0-2][0-9]{15}|9223[0-2][0-9]{14}|92233[0-6][0-9]{13}|922337[0-1][0-9]{12}|92233720[0-2][0-9]{10}|922337203[0-5][0-9]{9}|9223372036[0-7][0-9]{8}|92233720368[0-4][0-9]{7}|922337203685[0-3][0-9]{6}|9223372036854[0-6][0-9]{5}|92233720368547[0-6][0-9]{4}|922337203685477[0-4][0-9]{3}|9223372036854775[0-7][0-9]{2}|922337203685477580[0-7])$" },
+    "snapshotId": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "date": { "type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])$" },
+    "nullableDate": { "oneOf": [{ "$ref": "#/$defs/date" }, { "type": "null" }] },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "maxProperties": 1,
+      "properties": {
+        "existingId": { "$ref": "#/$defs/identifier" },
+        "localId": { "$ref": "#/$defs/identifier" }
+      },
+      "oneOf": [
+        { "required": ["existingId"] },
+        { "required": ["localId"] }
+      ]
+    },
+    "operationBase": {
+      "type": "object",
+      "required": ["operationId"],
+      "properties": {
+        "operationId": { "$ref": "#/$defs/identifier" },
+        "explanation": { "$ref": "#/$defs/explanation" }
+      }
+    },
+    "taskCategory": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": { "mode": { "const": "inherit" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "category"],
+          "properties": {
+            "mode": { "const": "explicit" },
+            "category": { "$ref": "#/$defs/reference" }
+          }
+        }
+      ]
+    },
+    "participantReferences": {
+      "type": "array",
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/reference" }
+    },
+    "categoryChoice": { "enum": ["adoptProjectCategory", "preserveAsOverride"] },
+    "projectChanges": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "title": { "$ref": "#/$defs/title" },
+        "description": { "$ref": "#/$defs/description" },
+        "targetDate": { "$ref": "#/$defs/nullableDate" }
+      }
+    },
+    "taskChanges": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "title": { "$ref": "#/$defs/title" },
+        "description": { "$ref": "#/$defs/description" },
+        "dueDate": { "$ref": "#/$defs/nullableDate" }
+      }
+    },
+    "placement": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["first"], "properties": { "first": { "const": true } } },
+        { "type": "object", "additionalProperties": false, "required": ["last"], "properties": { "last": { "const": true } } },
+        { "type": "object", "additionalProperties": false, "required": ["before"], "properties": { "before": { "$ref": "#/$defs/reference" } } },
+        { "type": "object", "additionalProperties": false, "required": ["after"], "properties": { "after": { "$ref": "#/$defs/reference" } } }
+      ]
+    },
+    "createCategory": {
+      "allOf": [{ "$ref": "#/$defs/operationBase" }, { "type": "object", "required": ["operation", "localId", "name"], "properties": { "operation": { "const": "createCategory" }, "localId": { "$ref": "#/$defs/identifier" }, "name": { "$ref": "#/$defs/title" } } }],
+      "unevaluatedProperties": false
+    },
+    "createParticipant": {
+      "allOf": [{ "$ref": "#/$defs/operationBase" }, { "type": "object", "required": ["operation", "localId", "label"], "properties": { "operation": { "const": "createParticipant" }, "localId": { "$ref": "#/$defs/identifier" }, "label": { "$ref": "#/$defs/title" } } }],
+      "unevaluatedProperties": false
+    },
+    "createProject": {
+      "allOf": [{ "$ref": "#/$defs/operationBase" }, { "type": "object", "required": ["operation", "localId", "title", "description", "category", "targetDate"], "properties": { "operation": { "const": "createProject" }, "localId": { "$ref": "#/$defs/identifier" }, "title": { "$ref": "#/$defs/title" }, "description": { "$ref": "#/$defs/description" }, "category": { "$ref": "#/$defs/reference" }, "targetDate": { "$ref": "#/$defs/nullableDate" } } }],
+      "unevaluatedProperties": false
+    },
+    "editProject": {
+      "allOf": [{ "$ref": "#/$defs/operationBase" }, { "type": "object", "required": ["operation", "project", "changes"], "properties": { "operation": { "const": "editProject" }, "project": { "$ref": "#/$defs/reference" }, "changes": { "$ref": "#/$defs/projectChanges" } } }],
+      "unevaluatedProperties": false
+    },
+    "setProjectCategory": {
+      "allOf": [{ "$ref": "#/$defs/operationBase" }, { "type": "object", "required": ["operation", "project", "category"], "properties": { "operation": { "const": "setProjectCategory" }, "project": { "$ref": "#/$defs/reference" }, "category": { "$ref": "#/$defs/reference" } } }],
+      "unevaluatedProperties": false
+    },
+    "createTask": {
+      "allOf": [{ "$ref": "#/$defs/operationBase" }, { "type": "object", "required": ["operation", "localId", "title", "description", "project", "category", "dueDate", "participants"], "properties": { "operation": { "const": "createTask" }, "localId": { "$ref": "#/$defs/identifier" }, "title": { "$ref": "#/$defs/title" }, "description": { "$ref": "#/$defs/description" }, "project": { "oneOf": [{ "$ref": "#/$defs/reference" }, { "type": "null" }] }, "category": { "$ref": "#/$defs/taskCategory" }, "dueDate": { "$ref": "#/$defs/nullableDate" }, "participants": { "$ref": "#/$defs/participantReferences" }, "todayLane": { "enum": ["planned", "inProgress", null] } } }],
+      "unevaluatedProperties": false
+    },
+    "setTaskToday": {
+      "allOf": [{ "$ref": "#/$defs/operationBase" }, { "type": "object", "required": ["operation", "task", "todayLane"], "properties": { "operation": { "const": "setTaskToday" }, "task": { "type": "object", "additionalProperties": false, "required": ["existingId"], "properties": { "existingId": { "$ref": "#/$defs/identifier" } } }, "todayLane": { "enum": ["planned", "inProgress", "none"] } } }],
+      "unevaluatedProperties": false
+    },
+    "editTask": {
+      "allOf": [{ "$ref": "#/$defs/operationBase" }, { "type": "object", "required": ["operation", "task", "changes"], "properties": { "operation": { "const": "editTask" }, "task": { "$ref": "#/$defs/reference" }, "changes": { "$ref": "#/$defs/taskChanges" } } }],
+      "unevaluatedProperties": false
+    },
+    "setTaskCategory": {
+      "allOf": [{ "$ref": "#/$defs/operationBase" }, { "type": "object", "required": ["operation", "task", "category"], "properties": { "operation": { "const": "setTaskCategory" }, "task": { "$ref": "#/$defs/reference" }, "category": { "$ref": "#/$defs/taskCategory" } } }],
+      "unevaluatedProperties": false
+    },
+    "replaceTaskParticipants": {
+      "allOf": [{ "$ref": "#/$defs/operationBase" }, { "type": "object", "required": ["operation", "task", "participants"], "properties": { "operation": { "const": "replaceTaskParticipants" }, "task": { "$ref": "#/$defs/reference" }, "participants": { "$ref": "#/$defs/participantReferences" } } }],
+      "unevaluatedProperties": false
+    },
+    "attachTask": {
+      "allOf": [{ "$ref": "#/$defs/operationBase" }, { "type": "object", "required": ["operation", "task", "project"], "properties": { "operation": { "const": "attachTask" }, "task": { "$ref": "#/$defs/reference" }, "project": { "$ref": "#/$defs/reference" }, "categoryChoice": { "$ref": "#/$defs/categoryChoice" } } }],
+      "unevaluatedProperties": false
+    },
+    "detachTask": {
+      "allOf": [{ "$ref": "#/$defs/operationBase" }, { "type": "object", "required": ["operation", "task"], "properties": { "operation": { "const": "detachTask" }, "task": { "$ref": "#/$defs/reference" } } }],
+      "unevaluatedProperties": false
+    },
+    "moveTask": {
+      "allOf": [{ "$ref": "#/$defs/operationBase" }, { "type": "object", "required": ["operation", "task", "project"], "properties": { "operation": { "const": "moveTask" }, "task": { "$ref": "#/$defs/reference" }, "project": { "$ref": "#/$defs/reference" }, "categoryChoice": { "$ref": "#/$defs/categoryChoice" } } }],
+      "unevaluatedProperties": false
+    },
+    "completeTask": { "allOf": [{ "$ref": "#/$defs/operationBase" }, { "$ref": "#/$defs/taskOnlyComplete" }], "unevaluatedProperties": false },
+    "reopenTask": { "allOf": [{ "$ref": "#/$defs/operationBase" }, { "$ref": "#/$defs/taskOnlyReopen" }], "unevaluatedProperties": false },
+    "reorderProjectTask": {
+      "allOf": [{ "$ref": "#/$defs/operationBase" }, { "type": "object", "required": ["operation", "task", "placement"], "properties": { "operation": { "const": "reorderProjectTask" }, "task": { "$ref": "#/$defs/reference" }, "placement": { "$ref": "#/$defs/placement" } } }],
+      "unevaluatedProperties": false
+    },
+    "archiveProject": { "allOf": [{ "$ref": "#/$defs/operationBase" }, { "$ref": "#/$defs/projectOnlyArchive" }], "unevaluatedProperties": false },
+    "archiveTask": { "allOf": [{ "$ref": "#/$defs/operationBase" }, { "$ref": "#/$defs/taskOnlyArchive" }], "unevaluatedProperties": false },
+    "moveProjectToBin": { "allOf": [{ "$ref": "#/$defs/operationBase" }, { "$ref": "#/$defs/projectOnlyBin" }], "unevaluatedProperties": false },
+    "moveTaskToBin": { "allOf": [{ "$ref": "#/$defs/operationBase" }, { "$ref": "#/$defs/taskOnlyBin" }], "unevaluatedProperties": false },
+    "taskOnlyComplete": { "type": "object", "required": ["operation", "task"], "properties": { "operation": { "const": "completeTask" }, "task": { "$ref": "#/$defs/reference" } } },
+    "taskOnlyReopen": { "type": "object", "required": ["operation", "task"], "properties": { "operation": { "const": "reopenTask" }, "task": { "$ref": "#/$defs/reference" } } },
+    "taskOnlyArchive": { "type": "object", "required": ["operation", "task"], "properties": { "operation": { "const": "archiveTask" }, "task": { "$ref": "#/$defs/reference" } } },
+    "taskOnlyBin": { "type": "object", "required": ["operation", "task"], "properties": { "operation": { "const": "moveTaskToBin" }, "task": { "$ref": "#/$defs/reference" } } },
+    "projectOnlyArchive": { "type": "object", "required": ["operation", "project"], "properties": { "operation": { "const": "archiveProject" }, "project": { "$ref": "#/$defs/reference" } } },
+    "projectOnlyBin": { "type": "object", "required": ["operation", "project"], "properties": { "operation": { "const": "moveProjectToBin" }, "project": { "$ref": "#/$defs/reference" } } }
+  }
+}

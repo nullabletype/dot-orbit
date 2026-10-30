@@ -19,6 +19,20 @@ public interface ILocalMcpBrokerClient : IAsyncDisposable
 {
     Task<LocalMcpBrokerResponse> ReadReusableInstructionsAsync(CancellationToken cancellationToken = default);
     Task<LocalMcpBrokerResponse> ReadPlanningSnapshotAsync(CancellationToken cancellationToken = default);
+    Task<LocalMcpBrokerResponse> ReadReusableInstructionsAsync(
+        int schemaVersion,
+        CancellationToken cancellationToken = default) =>
+        schemaVersion == 1
+            ? ReadReusableInstructionsAsync(cancellationToken)
+            : throw new LocalMcpBrokerException("schema-version-unsupported");
+
+    Task<LocalMcpBrokerResponse> ReadPlanningSnapshotAsync(
+        int schemaVersion,
+        CancellationToken cancellationToken = default) =>
+        schemaVersion == 1
+            ? ReadPlanningSnapshotAsync(cancellationToken)
+            : throw new LocalMcpBrokerException("schema-version-unsupported");
+
     Task<LocalMcpBrokerResponse> SubmitProposalAsync(
         string idempotencyKey,
         ReadOnlyMemory<byte> strictUtf8,
@@ -69,6 +83,24 @@ public sealed class LocalMcpBrokerClient : ILocalMcpBrokerClient
 
     public Task<LocalMcpBrokerResponse> ReadPlanningSnapshotAsync(CancellationToken cancellationToken = default) =>
         SendAsync("read.snapshot", null, ReadOnlyMemory<byte>.Empty, cancellationToken);
+
+    public Task<LocalMcpBrokerResponse> ReadReusableInstructionsAsync(
+        int schemaVersion,
+        CancellationToken cancellationToken = default) =>
+        SendAsync(VersionedReadOperation("instructions", schemaVersion), null, ReadOnlyMemory<byte>.Empty, cancellationToken);
+
+    public Task<LocalMcpBrokerResponse> ReadPlanningSnapshotAsync(
+        int schemaVersion,
+        CancellationToken cancellationToken = default) =>
+        SendAsync(VersionedReadOperation("snapshot", schemaVersion), null, ReadOnlyMemory<byte>.Empty, cancellationToken);
+
+    private static string VersionedReadOperation(string resource, int schemaVersion) =>
+        schemaVersion switch
+        {
+            1 => $"read.{resource}.v1",
+            2 => $"read.{resource}.v2",
+            _ => throw new LocalMcpBrokerException("schema-version-unsupported"),
+        };
 
     public Task<LocalMcpBrokerResponse> SubmitProposalAsync(
         string idempotencyKey,

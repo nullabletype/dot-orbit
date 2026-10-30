@@ -22,6 +22,87 @@ namespace DotOrbit.Desktop.Tests;
 
 public sealed class AgentProposalReviewViewModelTests
 {
+    [Theory]
+    [InlineData(null, TodayLane.Planned, "Not in Today", "Today: Planned")]
+    [InlineData(null, TodayLane.InProgress, "Not in Today", "Today: In progress")]
+    [InlineData(TodayLane.Planned, TodayLane.InProgress, "Today: Planned", "Today: In progress")]
+    [InlineData(TodayLane.InProgress, null, "Today: In progress", "Not in Today")]
+    public void TodayChangesAreDirectNamedBeforeAfterEffects(
+        TodayLane? before, TodayLane? after, string beforeText, string afterText)
+    {
+        var model = new AgentProposalReviewViewModel(CreateTodayPlan(before, after), new UnavailableApplication());
+        var task = Assert.Single(model.ChangedItems);
+        var effect = Assert.Single(task.Changes);
+        Assert.Equal("Synthetic task", task.TargetLabel);
+        Assert.Equal("Change Today placement", effect.Kind);
+        Assert.Equal(beforeText, effect.Before);
+        Assert.Equal(afterText, effect.After);
+        Assert.True(effect.IsDirectReviewItem);
+        Assert.Equal(WorkType.Task, effect.TargetWorkType);
+        Assert.Equal($"Synthetic task: Change Today placement. Current: {beforeText}. Proposed: {afterText}.", effect.AccessibleName);
+        Assert.Equal("Set Task Today", Assert.Single(model.Operations).Kind);
+        Assert.False(model.HasImpliedChanges);
+    }
+
+    [Theory]
+    [InlineData(TodayLane.Planned, "Today: Planned")]
+    [InlineData(TodayLane.InProgress, "Today: In progress")]
+    public void NewTaskTodayPlacementIsIncludedInDirectCreationReview(TodayLane lane, string expected)
+    {
+        var state = new ProposalWorkspaceState(new(1), new([new("c", "Synthetic", 0)], [], []), [], []);
+        var proposal = new ChangeProposal(ProposalKind.NewWork, AgentInterchangeV1.NewWorkProposalFormat, 2, null, null,
+        [
+            new CreateCategoryOperation("category", "category", "Fresh"),
+            new CreateTaskOperation("task", "task", "Synthetic task", "", null,
+                new(ProposedTaskCategoryMode.Explicit, ProposalReference.Local("category")), null, [], TodayLane: lane),
+        ]);
+        var plan = Assert.IsType<ProposalExecutionPlan>(new ProposalSemanticPlanner(TimeProvider.System,
+            new AcceptingMarkdownValidator()).Validate(proposal, state, null, "digest").Plan);
+        var model = new AgentProposalReviewViewModel(plan, new UnavailableApplication());
+        var effect = Assert.Single(Assert.Single(model.NewStandaloneTasks).Changes);
+        Assert.Equal("Change Today placement", effect.Kind);
+        Assert.Equal("Not in Today", effect.Before);
+        Assert.Equal(expected, effect.After);
+        Assert.True(effect.IsDirectReviewItem);
+    }
+
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TodayReviewRendersNamedStatesAndPreservesApprovalFocus(bool dark)
+    {
+        var model = new AgentProposalReviewViewModel(CreateTodayPlan(TodayLane.Planned, TodayLane.InProgress), new UnavailableApplication());
+        var window = new AgentProposalReviewWindow(model, new ReadyHost())
+        {
+            RequestedThemeVariant = dark ? ThemeVariant.Dark : ThemeVariant.Light,
+        };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        var effect = Assert.Single(Assert.Single(model.ChangedItems).Changes);
+        Assert.Contains(window.GetVisualDescendants().OfType<StackPanel>(), panel => AutomationProperties.GetName(panel) == effect.AccessibleName);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Today: Planned" && text.IsEffectivelyVisible);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Today: In progress" && text.IsEffectivelyVisible);
+        Assert.True(Assert.IsType<ScrollViewer>(window.FindControl<ScrollViewer>("ProposalReviewContent")).IsFocused);
+        var apply = Assert.IsType<Button>(window.FindControl<Button>("ApplyProposalButton"));
+        Assert.True(apply.Focus());
+        apply.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(model.CanApply);
+        Assert.Contains("nothing was changed", model.StatusMessage, StringComparison.Ordinal);
+        Assert.True(Assert.IsType<Button>(window.FindControl<Button>("CloseProposalReviewButton")).IsFocused);
+        window.Close();
+    }
+
+    private static ProposalExecutionPlan CreateTodayPlan(TodayLane? before, TodayLane? after)
+    {
+        var state = new ProposalWorkspaceState(new(1), new([new("c", "Synthetic", 0)], [],
+            [new("task", null, "Synthetic task", "", "c", null, 0, null, TodayLane: before)]), [], []);
+        var proposal = new ChangeProposal(AgentInterchangeV1.ChangeProposalFormat, 2, "snapshot", state.Revision,
+            [new SetTaskTodayOperation("today", ProposalReference.Existing("task"), after)]);
+        return Assert.IsType<ProposalExecutionPlan>(new ProposalSemanticPlanner(TimeProvider.System,
+            new AcceptingMarkdownValidator()).Validate(proposal, state, "snapshot", "digest").Plan);
+    }
+
     [Fact]
     public void ReviewIdentifiesManualAndSelfReportedLocalMcpSources()
     {
@@ -96,6 +177,7 @@ public sealed class AgentProposalReviewViewModelTests
     [InlineData("participants", "Change people")]
     [InlineData("relationship", "Move task")]
     [InlineData("completion", "Change completion")]
+    [InlineData("task-today", "Change Today placement")]
     [InlineData("today-removal", "Today removal")]
     [InlineData("project-archive", "Archive project")]
     [InlineData("project-bin", "Move project to Bin")]
@@ -1143,7 +1225,7 @@ public sealed class AgentProposalReviewViewModelTests
     {
         var state = source.Read();
         var content = PlanningSnapshotProjection.Create(state.Revision, state.Workspace);
-        using var snapshot = JsonDocument.Parse(PlanningSnapshotJsonGenerator.Generate(content).Payload!.Value);
+        using var snapshot = JsonDocument.Parse(PlanningSnapshotJsonGenerator.Generate(content, 1).Payload!.Value);
         var categoryId = Assert.Single(state.Workspace.Categories).Id;
         var input = JsonSerializer.Serialize(new
         {

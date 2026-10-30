@@ -319,7 +319,7 @@ public sealed class ProposalReviewBoundaryTests
     private static ProposalPlanResult Review(CountingSource source, object changes)
     {
         var content = PlanningSnapshotProjection.Create(source.State.Revision, source.State.Workspace);
-        using var snapshot = JsonDocument.Parse(PlanningSnapshotJsonGenerator.Generate(content).Payload!.Value);
+        using var snapshot = JsonDocument.Parse(PlanningSnapshotJsonGenerator.Generate(content, 1).Payload!.Value);
         var input = JsonSerializer.Serialize(new
         {
             format = "dot-orbit-change-proposal",
@@ -354,7 +354,7 @@ public sealed class ProposalReviewBoundaryTests
         string title)
     {
         var content = PlanningSnapshotProjection.Create(state.Revision, state.Workspace);
-        using var snapshot = JsonDocument.Parse(PlanningSnapshotJsonGenerator.Generate(content).Payload!.Value);
+        using var snapshot = JsonDocument.Parse(PlanningSnapshotJsonGenerator.Generate(content, 1).Payload!.Value);
         return Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
         {
             format = "dot-orbit-change-proposal",
@@ -377,7 +377,7 @@ public sealed class ProposalReviewBoundaryTests
     private static byte[] DetachTaskPayload(ProposalWorkspaceState state)
     {
         var content = PlanningSnapshotProjection.Create(state.Revision, state.Workspace);
-        using var snapshot = JsonDocument.Parse(PlanningSnapshotJsonGenerator.Generate(content).Payload!.Value);
+        using var snapshot = JsonDocument.Parse(PlanningSnapshotJsonGenerator.Generate(content, 1).Payload!.Value);
         return Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
         {
             format = "dot-orbit-change-proposal",
@@ -399,7 +399,7 @@ public sealed class ProposalReviewBoundaryTests
     private static byte[] CompleteTaskPayload(ProposalWorkspaceState state, string taskId)
     {
         var content = PlanningSnapshotProjection.Create(state.Revision, state.Workspace);
-        using var snapshot = JsonDocument.Parse(PlanningSnapshotJsonGenerator.Generate(content).Payload!.Value);
+        using var snapshot = JsonDocument.Parse(PlanningSnapshotJsonGenerator.Generate(content, 1).Payload!.Value);
         return Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
         {
             format = "dot-orbit-change-proposal",

@@ -1481,7 +1481,7 @@ public sealed class MainWindowTests
             window.FindControl<BoundedProposalTextBox>("AiProposalTextBox"));
         var snapshot = PlanningSnapshotProjection.Create(state.Revision, state.Workspace);
         using var snapshotDocument = JsonDocument.Parse(
-            PlanningSnapshotJsonGenerator.Generate(snapshot).Payload!.Value);
+            PlanningSnapshotJsonGenerator.Generate(snapshot, 1).Payload!.Value);
         editor.Text = JsonSerializer.Serialize(new
         {
             format = AgentInterchangeV1.ChangeProposalFormat,
@@ -2173,7 +2173,7 @@ public sealed class MainWindowTests
         var content = PlanningSnapshotProjection.Create(state.Revision, state.Workspace);
         var categoryId = Assert.Single(state.Workspace.Categories).Id;
         using var snapshot = JsonDocument.Parse(
-            PlanningSnapshotJsonGenerator.Generate(content).Payload!.Value);
+            PlanningSnapshotJsonGenerator.Generate(content, 1).Payload!.Value);
         return JsonSerializer.Serialize(new
         {
             format = "dot-orbit-change-proposal",
@@ -2205,7 +2205,7 @@ public sealed class MainWindowTests
     {
         var content = PlanningSnapshotProjection.Create(state.Revision, state.Workspace);
         using var snapshot = JsonDocument.Parse(
-            PlanningSnapshotJsonGenerator.Generate(content).Payload!.Value);
+            PlanningSnapshotJsonGenerator.Generate(content, 1).Payload!.Value);
         return JsonSerializer.Serialize(new
         {
             format = "dot-orbit-change-proposal",

@@ -66,12 +66,13 @@ public sealed class ProposalReviewBoundary(IProposalWorkspaceSource source, Time
         if (parsed.Proposal!.Kind == ProposalKind.WorkspaceChange)
         {
             var snapshot = PlanningSnapshotJsonGenerator.Generate(
-                PlanningSnapshotProjection.Create(current.Revision, current.Workspace));
+                PlanningSnapshotProjection.Create(current.Revision, current.Workspace),
+                parsed.Proposal.SchemaVersion);
             if (!snapshot.Succeeded)
                 return Failed(snapshot.ErrorCode!);
             using var document = JsonDocument.Parse(snapshot.Payload!.Value);
             identity = document.RootElement.GetProperty("snapshotId").GetString()!;
-            verifier = PlanningSnapshotIdentityVerifier.Instance;
+            verifier = new PlanningSnapshotIdentityVerifier(parsed.Proposal.SchemaVersion);
         }
         var proposal = parsed.Proposal;
         var wasRefreshed = false;

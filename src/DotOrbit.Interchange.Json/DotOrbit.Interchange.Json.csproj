@@ -22,6 +22,9 @@
     <EmbeddedResource Include="../../schemas/interchange/v1/new-work-proposal.schema.json"
                       Link="Schemas/interchange/v1/new-work-proposal.schema.json"
                       LogicalName="DotOrbit.Interchange.Json.Schemas.new-work-proposal.schema.json" />
+    <EmbeddedResource Include="../../schemas/interchange/v2/*.schema.json"
+                      Link="Schemas/interchange/v2/%(Filename)%(Extension)"
+                      LogicalName="DotOrbit.Interchange.Json.Schemas.v2.%(Filename)%(Extension)" />
     <EmbeddedResource Include="MetaSchemas/draft2020-12/schema.json"
                       LogicalName="DotOrbit.Interchange.Json.MetaSchemas.draft2020-12.schema.json" />
     <EmbeddedResource Include="MetaSchemas/draft2020-12/meta/core.json"

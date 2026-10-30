@@ -3,17 +3,11 @@ using DotOrbit.Core.Interchange;
 
 namespace DotOrbit.Interchange.Json;
 
-internal sealed class PlanningSnapshotIdentityVerifier : IPlanningSnapshotIdentityVerifier
+internal sealed class PlanningSnapshotIdentityVerifier(int schemaVersion) : IPlanningSnapshotIdentityVerifier
 {
-    internal static PlanningSnapshotIdentityVerifier Instance { get; } = new();
-
-    private PlanningSnapshotIdentityVerifier()
-    {
-    }
-
     public bool Matches(PlanningSnapshotContent snapshot, string expectedIdentity)
     {
-        var generated = PlanningSnapshotJsonGenerator.Generate(snapshot);
+        var generated = PlanningSnapshotJsonGenerator.Generate(snapshot, schemaVersion);
         if (!generated.Succeeded)
         {
             return false;

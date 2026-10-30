@@ -12,6 +12,9 @@
     <ProjectReference Include="../../src/DotOrbit.Interchange.Json/DotOrbit.Interchange.Json.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="../../examples/interchange/v2/*.json"
+          Link="Examples/v2/%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../examples/interchange/v1/*.json"
           Link="Examples/%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest" />

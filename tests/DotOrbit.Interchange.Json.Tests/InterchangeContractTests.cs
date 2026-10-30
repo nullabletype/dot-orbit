@@ -28,6 +28,9 @@ public sealed class InterchangeContractTests
                 AgentInterchangeV1.PlanningSnapshotSchemaId,
                 AgentInterchangeV1.ChangeProposalSchemaId,
                 AgentInterchangeV1.NewWorkProposalSchemaId,
+                AgentInterchangeV2.PlanningSnapshotSchemaId,
+                AgentInterchangeV2.ChangeProposalSchemaId,
+                AgentInterchangeV2.NewWorkProposalSchemaId,
             ],
             InterchangeSchemaCatalogue.ApplicationSchemaIds);
 
@@ -80,8 +83,8 @@ public sealed class InterchangeContractTests
     {
         var content = CreateSnapshot();
 
-        var first = PlanningSnapshotJsonGenerator.Generate(content);
-        var second = PlanningSnapshotJsonGenerator.Generate(content);
+        var first = PlanningSnapshotJsonGenerator.Generate(content, 1);
+        var second = PlanningSnapshotJsonGenerator.Generate(content, 1);
 
         Assert.True(first.Succeeded);
         Assert.True(first.Payload!.Value.Span.SequenceEqual(second.Payload!.Value.Span));
@@ -278,7 +281,7 @@ public sealed class InterchangeContractTests
             ],
         };
 
-        var generated = PlanningSnapshotJsonGenerator.Generate(content);
+        var generated = PlanningSnapshotJsonGenerator.Generate(content, 1);
         var composed = InterchangePayloadComposer.Compose(
             new byte[AgentInterchangeV1.MaximumOutputBytes],
             new byte[1]);
@@ -302,7 +305,7 @@ public sealed class InterchangeContractTests
     [Fact]
     public void ReusableInstructionsContainProviderNeutralContractAndExactPackagedSchemas()
     {
-        var result = AgentInterchangeDocumentComposer.ComposeReusableInstructionsAndSchemas();
+        var result = AgentInterchangeDocumentComposer.ComposeReusableInstructionsAndSchemas(1);
 
         Assert.True(result.Succeeded);
         var text = Encoding.UTF8.GetString(result.Payload!.Value.Span);
@@ -339,7 +342,7 @@ public sealed class InterchangeContractTests
     public void CombinedCompositionNormalizesCrlfAndLoneCrSnapshotInput()
     {
         var result = AgentInterchangeDocumentComposer.ComposeWithSnapshot(
-            Encoding.UTF8.GetBytes("first\r\nsecond\rthird\nfourth"));
+            Encoding.UTF8.GetBytes("first\r\nsecond\rthird\nfourth"), 1);
 
         Assert.True(result.Succeeded);
         var text = Encoding.UTF8.GetString(result.Payload!.Value.Span);
@@ -357,7 +360,7 @@ public sealed class InterchangeContractTests
             snapshot[index + 1] = (byte)'\n';
         }
 
-        var result = AgentInterchangeDocumentComposer.ComposeWithSnapshot(snapshot);
+        var result = AgentInterchangeDocumentComposer.ComposeWithSnapshot(snapshot, 1);
 
         Assert.True(result.Succeeded);
         Assert.NotNull(result.Payload);
@@ -372,10 +375,10 @@ public sealed class InterchangeContractTests
 
         var snapshotOnly = PlanningInterchangeCopyComposer.ComposeSnapshot(
             snapshot,
-            includeAgentInstructionsAndSchema: false);
+            includeAgentInstructionsAndSchema: false, schemaVersion: 1);
         var combined = PlanningInterchangeCopyComposer.ComposeSnapshot(
             snapshot,
-            includeAgentInstructionsAndSchema: true);
+            includeAgentInstructionsAndSchema: true, schemaVersion: 1);
 
         Assert.True(snapshotOnly.Succeeded);
         using var snapshotDocument = JsonDocument.Parse(snapshotOnly.Payload!.Value);
@@ -393,10 +396,10 @@ public sealed class InterchangeContractTests
     {
         var snapshotOnly = PlanningInterchangeCopyComposer.ComposeSnapshot(
             CreateSnapshot(),
-            includeAgentInstructionsAndSchema: false);
+            includeAgentInstructionsAndSchema: false, schemaVersion: 1);
         var combined = PlanningInterchangeCopyComposer.ComposeSnapshot(
             CreateSnapshot(),
-            includeAgentInstructionsAndSchema: true);
+            includeAgentInstructionsAndSchema: true, schemaVersion: 1);
 
         Assert.True(snapshotOnly.Succeeded);
         var snapshotText = Encoding.UTF8.GetString(snapshotOnly.Payload!.Value.Span);
@@ -427,7 +430,7 @@ public sealed class InterchangeContractTests
     [Fact]
     public void CombinedOutputLimitRejectsCompletePayloadWithoutTruncation()
     {
-        var reusable = AgentInterchangeDocumentComposer.ComposeReusableInstructionsAndSchemas();
+        var reusable = AgentInterchangeDocumentComposer.ComposeReusableInstructionsAndSchemas(1);
         Assert.True(reusable.Succeeded);
         var descriptionLength = AgentInterchangeV1.MaximumOutputBytes
             - reusable.Payload!.Value.Length
@@ -445,10 +448,10 @@ public sealed class InterchangeContractTests
 
         var snapshotOnly = PlanningInterchangeCopyComposer.ComposeSnapshot(
             content,
-            includeAgentInstructionsAndSchema: false);
+            includeAgentInstructionsAndSchema: false, schemaVersion: 1);
         var combined = PlanningInterchangeCopyComposer.ComposeSnapshot(
             content,
-            includeAgentInstructionsAndSchema: true);
+            includeAgentInstructionsAndSchema: true, schemaVersion: 1);
 
         Assert.True(snapshotOnly.Succeeded);
         Assert.False(combined.Succeeded);
@@ -464,7 +467,7 @@ public sealed class InterchangeContractTests
             Tasks = [CreateSnapshot().Tasks[0] with { Title = "\ud800" }],
         };
 
-        Assert.Throws<InvalidDataException>(() => PlanningSnapshotJsonGenerator.Generate(content));
+        Assert.Throws<InvalidDataException>(() => PlanningSnapshotJsonGenerator.Generate(content, 1));
     }
 
     private static PlanningSnapshotContent CreateSnapshot() => new(

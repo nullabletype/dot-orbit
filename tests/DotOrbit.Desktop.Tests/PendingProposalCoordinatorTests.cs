@@ -172,7 +172,7 @@ public sealed class PendingProposalCoordinatorTests
         using var coordinator = new PendingProposalCoordinator(store, source, TimeProvider.System);
         var state = source.Read();
         using var snapshot = JsonDocument.Parse(PlanningSnapshotJsonGenerator.Generate(
-            PlanningSnapshotProjection.Create(state.Revision, state.Workspace)).Payload!.Value);
+            PlanningSnapshotProjection.Create(state.Revision, state.Workspace), 1).Payload!.Value);
         var payload = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
         {
             format = "dot-orbit-change-proposal",

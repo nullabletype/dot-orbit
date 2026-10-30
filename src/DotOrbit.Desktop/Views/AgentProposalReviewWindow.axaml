@@ -49,7 +49,7 @@
       </Border>
     </DataTemplate>
     <DataTemplate x:Key="ChangedEffectReviewTemplate" x:DataType="vm:ProposalEffectReviewRow">
-      <StackPanel Margin="0,8,0,0" Spacing="5">
+      <StackPanel Margin="0,8,0,0" Spacing="5" AutomationProperties.Name="{Binding AccessibleName}">
         <TextBlock Classes="inspector-label" Text="{Binding Kind}" />
         <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
           <StackPanel Spacing="3">

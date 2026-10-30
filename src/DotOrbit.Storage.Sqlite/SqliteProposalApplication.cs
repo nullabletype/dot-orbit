@@ -187,6 +187,9 @@ internal sealed class SqliteProposalApplication(
                     Resolve(item.Project, localIds),
                     AttachmentChoice(item.CategoryChoice));
                 break;
+            case SetTaskTodayOperation item:
+                work.SetTaskTodayLane(Resolve(item.Task, localIds), item.TodayLane);
+                break;
             case CompleteTaskOperation item:
                 work.CompleteTask(Resolve(item.Task, localIds));
                 break;
@@ -264,7 +267,8 @@ internal sealed class SqliteProposalApplication(
             operation.Description,
             categoryId,
             operation.DueDate,
-            ParticipantChange(operation.Participants, localIds));
+            ParticipantChange(operation.Participants, localIds),
+            operation.TodayLane);
     }
 
     private void ApplyTaskContent(

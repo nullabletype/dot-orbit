@@ -1,3 +1,5 @@
+using DotOrbit.Core.Workspaces;
+
 namespace DotOrbit.Core.Interchange;
 
 public readonly record struct OptionalChange<T>
@@ -126,6 +128,13 @@ public sealed record CreateTaskOperation(
     ProposedTaskCategory Category,
     DateOnly? DueDate,
     IReadOnlyList<ProposalReference> Participants,
+    string? Explanation = null,
+    TodayLane? TodayLane = null) : ChangeOperation(OperationId, Explanation);
+
+public sealed record SetTaskTodayOperation(
+    string OperationId,
+    ProposalReference Task,
+    TodayLane? TodayLane,
     string? Explanation = null) : ChangeOperation(OperationId, Explanation);
 
 public sealed record TaskContentChanges(
