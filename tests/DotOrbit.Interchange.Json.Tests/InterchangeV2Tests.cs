@@ -335,10 +335,14 @@ public sealed class InterchangeV2Tests
         var payload = newWork
             ? JsonSerializer.SerializeToUtf8Bytes(new JsonObject
             {
-                ["format"] = AgentInterchangeV1.NewWorkProposalFormat, ["schemaVersion"] = 2,
+                ["format"] = AgentInterchangeV1.NewWorkProposalFormat,
+                ["schemaVersion"] = 2,
                 ["operations"] = new JsonArray(new JsonObject
                 {
-                    ["operation"] = "createCategory", ["operationId"] = "category", ["localId"] = "c", ["name"] = "New category",
+                    ["operation"] = "createCategory",
+                    ["operationId"] = "category",
+                    ["localId"] = "c",
+                    ["name"] = "New category",
                 }, create),
             })
             : ChangePayload(State(), create);
@@ -394,7 +398,8 @@ public sealed class InterchangeV2Tests
     {
         var second = secondOperation == "setTaskToday" ? TodayOperation("inProgress") : new JsonObject
         {
-            ["operation"] = secondOperation, ["task"] = new JsonObject { ["existingId"] = "task-a" },
+            ["operation"] = secondOperation,
+            ["task"] = new JsonObject { ["existingId"] = "task-a" },
         };
         second["operationId"] = "second";
         var payload = JsonNode.Parse(ChangePayload(State(), TodayOperation("planned")))!;
@@ -459,13 +464,18 @@ public sealed class InterchangeV2Tests
 
     private static JsonObject TodayOperation(string lane) => new()
     {
-        ["operation"] = "setTaskToday", ["operationId"] = "today", ["task"] = new JsonObject { ["existingId"] = "task-a" },
-        ["todayLane"] = lane, ["explanation"] = "review metadata",
+        ["operation"] = "setTaskToday",
+        ["operationId"] = "today",
+        ["task"] = new JsonObject { ["existingId"] = "task-a" },
+        ["todayLane"] = lane,
+        ["explanation"] = "review metadata",
     };
 
     private static JsonObject EditOperation() => new()
     {
-        ["operation"] = "editTask", ["operationId"] = "edit", ["task"] = new JsonObject { ["existingId"] = "task-a" },
+        ["operation"] = "editTask",
+        ["operationId"] = "edit",
+        ["task"] = new JsonObject { ["existingId"] = "task-a" },
         ["changes"] = new JsonObject { ["title"] = "Updated A" },
     };
 
@@ -473,9 +483,15 @@ public sealed class InterchangeV2Tests
     {
         var operation = new JsonObject
         {
-            ["operation"] = "createTask", ["operationId"] = "create", ["localId"] = "new-task", ["title"] = "New task", ["description"] = "",
-            ["project"] = null, ["category"] = new JsonObject { ["mode"] = "explicit", ["category"] = new JsonObject { [local ? "localId" : "existingId"] = "c" } },
-            ["dueDate"] = null, ["participants"] = new JsonArray(),
+            ["operation"] = "createTask",
+            ["operationId"] = "create",
+            ["localId"] = "new-task",
+            ["title"] = "New task",
+            ["description"] = "",
+            ["project"] = null,
+            ["category"] = new JsonObject { ["mode"] = "explicit", ["category"] = new JsonObject { [local ? "localId" : "existingId"] = "c" } },
+            ["dueDate"] = null,
+            ["participants"] = new JsonArray(),
         };
         if (lane != "absent") operation["todayLane"] = lane == "null" ? null : lane;
         return operation;
@@ -483,7 +499,9 @@ public sealed class InterchangeV2Tests
 
     private static byte[] NewWorkPayload(JsonObject operation, int version = 2) => JsonSerializer.SerializeToUtf8Bytes(new JsonObject
     {
-        ["format"] = AgentInterchangeV1.NewWorkProposalFormat, ["schemaVersion"] = version, ["operations"] = new JsonArray(operation),
+        ["format"] = AgentInterchangeV1.NewWorkProposalFormat,
+        ["schemaVersion"] = version,
+        ["operations"] = new JsonArray(operation),
     });
 
     private static byte[] ChangePayload(ProposalWorkspaceState state, JsonObject operation, int version = 2)
@@ -492,8 +510,10 @@ public sealed class InterchangeV2Tests
         using var snapshot = JsonDocument.Parse(PlanningSnapshotJsonGenerator.Generate(content, version).Payload!.Value);
         return JsonSerializer.SerializeToUtf8Bytes(new JsonObject
         {
-            ["format"] = AgentInterchangeV1.ChangeProposalFormat, ["schemaVersion"] = version,
-            ["sourceSnapshotId"] = snapshot.RootElement.GetProperty("snapshotId").GetString(), ["sourceWorkspaceRevision"] = state.Revision.ToString(),
+            ["format"] = AgentInterchangeV1.ChangeProposalFormat,
+            ["schemaVersion"] = version,
+            ["sourceSnapshotId"] = snapshot.RootElement.GetProperty("snapshotId").GetString(),
+            ["sourceWorkspaceRevision"] = state.Revision.ToString(),
             ["operations"] = new JsonArray(operation),
         });
     }
