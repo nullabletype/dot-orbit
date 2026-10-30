@@ -169,7 +169,7 @@ async function readJson(url, headers = {}) {
 
 async function assertSupportDriftAbsent() {
   const dotnet = await readJson("https://builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json");
-  const expectedDotnet = { "latest-sdk": "10.0.402", "latest-runtime": "10.0.13" };
+  const expectedDotnet = { "latest-sdk": "10.0.403", "latest-runtime": "10.0.14" };
   for (const [field, expected] of Object.entries(expectedDotnet)) {
     if (dotnet[field] !== expected) throw new Error(`.NET ${field} changed from ${expected} to ${dotnet[field]}`);
   }
@@ -188,13 +188,13 @@ async function assertSupportDriftAbsent() {
   const packages = new Map([
     ["bebop.jsonschema", "1.1.0"],
     ["markdig", "1.5.0"],
-    ["microsoft.extensions.hosting", "10.0.13"],
+    ["microsoft.extensions.hosting", "10.0.14"],
     ["modelcontextprotocol", "2.3.0"],
     ["avalonia.desktop", "12.1.4"],
     ["avalonia.fonts.inter", "12.1.4"],
     ["avalonia.headless.xunit", "12.1.4"],
     ["avalonia.themes.fluent", "12.1.4"],
-    ["microsoft.data.sqlite.core", "10.0.13"],
+    ["microsoft.data.sqlite.core", "10.0.14"],
     ["microsoft.testing.extensions.telemetry", "2.5.1"],
     ["microsoft.testing.extensions.trxreport.abstractions", "2.5.1"],
     ["microsoft.testing.platform", "2.5.1"],

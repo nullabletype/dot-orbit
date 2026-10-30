@@ -70,7 +70,7 @@ Adapter credentials are stored in Windows Credential Manager, macOS Keychain, or
 
 ## Build from source
 
-Building requires Node.js and the .NET SDK; the repository pins .NET SDK 10.0.402 in [`global.json`](global.json). Prepare a checkout and generate its isolated sample workspace with:
+Building requires Node.js and the .NET SDK; the repository pins .NET SDK 10.0.403 in [`global.json`](global.json). Prepare a checkout and generate its isolated sample workspace with:
 
 ```sh
 node tools/setup-workspace.mjs
