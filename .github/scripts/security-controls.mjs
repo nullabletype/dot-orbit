@@ -78,8 +78,8 @@ export function assertNodeSupported(schedule, today = new Date()) {
 
 export function assertNodeCatalogue(catalogue) {
   const currentNode = catalogue.find(release => release.version.startsWith("v24.") && release.lts);
-  if (currentNode?.version !== "v24.22.1") {
-    throw new Error(`Node 24 LTS changed from v24.22.1 to ${currentNode?.version ?? "unknown"}`);
+  if (currentNode?.version !== "v24.22.2") {
+    throw new Error(`Node 24 LTS changed from v24.22.2 to ${currentNode?.version ?? "unknown"}`);
   }
 }
 
@@ -187,7 +187,7 @@ async function assertSupportDriftAbsent() {
   // are recorded separately in docs/development/dependency-baseline.md.
   const packages = new Map([
     ["bebop.jsonschema", "1.1.0"],
-    ["markdig", "1.5.0"],
+    ["markdig", "1.5.1"],
     ["microsoft.extensions.hosting", "10.0.14"],
     ["modelcontextprotocol", "2.3.0"],
     ["avalonia.desktop", "12.1.4"],
@@ -195,10 +195,10 @@ async function assertSupportDriftAbsent() {
     ["avalonia.headless.xunit", "12.1.4"],
     ["avalonia.themes.fluent", "12.1.4"],
     ["microsoft.data.sqlite.core", "10.0.14"],
-    ["microsoft.testing.extensions.telemetry", "2.5.1"],
-    ["microsoft.testing.extensions.trxreport.abstractions", "2.5.1"],
-    ["microsoft.testing.platform", "2.5.1"],
-    ["microsoft.testing.platform.msbuild", "2.5.1"],
+    ["microsoft.testing.extensions.telemetry", "2.5.2"],
+    ["microsoft.testing.extensions.trxreport.abstractions", "2.5.2"],
+    ["microsoft.testing.platform", "2.5.2"],
+    ["microsoft.testing.platform.msbuild", "2.5.2"],
     ["sqlite3mc.pclraw.bundle", "2.6.1"],
     ["xunit.v3.mtp-v2", "4.0.2"],
   ]);

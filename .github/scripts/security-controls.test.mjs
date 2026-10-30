@@ -141,17 +141,17 @@ test("Node support gate retains maintenance support until the exact EOL boundary
     /current/u);
 });
 
-test("Node catalogue accepts the reviewed current security release", () => {
+test("Node catalogue accepts the reviewed maintenance release", () => {
   assert.doesNotThrow(() => assertNodeCatalogue([
     { version: "v25.1.0", lts: false },
-    { version: "v24.22.1", lts: "Krypton" },
+    { version: "v24.22.2", lts: "Krypton" },
   ]));
 });
 
 test("Node catalogue rejects a changed maintenance release", () => {
   assert.throws(
-    () => assertNodeCatalogue([{ version: "v24.22.2", lts: "Krypton" }]),
-    /Node 24 LTS changed from v24\.22\.1 to v24\.22\.2/u);
+    () => assertNodeCatalogue([{ version: "v24.22.3", lts: "Krypton" }]),
+    /Node 24 LTS changed from v24\.22\.2 to v24\.22\.3/u);
 });
 
 test("Workflow Node runtime pins stay aligned with the reviewed release", () => {
