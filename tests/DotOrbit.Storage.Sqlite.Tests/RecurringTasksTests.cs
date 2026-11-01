@@ -608,6 +608,48 @@ public sealed class RecurringTasksTests : IDisposable
         Assert.Empty(session.Work.Read().Participants);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void DefinitionWriteFailureAfterParticipantInsertRollsBackAndRetryCommitsOnce(bool update)
+    {
+        using var session = Create();
+        var api = Recurring(session);
+        var draft = Draft(session);
+        var existing = update ? api.CreateRecurringTask(draft) : null;
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                CREATE TRIGGER reject_recurring_after_participant BEFORE INSERT ON recurring_tasks
+                WHEN EXISTS (SELECT 1 FROM participants WHERE label='Staged')
+                BEGIN SELECT RAISE(ABORT, 'synthetic failure after participant insertion'); END;
+                """;
+            command.ExecuteNonQuery();
+        }
+        var save = draft with { Title = "Changed definition", NewParticipantLabels = ["Staged"] };
+        var before = Revision(session);
+        Assert.Throws<WorkspaceWorkException>(() => update
+            ? api.UpdateRecurringTask(existing!.Id, save)
+            : api.CreateRecurringTask(save));
+        Assert.Equal(before, Revision(session));
+        Assert.Empty(session.Work.Read().Participants);
+        if (existing is null) Assert.Empty(api.ReadRecurringTasks());
+        else Assert.Equal(existing.Title, Assert.Single(api.ReadRecurringTasks()).Title);
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "DROP TRIGGER reject_recurring_after_participant;";
+            command.ExecuteNonQuery();
+        }
+        var saved = update ? api.UpdateRecurringTask(existing!.Id, save) : api.CreateRecurringTask(save);
+        Assert.Equal(before + 1, Revision(session));
+        var participant = Assert.Single(session.Work.Read().Participants);
+        Assert.Equal("Staged", participant.Label);
+        Assert.Equal([participant.Id], saved.ParticipantIds);
+        Assert.Equal("Changed definition", Assert.Single(api.ReadRecurringTasks()).Title);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_directory)) Directory.Delete(_directory, true);
