@@ -639,6 +639,100 @@ public sealed class RecurringTasksTests
     }
 
     [Fact]
+    public async Task PersistentReconciliationRefreshFailureAllowsNavigationAndRecoveryBoundaryWithoutReplay()
+    {
+        var store = new RecurringMemoryWorkspace();
+        store.CreateRecurringTask(new("Due", "", null, "home", [], RecurrenceCadence.Daily, new(2026, 11, 1), null, true));
+        var shell = new ShellViewModel(store, Clock());
+        store.FailReadAfterMutation = true;
+        shell.Work!.Recurring.ReconcileHint();
+        await shell.Work.WaitForWorkspaceActionsAsync();
+        Assert.True(shell.Work.CanRetryWorkspaceRefresh);
+        Assert.Single(store.Read().Tasks);
+        Assert.Equal(1, store.ProcessCalls);
+        shell.PrimaryNavigation.Single(item => item.Title == "Backlog").SelectCommand.Execute(null);
+        Assert.Equal("Backlog", shell.ViewTitle);
+        var recoveryBoundaryReached = false;
+        await shell.Work.NavigateAsync(() => recoveryBoundaryReached = true);
+        Assert.True(recoveryBoundaryReached);
+        Assert.False(shell.Work.Recurring.NeedsDecision);
+        Assert.True(store.FailReads);
+        Assert.Equal(1, store.ProcessCalls);
+        Assert.Single(store.Read().Tasks);
+    }
+
+    [AvaloniaFact]
+    public void PersistentReconciliationRefreshFailureAllowsNormalWindowClose()
+    {
+        var store = new RecurringMemoryWorkspace();
+        store.CreateRecurringTask(new("Due", "", null, "home", [], RecurrenceCadence.Daily, new(2026, 11, 1), null, true));
+        var shell = new ShellViewModel(store, Clock());
+        var window = new MainWindow { DataContext = shell };
+        store.FailReadAfterMutation = true;
+        window.Show();
+        shell.Work!.Recurring.ReconcileHint();
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(shell.Work.CanRetryWorkspaceRefresh);
+        Assert.True(store.FailReads);
+        Assert.Single(store.Read().Tasks);
+        window.Close();
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(window.IsVisible);
+        Assert.Equal(1, store.ProcessCalls);
+        Assert.Single(store.Read().Tasks);
+    }
+
+    [Fact]
+    public async Task GeneralNavigationCancelsSuspendedRowActionAfterCommittedRefreshFailure()
+    {
+        var store = new RecurringMemoryWorkspace();
+        store.CreateRecurringTask(new("Original", "", null, "home", [], RecurrenceCadence.Daily, new(2026, 11, 2), null, true));
+        var shell = new ShellViewModel(store, Clock());
+        shell.PrimaryNavigation.Single(item => item.Title == "Recurring").SelectCommand.Execute(null);
+        var model = shell.Work!.Recurring;
+        var row = Assert.Single(model.Definitions);
+        row.EditCommand.Execute(null);
+        model.Title = "Saved title";
+        row.ToggleCommand.Execute(null);
+        store.FailReadAfterMutation = true;
+        model.SaveAndLeaveCommand.Execute(null);
+        await shell.Work.WaitForWorkspaceActionsAsync();
+        await shell.Work.NavigateAsync(() => shell.PrimaryNavigation.Single(item => item.Title == "Backlog").SelectCommand.Execute(null));
+        Assert.Equal("Backlog", shell.ViewTitle);
+        Assert.Equal(1, store.UpdateCalls);
+        store.FailReads = false;
+        store.FailReadAfterMutation = false;
+        shell.Work.RetryWorkspaceRefreshCommand.Execute(null);
+        await shell.Work.WaitForWorkspaceActionsAsync();
+        Assert.Equal(1, store.UpdateCalls);
+        var saved = Assert.Single(store.ReadRecurringTasks());
+        Assert.Equal("Saved title", saved.Title);
+        Assert.True(saved.IsEnabled);
+        Assert.Equal("Backlog", shell.ViewTitle);
+    }
+
+    [Fact]
+    public void NewDirtyDraftAfterRefreshFailureStillOffersVisibleDiscardAndLeaveDecision()
+    {
+        var store = new RecurringMemoryWorkspace();
+        var work = new ProjectCaptureViewModel(store, Clock());
+        store.FailReadAfterMutation = true;
+        work.Recurring.ReconcileHint();
+        Assert.True(work.CanRetryWorkspaceRefresh);
+        var model = Begin(work);
+        var destinationReached = false;
+        work.Navigate(() => destinationReached = true);
+        Assert.True(model.NeedsDecision);
+        Assert.True(work.HasBlockingDialog);
+        Assert.False(destinationReached);
+        model.DiscardAndLeaveCommand.Execute(null);
+        Assert.True(destinationReached);
+        Assert.False(model.NeedsDecision);
+        Assert.True(store.FailReads);
+        Assert.Empty(store.ReadRecurringTasks());
+    }
+
+    [Fact]
     public void DirtyFingerprintDistinguishesSeparatorsWithinUserContent()
     {
         var store = new RecurringMemoryWorkspace();
