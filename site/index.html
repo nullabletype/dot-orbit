@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="dot-orbit is a personal, encrypted desktop task manager with deliberate daily focus, provider-neutral agent handover, and local MCP controls.">
+  <meta name="description" content="Organise your tasks, plan your day and keep your workspace encrypted on your computer. dot-orbit is a personal task manager for macOS, Windows and Linux.">
   <title>dot-orbit — Manage what’s in your personal orbit</title>
   <link rel="canonical" href="https://dot-orbit.app/">
   <link rel="icon" href="orbit-mark.svg" type="image/svg+xml">
@@ -218,14 +218,14 @@
 <body>
   <header class="wrap">
     <a class="brand" href="/" aria-label="dot-orbit home"><img src="orbit-mark.svg" alt=""><span>dot-orbit</span></a>
-    <nav aria-label="Main navigation"><a href="#themes">Themes</a><a href="#product">The product</a><a href="#agents">Agent handover</a><a href="#privacy">Privacy</a><a class="repo" href="https://github.com/nullabletype/dot-orbit">GitHub ↗</a></nav>
+    <nav aria-label="Main navigation"><a href="#themes">Themes</a><a href="#product">The app</a><a href="#agents">Working with AI</a><a href="#privacy">Privacy</a><a class="repo" href="https://github.com/nullabletype/dot-orbit">GitHub ↗</a></nav>
   </header>
 
   <main>
     <section class="hero wrap">
       <div class="hero-copy">
         <div><span class="eyebrow">Personal desktop task manager</span><h1>Your work stays yours.</h1><p class="tagline">Manage what’s in your personal orbit.</p></div>
-        <div class="intro">Keep related Tasks in Projects, use Categories across the workspace, then choose what belongs in Today. <strong>The workspace, proposal review and Apply step stay on your computer.</strong> You decide if any context leaves it.<div class="actions"><a class="button primary" href="https://github.com/nullabletype/dot-orbit/releases">Download</a><a class="button" href="#product">View the app</a><a class="button" href="https://github.com/nullabletype/dot-orbit">Source on GitHub</a></div></div>
+        <div class="intro">Keep your projects organised and choose what to focus on today. <strong>Your workspace stays encrypted on your computer.</strong> If you use an AI tool, you choose what to share and review its suggestions before making any changes.<div class="actions"><a class="button primary" href="https://github.com/nullabletype/dot-orbit/releases">Download</a><a class="button" href="#product">View the app</a><a class="button" href="https://github.com/nullabletype/dot-orbit">Source on GitHub</a></div></div>
       </div>
       <div class="hero-stage">
         <div class="hero-app"><img class="screenshot" src="screenshots/today-dark-current.png" alt="dot-orbit Today view in the Dark theme, with Planned and In progress Tasks and Task details"></div>
@@ -241,8 +241,8 @@
     <section class="themes" id="themes" aria-labelledby="themes-title">
       <div class="wrap">
         <div class="themes-head">
-          <div><span class="eyebrow">Nine built-in themes</span><h2 id="themes-title">Themes apply across the whole app.</h2></div>
-          <p>There are five dark themes and four light ones. Your choice carries across the workspace, unlock screen and recovery window, then dot-orbit remembers it on this device.</p>
+          <div><span class="eyebrow">Nine built-in themes</span><h2 id="themes-title">Choose a theme that suits you.</h2></div>
+          <p>Pick from five dark themes and four light ones. Your theme carries through the whole app, and dot-orbit remembers your choice on this device.</p>
         </div>
 
         <div class="theme-groups">
@@ -272,52 +272,52 @@
 
     <section class="story wrap" id="product">
       <div class="story-head"><span class="eyebrow">How work is organised</span><h2>Projects, Categories and Today</h2></div>
-      <p class="story-lede">Tasks can sit inside a Project or stand alone. Categories group both. Today is a smaller list that you choose from the same manual order used by the Backlog.</p>
+      <p class="story-lede">Organise your tasks by project and category. Tasks can stand alone or be part of a project. Plan your day by choosing which tasks to add to Today.</p>
 
       <article class="product-block">
-        <div class="product-copy"><span class="index">01 / PROJECTS</span><h3>Keep related Tasks together</h3><p>A Project works out its progress from the Tasks inside it. Each Task can still be completed, reordered or dated on its own.</p><ul class="proof-list"><li>Tasks can stand alone without a Project</li><li>Add a Task directly from a Project</li><li>Category and Project identity pills take you back to their source</li></ul></div>
+        <div class="product-copy"><span class="index">01 / PROJECTS</span><h3>Keep related tasks together</h3><p>See how a project is progressing as you complete its tasks. You can give each task its own due date and arrange them in the order that works for you.</p><ul class="proof-list"><li>Keep standalone tasks alongside your projects</li><li>Add tasks straight to a project</li><li>Click a task’s project or category label to open it</li></ul></div>
         <div class="shot-frame"><img class="screenshot" src="screenshots/projects-dark-current.png" alt="dot-orbit Projects view in the Dark theme, with expanded Projects, attached Tasks, progress, dates and Task details"></div>
       </article>
 
       <article class="product-block reverse">
-        <div class="product-copy"><span class="index">02 / CATEGORIES</span><h3>Categories cross Project boundaries</h3><p>A Category can contain Projects and standalone Tasks. Tasks inside a Project inherit its Category unless you choose something else.</p><ul class="proof-list"><li>Projects and standalone Tasks appear in separate sections</li><li>Names stay visible beside their colour markers</li><li>Category relationships can be changed in the app</li></ul></div>
+        <div class="product-copy"><span class="index">02 / CATEGORIES</span><h3>Group your work with categories</h3><p>Use categories to group projects and standalone tasks. Tasks use their project’s category by default, but you can choose a different one whenever you need to.</p><ul class="proof-list"><li>See projects and standalone tasks in separate sections</li><li>Recognise categories by both name and colour</li><li>Change a project’s category or choose a different one for a task</li></ul></div>
         <div class="shot-frame light"><img class="screenshot" src="screenshots/categories-light-current.png" alt="dot-orbit Categories view in the Light theme, showing Projects and standalone Tasks grouped under named Categories with Category details"></div>
       </article>
     </section>
 
     <section class="views" aria-labelledby="views-title">
-      <div class="wrap"><div class="views-head"><div><span class="eyebrow">Work views</span><h2 id="views-title">Four ways to see the same Tasks</h2></div><p>Today and Backlog share one manual order. Upcoming groups incomplete Tasks by due date. Completed keeps recent results nearby, while Archive holds older Projects and Tasks without putting them back into active work.</p></div><div class="view-grid"><article class="view"><span>01</span><h3>Today</h3><p>Your chosen Tasks, split into Planned and In progress.</p></article><article class="view"><span>02</span><h3>Upcoming</h3><p>Overdue Tasks and work due through the same weekday next week.</p></article><article class="view"><span>03</span><h3>Backlog</h3><p>Every incomplete Task in the shared manual order.</p></article><article class="view"><span>04</span><h3>Completed and Archive</h3><p>Recent completions plus searchable archived Projects and Tasks.</p></article></div></div>
+      <div class="wrap"><div class="views-head"><div><span class="eyebrow">Work views</span><h2 id="views-title">Find the view that fits your day</h2></div><p>Focus on today, look ahead to upcoming deadlines or browse everything you still need to do. You can also look back at completed work and search your archive.</p></div><div class="view-grid"><article class="view"><span>01</span><h3>Today</h3><p>The tasks you’ve chosen to focus on, grouped into Planned and In progress.</p></article><article class="view"><span>02</span><h3>Upcoming</h3><p>See what’s overdue and what’s due from today through the same day next week.</p></article><article class="view"><span>03</span><h3>Backlog</h3><p>All your unfinished tasks, in the order you choose. Today follows the same order.</p></article><article class="view"><span>04</span><h3>Completed and Archive</h3><p>Look back at finished tasks and search archived projects and tasks.</p></article></div></div>
     </section>
 
     <section class="agents" id="agents" aria-labelledby="agents-title">
       <div class="wrap">
         <div class="agents-head">
-          <div><span class="eyebrow">Provider-neutral agent handover</span><h2 id="agents-title">Agent proposals stop for local review.</h2></div>
-          <p class="agents-intro"><strong>dot-orbit does not choose or contact an AI provider.</strong> You decide what context leaves the app. Imported work is checked against current local state and shown for review before anything changes.</p>
+          <div><span class="eyebrow">Working with AI</span><h2 id="agents-title">You decide what changes.</h2></div>
+          <p class="agents-intro"><strong>dot-orbit does not choose or contact an AI provider.</strong> You choose the tool and what to share with it. Bring its suggestions back into dot-orbit to check and approve before anything changes.</p>
         </div>
 
         <ol class="handover" aria-label="Agent handover process">
-          <li><span class="step">01 / CONTEXT</span><h3>Choose the context</h3><p>New work needs no workspace access. For changes involving existing work, inspect and copy a bounded Planning snapshot. Archived and binned work stays out, though visible Category and Participant names may still reveal context.</p></li>
-          <li><span class="step">02 / REVIEW</span><h3>Inspect the proposal</h3><p>Type, paste, load, drop or receive a proposal through local MCP. dot-orbit checks it against current local state and shows what it would add or change.</p></li>
-          <li><span class="step">03 / APPLY</span><h3>Apply it yourself</h3><p>You choose Apply changes or Add new work from the review. dot-orbit creates an encrypted recovery point first, then applies the proposal as one change. The agent cannot approve its own work.</p></li>
+          <li><span class="step">01 / CONTEXT</span><h3>Choose what to share</h3><p>An AI tool can propose new work without seeing your workspace. To help it work with existing tasks, review and copy a Planning snapshot from the app. This leaves out archived and binned work, but included category and participant names may still reveal private information.</p></li>
+          <li><span class="step">02 / REVIEW</span><h3>Review the suggestions</h3><p>Enter or paste a proposal, open or drop in a proposal file, or receive one through local MCP. dot-orbit checks it against your workspace and shows you what it would add or change.</p></li>
+          <li><span class="step">03 / APPLY</span><h3>Make the final call</h3><p>When you’re happy with the proposal, choose Apply changes or Add new work. dot-orbit saves an encrypted recovery point first, then applies the whole proposal together. The AI tool cannot approve its own suggestions.</p></li>
         </ol>
 
         <figure class="feature-shot light">
           <img class="screenshot" src="screenshots/ai-light-current.png" alt="dot-orbit AI view in the Light theme, with proposal input and optional workspace context controls">
-          <figcaption>AI view · proposal input and optional workspace context</figcaption>
+          <figcaption>AI view · bring in suggestions and choose what to share</figcaption>
         </figure>
 
         <div class="mcp-panel">
           <div class="mcp-main">
-            <div class="mcp-copy"><span class="eyebrow">Local MCP</span><h3>MCP connects through the desktop app</h3><p>An MCP host launches dot-orbit’s packaged stdio adapter. It reaches the unlocked desktop through private same-user IPC, with no network listener. The adapter cannot open the workspace, unlock it or receive encryption material.</p></div>
+            <div class="mcp-copy"><span class="eyebrow">Local MCP</span><h3>Connect an AI tool through MCP</h3><p>A compatible AI tool can connect to the unlocked app through the MCP adapter included with dot-orbit. The connection stays on your computer, is limited to your operating-system account and does not listen for network connections. The adapter cannot open or unlock your workspace, and never receives your passphrase or encryption keys.</p></div>
             <div>
               <ol class="mcp-route" aria-label="Local MCP access path">
-                <li><span>01</span><strong>MCP host</strong><small>Local client process</small></li>
-                <li><span>02</span><strong>stdio adapter</strong><small>No workspace or key material</small></li>
-                <li><span>03</span><strong>Private broker</strong><small>Same-user, scoped session</small></li>
-                <li><span>04</span><strong>Local review</strong><small>Human approval required</small></li>
+                <li><span>01</span><strong>Your AI tool</strong><small>Running on your computer</small></li>
+                <li><span>02</span><strong>MCP adapter</strong><small>No workspace file or keys</small></li>
+                <li><span>03</span><strong>Private connection</strong><small>Only the access you approve</small></li>
+                <li><span>04</span><strong>Your review</strong><small>You approve the changes</small></li>
               </ol>
-              <p class="scope-note"><strong>Grant read, submit, or both for each client.</strong> Read access returns only its named current-work scope. Submission enters the same in-app Review flow as manual handover; it never grants autonomous Apply.</p>
+              <p class="scope-note"><strong>Choose whether each tool can read context, submit proposals, or both.</strong> Read access is limited to the context covered by your approval. Submitted proposals go through the same review as ones you paste or open yourself. The tool cannot apply changes for you.</p>
             </div>
           </div>
 
@@ -327,21 +327,21 @@
           </figure>
 
           <div class="kill-switch">
-            <div class="kill-copy"><span class="eyebrow">Independent controls</span><h3>Either setting can shut MCP down.</h3><p>AI features and Local MCP have separate device-local switches. Both start off. New or changed access needs approval for its exact scopes; an exact remembered match can reconnect under the policy you kept.</p></div>
+            <div class="kill-copy"><span class="eyebrow">Independent controls</span><h3>You control when tools can connect.</h3><p>AI features and Local MCP each have a switch in Settings on this device. Both are off by default. You approve each new connection’s permissions. If you choose to remember an approval, reconnection is allowed while the credentials, account, workspace and permissions still match. If any of these change, you’ll be asked again.</p></div>
             <div class="gates" role="group" aria-label="MCP privacy controls">
-              <div class="gate"><strong>Enable AI features</strong><span class="gate-state"><span class="switch-icon" aria-hidden="true"></span>Off by default</span><small>Global control for every agent-interchange feature.</small></div>
-              <div class="gate"><strong>Enable Local MCP</strong><span class="gate-state"><span class="switch-icon" aria-hidden="true"></span>Off by default</span><small>Independent control for the local broker and MCP sessions.</small></div>
-              <p class="privacy-qualifier"><strong>Kill switch:</strong> turn off either gate, lock the workspace, exit dot-orbit, or revoke the adapter. The broker closes active sessions and invalidates live capabilities. Remembered approval retains policy only—never a live connection.</p>
+              <div class="gate"><strong>Enable AI features</strong><span class="gate-state"><span class="switch-icon" aria-hidden="true"></span>Off by default</span><small>Turn all AI handover features on or off.</small></div>
+              <div class="gate"><strong>Enable Local MCP</strong><span class="gate-state"><span class="switch-icon" aria-hidden="true"></span>Off by default</span><small>Allow or stop local MCP connections.</small></div>
+              <p class="privacy-qualifier"><strong>Disconnect at any time:</strong> turn off either switch, lock your workspace, close dot-orbit or revoke a tool’s access. Active connections close and their access expires. Remembering an approval does not keep a connection open.</p>
             </div>
           </div>
-          <p class="privacy-qualifier"><strong>Your disclosure boundary still matters.</strong> Clipboard handover writes sensitive unencrypted text only after confirmation. Approved MCP read scopes return plaintext context to the MCP host. dot-orbit does not contact an AI provider, but the host may use one under its own data-handling policy.</p>
+          <p class="privacy-qualifier"><strong>Check what you share with other tools.</strong> Copying workspace context puts unencrypted text on your clipboard after you confirm. MCP read access also shares unencrypted context with the connected tool. dot-orbit does not contact an AI provider, but that tool may send the context to one under its own privacy policy.</p>
         </div>
       </div>
     </section>
 
     <section class="privacy wrap" id="privacy">
-      <div class="privacy-head"><span class="eyebrow">Local by design</span><h2>Your task list is not a service.</h2><p>Your workspace and recovery backups are encrypted with your passphrase. There is no account system or built-in sync. If you want an off-device recovery copy, you choose where it goes.</p></div>
-      <div class="boundary" aria-label="dot-orbit storage boundary"><article><span class="number">1</span><h3>Passphrase access</h3><p>Your passphrase opens the encrypted workspace stored locally on your desktop. There is no remote account recovery.</p></article><article><span class="number">2</span><h3>Local workspace</h3><p>You choose the workspace file. dot-orbit remembers its location on this device; Projects, Tasks, Categories, Today, and history stay inside it.</p></article><article><span class="number">3</span><h3>Encrypted backups</h3><p>Recovery copies remain encrypted. Their destination can be local or a folder managed by an external sync service.</p></article></div>
+      <div class="privacy-head"><span class="eyebrow">Local by design</span><h2>Your workspace, on your computer.</h2><p>Your workspace and backups are encrypted with your passphrase. There’s no account to create and no built-in sync. If you want to keep a backup elsewhere, you choose where it goes.</p></div>
+      <div class="boundary" aria-label="dot-orbit storage boundary"><article><span class="number">1</span><h3>Protected by your passphrase</h3><p>Your passphrase unlocks the workspace on your computer. Keep it safe: there’s no online account recovery if you forget it.</p></article><article><span class="number">2</span><h3>Local workspace</h3><p>Choose where to keep your workspace file, and dot-orbit remembers it on this device. Your projects, tasks, categories and Today list are all stored together.</p></article><article><span class="number">3</span><h3>Encrypted backups</h3><p>Keep encrypted backups on your computer or in a folder managed by a sync service you use.</p></article></div>
     </section>
 
     <section class="close"><div class="wrap"><img src="orbit-mark.svg" alt=""><h2>dot-orbit is open source.</h2><p>Downloads are available for macOS, Windows and Linux.</p><div class="actions"><a class="button primary" href="https://github.com/nullabletype/dot-orbit/releases">Download</a><a class="button" href="https://github.com/nullabletype/dot-orbit">Source on GitHub ↗</a></div></div></section>
