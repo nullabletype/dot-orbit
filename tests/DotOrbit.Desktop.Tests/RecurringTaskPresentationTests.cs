@@ -74,7 +74,7 @@ public sealed class RecurringTaskPresentationTests
             Assert.Equal(invalid, editor.Text);
             Assert.Equal(invalid, model.DueOffset);
             Assert.False(model.CanSave);
-            Assert.False(Find<Button>(window, "recurring-save").IsEnabled);
+            Assert.DoesNotContain(window.GetVisualDescendants().OfType<Button>(), button => AutomationProperties.GetAutomationId(button) == "recurring-save");
             Assert.True(model.HasOffsetError);
             Assert.NotEmpty(model.DueOffsetValidation);
             model.SaveCommand.Execute(null);
@@ -90,7 +90,7 @@ public sealed class RecurringTaskPresentationTests
             editor.Text = "0";
             Dispatcher.UIThread.RunJobs();
             Assert.True(model.CanSave);
-            Assert.True(Find<Button>(window, "recurring-save").IsEnabled);
+            Assert.DoesNotContain(window.GetVisualDescendants().OfType<Button>(), button => AutomationProperties.GetAutomationId(button) == "recurring-save");
             model.SaveCommand.Execute(null);
             Assert.Equal(0, Assert.Single(store.ReadRecurringTasks()).DueDateOffsetDays);
         }
@@ -155,6 +155,7 @@ public sealed class RecurringTaskPresentationTests
         Assert.Empty(store.Read().Participants);
         model = Begin(work);
         Stage(model, "Discarded Person");
+        model.Title = string.Empty;
         var left = false;
         work.Navigate(() => left = true);
         Assert.True(model.NeedsDecision);
@@ -227,7 +228,7 @@ public sealed class RecurringTaskPresentationTests
         model.ParticipantToAdd = model.AvailableParticipants.Single(item => item.Id == staged.Id);
         model.AddParticipantCommand.Execute(null);
         Assert.Equal(staged.Id, Assert.Single(model.SelectedParticipants).Id);
-        Assert.True(Assert.Single(model.SelectedParticipants).IsDraft);
+        Assert.False(Assert.Single(model.SelectedParticipants).IsDraft);
         model.SaveCommand.Execute(null);
         Assert.Equal("Staged Person", Assert.Single(store.Read().Participants).Label);
     }
@@ -278,6 +279,9 @@ public sealed class RecurringTaskPresentationTests
             var rows = window.GetVisualDescendants().OfType<Border>().Where(item => item.Classes.Contains("recurring-row")).ToArray();
             Assert.Equal(3, rows.Length);
             Assert.All(rows, row => Assert.InRange(row.Bounds.Height, 60, 90));
+            Assert.All(rows.SelectMany(row => row.GetVisualDescendants().OfType<TextBlock>()).Where(text =>
+                text.DataContext is RecurringTaskRowViewModel item && (text.Text == item.ScheduleSummary || text.Text == item.NextDate || text.Text == item.DueDate)),
+                text => Assert.Equal(12, text.FontSize));
             Assert.Equal(rows[0].TranslatePoint(new Point(0, rows[0].Bounds.Height), window)!.Value.Y,
                 rows[1].TranslatePoint(default, window)!.Value.Y);
             var first = Assert.Single(shell.Work!.Recurring.Definitions, item => item.Title == "Review the week");

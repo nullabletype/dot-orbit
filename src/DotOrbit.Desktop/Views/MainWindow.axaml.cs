@@ -1276,6 +1276,7 @@ public sealed partial class MainWindow : Window
         {
             _subscribedWork.PropertyChanged -= OnWorkChanged;
             _subscribedWork.AutosaveRequested -= OnAutosaveRequested;
+            _subscribedWork.Recurring.AutosaveRequested -= OnAutosaveRequested;
         }
         if (_subscribedSettings is not null)
             _subscribedSettings.PropertyChanged -= OnSettingsChanged;
@@ -1288,6 +1289,7 @@ public sealed partial class MainWindow : Window
         {
             _subscribedWork.PropertyChanged += OnWorkChanged;
             _subscribedWork.AutosaveRequested += OnAutosaveRequested;
+            _subscribedWork.Recurring.AutosaveRequested += OnAutosaveRequested;
             ScheduleTransientMessageDismissal(_subscribedWork);
         }
         if (_subscribedSettings is not null)
@@ -1361,11 +1363,13 @@ public sealed partial class MainWindow : Window
 
     private void OnAutosaveRequested(object? sender, AutosaveRequestEventArgs e)
     {
-        if (sender is not ProjectCaptureViewModel work) return;
-        _autosaveScheduler.Schedule(
-            ProjectCaptureViewModel.AutosaveDelay,
-            e.Revision,
-            revision => work.RunScheduledAutosave(revision));
+        if (sender is RecurringTasksViewModel recurring)
+        {
+            _autosaveScheduler.Schedule(RecurringTasksViewModel.AutosaveDelay, e.Revision, revision => recurring.RunScheduledAutosave(revision));
+            return;
+        }
+        if (sender is ProjectCaptureViewModel work)
+            _autosaveScheduler.Schedule(ProjectCaptureViewModel.AutosaveDelay, e.Revision, revision => work.RunScheduledAutosave(revision));
     }
 
     private void ScheduleTransientMessageDismissal(ProjectCaptureViewModel work)
@@ -1534,14 +1538,16 @@ public sealed partial class MainWindow : Window
                 or nameof(ProjectCaptureViewModel.CanRetryWorkspaceRefresh)
             && sender is ProjectCaptureViewModel messageWork)
             ScheduleTransientMessageDismissal(messageWork);
-        if (e.PropertyName == nameof(ProjectCaptureViewModel.NeedsDecision)
-            && DataContext is ShellViewModel { Work.NeedsDecision: true })
+        if (e.PropertyName is nameof(ProjectCaptureViewModel.NeedsDecision) or nameof(ProjectCaptureViewModel.HasBlockingDialog)
+            && DataContext is ShellViewModel { Work: { } decidingWork }
+            && (decidingWork.NeedsDecision || decidingWork.Recurring.NeedsDecision))
             Dispatcher.UIThread.Post(() =>
             {
                 foreach (var radio in this.GetVisualDescendants().OfType<RadioButton>())
                     if (radio.DataContext is NavigationItemViewModel navigation)
                         radio.SetCurrentValue(RadioButton.IsCheckedProperty, navigation.IsSelected);
-                this.FindControl<Button>("GuardSave")?.Focus();
+                if (decidingWork.Recurring.NeedsDecision) FocusAutomationId("recurring-guard-save");
+                else this.FindControl<Button>("GuardSave")?.Focus();
             });
         if (e.PropertyName == nameof(ProjectCaptureViewModel.DateValidationMessage)
             && sender is ProjectCaptureViewModel { HasDateValidationError: true })
@@ -2173,6 +2179,7 @@ public sealed partial class MainWindow : Window
         {
             _subscribedWork.PropertyChanged -= OnWorkChanged;
             _subscribedWork.AutosaveRequested -= OnAutosaveRequested;
+            _subscribedWork.Recurring.AutosaveRequested -= OnAutosaveRequested;
         }
         if (_subscribedShell is not null)
         {

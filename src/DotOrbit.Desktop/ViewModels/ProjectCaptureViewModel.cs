@@ -2876,7 +2876,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public void RefreshFromStore() => ResolveDraftBeforeAction(Reload);
 
     internal bool CanApplyProposalNow() =>
-        !NeedsDecision
+        !Recurring.HasPendingAutosave
+        && !NeedsDecision
         && !HasPendingWorkspaceActions
         && !HasPendingPersistence
         && !(_editingCategory && IsDirty);

@@ -25,6 +25,10 @@ public sealed partial class RecurringTaskEditor : UserControl
         InitializeComponent();
         RecurringMarkdownSource.AddHandler(KeyDownEvent, OnMarkdownKeyDown, RoutingStrategies.Tunnel);
     }
+    private void OnDueOffsetSpinned(object? sender, SpinEventArgs e)
+    {
+        if (DataContext is RecurringTasksViewModel model) model.CommitDiscreteEdit();
+    }
     private void OnDateValidationError(object? sender, CalendarDatePickerDateValidationErrorEventArgs e) => e.ThrowException = false;
     private void OnCalendarOpened(object? sender, EventArgs e)
     {
@@ -37,7 +41,10 @@ public sealed partial class RecurringTaskEditor : UserControl
     {
         if (sender is InspectorDatePicker { SelectedDate: { } selected } && selected != _dateAtOpen
             && DataContext is RecurringTasksViewModel model)
+        {
             model.FirstDate = selected.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            model.CommitDiscreteEdit();
+        }
         _dateAtOpen = null;
     }
     private void OnNewParticipantKeyDown(object? sender, KeyEventArgs e)

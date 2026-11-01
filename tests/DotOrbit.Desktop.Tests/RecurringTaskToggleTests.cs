@@ -61,7 +61,7 @@ public sealed class RecurringTaskToggleTests
             if (scenario == "Stay")
             {
                 shell.Work!.Recurring.Definitions.Single().EditCommand.Execute(null);
-                shell.Work.Recurring.Title = "Unsaved title";
+                shell.Work.Recurring.Title = string.Empty;
             }
             store.FailUpdate = scenario == "Mutation";
             store.FailReadAfterMutation = scenario == "Refresh";
@@ -75,7 +75,7 @@ public sealed class RecurringTaskToggleTests
                 Dispatcher.UIThread.RunJobs();
                 AssertState(toggle, true);
                 Assert.True(Assert.Single(store.ReadRecurringTasks()).IsEnabled);
-                Assert.Equal("Unsaved title", shell.Work.Recurring.Title);
+                Assert.Empty(shell.Work.Recurring.Title);
                 Assert.Equal(0, store.UpdateCalls);
             }
             else if (scenario == "Mutation")

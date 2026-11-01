@@ -43,6 +43,7 @@ public sealed class RecurringTasksTests
         model.Cadence = RecurrenceCadence.Monthly;
         model.HasDueDate = true;
         model.DueOffset = "5";
+        model.IsEnabled = true;
         model.SaveCommand.Execute(null);
         await work.WaitForWorkspaceActionsAsync();
 
@@ -63,7 +64,7 @@ public sealed class RecurringTasksTests
         Assert.Equal(task.Id, Assert.Single(work.Backlog).Id);
         Assert.Equal(task.Id, Assert.Single(Assert.Single(work.UpcomingGroups).Rows).Task.Id);
         Assert.Empty(work.TodayPlanned);
-        Assert.False(model.HasEditor);
+        Assert.True(model.HasEditor);
         Assert.Contains("Added 1 scheduled Task", model.Announcement, StringComparison.Ordinal);
     }
 
@@ -128,6 +129,8 @@ public sealed class RecurringTasksTests
         var navigation = shell.PrimaryNavigation.Single(item => item.Title == "Recurring");
         navigation.SelectCommand.Execute(null);
         var model = Begin(shell.Work!);
+        model.HasDueDate = true;
+        model.DueOffset = "Potato";
         shell.PrimaryNavigation[2].SelectCommand.Execute(null);
         Assert.True(model.NeedsDecision);
         Assert.Equal("Recurring", shell.ViewTitle);
@@ -141,7 +144,6 @@ public sealed class RecurringTasksTests
         navigation.SelectCommand.Execute(null);
         model = Begin(shell.Work!);
         shell.PrimaryNavigation[2].SelectCommand.Execute(null);
-        model.SaveAndLeaveCommand.Execute(null);
         await WaitUntilAsync(() => shell.ViewTitle == "Backlog");
         Assert.Equal("Backlog", shell.ViewTitle);
         Assert.Single(store.ReadRecurringTasks());
@@ -154,6 +156,7 @@ public sealed class RecurringTasksTests
         var store = new RecurringMemoryWorkspace();
         var work = new ProjectCaptureViewModel(store, Clock());
         var model = Begin(work);
+        model.IsEnabled = true;
         model.SaveCommand.Execute(null);
         var original = Assert.Single(store.Read().Tasks);
         model.Definitions.Single().ToggleCommand.Execute(null);
@@ -329,17 +332,14 @@ public sealed class RecurringTasksTests
             var first = Find<InspectorDatePicker>(window, "recurring-first-date");
             var firstText = Assert.Single(first.GetVisualDescendants().OfType<TextBox>());
             firstText.Text = "invalid";
-            var save = Find<Button>(window, "recurring-save");
-            Assert.True(save.Focus());
-            window.KeyPress(Key.Enter, RawInputModifiers.None, PhysicalKey.Enter, "\r");
+            shell.Work.Recurring.RunScheduledAutosave(force: true);
             Dispatcher.UIThread.RunJobs();
             Assert.True(first.IsKeyboardFocusWithin);
             Assert.Contains("error", first.Classes);
             Assert.Contains("YYYY-MM-DD", AutomationProperties.GetHelpText(first), StringComparison.Ordinal);
             Assert.Contains("YYYY-MM-DD", shell.Work.Recurring.Validation, StringComparison.Ordinal);
             firstText.Text = "2026-11-01";
-            save.Focus();
-            window.KeyPress(Key.Enter, RawInputModifiers.None, PhysicalKey.Enter, "\r");
+            shell.Work.Recurring.RunScheduledAutosave(force: true);
             Dispatcher.UIThread.RunJobs();
             var row = Assert.Single(shell.Work.Recurring.Definitions);
             var delete = Find<Button>(window, row.DeleteAutomationId);
@@ -496,14 +496,15 @@ public sealed class RecurringTasksTests
         model.SaveCommand.Execute(null);
         Assert.True(model.HasEditor);
         Assert.Equal("Retain this draft", model.Description);
-        Assert.Contains("Could not save", model.Validation, StringComparison.Ordinal);
+        Assert.Contains("Could not save", model.AutosaveStatus, StringComparison.Ordinal);
         Assert.True(model.CanEdit);
         Assert.Empty(store.ReadRecurringTasks());
         store.FailCreate = false;
         model.SaveCommand.Execute(null);
         Assert.Single(store.ReadRecurringTasks());
-        Assert.Single(store.Read().Tasks);
-        Assert.False(model.HasEditor);
+        Assert.Empty(store.Read().Tasks);
+        Assert.True(model.HasEditor);
+        Assert.False(Assert.Single(store.ReadRecurringTasks()).IsEnabled);
     }
 
     private sealed class HeldRecurringOperation(IWorkspaceWork store, ManualResetEventSlim release) : IWorkspacePersistenceOperation
@@ -572,7 +573,7 @@ public sealed class RecurringTasksTests
         var originalRow = Assert.Single(model.Definitions);
         originalRow.EditCommand.Execute(null);
         model.Title = "Saved title";
-        model.Description = "**Saved description**";
+        model.Description = "Earlier description";
         model.Project = model.Projects.Single(item => item.ProjectId == secondProject.Id);
         model.Category = model.Categories.Single(item => item.Id == "work");
         model.Participants.Single(item => item.Id == firstParticipant.Id).IsSelected = false;
@@ -582,19 +583,20 @@ public sealed class RecurringTasksTests
         model.HasDueDate = true;
         model.DueOffset = "5";
         model.IsEnabled = false;
+        var updatesBeforeLastText = store.UpdateCalls;
+        model.Description = "**Saved description**";
+        store.FailReadAfterMutation = refreshFails;
         switch (action)
         {
             case "Pause": originalRow.ToggleCommand.Execute(null); break;
             case "Edit": originalRow.EditCommand.Execute(null); break;
             case "Delete": originalRow.DeleteCommand.Execute(null); break;
         }
-        Assert.True(model.NeedsDecision);
-        store.FailReadAfterMutation = refreshFails;
-        model.SaveAndLeaveCommand.Execute(null);
+        Assert.False(model.NeedsDecision);
         await work.WaitForWorkspaceActionsAsync();
         if (refreshFails)
         {
-            Assert.Equal(1, store.UpdateCalls);
+            Assert.Equal(updatesBeforeLastText + 1, store.UpdateCalls);
             Assert.False(model.HasEditor);
             Assert.False(model.NeedsDeleteConfirmation);
             Assert.True(work.CanRetryWorkspaceRefresh);
@@ -606,7 +608,7 @@ public sealed class RecurringTasksTests
         }
         await WaitUntilAsync(() => action switch
         {
-            "Pause" => store.UpdateCalls == 2,
+            "Pause" => store.UpdateCalls == updatesBeforeLastText + 2,
             "Edit" => model.HasEditor,
             _ => model.NeedsDeleteConfirmation,
         });
@@ -621,7 +623,7 @@ public sealed class RecurringTasksTests
         Assert.Equal(new DateOnly(2026, 11, 3), saved.FirstOccurrenceDate);
         Assert.Equal(5, saved.DueDateOffsetDays);
         Assert.False(saved.IsEnabled); // The originally visible Pause intent must not invert the saved disabled state.
-        Assert.Equal(action == "Pause" ? 2 : 1, store.UpdateCalls);
+        Assert.Equal(updatesBeforeLastText + (action == "Pause" ? 2 : 1), store.UpdateCalls);
         if (action == "Edit")
         {
             Assert.Equal(saved.Title, model.Title);
@@ -693,9 +695,8 @@ public sealed class RecurringTasksTests
         var row = Assert.Single(model.Definitions);
         row.EditCommand.Execute(null);
         model.Title = "Saved title";
-        row.ToggleCommand.Execute(null);
         store.FailReadAfterMutation = true;
-        model.SaveAndLeaveCommand.Execute(null);
+        row.ToggleCommand.Execute(null);
         await shell.Work.WaitForWorkspaceActionsAsync();
         await shell.Work.NavigateAsync(() => shell.PrimaryNavigation.Single(item => item.Title == "Backlog").SelectCommand.Execute(null));
         Assert.Equal("Backlog", shell.ViewTitle);
@@ -720,6 +721,7 @@ public sealed class RecurringTasksTests
         work.Recurring.ReconcileHint();
         Assert.True(work.CanRetryWorkspaceRefresh);
         var model = Begin(work);
+        model.Title = string.Empty;
         var destinationReached = false;
         work.Navigate(() => destinationReached = true);
         Assert.True(model.NeedsDecision);

@@ -8,9 +8,10 @@ using DotOrbit.Markdown;
 
 namespace DotOrbit.Desktop.ViewModels;
 
-/// <summary>Explicit recurring-definition drafts; generated Tasks remain in the ordinary work projections.</summary>
+/// <summary>Autosaved recurring definitions; generated Tasks remain in the ordinary work projections.</summary>
 public sealed class RecurringTasksViewModel : INotifyPropertyChanged
 {
+    private const string ReconciliationFailure = "Could not add scheduled Tasks. Will retry while this workspace is unlocked.";
     private readonly bool _available;
     private readonly TimeProvider _time;
     private readonly Func<WorkspaceActionRequest, bool> _submit;
@@ -34,7 +35,7 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
     private string _participantValidation = string.Empty;
     private int _participantDraftSequence;
     private bool _hasDueDate;
-    private bool _enabled = true;
+    private bool _enabled;
     private bool _hasEditor;
     private bool _busy;
     private bool _loading;
@@ -51,6 +52,16 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
     private Action? _afterWorkspaceAction;
     private bool _saveThenLeave;
     private bool _waitingForRefresh;
+    private long _editorGeneration;
+    private long _autosaveRevision;
+    private RecurringEditorSave? _editorSave;
+    private (RecurringEditorSave Save, RecurringTaskDefinition Definition)? _pendingParticipantAdoption;
+    private bool _saveAgain;
+    private bool _needsDecision;
+    private bool _validationShouldFocus = true;
+    private bool _hasAutosaveError;
+    private string _autosaveStatus = "New definitions start paused. Changes save automatically.";
+    public static TimeSpan AutosaveDelay { get; } = TimeSpan.FromMilliseconds(600);
 
     internal RecurringTasksViewModel(IWorkspaceWork work, TimeProvider time,
         Func<WorkspaceActionRequest, bool> submit, Action<Action> navigate, Action<string> focus,
@@ -65,19 +76,28 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
         _openProject = openProject;
         _reconciler = new(time, () => _submit(new(WorkspaceActionKind.ProcessRecurring)));
         NewCommand = new(() => _navigate(() => Begin(null)));
-        SaveCommand = new(() => Save());
+        SaveCommand = new(() => RunScheduledAutosave(force: true));
+        RetryAutosaveCommand = new(() => RunScheduledAutosave(force: true));
         CancelCommand = new(Cancel);
         AddParticipantCommand = new(AddParticipant);
         AddNewParticipantCommand = new(AddNewParticipant);
-        CancelNewParticipantCommand = new(() => { NewParticipantLabel = string.Empty; ParticipantToAdd = null; _focus("recurring-participant-picker"); });
+        CancelNewParticipantCommand = new(() => { NewParticipantLabel = string.Empty; ParticipantToAdd = null; DraftChanged(immediate: true); _focus("recurring-participant-picker"); });
         ConfirmDeleteCommand = new(ConfirmDelete);
         CancelDeleteCommand = new(CancelDelete);
-        StayCommand = new(() => { _pendingNavigation = null; Notify(nameof(NeedsDecision)); _focus("recurring-title"); });
-        DiscardAndLeaveCommand = new(() => { var next = _pendingNavigation; _pendingNavigation = null; Notify(nameof(NeedsDecision)); Cancel(); next?.Invoke(); });
-        SaveAndLeaveCommand = new(() => { _saveThenLeave = true; if (!Save()) _saveThenLeave = false; });
+        StayCommand = new(() => { _pendingNavigation = null; _saveThenLeave = false; _needsDecision = false; Notify(nameof(NeedsDecision)); _focus("recurring-title"); });
+        DiscardAndLeaveCommand = new(() => { var next = _pendingNavigation; _pendingNavigation = null; _saveThenLeave = false; _needsDecision = false; Notify(nameof(NeedsDecision)); Cancel(); next?.Invoke(); });
+        SaveAndLeaveCommand = new(() => { _saveThenLeave = true; _needsDecision = false; Notify(nameof(NeedsDecision)); RunScheduledAutosave(force: true); });
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+    public event EventHandler<AutosaveRequestEventArgs>? AutosaveRequested;
+    public RelayCommand RetryAutosaveCommand { get; }
+    public string AutosaveStatus { get => _autosaveStatus; private set { _autosaveStatus = value; Notify(); } }
+    public bool HasAutosaveError { get => _hasAutosaveError; private set { _hasAutosaveError = value; Notify(); } }
+    internal long AutosaveRevision => _autosaveRevision;
+    internal string? EditingDefinitionId => _editingId;
+    internal bool HasPendingAutosave => _editorSave is not null || IsDirty;
+
     public ObservableCollection<RecurringTaskRowViewModel> Definitions { get; } = [];
     public ObservableCollection<TaskContextChoice> Projects { get; } = [];
     public ObservableCollection<CategoryChoice> Categories { get; } = [];
@@ -97,7 +117,7 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
             Set(ref _participantToAdd, value);
             ParticipantValidation = string.Empty;
             Notify(nameof(ShowNewParticipantEntry)); Notify(nameof(ShowExistingParticipantAction));
-            if (value?.IsNew == true && !wasNew) _focus("recurring-new-participant-label");
+            if (value?.IsNew == true && !wasNew && !_loading) _focus("recurring-new-participant-label");
         }
     }
     public bool ShowNewParticipantEntry => ParticipantToAdd?.IsNew == true || NewParticipantLabel.Length > 0;
@@ -121,7 +141,7 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
     public bool HasDefinitions => Definitions.Count > 0;
     public bool HasNoDefinitions => !HasDefinitions;
     public bool NeedsDeleteConfirmation => _deleting is not null;
-    public bool NeedsDecision => _pendingNavigation is not null;
+    public bool NeedsDecision => _needsDecision;
     public bool IsDirty => HasEditor && Fingerprint() != _original;
     public string EditorHeading => _editingId is null ? "NEW RECURRING TASK" : "RECURRING TASK";
     public string DeleteHeading => $"Delete {_deleting?.Title}?";
@@ -134,11 +154,13 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
             if (value.Length == 0) _validationField = string.Empty;
             Notify();
             Notify(nameof(HasValidation));
+            Notify(nameof(HasFormValidation));
             Notify(nameof(HasTitleError)); Notify(nameof(HasFirstDateError)); Notify(nameof(HasOffsetError));
             Notify(nameof(HasCategoryError)); Notify(nameof(HasProjectError));
         }
     }
     public bool HasValidation => Validation.Length > 0;
+    public bool HasFormValidation => HasValidation && _validationField.Length == 0;
     public bool HasTitleError => _validationField == "recurring-title";
     public bool HasFirstDateError => _validationField == "recurring-first-date";
     public bool HasOffsetError => _validationField == "recurring-due-offset" || (HasDueDate && !IsDueOffsetValid);
@@ -148,11 +170,11 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
     {
         _validationField = field;
         Validation = message;
-        _focus(field);
+        if (_validationShouldFocus) _focus(field);
         return false;
     }
     public string Announcement { get => _announcement; private set { _announcement = value; Notify(); } }
-    public string Title { get => _title; set => Set(ref _title, value); }
+    public string Title { get => _title; set { if (Set(ref _title, value)) DraftChanged(immediate: false); } }
     public string Description
     {
         get => _description;
@@ -160,6 +182,7 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
         {
             if (!Set(ref _description, value)) return;
             Notify(nameof(RenderedDescription)); Notify(nameof(HasRenderedDescription)); Notify(nameof(MarkdownPreviewAutomationName));
+            DraftChanged(immediate: false);
         }
     }
     public SanitisedMarkdownDocument RenderedDescription => SanitisedMarkdownRenderer.Render(Description);
@@ -176,27 +199,30 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
         set { if (Set(ref _editingMarkdown, value)) Notify(nameof(ShowMarkdownPreview)); }
     }
     public bool ShowMarkdownPreview => !IsEditingMarkdown;
-    public string FirstDate { get => _firstDate; set { if (Set(ref _firstDate, value)) NotifyOffsetValidation(); } }
+    public string FirstDate { get => _firstDate; set { if (Set(ref _firstDate, value)) { NotifyOffsetValidation(); DraftChanged(immediate: false); } } }
     public decimal MaximumDueOffset => DateOnly.MaxValue.DayNumber - Math.Max(Today.DayNumber,
         DateOnly.TryParseExact(FirstDate, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var first) ? first.DayNumber : Today.DayNumber);
     private bool IsDueOffsetValid => int.TryParse(DueOffset, NumberStyles.None, CultureInfo.InvariantCulture, out var days) && days >= 0 && days <= MaximumDueOffset;
-    public string DueOffset { get => _offset; set { if (Set(ref _offset, value)) NotifyOffsetValidation(); } }
-    public bool HasDueDate { get => _hasDueDate; set { if (Set(ref _hasDueDate, value)) NotifyOffsetValidation(); } }
+    public string DueOffset { get => _offset; set { if (Set(ref _offset, value)) { NotifyOffsetValidation(); DraftChanged(immediate: false); } } }
+    public bool HasDueDate { get => _hasDueDate; set { if (Set(ref _hasDueDate, value)) { NotifyOffsetValidation(); DraftChanged(immediate: true); } } }
     public string DueOffsetValidation => HasDueDate && !IsDueOffsetValid ? "Enter a non-negative whole number of days within the supported date range." : string.Empty;
     private void NotifyOffsetValidation()
     {
         Notify(nameof(MaximumDueOffset)); Notify(nameof(DueOffsetValidation)); Notify(nameof(HasOffsetError)); Notify(nameof(CanSave));
     }
-    public bool IsEnabled { get => _enabled; set => Set(ref _enabled, value); }
-    public RecurrenceCadence Cadence { get => _cadence; set => Set(ref _cadence, value); }
-    public CategoryChoice? Category { get => _category; set => Set(ref _category, value); }
+    public bool IsEnabled { get => _enabled; set { if (Set(ref _enabled, value)) DraftChanged(immediate: true); } }
+    public RecurrenceCadence Cadence { get => _cadence; set { if (Set(ref _cadence, value)) DraftChanged(immediate: true); } }
+    public CategoryChoice? Category { get => _category; set { if (Set(ref _category, value)) DraftChanged(immediate: true); } }
     public TaskContextChoice? Project
     {
         get => _project;
         set
         {
             if (!Set(ref _project, value) || _loading) return;
-            RefreshCategories(null);
+            _loading = true;
+            try { RefreshCategories(null); }
+            finally { _loading = false; }
+            DraftChanged(immediate: true);
         }
     }
 
@@ -219,6 +245,8 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
             participant.UpdateLabel(snapshot.Participants.FirstOrDefault(item => item.Id == participant.Id)?.Label ?? participant.Label);
         foreach (var participant in snapshot.Participants.Where(item => Participants.All(choice => choice.Id != item.Id)))
             AddParticipantChoice(participant.Id, participant.Label, selected.Contains(participant.Id));
+        ResolvePersistedDraftChoices();
+        AdoptPendingParticipants();
         RefreshAvailableParticipants();
     }
 
@@ -227,8 +255,6 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
 
     internal bool GuardNavigation(Action destination)
     {
-        // Leaving the current context cancels a suspended row action; a failed read
-        // must never prevent ordinary navigation, recovery, or closing the workspace.
         _pendingDefinitionAction = null;
         if (_busy)
         {
@@ -237,10 +263,11 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
             return true;
         }
         if (NeedsDeleteConfirmation) { Announcement = "Finish the recurring Task change before leaving."; return true; }
-        if (!IsDirty) { if (HasEditor) Cancel(); return false; }
+        if (!HasEditor) return false;
+        if (_editorSave is null && !IsDirty) { Cancel(); return false; }
         _pendingNavigation = destination;
-        Notify(nameof(NeedsDecision));
-        _focus("recurring-guard-save");
+        _saveThenLeave = true;
+        RunScheduledAutosave(force: true);
         return true;
     }
 
@@ -280,6 +307,12 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
     private void Begin(RecurringTaskDefinition? definition)
     {
         _loading = true;
+        _editorGeneration++;
+        _autosaveRevision++;
+        _needsDecision = false;
+        _saveAgain = false;
+        _pendingParticipantAdoption = null;
+        HasAutosaveError = false;
         _editingId = definition?.Id;
         _originalFirst = definition?.FirstOccurrenceDate;
         Title = definition?.Title ?? string.Empty;
@@ -289,7 +322,7 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
         Cadence = definition?.Cadence ?? RecurrenceCadence.Daily;
         HasDueDate = definition?.DueDateOffsetDays is not null;
         DueOffset = (definition?.DueDateOffsetDays ?? 0).ToString(CultureInfo.InvariantCulture);
-        IsEnabled = definition?.IsEnabled ?? true;
+        IsEnabled = definition?.IsEnabled ?? false;
         Projects.Clear();
         Projects.Add(new(null, "Standalone"));
         foreach (var project in _snapshot.Projects.Where(item => !item.IsArchived)) Projects.Add(new(project.Id, project.Title));
@@ -311,6 +344,7 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
         Notify(nameof(EditorHeading));
         _original = Fingerprint();
         _loading = false;
+        AutosaveStatus = definition is null ? "New definitions start paused. Changes save automatically." : "Saved";
         _focus("recurring-title");
     }
 
@@ -325,12 +359,20 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
     private void RefreshAvailableParticipants()
     {
         var selected = ParticipantToAdd;
-        AvailableParticipants.Clear();
-        foreach (var participant in Participants.Where(item => !item.IsDraft || !item.IsSelected))
-            AvailableParticipants.Add(new(participant.Id, participant.Label));
-        AvailableParticipants.Add(ParticipantChoice.New);
-        ParticipantToAdd = selected?.IsNew == true ? ParticipantChoice.New
-            : AvailableParticipants.FirstOrDefault(item => item.Id == selected?.Id && !item.IsNew);
+        var loading = _loading;
+        var validation = ParticipantValidation;
+        _loading = true;
+        try
+        {
+            AvailableParticipants.Clear();
+            foreach (var participant in Participants.Where(item => !item.IsDraft || !item.IsSelected))
+                AvailableParticipants.Add(new(participant.Id, participant.Label));
+            AvailableParticipants.Add(ParticipantChoice.New);
+            ParticipantToAdd = selected?.IsNew == true ? ParticipantChoice.New
+                : AvailableParticipants.FirstOrDefault(item => item.Id == selected?.Id && !item.IsNew);
+            ParticipantValidation = validation;
+        }
+        finally { _loading = loading; }
     }
 
     private void AddParticipantChoice(string id, string label, bool selected, bool draft = false)
@@ -347,6 +389,7 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
             Notify(nameof(SelectedParticipants));
             Notify(nameof(HasSelectedParticipants));
             RefreshAvailableParticipants();
+            DraftChanged(immediate: true);
         };
         Participants.Add(choice);
         Notify(nameof(SelectedParticipants));
@@ -357,9 +400,12 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
         if (ParticipantToAdd is not { IsNew: false, Id: { } id } choice) return;
         var participant = Participants.Single(item => item.Id == id);
         if (participant.IsSelected) { ParticipantValidation = "This Participant is already selected."; return; }
+        _loading = true;
         participant.IsSelected = true;
         Announcement = $"Added {choice.Label} to the recurring Task draft.";
         ParticipantToAdd = null;
+        _loading = false;
+        DraftChanged(immediate: true);
         _focus("recurring-participant-picker");
     }
     private void AddNewParticipant()
@@ -370,11 +416,14 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
         var key = ParticipantLabel.ComparisonKey(label);
         var existing = Participants.FirstOrDefault(item => ParticipantLabel.ComparisonKey(item.Label) == key);
         if (existing?.IsSelected == true) { ParticipantValidation = "This Participant is already selected."; return; }
+        _loading = true;
         if (existing is not null) existing.IsSelected = true;
         else AddParticipantChoice($"draft-{_participantDraftSequence++}", label, true, draft: true);
         Announcement = existing is null ? $"Created and added {label} to the recurring Task draft." : $"Added existing Participant {existing.Label} to the recurring Task draft.";
         NewParticipantLabel = string.Empty;
         ParticipantToAdd = null;
+        _loading = false;
+        DraftChanged(immediate: true);
         _focus("recurring-participant-picker");
     }
     private void UpdateSelectedRows()
@@ -387,10 +436,11 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
     private bool Save()
     {
         if (_busy || !HasEditor) return false;
+        if (_editorSave is not null) { _saveAgain = true; return true; }
         if (!string.IsNullOrWhiteSpace(NewParticipantLabel))
         {
             ParticipantValidation = "Add or cancel the new Participant before saving.";
-            _focus("recurring-new-participant-label");
+            if (_validationShouldFocus) _focus("recurring-new-participant-label");
             return false;
         }
         string title;
@@ -415,8 +465,16 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
             Participants.Where(item => item.IsSelected && !item.IsDraft).Select(item => item.Id).ToArray(), Cadence, first, offset, IsEnabled,
             Participants.Where(item => item.IsSelected && item.IsDraft).Select(item => item.Label).ToArray());
         Validation = string.Empty;
-        return Submit(new(_editingId is null ? WorkspaceActionKind.CreateRecurring : WorkspaceActionKind.UpdateRecurring,
-            RecurringId: _editingId, RecurringDraft: draft));
+        var save = new RecurringEditorSave(_editorGeneration, _autosaveRevision, Fingerprint(), draft, _editingId is null);
+        _editorSave = save;
+        AutosaveStatus = "Saving…";
+        HasAutosaveError = false;
+        if (_submit(new(_editingId is null ? WorkspaceActionKind.CreateRecurring : WorkspaceActionKind.UpdateRecurring,
+            RecurringId: _editingId, RecurringDraft: draft, RecurringSaveGeneration: save.Generation, RecurringSaveRevision: save.Revision))) return true;
+        _editorSave = null;
+        HasAutosaveError = true;
+        AutosaveStatus = "Could not save the recurring definition. Retry.";
+        return false;
     }
 
     internal void SetEnabled(string id, bool enabled) => NavigateDefinitionAction(() =>
@@ -455,6 +513,9 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
     }
     private void Cancel()
     {
+        _editorGeneration++;
+        _autosaveRevision++;
+        _needsDecision = false;
         HasEditor = false;
         Notify(nameof(HasNoEditor));
         Validation = string.Empty;
@@ -464,6 +525,11 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
     internal void ReconcileHint() { if (_available) _reconciler.Hint(); }
     internal void ApplyResult(WorkspaceActionResult result)
     {
+        if (result.Request.RecurringSaveGeneration is not null)
+        {
+            ApplyEditorSaveResult(result);
+            return;
+        }
         var processing = result.Request.Kind == WorkspaceActionKind.ProcessRecurring;
         var committed = result.Outcome is WorkspaceActionOutcome.Committed or WorkspaceActionOutcome.CommittedRefreshFailed;
         if (result.Outcome == WorkspaceActionOutcome.CommittedRefreshFailed)
@@ -475,7 +541,7 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
         else { _busy = false; Notify(nameof(CanEdit)); Notify(nameof(CanSave)); }
         if (!committed)
         {
-            Announcement = processing ? "Could not add scheduled Tasks. Will retry while this workspace is unlocked."
+            Announcement = processing ? ReconciliationFailure
                 : "Could not save the recurring Task change. Check its references and try again.";
             if (processing) return;
             Validation = Announcement;
@@ -484,6 +550,7 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
             {
                 if (IsDirty)
                 {
+                    _needsDecision = true;
                     Notify(nameof(NeedsDecision));
                     _focus("recurring-guard-save");
                 }
@@ -498,7 +565,7 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
         }
         Announcement = result.Outcome == WorkspaceActionOutcome.CommittedRefreshFailed
             ? "Change saved, but the view could not refresh. Retry refresh."
-            : processing ? result.GeneratedTaskCount == 0 ? Announcement
+            : processing ? result.GeneratedTaskCount == 0 ? Announcement == ReconciliationFailure ? string.Empty : Announcement
                 : $"Added {result.GeneratedTaskCount} scheduled {(result.GeneratedTaskCount == 1 ? "Task" : "Tasks")} to Backlog."
             : result.Request.Kind == WorkspaceActionKind.DeleteRecurring ? "Recurring definition deleted. Existing Tasks are unchanged."
                 : "Recurring definition saved. Existing Tasks are unchanged.";
@@ -522,6 +589,10 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
     {
         if (!_waitingForRefresh) return;
         _waitingForRefresh = false;
+        Announcement = string.Empty;
+        ResolvePersistedDraftChoices();
+        AdoptPendingParticipants();
+        if (HasEditor && !HasAutosaveError) AutosaveStatus = _editorSave is not null ? "Saving…" : IsDirty ? "Saving soon…" : "Saved";
         var action = _pendingDefinitionAction;
         _pendingDefinitionAction = null;
         if (action is not null) _afterWorkspaceAction = action;
@@ -538,13 +609,160 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
     {
         var next = _pendingNavigation;
         _pendingNavigation = null;
+        _needsDecision = false;
         Notify(nameof(NeedsDecision));
         next?.Invoke();
     }
 
+    private void DraftChanged(bool immediate)
+    {
+        Notify(nameof(IsDirty));
+        if (_loading || !HasEditor) return;
+        _autosaveRevision++;
+        if (!immediate && _editorSave is not null) _saveAgain = false;
+        Validation = string.Empty;
+        HasAutosaveError = false;
+        AutosaveStatus = _editorSave is not null ? "Saving…" : IsDirty ? "Saving soon…" : "Saved";
+        if (immediate && (_editingId is not null || IsEnabled)) RunScheduledAutosave();
+        else AutosaveRequested?.Invoke(this, new(_autosaveRevision));
+    }
+    public bool RunScheduledAutosave(long? revision = null, bool force = false)
+    {
+        if (!HasEditor || (!force && revision is not null && revision != _autosaveRevision)) return true;
+        if (_editorSave is not null) { _saveAgain = true; return true; }
+        if (!IsDirty && _editingId is not null)
+        {
+            AutosaveStatus = _waitingForRefresh ? "Saved. View refresh failed; retry refresh." : "Saved";
+            if (_saveThenLeave) { _saveThenLeave = false; CompletePendingNavigation(); }
+            return true;
+        }
+        _validationShouldFocus = force;
+        var submitted = Save();
+        if (!submitted)
+        {
+            if (!HasAutosaveError) AutosaveStatus = "Not saved. Correct the highlighted field.";
+            if (_saveThenLeave)
+            {
+                _saveThenLeave = false;
+                _needsDecision = true;
+                Notify(nameof(NeedsDecision));
+                _focus("recurring-guard-save");
+            }
+        }
+        return submitted;
+    }
+    internal void CommitDiscreteEdit() => DraftChanged(immediate: true);
+
+    private void ApplyEditorSaveResult(WorkspaceActionResult result)
+    {
+        var save = _editorSave;
+        if (save is null || save.Generation != result.Request.RecurringSaveGeneration || save.Revision != result.Request.RecurringSaveRevision) return;
+        _editorSave = null;
+        if (!HasEditor || save.Generation != _editorGeneration)
+        {
+            if (HasEditor && IsDirty) _afterWorkspaceAction = () => RunScheduledAutosave();
+            return;
+        }
+        if (result.Outcome == WorkspaceActionOutcome.MutationFailed)
+        {
+            HasAutosaveError = true;
+            AutosaveStatus = "Could not save the recurring definition. Retry.";
+            Announcement = AutosaveStatus;
+            if (_pendingNavigation is not null)
+            {
+                _saveThenLeave = false;
+                _needsDecision = true;
+                Notify(nameof(NeedsDecision));
+                _focus("recurring-guard-save");
+            }
+            return;
+        }
+        var definition = result.RecurringDefinition ?? throw new InvalidOperationException("A saved recurring definition is required.");
+        _editingId = definition.Id;
+        _originalFirst = definition.FirstOccurrenceDate;
+        _original = save.Fingerprint;
+        _pendingParticipantAdoption = (save, definition);
+        AdoptPendingParticipants();
+        UpdateSelectedRows();
+        Notify(nameof(EditorHeading));
+        Notify(nameof(IsDirty));
+        HasAutosaveError = false;
+        if (Announcement == "Could not save the recurring definition. Retry.") Announcement = string.Empty;
+        if (result.Outcome == WorkspaceActionOutcome.CommittedRefreshFailed)
+        {
+            _waitingForRefresh = true;
+            AutosaveStatus = "Saved. View refresh failed; retry refresh.";
+            Announcement = "Change saved, but the view could not refresh. Retry refresh.";
+        }
+        else AutosaveStatus = IsDirty ? "Saving soon…" : "Saved";
+        _reconciler.Invalidate();
+        var continueSaving = _saveAgain || _saveThenLeave;
+        _saveAgain = false;
+        _afterWorkspaceAction = () =>
+        {
+            if (continueSaving && IsDirty) RunScheduledAutosave(force: _saveThenLeave);
+            else if (_saveThenLeave)
+            {
+                _saveThenLeave = false;
+                CompletePendingNavigation();
+            }
+            if (result.Outcome == WorkspaceActionOutcome.Committed) ReconcileHint();
+        };
+    }
+    private void ResolvePersistedDraftChoices()
+    {
+        if (!Participants.Any(item => item.IsDraft && _snapshot.Participants.Any(record => ParticipantLabel.ComparisonKey(record.Label) == ParticipantLabel.ComparisonKey(item.Label)))) return;
+        _loading = true;
+        try
+        {
+            foreach (var staged in Participants.Where(item => item.IsDraft).ToArray())
+            {
+                var key = ParticipantLabel.ComparisonKey(staged.Label);
+                var persisted = _snapshot.Participants.FirstOrDefault(item => ParticipantLabel.ComparisonKey(item.Label) == key);
+                if (persisted is null) continue;
+                var choice = Participants.FirstOrDefault(item => !item.IsDraft && item.Id == persisted.Id);
+                Participants.Remove(staged);
+                if (choice is null) AddParticipantChoice(persisted.Id, persisted.Label, staged.IsSelected);
+                else choice.IsSelected = staged.IsSelected;
+            }
+            Notify(nameof(SelectedParticipants)); Notify(nameof(HasSelectedParticipants));
+        }
+        finally { _loading = false; }
+    }
+    private void AdoptPendingParticipants()
+    {
+        if (_pendingParticipantAdoption is not { } pending) return;
+        var labels = pending.Save.Draft.NewParticipantLabels ?? [];
+        if (labels.Any(label => _snapshot.Participants.All(item => ParticipantLabel.ComparisonKey(item.Label) != ParticipantLabel.ComparisonKey(label)))) return;
+        _loading = true;
+        try
+        {
+            foreach (var label in labels)
+            {
+                var key = ParticipantLabel.ComparisonKey(label);
+                var persisted = _snapshot.Participants.Single(item => ParticipantLabel.ComparisonKey(item.Label) == key);
+                var staged = Participants.FirstOrDefault(item => item.IsDraft && ParticipantLabel.ComparisonKey(item.Label) == key);
+                var selected = staged?.IsSelected ?? false;
+                if (staged is not null) Participants.Remove(staged);
+                var choice = Participants.FirstOrDefault(item => item.Id == persisted.Id);
+                if (choice is null) AddParticipantChoice(persisted.Id, persisted.Label, selected);
+                else if (staged is not null) choice.IsSelected = selected;
+            }
+            _original = pending.Save.Fingerprint with
+            {
+                ParticipantIds = string.Join(',', pending.Definition.ParticipantIds.Order(StringComparer.Ordinal)),
+                NewParticipantLabels = "[]",
+            };
+            _pendingParticipantAdoption = null;
+            RefreshAvailableParticipants();
+            if (labels.Count > 0) { Notify(nameof(SelectedParticipants)); Notify(nameof(HasSelectedParticipants)); }
+        }
+        finally { _loading = false; }
+    }
+
     private RecurringDraftFingerprint Fingerprint() => new(Title, Description, FirstDate, Cadence, Project?.ProjectId,
-        Category?.Id, HasDueDate, DueOffset, IsEnabled, string.Join(',', Participants.Where(item => item.IsSelected && !item.IsDraft).Select(item => item.Id)),
-        JsonSerializer.Serialize(Participants.Where(item => item.IsSelected && item.IsDraft).Select(item => item.Label)), NewParticipantLabel);
+        Category?.Id, HasDueDate, DueOffset, IsEnabled, string.Join(',', Participants.Where(item => item.IsSelected && !item.IsDraft).Select(item => item.Id).Order(StringComparer.Ordinal)),
+        JsonSerializer.Serialize(Participants.Where(item => item.IsSelected && item.IsDraft).Select(item => item.Label).Order(StringComparer.Ordinal)), NewParticipantLabel);
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
     {
         if (EqualityComparer<T>.Default.Equals(field, value)) return false;
@@ -613,7 +831,13 @@ public sealed class RecurringTaskRowViewModel : INotifyPropertyChanged
         Cadence = definition.Cadence.ToString();
         IsEnabled = definition.IsEnabled;
         State = definition.IsEnabled ? "Enabled" : "Paused";
-        Guidance = definition.PauseReason ?? string.Empty;
+        Guidance = definition.PauseReason switch
+        {
+            "Restore or reassign the Project, then save to resume." => "Restore or reassign the Project, then enable this recurring Task to resume.",
+            "The Project was deleted. Review the Category and save to resume." => "The Project was deleted. Review the Category, then enable this recurring Task to resume.",
+            { } reason => reason,
+            null => string.Empty,
+        };
         NextDate = definition.NextOccurrenceDate is { } next ? $"Adds {next:dd MMM yyyy}" : "Schedule complete";
         DueDate = definition.DueDateOffsetDays is not { } offset ? "No due date"
             : definition.NextOccurrenceDate is not { } occurrence ? "No future additions"
@@ -676,3 +900,5 @@ public sealed class RecurringTaskRowViewModel : INotifyPropertyChanged
 internal sealed record RecurringDraftFingerprint(string Title, string Description, string FirstDate,
     RecurrenceCadence Cadence, string? ProjectId, string? CategoryId, bool HasDueDate,
     string DueOffset, bool IsEnabled, string ParticipantIds, string NewParticipantLabels, string PendingParticipantLabel);
+
+internal sealed record RecurringEditorSave(long Generation, long Revision, RecurringDraftFingerprint Fingerprint, RecurringTaskDraft Draft, bool IsCreating);

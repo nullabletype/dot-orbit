@@ -112,6 +112,16 @@ public sealed partial class CategoryProjectPill : UserControl
         set => SetValue(ProjectHelpTextProperty, value);
     }
 
+    protected override Size MeasureOverride(Size availableSize)
+    {
+        var available = Math.Max(0, availableSize.Width - 2);
+        var hasProject = !string.IsNullOrWhiteSpace(ProjectName);
+        var segmentMaximum = hasProject ? available / 2 : available;
+        _categoryButton.MaxWidth = segmentMaximum;
+        _projectButton.MaxWidth = segmentMaximum;
+        return base.MeasureOverride(availableSize);
+    }
+
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);

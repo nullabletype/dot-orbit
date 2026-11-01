@@ -130,6 +130,7 @@ public sealed class RecurringStyleAuditTests
             navigation.SelectCommand.Execute(null);
             shell.Work!.Recurring.Definitions.Single().EditCommand.Execute(null);
             var model = shell.Work.Recurring;
+            model.Title = string.Empty;
             model.Project = model.Projects.Single(item => item.ProjectId == second.Id);
             Dispatcher.UIThread.RunJobs();
             var projectButton = Find<Button>(window, $"recurring-project-{definition.Id}");
@@ -148,8 +149,8 @@ public sealed class RecurringStyleAuditTests
             Assert.Equal($"project-selection-{first.Id}", shell.MainViewTargetAutomationId);
             navigation.SelectCommand.Execute(null);
             model.Definitions.Single().EditCommand.Execute(null);
-            model.Project = model.Projects.Single(item => item.ProjectId == second.Id);
             store.FailReadAfterMutation = true;
+            model.Project = model.Projects.Single(item => item.ProjectId == second.Id);
             model.SaveCommand.Execute(null);
             projectButton = Find<Button>(window, $"recurring-project-{definition.Id}");
             Click(window, projectButton);
@@ -364,6 +365,43 @@ public sealed class RecurringStyleAuditTests
             Assert.Equal(attached ? "Inherit Project Category" : store.Read().Categories.Single(item => item.Id == "home").Name, shell.Work.Recurring.Category!.Name);
         }
         finally { shell.Work!.Recurring.CancelCommand.Execute(null); window.Close(); }
+    }
+
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LongIdentitySegmentsStayInsideTheirRowColumnAndRemainIndependent(bool light)
+    {
+        var app = Assert.IsType<App>(Application.Current);
+        app.RequestedThemeVariant = light ? ThemeVariant.Light : ThemeVariant.Dark;
+        var store = new RecurringMemoryWorkspace();
+        store.RenameCategory("home", "A very long household and garden Category name");
+        var project = store.CreateProject("A very long Project title for household planning", "", "home", null);
+        var definition = store.CreateRecurringTask(new("Long inherited definition", "", project.Id, null, [], RecurrenceCadence.Monthly, new(2026, 11, 2), 5, false));
+        var shell = new ShellViewModel(store, Clock());
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+        try
+        {
+            shell.PrimaryNavigation.Single(item => item.Title == "Recurring").SelectCommand.Execute(null);
+            Dispatcher.UIThread.RunJobs();
+            var row = window.GetVisualDescendants().OfType<Border>().Single(border => border.Classes.Contains("recurring-row"));
+            var pill = row.GetVisualDescendants().OfType<CategoryProjectPill>().Single();
+            var grid = row.GetVisualDescendants().OfType<Grid>().First(candidate => candidate.ColumnDefinitions.Count == 3 && candidate.ColumnDefinitions[1].Width.Value == 130);
+            var right = pill.TranslatePoint(new Point(pill.Bounds.Width, 0), grid)!.Value.X;
+            Assert.True(right <= grid.ColumnDefinitions[0].ActualWidth, $"Pill right {right} exceeds title column {grid.ColumnDefinitions[0].ActualWidth}.");
+            var category = Find<Button>(window, $"recurring-category-{definition.Id}");
+            var parent = Find<Button>(window, $"recurring-project-{definition.Id}");
+            Assert.True(category.Bounds.Width > 20 && parent.Bounds.Width > 20);
+            Assert.Equal("Open Project A very long Project title for household planning", AutomationProperties.GetName(parent));
+            using var rendered = new RenderTargetBitmap(new PixelSize(1120, 600), new Vector(96, 96));
+            rendered.Render(window);
+            Click(window, parent);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal("Projects", shell.ViewTitle);
+            Assert.False(shell.Work!.Recurring.HasEditor);
+        }
+        finally { window.Close(); app.RequestedThemeVariant = ThemeVariant.Dark; }
     }
 
     private sealed class RecordingClipboard : IMarkdownClipboard

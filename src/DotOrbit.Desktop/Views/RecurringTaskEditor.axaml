@@ -7,7 +7,15 @@
     </ControlTheme>
   </UserControl.Resources>
   <Grid RowDefinitions="Auto,*" IsEnabled="{Binding CanEdit}">
-    <TextBlock Classes="eyebrow" Text="{Binding EditorHeading}" Margin="0,0,0,16" />
+    <StackPanel Margin="0,0,0,16" Spacing="8">
+      <TextBlock Classes="eyebrow" Text="{Binding EditorHeading}" />
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+        <TextBlock Text="{Binding AutosaveStatus}" TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource MutedTextBrush}"
+            AutomationProperties.Name="Recurring definition autosave status" AutomationProperties.LiveSetting="Polite" />
+        <Button Grid.Column="1" Classes="view-action" Content="Retry" IsVisible="{Binding HasAutosaveError}"
+            Command="{Binding RetryAutosaveCommand}" AutomationProperties.Name="Retry recurring definition automatic save" />
+      </Grid>
+    </StackPanel>
     <ScrollViewer x:Name="RecurringEditorScroll" Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
       <StackPanel Margin="{StaticResource InspectorScrollContentInset}" Spacing="12">
         <TextBlock Text="Title" Classes="inspector-label" />
@@ -48,7 +56,7 @@
         <StackPanel Spacing="6" IsVisible="{Binding HasDueDate}">
           <TextBlock Text="Whole days after the Task is added" Classes="inspector-label" />
           <views:WholeDayOffsetPicker Classes="inspector-field" Minimum="0" Maximum="{Binding MaximumDueOffset}" Increment="1"
-              FormatString="0" ParsingNumberStyle="Integer" ClipValueToMinMax="False" Text="{Binding DueOffset, Mode=OneWay}" RawText="{Binding DueOffset, Mode=TwoWay}"
+              FormatString="0" ParsingNumberStyle="Integer" ClipValueToMinMax="False" Spinned="OnDueOffsetSpinned" Text="{Binding DueOffset, Mode=OneWay}" RawText="{Binding DueOffset, Mode=TwoWay}"
               AutomationProperties.Name="Due date offset in whole days" Classes.error="{Binding HasOffsetError}" AutomationProperties.HelpText="{Binding DueOffsetValidation}" AutomationProperties.AutomationId="recurring-due-offset" />
           <TextBlock Classes="validation-message" Text="{Binding DueOffsetValidation}" IsVisible="{Binding HasOffsetError}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
         </StackPanel>
@@ -77,12 +85,8 @@
           <Button Grid.Column="2" Classes="view-action" Content="Cancel" Command="{Binding CancelNewParticipantCommand}" AutomationProperties.Name="Cancel new recurring Task Participant" />
         </Grid>
         <TextBlock Classes="validation-message" Text="{Binding ParticipantValidation}" IsVisible="{Binding HasParticipantError}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
-        <TextBlock Classes="validation-message" Text="{Binding Validation}" IsVisible="{Binding HasValidation}" TextWrapping="Wrap" AutomationProperties.Name="Recurring Task validation" AutomationProperties.LiveSetting="Polite" />
-        <WrapPanel Orientation="Horizontal">
-          <Button Classes="primary-action" Margin="0,0,8,8" Content="Save definition" Command="{Binding SaveCommand}" IsEnabled="{Binding CanSave}" AutomationProperties.Name="Save recurring Task definition" AutomationProperties.AutomationId="recurring-save" />
-          <Button Classes="view-action" Margin="0,0,0,8" Content="Cancel" Command="{Binding CancelCommand}" AutomationProperties.Name="Cancel recurring Task changes" />
-        </WrapPanel>
-        <TextBlock Text="Changes affect future additions. Existing Tasks stay independent." FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource MutedTextBrush}" />
+        <TextBlock Classes="validation-message" Text="{Binding Validation}" IsVisible="{Binding HasFormValidation}" TextWrapping="Wrap" AutomationProperties.Name="Recurring Task validation" AutomationProperties.LiveSetting="Polite" />
+        <TextBlock Text="New definitions start paused. Enable a definition when it is ready to add Tasks. Existing Tasks stay independent." FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource MutedTextBrush}" />
       </StackPanel>
     </ScrollViewer>
   </Grid>

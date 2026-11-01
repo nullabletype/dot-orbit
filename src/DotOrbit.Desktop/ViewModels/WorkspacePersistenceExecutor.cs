@@ -120,7 +120,9 @@ internal sealed record WorkspaceActionRequest(
     long? AdmittedAtTimestamp = null,
     string? RecurringId = null,
     RecurringTaskDraft? RecurringDraft = null,
-    bool? RecurringEnabled = null);
+    bool? RecurringEnabled = null,
+    long? RecurringSaveGeneration = null,
+    long? RecurringSaveRevision = null);
 
 internal enum WorkspaceActionOutcome
 {
@@ -157,7 +159,8 @@ internal sealed record WorkspaceActionResult(
     TaskRecord? DuplicatedTask = null,
     ProjectDuplicationResult? DuplicatedProject = null,
     WorkspaceActionTiming? Timing = null,
-    int GeneratedTaskCount = 0)
+    int GeneratedTaskCount = 0,
+    RecurringTaskDefinition? RecurringDefinition = null)
 {
     public WorkspaceActionResult WithQueueWait(TimeSpan queueWait) =>
         this with { Timing = new(queueWait, Timing?.Persistence ?? TimeSpan.Zero) };
@@ -327,6 +330,7 @@ internal sealed class WorkspacePersistenceOperation : IWorkspacePersistenceOpera
     private WorkspaceActionResult ExecuteRecurring(WorkspaceActionRequest request, long started)
     {
         var count = 0;
+        RecurringTaskDefinition? definition = null;
         try
         {
             var recurring = _work as IRecurringTasks
@@ -334,10 +338,10 @@ internal sealed class WorkspacePersistenceOperation : IWorkspacePersistenceOpera
             switch (request.Kind)
             {
                 case WorkspaceActionKind.CreateRecurring:
-                    recurring.CreateRecurringTask(request.RecurringDraft!);
+                    definition = recurring.CreateRecurringTask(request.RecurringDraft!);
                     break;
                 case WorkspaceActionKind.UpdateRecurring:
-                    recurring.UpdateRecurringTask(request.RecurringId!, request.RecurringDraft!);
+                    definition = recurring.UpdateRecurringTask(request.RecurringId!, request.RecurringDraft!);
                     break;
                 case WorkspaceActionKind.SetRecurringEnabled:
                     var current = recurring.ReadRecurringTasks().Single(item => item.Id == request.RecurringId);
@@ -362,12 +366,12 @@ internal sealed class WorkspacePersistenceOperation : IWorkspacePersistenceOpera
         try
         {
             return new(request, WorkspaceActionOutcome.Committed, ReadReloadData(),
-                Timing: new(TimeSpan.Zero, _timeProvider.GetElapsedTime(started)), GeneratedTaskCount: count);
+                Timing: new(TimeSpan.Zero, _timeProvider.GetElapsedTime(started)), GeneratedTaskCount: count, RecurringDefinition: definition);
         }
         catch (Exception exception) when (IsWorkspaceFailure(exception))
         {
             return new(request, WorkspaceActionOutcome.CommittedRefreshFailed,
-                Timing: new(TimeSpan.Zero, _timeProvider.GetElapsedTime(started)), GeneratedTaskCount: count);
+                Timing: new(TimeSpan.Zero, _timeProvider.GetElapsedTime(started)), GeneratedTaskCount: count, RecurringDefinition: definition);
         }
     }
 

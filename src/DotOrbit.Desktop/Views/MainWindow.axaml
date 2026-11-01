@@ -405,9 +405,9 @@
                               CategoryAutomationId="{Binding CategoryAutomationId}" ProjectAutomationId="{Binding ProjectAutomationId}" ProjectHelpText="{Binding ProjectHelpText}" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center" HorizontalAlignment="Right">
-                          <TextBlock Text="{Binding ScheduleSummary}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" />
-                          <TextBlock Text="{Binding NextDate}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" />
-                          <TextBlock Text="{Binding DueDate}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" />
+                          <TextBlock Text="{Binding ScheduleSummary}" FontSize="{StaticResource TypeSizeEyebrow}" Foreground="{DynamicResource MutedTextBrush}" />
+                          <TextBlock Text="{Binding NextDate}" FontSize="{StaticResource TypeSizeEyebrow}" Foreground="{DynamicResource MutedTextBrush}" />
+                          <TextBlock Text="{Binding DueDate}" FontSize="{StaticResource TypeSizeEyebrow}" Foreground="{DynamicResource MutedTextBrush}" />
                         </StackPanel>
                         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
                           <views:RecurringTaskToggle Classes="recurring-toggle" IsChecked="{Binding IsEnabled, Mode=OneWay}"
@@ -2148,10 +2148,10 @@
     </Border>
     <Border Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Classes="decision-overlay" IsVisible="{Binding Work.Recurring.NeedsDecision}">
       <StackPanel Width="470" Spacing="16" AutomationProperties.LiveSetting="Assertive">
-        <TextBlock Text="Save recurring Task changes?" FontSize="20" FontWeight="Bold" />
-        <TextBlock Text="Save this definition, discard the draft, or stay and keep editing." TextWrapping="Wrap" />
+        <TextBlock Text="Changes could not be saved" FontSize="20" FontWeight="Bold" />
+        <TextBlock Text="Correct the highlighted fields or retry saving before leaving. You can discard these changes or stay and keep editing." TextWrapping="Wrap" />
         <StackPanel Orientation="Horizontal" Spacing="12">
-          <Button Classes="primary-action" Content="Save and leave" Command="{Binding Work.Recurring.SaveAndLeaveCommand}" AutomationProperties.Name="Save recurring changes and leave" AutomationProperties.AutomationId="recurring-guard-save" />
+          <Button Classes="primary-action" Content="Retry and leave" Command="{Binding Work.Recurring.SaveAndLeaveCommand}" AutomationProperties.Name="Retry recurring changes and leave" AutomationProperties.AutomationId="recurring-guard-save" />
           <Button Classes="view-action" Content="Discard and leave" Command="{Binding Work.Recurring.DiscardAndLeaveCommand}" AutomationProperties.Name="Discard recurring changes and leave" />
           <Button Classes="view-action" Content="Stay" Command="{Binding Work.Recurring.StayCommand}" AutomationProperties.Name="Stay and keep editing recurring Task" />
         </StackPanel>
