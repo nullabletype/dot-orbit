@@ -12,6 +12,14 @@ A container for a purposeful piece of work. A Project has a title, Markdown desc
 
 An independently completable item that is standalone or belongs to one Project. A Task has its own title, Markdown description, optional due date, completion state, participants, Today membership, category behaviour, and ordering positions.
 
+### Recurring Task definition
+
+A reusable plan for adding independent ordinary Tasks on a daily, weekly, or monthly cadence. It holds the future Task content and relationships, first and next occurrence dates, an optional due-date offset, and an enabled or paused state; it is not itself a Task.
+
+### Scheduled occurrence
+
+A date on a Recurring Task definition's cadence when a Task is scheduled to be added. After missed dates, only the most recent scheduled occurrence creates a catch-up Task; its optional due date is calculated from the actual addition date.
+
 ### Category
 
 A user-managed grouping for Projects and standalone Tasks. A Project Task inherits its Project's Category unless explicitly overridden; a standalone Task has an explicit Category. Categories have their own manual order and one required named colour for local visual identification. The name remains the canonical Category identity; colour does not affect behaviour and need not be unique.

@@ -32,6 +32,8 @@ Dates use `YYYY-MM-DD`. Instants use round-trip ISO 8601 UTC text. Optional valu
 
 ## Determinism and scope
 
+Recurring Task definitions and their schedule progress are not included in this JSON contract. Generated Tasks are exported as ordinary Tasks under the same lifecycle rules as manually created Tasks. Use encrypted recovery to retain definitions; plaintext export does not preserve or reconstruct recurrence schedules.
+
 The same logical snapshot produces the same bytes. Categories and Projects are ordered by position then identifier, Tasks by shared position then identifier, and Participant records by identifier. The order of a Task's `participantIds` remains its stored association order. No export timestamp or filesystem path is embedded.
 
 The source snapshot contains active and archived records but excludes individual Task and aggregate Project Bin records. Export never calls Bin read APIs, does not run from automatic-recovery scheduling, and does not use or suggest the configured recovery directory.

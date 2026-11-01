@@ -4,7 +4,7 @@ Status: working specification derived from the interactive prototype.
 
 ## Navigation
 
-- **NAV-001** The primary navigation order is Today, Upcoming, Backlog, Projects, Categories, Completed, Archive.
+- **NAV-001** The primary navigation order is Today, Upcoming, Backlog, Projects, Categories, Recurring, Completed, Archive. Recurring has no count badge.
 - **NAV-002** Today is the default view at application launch.
 - **NAV-003** Navigating away from a Project or Task inspector flushes valid pending automatic changes first. Invalid or failed changes remain visible and block leaving until they are corrected, retried, or explicitly discarded; Category drafts retain the save, discard, or stay prompt.
 
@@ -26,6 +26,23 @@ Status: working specification derived from the interactive prototype.
 - **TASK-006** Reopening a Task clears its completion instant and captured local date; completing it again records new values, and the first release retains no completion/reopen audit trail.
 - **TASK-007** A later time-zone change does not recalculate the captured completion date or move a Task between historical calendar-day groups.
 - **TASK-008** Task due dates and Project target dates are date-only calendar values with no time of day or time zone.
+
+## Recurring Tasks
+
+- **RECUR-001** A Recurring Task definition is a distinct workspace record containing title, Markdown description, optional active Project, inherited or explicit Category, Participant references, daily/weekly/monthly cadence, first and next occurrence dates, optional due-date offset, and enabled or paused state.
+- **RECUR-002** Creation requires a valid nonblank title and a first occurrence date of today or later. Standalone definitions require an explicit Category; attached definitions default to Project Category inheritance and may override it.
+- **RECUR-003** The due rule is No due date or a non-negative whole number of calendar days after addition. Zero means due on the addition date. Unrepresentable due dates are rejected; catch-up uses the actual addition date, not the missed scheduled date.
+- **RECUR-004** Daily cadence advances one local calendar day; weekly advances seven days from the first occurrence weekday. Monthly retains the original first-occurrence day number, clamping to the last day of shorter months without changing that anchor.
+- **RECUR-005** Reconciliation runs after unlock and when the local date changes while unlocked, including wake/resume and time-zone changes. Timers are wake-up hints, and the saved schedule is authoritative. There is no operating-system background service.
+- **RECUR-006** A definition with missed occurrences creates exactly one Task for its most recent scheduled occurrence and advances to its first future occurrence. Creation and advancement are one serialized transaction. Failure leaves the occurrence pending with no partial Task; retries, overlapping wakeups, restarts, refresh failures, and clock reversals cannot duplicate it. An exhausted calendar schedule has no next occurrence.
+- **RECUR-007** Each generated Task has a fresh identity and copies the definition's content, Category/Project behaviour and Participant references. It starts incomplete, unarchived, outside Bin and Today, at the top of shared Backlog order and at the end of Project-local order when attached.
+- **RECUR-008** Generated Tasks are independent. Editing, pausing, resuming, or deleting a definition changes future materialisation only and never rewrites earlier Tasks.
+- **RECUR-009** Archiving or binning a referenced Project pauses affected definitions atomically and shows restore/reassign guidance. Restoring the Project does not resume them. Permanent Project removal preserves the paused definition with its effective Category and requires an explicit decision before future materialisation.
+- **RECUR-010** Category replacement includes definition references in the same transaction. Participant deletion is refused while any Task or definition references it; rename follows identity everywhere.
+- **RECUR-011** Definition changes and materialisation advance Workspace revision once per committed transaction, schedule encrypted recovery, and survive restart, backup, restore, and forward-only schema migration.
+- **RECUR-012** Recurring lists title, cadence, next addition date, next calculated due date or No due date, effective Category/Project, and enabled state. Create, edit, pause/resume, and confirmed delete are keyboard accessible, maintain logical focus, and announce additions and failures politely.
+- **RECUR-013** Existing plaintext JSON exports contain generated Tasks as ordinary Tasks but exclude definitions. Planning snapshots and agent proposal contracts neither expose nor mutate definitions. Encrypted recovery retains them.
+- **RECUR-014** This slice excludes recurrence history, arbitrary RRULEs, multiple weekdays, every-N intervals, end dates, occurrence exceptions, recurring Projects, automatic Today membership, notifications, reminders, and device synchronisation.
 
 ## Editing
 
@@ -64,7 +81,7 @@ Status: working specification derived from the interactive prototype.
 - **CAT-009** When attaching a standalone Task whose Category differs from the Project, the operation must explicitly keep the Task Category as an override or adopt the Project Category; the application never changes it silently.
 - **CAT-010** Category labels are unique case-insensitively.
 - **CAT-011** An unreferenced Category can be deleted directly.
-- **CAT-012** Deleting a referenced Category requires selecting a replacement and transactionally reassigns affected Projects, standalone Tasks, and Task overrides.
+- **CAT-012** Deleting a referenced Category requires selecting a replacement and transactionally reassigns affected Projects, standalone Tasks, Task overrides, and Recurring Task definition references.
 - **CAT-013** The domain has no hidden Uncategorised value and always retains at least one Category.
 - **CAT-014** First-run setup creates the first Category before Projects or Tasks can be added.
 - **CAT-015** Within each Category, Projects appear in global Project order and standalone Tasks appear in shared Backlog order; the Categories view has no category-local item order.
@@ -169,7 +186,7 @@ Status: working specification derived from the interactive prototype.
 - **PARTICIPANT-003** The Participant picker lists reusable records followed by a distinct New participant action. Choosing it reveals a focused label field with Enter/Add and Escape/Cancel behaviour. A new unique label is created and associated atomically with the Task's next automatic save; an equivalent existing label associates that existing Participant instead, and an already-associated match is rejected at the field.
 - **PARTICIPANT-004** Participant labels are unique after trimming, Unicode compatibility normalisation, and case-insensitive comparison. Creating or renaming to an equivalent label never creates or merges duplicate identities.
 - **PARTICIPANT-005** Settings lists all Participants using the shared list-row pattern. Renaming one row is an explicit Save/Cancel action and updates its label everywhere it is referenced.
-- **PARTICIPANT-006** Settings can delete an unreferenced Participant. A Participant cannot be deleted while Tasks reference it; the references must be removed first.
+- **PARTICIPANT-006** Settings can delete an unreferenced Participant. A Participant cannot be deleted while Tasks or Recurring Task definitions reference it; the references must be removed first.
 - **PARTICIPANT-007** Participant entry explains that labels should use initials or nicknames rather than personally identifying contact information.
 - **MARKDOWN-003** Markdown follows a CommonMark-style subset with raw HTML disabled.
 - **MARKDOWN-004** Markdown rendering rejects scripts, embedded objects, inline event handlers, and unsafe or custom URI schemes.

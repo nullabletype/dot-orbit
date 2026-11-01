@@ -39,7 +39,7 @@ No production module depends on the desktop presentation module. A future mobile
 
 ## Required boundaries
 
-- **Presentation** uses Avalonia MVVM to render the seven primary views, the Settings and Bin utilities, the conditional AI utility, and the inspector. View models expose presentation state and translate intent but do not own domain rules or SQL.
+- **Presentation** uses Avalonia MVVM to render the primary views, including Recurring, the Settings and Bin utilities, the conditional AI utility, and the inspector. View models expose presentation state and translate intent but do not own domain rules or SQL.
 - **Core** owns completion derivation, Category inheritance, Today membership, ordering invariants, and the application actions that change them atomically.
 - **Persistence** is a core-owned seam implemented by the SQLite3MC adapter. It stores records and every independent ordering scope atomically without exposing SQL records or query providers to callers.
 - **Encrypted store lifecycle** owns creation, opening, validation, migration, passphrase rotation, and closing while hiding cipher and key-derivation configuration from callers.
@@ -49,6 +49,14 @@ No production module depends on the desktop presentation module. A future mobile
 - **Interchange** implements outbound copy and explicit proposal review: Core owns the snapshot model and source interface; SQLite owns atomic revision-bearing filtered reads; `DotOrbit.Interchange.Json` owns deterministic generation, JCS identity, immutable packaged schemas, transport-neutral instruction composition, and bounded failures; Desktop owns an off-by-default device-local AI-features gate and, while enabled, the dedicated AI destination's explicit plain-text clipboard writes, bounded proposal intake, human presentation of directly added or changed work, accessibility, confirmation, and nested composition preference. Strict proposal parsing, prospective semantic planning, complete internal effect modelling, single-use approval, and recovery-backed atomic application remain transport-neutral Core and SQLite boundaries. SQLite supplies one atomic full local state and revision, including hidden records; the same filtered snapshot projection recomputes source identity before and after recovery creation. Meeting-material or transcript access and AI-provider integration remain outside the application boundary. Local MCP uses the packaged `DotOrbit.Mcp.Adapter` standard-stdio process and `DotOrbit.Mcp.Ipc` private same-user broker. Desktop hosts it only for an unlocked workspace beneath both opt-in gates and supplies only Planning, encrypted authorisation/receipt storage, and the shared pending-proposal coordinator; the broker holds no proposal-application authority and cannot bypass in-app Review and approval.
 - **Markdown** treats all source as untrusted and produces one sanitised render model for preview, rich clipboard output, archive-search text, and plain-text fallback. Raw HTML and automatic remote-image loading are disabled.
 - **Search** indexes archived Project and Task content.
+
+## Recurrence boundary
+
+Core owns the date-only daily, weekly, and monthly schedule rules and the separate recurring-definition capability. Definitions are deliberately absent from the ordinary work snapshot, plaintext export, and planning/proposal schemas; generated Tasks enter those existing boundaries as ordinary Tasks.
+
+SQLite stores definitions, Participant associations, and durable schedule progress in the encrypted workspace. Reconciliation captures one local addition date and atomically creates at most the latest due occurrence per enabled definition with its schedule advancement. It uses the same serialized workspace transaction, revision tracking, Task ordering, and recovery path as explicit user mutations. A failed transaction leaves no Task and no advancement; a failed display refresh cannot require replaying a committed creation. Project lifecycle pauses and Category/Participant reference rules share that transaction boundary.
+
+The desktop submits recurrence work through the existing persistence queue alongside inspector saves and immediate actions. Unlock and date-change/wake hints trigger reconciliation only while a session exists. The injected time provider supplies the local date; the saved schedule determines eligibility. No background service, external scheduler, network request, or recurrence history service is introduced. Encrypted recovery retains definitions and schedule progress; the next unlock reconciles the restored state.
 
 ## Agent-interchange boundary
 

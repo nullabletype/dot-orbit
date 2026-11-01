@@ -92,6 +92,14 @@ The implemented recipes live in `src/DotOrbit.Desktop/Styles/ComponentRecipes.ax
 - Empty Markdown shows an instructional placeholder rather than an empty target. Approved `http`, `https`, and `mailto` links use a keyboard-focusable accent hyperlink; fragments and rejected destinations remain inert. Code uses monospace text, headings use font-derived line metrics so ascenders and descenders remain visible, and ordered, unordered, lower-alpha, and mixed lists retain visible indentation through at least four levels. Remote images appear only as explicit **Remote image not loaded** placeholders. Semantic block changes receive visible vertical space; consecutive items within one list remain compact. Repeated empty source lines follow normal Markdown collapsing rules; use an `&nbsp;`-only paragraph when an intentional extra spacer is needed.
 - In the source editor, Tab and Shift+Tab indent or outdent the current line by one four-space Markdown level. Indenting a numeric or lower-alpha ordered item converts it to an unordered sub-point; unordered markers and plain text keep their type. Enter continues the resulting marker at the same indentation. Control+Tab and Control+Shift+Tab move focus out of the editor.
 
+## Recurring definition recipe
+
+Recurring uses the existing `list-panel` and `interactive-row` recipes with a title Edit button, a decorative Category/Project pill, textual cadence and enabled state, next-addition and next-due metadata, and labelled Pause/Resume/Delete actions. Definitions have no completion toggle, Today star, or drag handle. Their identity and lifecycle remain distinct from generated Task rows.
+
+The right inspector reuses `inspector-title` and `inspector-field` for content, Project/Category/Participant choices, cadence, first date, due offset, and Enabled state. Definitions use explicit **Save definition** and **Cancel** actions. Input errors retain the draft and show correction text; due-rule guidance states that the offset starts on the actual addition date. The shared decision overlay confirms deletion and handles save/discard/stay navigation. Cancellation restores focus to the initiating control; successful deletion returns to a remaining definition or New definition.
+
+The count-free navigation entry precedes Completed. Empty, paused, exhausted, processing, and failed states remain textual in Light and Dark at 1120×600. Reconciliation reports additions and fixed failure guidance through the existing polite status surface. Colour and icons supplement names and state rather than carrying them alone.
+
 ## Component-state matrix
 
 “N/A” means that the state does not apply to that component; do not invent a cosmetic state solely to fill the matrix.
