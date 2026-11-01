@@ -152,11 +152,14 @@ public sealed class RecurringTasksTests : IDisposable
         Assert.Equal(before + 1, Revision(session));
         var paused = Assert.Single(api.ReadRecurringTasks());
         Assert.False(paused.IsEnabled);
-        Assert.NotNull(paused.PauseReason);
+        Assert.Equal("Restore or reassign the Project, then enable this recurring Task to resume.", paused.PauseReason);
+        Assert.DoesNotContain("save", paused.PauseReason, StringComparison.OrdinalIgnoreCase);
         Assert.Empty(api.ProcessDueRecurringTasks());
         Assert.Throws<InvalidOperationException>(() => api.UpdateRecurringTask(definition.Id, draft));
         if (bin) session.Work.RestoreProjectFromBin(project.Id); else session.Work.RestoreProject(project.Id);
-        Assert.False(Assert.Single(api.ReadRecurringTasks()).IsEnabled);
+        var restored = Assert.Single(api.ReadRecurringTasks());
+        Assert.False(restored.IsEnabled);
+        Assert.Equal(paused.PauseReason, restored.PauseReason);
         Assert.Empty(api.ProcessDueRecurringTasks());
         api.UpdateRecurringTask(definition.Id, draft);
         Assert.Null(Assert.Single(api.ReadRecurringTasks()).PauseReason);
@@ -185,7 +188,8 @@ public sealed class RecurringTasksTests : IDisposable
         Assert.Null(preserved.ProjectId);
         Assert.Equal(replacement.Id, preserved.ExplicitCategoryId);
         Assert.False(preserved.IsEnabled);
-        Assert.Contains("deleted", preserved.PauseReason, StringComparison.Ordinal);
+        Assert.Equal("The Project was deleted. Review the Category, then enable this recurring Task to resume.", preserved.PauseReason);
+        Assert.DoesNotContain("save", preserved.PauseReason, StringComparison.OrdinalIgnoreCase);
         Assert.Empty(api.ProcessDueRecurringTasks());
         api.UpdateRecurringTask(definition.Id, draft with { ProjectId = null, ExplicitCategoryId = replacement.Id, ParticipantIds = [] });
         session.Work.DeleteParticipant(participant.Id);

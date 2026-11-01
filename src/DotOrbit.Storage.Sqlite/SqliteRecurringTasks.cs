@@ -268,5 +268,5 @@ internal sealed partial class SqliteWorkspaceWork
 
     private static void PauseRecurringTasksForProject(SqliteConnection connection, SqliteTransaction transaction, string projectId) =>
         Execute(connection, transaction,
-            "UPDATE recurring_tasks SET enabled=0,pause_reason='Restore or reassign the Project, then save to resume.' WHERE project_id=$id;", ("$id", projectId));
+            "UPDATE recurring_tasks SET enabled=0,pause_reason='Restore or reassign the Project, then enable this recurring Task to resume.' WHERE project_id=$id;", ("$id", projectId));
 }

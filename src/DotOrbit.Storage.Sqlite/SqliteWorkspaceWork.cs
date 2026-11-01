@@ -596,7 +596,7 @@ internal sealed partial class SqliteWorkspaceWork(
                     DELETE FROM project_bins;
                     UPDATE recurring_tasks SET explicit_category_id=COALESCE(explicit_category_id,
                         (SELECT category_id FROM projects WHERE projects.id=recurring_tasks.project_id)),
-                        project_id=NULL, enabled=0, pause_reason='The Project was deleted. Review the Category and save to resume.'
+                        project_id=NULL, enabled=0, pause_reason='The Project was deleted. Review the Category, then enable this recurring Task to resume.'
                     WHERE project_id IN (SELECT id FROM empty_bin_project_ids);
                     DELETE FROM projects WHERE id IN (SELECT id FROM empty_bin_project_ids);
                     DROP TABLE empty_bin_task_ids;
