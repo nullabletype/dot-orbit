@@ -514,6 +514,100 @@ public sealed class RecurringTasksTests : IDisposable
         Assert.Equal(scenario == "changed-cadence" ? 2 : 1, restored.Work.Read().Tasks.Count);
     }
 
+    [Fact]
+    public void CreateAtomicallyNormalizesAndReusesParticipantLabelsWithOneRevision()
+    {
+        using var session = Create();
+        var existing = session.Work.CreateParticipant("ab");
+        var before = Revision(session);
+        var definition = Recurring(session).CreateRecurringTask(Draft(session) with
+        {
+            ParticipantIds = [existing.Id],
+            NewParticipantLabels = [" ＡＢ ", "  CD  ", "cd"],
+        });
+        Assert.Equal(before + 1, Revision(session));
+        var catalogue = session.Work.Read().Participants;
+        Assert.Equal(2, catalogue.Count);
+        Assert.Equal("ab", catalogue.Single(item => item.Id == existing.Id).Label);
+        var created = Assert.Single(catalogue, item => item.Id != existing.Id);
+        Assert.Equal("CD", created.Label);
+        Assert.Equal([existing.Id, created.Id], definition.ParticipantIds);
+        var task = Assert.Single(Recurring(session).ProcessDueRecurringTasks());
+        Assert.Equal(definition.ParticipantIds, task.ParticipantIds);
+    }
+
+    [Fact]
+    public void UpdateAtomicallyAddsAndReusesLabelsWithoutRewritingEarlierTasksOrAdvancingNoOpRevision()
+    {
+        using var session = Create();
+        var api = Recurring(session);
+        var draft = Draft(session) with { NewParticipantLabels = new[] { "AB" } };
+        var definition = api.CreateRecurringTask(draft);
+        var original = Assert.Single(api.ProcessDueRecurringTasks());
+        var existing = session.Work.CreateParticipant("CD");
+        var before = Revision(session);
+        var update = draft with { NewParticipantLabels = [" cd ", "EF", "ｅｆ"] };
+        var updated = api.UpdateRecurringTask(definition.Id, update);
+        Assert.Equal(before + 1, Revision(session));
+        var created = session.Work.Read().Participants.Single(item => item.Label == "EF");
+        Assert.Equal([existing.Id, created.Id], updated.ParticipantIds);
+        Assert.Equal(3, session.Work.Read().Participants.Count);
+        Assert.Equal(original.ParticipantIds, session.Work.Read().Tasks.Single(item => item.Id == original.Id).ParticipantIds);
+        var after = Revision(session);
+        api.UpdateRecurringTask(definition.Id, update);
+        Assert.Equal(after, Revision(session));
+        Assert.Equal(3, session.Work.Read().Participants.Count);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void InvalidStagedParticipantLabelRollsBackCreatedLabelsAndDefinitionTogether(bool update)
+    {
+        using var session = Create();
+        var api = Recurring(session);
+        var draft = Draft(session);
+        var existing = update ? api.CreateRecurringTask(draft) : null;
+        var before = Revision(session);
+        var invalid = draft with { Title = "Unsaved content", NewParticipantLabels = ["Would be orphaned", " "] };
+        Assert.Throws<ArgumentException>(() => update
+            ? api.UpdateRecurringTask(existing!.Id, invalid)
+            : api.CreateRecurringTask(invalid));
+        Assert.Equal(before, Revision(session));
+        Assert.Empty(session.Work.Read().Participants);
+        if (existing is null) Assert.Empty(api.ReadRecurringTasks());
+        else
+        {
+            var retained = Assert.Single(api.ReadRecurringTasks());
+            Assert.Equal(existing.Title, retained.Title);
+            Assert.Empty(retained.ParticipantIds);
+        }
+    }
+
+    [Theory]
+    [InlineData("title")]
+    [InlineData("category")]
+    [InlineData("due-offset")]
+    [InlineData("participant-reference")]
+    public void InvalidDefinitionDoesNotLeaveOrphanedStagedParticipants(string invalidField)
+    {
+        using var session = Create();
+        var api = Recurring(session);
+        var draft = Draft(session) with { NewParticipantLabels = ["Would be orphaned"] };
+        var invalid = invalidField switch
+        {
+            "title" => draft with { Title = " " },
+            "category" => draft with { ExplicitCategoryId = "missing" },
+            "due-offset" => draft with { DueDateOffsetDays = -1 },
+            _ => draft with { ParticipantIds = ["missing"] },
+        };
+        var before = Revision(session);
+        Assert.ThrowsAny<ArgumentException>(() => api.CreateRecurringTask(invalid));
+        Assert.Equal(before, Revision(session));
+        Assert.Empty(api.ReadRecurringTasks());
+        Assert.Empty(session.Work.Read().Participants);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_directory)) Directory.Delete(_directory, true);

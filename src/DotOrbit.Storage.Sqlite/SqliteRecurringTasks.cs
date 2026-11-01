@@ -125,6 +125,7 @@ internal sealed partial class SqliteWorkspaceWork
         ArgumentNullException.ThrowIfNull(draft.ParticipantIds);
         if (!Enum.IsDefined(draft.Cadence)) throw new ArgumentOutOfRangeException(nameof(draft));
         var participantIds = draft.ParticipantIds.ToArray();
+        var newParticipantLabels = draft.NewParticipantLabels?.ToArray() ?? [];
         if (participantIds.Distinct(StringComparer.Ordinal).Count() != participantIds.Length)
             throw new ArgumentException("Participants must be unique.", nameof(draft));
         RecurringTaskDefinition? result = null;
@@ -154,6 +155,8 @@ internal sealed partial class SqliteWorkspaceWork
                         RecurrenceSchedule.LatestOccurrence(draft.FirstOccurrenceDate, draft.Cadence, consumed));
             }
             RecurrenceSchedule.DueDate(next is { } addition && addition > today ? addition : today, draft.DueDateOffsetDays);
+            var associations = ResolveRecurringParticipantChanges(connection, transaction,
+                new ParticipantDraftChange(participantIds, newParticipantLabels));
             Execute(connection, transaction, """
                 INSERT INTO recurring_tasks (id,title,description,project_id,explicit_category_id,cadence,first_date,next_date,last_date,due_offset,enabled,pause_reason)
                 VALUES ($id,$title,$description,$project,$category,$cadence,$first,$next,$last,$offset,$enabled,NULL)
@@ -165,17 +168,42 @@ internal sealed partial class SqliteWorkspaceWork
                 ("$category", draft.ExplicitCategoryId), ("$cadence", (int)draft.Cadence), ("$first", Date(draft.FirstOccurrenceDate)),
                 ("$next", Date(next)), ("$last", Date(last)), ("$offset", draft.DueDateOffsetDays), ("$enabled", draft.IsEnabled ? 1 : 0));
             var oldParticipants = previous?.ParticipantIds ?? [];
-            if (!oldParticipants.SequenceEqual(participantIds))
+            if (!oldParticipants.SequenceEqual(associations))
             {
                 Execute(connection, transaction, "DELETE FROM recurring_task_participants WHERE recurring_id=$id;", ("$id", recordId));
-                for (var index = 0; index < participantIds.Length; index++)
+                for (var index = 0; index < associations.Count; index++)
                     Execute(connection, transaction, "INSERT INTO recurring_task_participants VALUES ($id,$participant,$position);",
-                        ("$id", recordId), ("$participant", participantIds[index]), ("$position", index));
+                        ("$id", recordId), ("$participant", associations[index]), ("$position", index));
             }
             result = ReadRecurringTasksCore(connection, transaction).Single(item => item.Id == recordId);
             return ArchiveSearchIndexEffects.None;
         }));
         return result!;
+    }
+
+    private List<string> ResolveRecurringParticipantChanges(
+        SqliteConnection connection, SqliteTransaction transaction, ParticipantDraftChange change)
+    {
+        var associations = change.ParticipantIds.ToList();
+        var labels = change.NewParticipantLabels.Select(ParticipantLabel.Normalize).ToArray();
+        foreach (var label in labels)
+        {
+            var comparisonKey = ParticipantLabel.ComparisonKey(label);
+            using var existing = connection.CreateCommand();
+            existing.Transaction = transaction;
+            existing.CommandText = "SELECT id FROM participants WHERE comparison_key=$key;";
+            existing.Parameters.AddWithValue("$key", comparisonKey);
+            var participantId = existing.ExecuteScalar() as string;
+            if (participantId is null)
+            {
+                participantId = store.GetIdentifier();
+                Execute(connection, transaction,
+                    "INSERT INTO participants (id,label,comparison_key) VALUES ($id,$label,$key);",
+                    ("$id", participantId), ("$label", label), ("$key", comparisonKey));
+            }
+            if (!associations.Contains(participantId, StringComparer.Ordinal)) associations.Add(participantId);
+        }
+        return associations;
     }
 
     private static void ValidateRecurringReferences(SqliteConnection connection, SqliteTransaction transaction,
