@@ -56,6 +56,8 @@ Core owns the date-only daily, weekly, and monthly schedule rules and the separa
 
 SQLite stores definitions, Participant associations, and durable schedule progress in the encrypted workspace. Reconciliation captures one local addition date and atomically creates at most the latest due occurrence per enabled definition with its schedule advancement. It uses the same serialized workspace transaction, revision tracking, Task ordering, and recovery path as explicit user mutations. A failed transaction leaves no Task and no advancement; a failed display refresh cannot require replaying a committed creation. Project lifecycle pauses and Category/Participant reference rules share that transaction boundary.
 
+The definition editor retains new Participant labels in its unsaved draft. Saving resolves normalized labels to existing identities or creates them in the same transaction as the definition and its associations. Failed validation or persistence leaves neither a partial definition nor an orphan Participant; a committed save followed by a failed refresh retries only the read.
+
 The desktop submits recurrence work through the existing persistence queue alongside inspector saves and immediate actions. Unlock and date-change/wake hints trigger reconciliation only while a session exists. The injected time provider supplies the local date; the saved schedule determines eligibility. No background service, external scheduler, network request, or recurrence history service is introduced. Encrypted recovery retains definitions and schedule progress; the next unlock reconciles the restored state.
 
 ## Agent-interchange boundary
