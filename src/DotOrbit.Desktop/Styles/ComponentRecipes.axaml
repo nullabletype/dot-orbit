@@ -316,6 +316,12 @@
   <Style Selector="StackPanel.bin-identity"><Setter Property="Margin" Value="13,0,0,0" /></Style>
   <Style Selector="StackPanel.bin-identity.task"><Setter Property="Margin" Value="13,0,0,1" /></Style>
   <Style Selector="Border.interactive-row:pointerover"><Setter Property="Background" Value="{DynamicResource PanelRaisedBrush}" /></Style>
+  <Style Selector="Border.recurring-row.selected, Border.recurring-row.selected:pointerover">
+    <Setter Property="Background" Value="{DynamicResource AccentSurfaceBrush}" />
+  </Style>
+  <Style Selector="Border.recurring-row:focus-within">
+    <Setter Property="Background" Value="{DynamicResource AccentSurfaceBrush}" />
+  </Style>
   <Style Selector="Border.separated-row">
     <Setter Property="BorderBrush" Value="{DynamicResource LineSoftBrush}" />
     <Setter Property="BorderThickness" Value="0,0,0,1" />
@@ -489,7 +495,7 @@
     <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
     <Setter Property="BorderThickness" Value="{StaticResource FocusBorder}" />
   </Style>
-  <Style Selector="TextBox.inspector-title.error, TextBox.inspector-field.error, ComboBox.inspector-field.error, :is(CalendarDatePicker).inspector-field.error">
+  <Style Selector="TextBox.inspector-title.error, TextBox.inspector-field.error, ComboBox.inspector-field.error, :is(NumericUpDown).inspector-field.error, :is(CalendarDatePicker).inspector-field.error">
     <Setter Property="BorderBrush" Value="{DynamicResource ErrorBrush}" />
   </Style>
   <Style Selector=":is(CalendarDatePicker).inspector-field">

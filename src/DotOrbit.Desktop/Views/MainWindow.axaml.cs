@@ -2105,6 +2105,7 @@ public sealed partial class MainWindow : Window
 
     private static RelayCommand? SelectionCommandForRow(Border? row) => row?.DataContext switch
     {
+        RecurringTaskRowViewModel recurring => recurring.EditCommand,
         TaskRowViewModel task => task.SelectCommand,
         CategoryTaskRowViewModel categoryTask => categoryTask.Task.SelectCommand,
         CompletedTaskRowViewModel completedTask => completedTask.Task.SelectCommand,

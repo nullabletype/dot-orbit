@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using DotOrbit.Core.Workspaces;
 using DotOrbit.Markdown;
 
@@ -26,6 +27,10 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
     private string _description = string.Empty;
     private string _firstDate = string.Empty;
     private string _offset = "0";
+    private ParticipantChoice? _participantToAdd;
+    private string _newParticipantLabel = string.Empty;
+    private string _participantValidation = string.Empty;
+    private int _participantDraftSequence;
     private bool _hasDueDate;
     private bool _enabled = true;
     private bool _hasEditor;
@@ -57,6 +62,9 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
         NewCommand = new(() => _navigate(() => Begin(null)));
         SaveCommand = new(() => Save());
         CancelCommand = new(Cancel);
+        AddParticipantCommand = new(AddParticipant);
+        AddNewParticipantCommand = new(AddNewParticipant);
+        CancelNewParticipantCommand = new(() => { NewParticipantLabel = string.Empty; ParticipantToAdd = null; _focus("recurring-participant-picker"); });
         ConfirmDeleteCommand = new(ConfirmDelete);
         CancelDeleteCommand = new(CancelDelete);
         StayCommand = new(() => { _pendingNavigation = null; Notify(nameof(NeedsDecision)); _focus("recurring-title"); });
@@ -69,6 +77,29 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
     public ObservableCollection<TaskContextChoice> Projects { get; } = [];
     public ObservableCollection<CategoryChoice> Categories { get; } = [];
     public ObservableCollection<RecurringParticipantChoice> Participants { get; } = [];
+    public IEnumerable<RecurringParticipantChoice> SelectedParticipants => Participants.Where(item => item.IsSelected);
+    public bool HasSelectedParticipants => SelectedParticipants.Any();
+    public ObservableCollection<ParticipantChoice> AvailableParticipants { get; } = [];
+    public RelayCommand AddParticipantCommand { get; }
+    public RelayCommand AddNewParticipantCommand { get; }
+    public RelayCommand CancelNewParticipantCommand { get; }
+    public ParticipantChoice? ParticipantToAdd
+    {
+        get => _participantToAdd;
+        set
+        {
+            var wasNew = _participantToAdd?.IsNew == true;
+            Set(ref _participantToAdd, value);
+            ParticipantValidation = string.Empty;
+            Notify(nameof(ShowNewParticipantEntry)); Notify(nameof(ShowExistingParticipantAction));
+            if (value?.IsNew == true && !wasNew) _focus("recurring-new-participant-label");
+        }
+    }
+    public bool ShowNewParticipantEntry => ParticipantToAdd?.IsNew == true || NewParticipantLabel.Length > 0;
+    public bool ShowExistingParticipantAction => ParticipantToAdd is { IsNew: false };
+    public string NewParticipantLabel { get => _newParticipantLabel; set { Set(ref _newParticipantLabel, value); ParticipantValidation = string.Empty; Notify(nameof(ShowNewParticipantEntry)); } }
+    public string ParticipantValidation { get => _participantValidation; private set { _participantValidation = value; Notify(); Notify(nameof(HasParticipantError)); } }
+    public bool HasParticipantError => ParticipantValidation.Length > 0;
     public IReadOnlyList<RecurrenceCadence> Cadences { get; } = Enum.GetValues<RecurrenceCadence>();
     public RelayCommand NewCommand { get; }
     public RelayCommand SaveCommand { get; }
@@ -78,9 +109,10 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
     public RelayCommand StayCommand { get; }
     public RelayCommand DiscardAndLeaveCommand { get; }
     public RelayCommand SaveAndLeaveCommand { get; }
-    public bool HasEditor { get => _hasEditor; private set { _hasEditor = value; Notify(); } }
+    public bool HasEditor { get => _hasEditor; private set { _hasEditor = value; Notify(); UpdateSelectedRows(); } }
     public bool HasNoEditor => !HasEditor;
     public bool CanEdit => !_busy;
+    public bool CanSave => CanEdit && (!HasDueDate || IsDueOffsetValid);
     public bool HasDefinitions => Definitions.Count > 0;
     public bool HasNoDefinitions => !HasDefinitions;
     public bool NeedsDeleteConfirmation => _deleting is not null;
@@ -96,13 +128,15 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
             _validation = value;
             if (value.Length == 0) _validationField = string.Empty;
             Notify();
+            Notify(nameof(HasValidation));
             Notify(nameof(HasTitleError)); Notify(nameof(HasFirstDateError)); Notify(nameof(HasOffsetError));
             Notify(nameof(HasCategoryError)); Notify(nameof(HasProjectError));
         }
     }
+    public bool HasValidation => Validation.Length > 0;
     public bool HasTitleError => _validationField == "recurring-title";
     public bool HasFirstDateError => _validationField == "recurring-first-date";
-    public bool HasOffsetError => _validationField == "recurring-due-offset";
+    public bool HasOffsetError => _validationField == "recurring-due-offset" || (HasDueDate && !IsDueOffsetValid);
     public bool HasCategoryError => _validationField == "recurring-category";
     public bool HasProjectError => _validationField == "recurring-project";
     private bool Invalid(string message, string field)
@@ -126,9 +160,17 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
         set { if (Set(ref _editingMarkdown, value)) Notify(nameof(ShowMarkdownPreview)); }
     }
     public bool ShowMarkdownPreview => !IsEditingMarkdown;
-    public string FirstDate { get => _firstDate; set => Set(ref _firstDate, value); }
-    public string DueOffset { get => _offset; set => Set(ref _offset, value); }
-    public bool HasDueDate { get => _hasDueDate; set => Set(ref _hasDueDate, value); }
+    public string FirstDate { get => _firstDate; set { if (Set(ref _firstDate, value)) NotifyOffsetValidation(); } }
+    public decimal MaximumDueOffset => DateOnly.MaxValue.DayNumber - Math.Max(Today.DayNumber,
+        DateOnly.TryParseExact(FirstDate, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var first) ? first.DayNumber : Today.DayNumber);
+    private bool IsDueOffsetValid => int.TryParse(DueOffset, NumberStyles.None, CultureInfo.InvariantCulture, out var days) && days >= 0 && days <= MaximumDueOffset;
+    public string DueOffset { get => _offset; set { if (Set(ref _offset, value)) NotifyOffsetValidation(); } }
+    public bool HasDueDate { get => _hasDueDate; set { if (Set(ref _hasDueDate, value)) NotifyOffsetValidation(); } }
+    public string DueOffsetValidation => HasDueDate && !IsDueOffsetValid ? "Enter a non-negative whole number of days within the supported date range." : string.Empty;
+    private void NotifyOffsetValidation()
+    {
+        Notify(nameof(MaximumDueOffset)); Notify(nameof(DueOffsetValidation)); Notify(nameof(HasOffsetError)); Notify(nameof(CanSave));
+    }
     public bool IsEnabled { get => _enabled; set => Set(ref _enabled, value); }
     public RecurrenceCadence Cadence { get => _cadence; set => Set(ref _cadence, value); }
     public CategoryChoice? Category { get => _category; set => Set(ref _category, value); }
@@ -149,7 +191,9 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
         _allProjects = snapshot.Projects.Concat((projectBin ?? []).Select(item => item.Project)).ToArray();
         if (definitions is not null) _definitions = definitions;
         Definitions.Clear();
-        foreach (var item in _definitions) Definitions.Add(new(this, item, snapshot with { Projects = _allProjects }));
+        for (var index = 0; index < _definitions.Count; index++)
+            Definitions.Add(new(this, _definitions[index], snapshot with { Projects = _allProjects }, index == _definitions.Count - 1));
+        UpdateSelectedRows();
         Notify(nameof(HasDefinitions));
         Notify(nameof(HasNoDefinitions));
         // Keep an explicit draft stable while background reconciliation refreshes the list.
@@ -158,7 +202,8 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
         foreach (var participant in Participants)
             participant.UpdateLabel(snapshot.Participants.FirstOrDefault(item => item.Id == participant.Id)?.Label ?? participant.Label);
         foreach (var participant in snapshot.Participants.Where(item => Participants.All(choice => choice.Id != item.Id)))
-            Participants.Add(new(participant.Id, participant.Label, selected.Contains(participant.Id)));
+            AddParticipantChoice(participant.Id, participant.Label, selected.Contains(participant.Id));
+        RefreshAvailableParticipants();
     }
 
     internal bool ReferencesCategory(string id) => _definitions.Any(item => (item.ExplicitCategoryId
@@ -227,7 +272,12 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
         RefreshCategories(definition?.ExplicitCategoryId);
         Participants.Clear();
         foreach (var participant in _snapshot.Participants)
-            Participants.Add(new(participant.Id, participant.Label, definition?.ParticipantIds.Contains(participant.Id) ?? false));
+            AddParticipantChoice(participant.Id, participant.Label, definition?.ParticipantIds.Contains(participant.Id) ?? false);
+        ParticipantToAdd = null;
+        RefreshAvailableParticipants();
+        NewParticipantLabel = string.Empty;
+        Notify(nameof(SelectedParticipants));
+        Notify(nameof(HasSelectedParticipants));
         Validation = string.Empty;
         HasEditor = true;
         Notify(nameof(HasNoEditor));
@@ -245,11 +295,77 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
         Category = Categories.FirstOrDefault(item => item.Id == categoryId);
     }
 
+    private void RefreshAvailableParticipants()
+    {
+        var selected = ParticipantToAdd;
+        AvailableParticipants.Clear();
+        foreach (var participant in Participants.Where(item => !item.IsDraft || !item.IsSelected))
+            AvailableParticipants.Add(new(participant.Id, participant.Label));
+        AvailableParticipants.Add(ParticipantChoice.New);
+        ParticipantToAdd = selected?.IsNew == true ? ParticipantChoice.New
+            : AvailableParticipants.FirstOrDefault(item => item.Id == selected?.Id && !item.IsNew);
+    }
+
+    private void AddParticipantChoice(string id, string label, bool selected, bool draft = false)
+    {
+        var choice = new RecurringParticipantChoice(id, label, selected, item =>
+        {
+            item.IsSelected = false;
+            Announcement = $"Removed {item.Label} from the recurring Task draft.";
+            _focus("recurring-participant-picker");
+        }, draft);
+        choice.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName != nameof(RecurringParticipantChoice.IsSelected)) return;
+            Notify(nameof(SelectedParticipants));
+            Notify(nameof(HasSelectedParticipants));
+            RefreshAvailableParticipants();
+        };
+        Participants.Add(choice);
+        Notify(nameof(SelectedParticipants));
+        Notify(nameof(HasSelectedParticipants));
+    }
+    private void AddParticipant()
+    {
+        if (ParticipantToAdd is not { IsNew: false, Id: { } id } choice) return;
+        var participant = Participants.Single(item => item.Id == id);
+        if (participant.IsSelected) { ParticipantValidation = "This Participant is already selected."; return; }
+        participant.IsSelected = true;
+        Announcement = $"Added {choice.Label} to the recurring Task draft.";
+        ParticipantToAdd = null;
+        _focus("recurring-participant-picker");
+    }
+    private void AddNewParticipant()
+    {
+        string label;
+        try { label = ParticipantLabel.Normalize(NewParticipantLabel); }
+        catch (ArgumentException) { ParticipantValidation = "Enter a Participant label."; return; }
+        var key = ParticipantLabel.ComparisonKey(label);
+        var existing = Participants.FirstOrDefault(item => ParticipantLabel.ComparisonKey(item.Label) == key);
+        if (existing?.IsSelected == true) { ParticipantValidation = "This Participant is already selected."; return; }
+        if (existing is not null) existing.IsSelected = true;
+        else AddParticipantChoice($"draft-{_participantDraftSequence++}", label, true, draft: true);
+        Announcement = existing is null ? $"Created and added {label} to the recurring Task draft." : $"Added existing Participant {existing.Label} to the recurring Task draft.";
+        NewParticipantLabel = string.Empty;
+        ParticipantToAdd = null;
+        _focus("recurring-participant-picker");
+    }
+    private void UpdateSelectedRows()
+    {
+        foreach (var row in Definitions) row.SetSelected(HasEditor && row.Id == _editingId);
+    }
+
     internal DateOnly CurrentDate => Today;
     private DateOnly Today => DateOnly.FromDateTime(_time.GetLocalNow().DateTime);
     private bool Save()
     {
         if (_busy || !HasEditor) return false;
+        if (!string.IsNullOrWhiteSpace(NewParticipantLabel))
+        {
+            ParticipantValidation = "Add or cancel the new Participant before saving.";
+            _focus("recurring-new-participant-label");
+            return false;
+        }
         string title;
         try { title = WorkTitle.Normalize(Title); }
         catch (ArgumentException) { return Invalid("Enter a valid nonblank title.", "recurring-title"); }
@@ -269,7 +385,8 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
         if (Project?.ProjectId is { } projectId && !_snapshot.Projects.Any(item => item.Id == projectId && !item.IsArchived))
         { return Invalid("Restore the Project first, or choose an active Project or Standalone.", "recurring-project"); }
         var draft = new RecurringTaskDraft(title, Description, Project?.ProjectId, Category?.Id,
-            Participants.Where(item => item.IsSelected).Select(item => item.Id).ToArray(), Cadence, first, offset, IsEnabled);
+            Participants.Where(item => item.IsSelected && !item.IsDraft).Select(item => item.Id).ToArray(), Cadence, first, offset, IsEnabled,
+            Participants.Where(item => item.IsSelected && item.IsDraft).Select(item => item.Label).ToArray());
         Validation = string.Empty;
         return Submit(new(_editingId is null ? WorkspaceActionKind.CreateRecurring : WorkspaceActionKind.UpdateRecurring,
             RecurringId: _editingId, RecurringDraft: draft));
@@ -301,9 +418,11 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
     {
         _busy = true;
         Notify(nameof(CanEdit));
+        Notify(nameof(CanSave));
         if (_submit(request)) return true;
         _busy = false;
         Notify(nameof(CanEdit));
+        Notify(nameof(CanSave));
         Announcement = "Could not start the recurring Task change. Try again.";
         return false;
     }
@@ -326,7 +445,7 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
             Notify(nameof(NeedsDecision));
         }
         if (processing) _reconciler.Complete(committed);
-        else { _busy = false; Notify(nameof(CanEdit)); }
+        else { _busy = false; Notify(nameof(CanEdit)); Notify(nameof(CanSave)); }
         if (!committed)
         {
             Announcement = processing ? "Could not add scheduled Tasks. Will retry while this workspace is unlocked."
@@ -396,7 +515,8 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
     }
 
     private RecurringDraftFingerprint Fingerprint() => new(Title, Description, FirstDate, Cadence, Project?.ProjectId,
-        Category?.Id, HasDueDate, DueOffset, IsEnabled, string.Join(',', Participants.Where(item => item.IsSelected).Select(item => item.Id)));
+        Category?.Id, HasDueDate, DueOffset, IsEnabled, string.Join(',', Participants.Where(item => item.IsSelected && !item.IsDraft).Select(item => item.Id)),
+        JsonSerializer.Serialize(Participants.Where(item => item.IsSelected && item.IsDraft).Select(item => item.Label)), NewParticipantLabel);
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
     {
         if (EqualityComparer<T>.Default.Equals(field, value)) return false;
@@ -429,27 +549,43 @@ internal sealed class RecurringDateReconciler(TimeProvider time, Func<bool> subm
     public void Complete(bool committed) { _pending = false; _retry = !committed; }
 }
 
-public sealed class RecurringParticipantChoice(string id, string label, bool selected) : INotifyPropertyChanged
+public sealed class RecurringParticipantChoice(string id, string label, bool selected,
+    Action<RecurringParticipantChoice>? remove = null, bool isDraft = false) : INotifyPropertyChanged
 {
     private bool _selected = selected;
     public event PropertyChangedEventHandler? PropertyChanged;
     public string Id { get; } = id;
     public string Label { get; private set; } = label;
+    public bool IsDraft { get; } = isDraft;
+    public RelayCommand RemoveCommand => new(() => remove?.Invoke(this));
+    public string RemoveAccessibleName => $"Remove {Label} from recurring Task draft";
     public string AccessibleName => $"Include Participant {Label}";
     public bool IsSelected { get => _selected; set { _selected = value; PropertyChanged?.Invoke(this, new(nameof(IsSelected))); } }
     internal void UpdateLabel(string label) { Label = label; PropertyChanged?.Invoke(this, new(nameof(Label))); PropertyChanged?.Invoke(this, new(nameof(AccessibleName))); }
 }
 
-public sealed class RecurringTaskRowViewModel
+public sealed class RecurringTaskRowViewModel : INotifyPropertyChanged
 {
-    internal RecurringTaskRowViewModel(RecurringTasksViewModel owner, RecurringTaskDefinition definition, WorkspaceWorkSnapshot snapshot)
+    private bool _selected;
+    public event PropertyChangedEventHandler? PropertyChanged;
+    public bool IsSelected => _selected;
+    public string SelectionStatus => IsSelected ? $"{State}, editing" : State;
+    internal void SetSelected(bool selected)
+    {
+        if (_selected == selected) return;
+        _selected = selected;
+        PropertyChanged?.Invoke(this, new(nameof(IsSelected)));
+        PropertyChanged?.Invoke(this, new(nameof(SelectionStatus)));
+    }
+    internal RecurringTaskRowViewModel(RecurringTasksViewModel owner, RecurringTaskDefinition definition, WorkspaceWorkSnapshot snapshot, bool isLast = false)
     {
         Id = definition.Id;
+        IsLast = isLast;
         Title = definition.Title;
         Cadence = definition.Cadence.ToString();
         State = definition.IsEnabled ? "Enabled" : "Paused";
         Guidance = definition.PauseReason ?? string.Empty;
-        NextDate = definition.NextOccurrenceDate is { } next ? $"Next addition {next:dd MMM yyyy}" : "Schedule complete";
+        NextDate = definition.NextOccurrenceDate is { } next ? $"Adds {next:dd MMM yyyy}" : "Schedule complete";
         DueDate = definition.DueDateOffsetDays is not { } offset ? "No due date"
             : definition.NextOccurrenceDate is not { } occurrence ? "No future additions"
             : offset > DateOnly.MaxValue.DayNumber - occurrence.DayNumber ? "Due date outside supported range"
@@ -469,6 +605,9 @@ public sealed class RecurringTaskRowViewModel
     }
     public string Id { get; }
     public string Title { get; }
+    public bool IsLast { get; }
+    public bool HasGuidance => Guidance.Length > 0;
+    public string ScheduleSummary => $"{Cadence} · {State}";
     public string Cadence { get; }
     public string State { get; }
     public string Guidance { get; }
@@ -493,4 +632,4 @@ public sealed class RecurringTaskRowViewModel
 
 internal sealed record RecurringDraftFingerprint(string Title, string Description, string FirstDate,
     RecurrenceCadence Cadence, string? ProjectId, string? CategoryId, bool HasDueDate,
-    string DueOffset, bool IsEnabled, string ParticipantIds);
+    string DueOffset, bool IsEnabled, string ParticipantIds, string NewParticipantLabels, string PendingParticipantLabel);

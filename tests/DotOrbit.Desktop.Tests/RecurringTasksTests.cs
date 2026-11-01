@@ -845,6 +845,7 @@ internal sealed class RecurringMemoryWorkspace : MemoryWorkspaceWork, IRecurring
     {
         CreateCalls++;
         if (FailCreate) throw new InvalidOperationException("Persistence unavailable.");
+        draft = ResolveLabels(draft);
         var result = Definition(Guid.NewGuid().ToString("N"), draft, draft.FirstOccurrenceDate);
         _definitions.Add(result);
         if (FailReadAfterMutation) FailReads = true;
@@ -853,6 +854,7 @@ internal sealed class RecurringMemoryWorkspace : MemoryWorkspaceWork, IRecurring
     public RecurringTaskDefinition UpdateRecurringTask(string id, RecurringTaskDraft draft)
     {
         UpdateCalls++;
+        draft = ResolveLabels(draft);
         var index = _definitions.FindIndex(item => item.Id == id);
         var result = Definition(id, draft, _definitions[index].NextOccurrenceDate);
         _definitions[index] = result;
@@ -879,6 +881,18 @@ internal sealed class RecurringMemoryWorkspace : MemoryWorkspaceWork, IRecurring
         }
         if (FailReadAfterMutation) FailReads = true;
         return generated;
+    }
+    private RecurringTaskDraft ResolveLabels(RecurringTaskDraft draft)
+    {
+        var ids = draft.ParticipantIds.ToList();
+        foreach (var label in draft.NewParticipantLabels ?? [])
+        {
+            var key = ParticipantLabel.ComparisonKey(ParticipantLabel.Normalize(label));
+            var participant = Read().Participants.FirstOrDefault(item => ParticipantLabel.ComparisonKey(item.Label) == key)
+                ?? CreateParticipant(label);
+            if (!ids.Contains(participant.Id)) ids.Add(participant.Id);
+        }
+        return draft with { ParticipantIds = ids };
     }
     private static RecurringTaskDefinition Definition(string id, RecurringTaskDraft draft, DateOnly? next) => new(
         id, draft.Title, draft.Description, draft.ProjectId, draft.ExplicitCategoryId, draft.ParticipantIds,

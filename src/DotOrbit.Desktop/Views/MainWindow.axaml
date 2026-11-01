@@ -371,11 +371,10 @@
             Command="{Binding Work.NewCategoryCommand}"
             Content="＋ New category"
             IsVisible="{Binding ShowCategories}" />
+        <Button Grid.Column="1" VerticalAlignment="Bottom" Classes="primary-action"
+            IsVisible="{Binding ShowRecurring}" Content="＋ New definition" Command="{Binding Work.Recurring.NewCommand}"
+            AutomationProperties.Name="New recurring Task definition" AutomationProperties.AutomationId="recurring-new" />
       </Grid>
-
-      <Button Grid.Row="0" HorizontalAlignment="Right" VerticalAlignment="Bottom" Classes="primary-action"
-          IsVisible="{Binding ShowRecurring}" Content="＋ New definition" Command="{Binding Work.Recurring.NewCommand}"
-          AutomationProperties.Name="New recurring Task definition" AutomationProperties.AutomationId="recurring-new" />
       <ScrollViewer Grid.Row="2" IsVisible="{Binding ShowRecurring}">
         <StackPanel Margin="{StaticResource ScrollContentInset}" Spacing="16" IsEnabled="{Binding Work.Recurring.CanEdit}">
           <Border Classes="empty-state" Padding="24" IsVisible="{Binding Work.Recurring.HasNoDefinitions}">
@@ -384,32 +383,43 @@
               <TextBlock Text="Create a definition for work you repeat daily, weekly, or monthly." TextWrapping="Wrap" Foreground="{DynamicResource MutedTextBrush}" />
             </StackPanel>
           </Border>
-          <ItemsControl ItemsSource="{Binding Work.Recurring.Definitions}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:RecurringTaskRowViewModel">
-                <Border Classes="list-panel interactive-row" Margin="0,0,0,10" Padding="10">
-                  <StackPanel Spacing="8">
-                    <Button Classes="row-title" Command="{Binding EditCommand}" AutomationProperties.Name="{Binding AccessibleName}" AutomationProperties.AutomationId="{Binding EditAutomationId}">
-                      <TextBlock Text="{Binding Title}" TextWrapping="Wrap" FontWeight="SemiBold" />
-                    </Button>
-                    <views:CategoryProjectPill HorizontalAlignment="Left" CategoryName="{Binding CategoryName}" CategoryColourKey="{Binding CategoryColourKey}"
-                        ProjectName="{Binding ProjectTitle}" ProjectColourKey="{Binding ProjectColourKey}" HasOverride="{Binding HasOverride}" />
-                    <WrapPanel Orientation="Horizontal">
-                      <TextBlock Margin="0,0,16,4" Text="{Binding Cadence}" />
-                      <TextBlock Margin="0,0,16,4" Text="{Binding State}" />
-                    </WrapPanel>
-                    <TextBlock Text="{Binding NextDate}" FontSize="12" Foreground="{DynamicResource MutedTextBrush}" />
-                    <TextBlock Text="{Binding DueDate}" FontSize="12" Foreground="{DynamicResource MutedTextBrush}" />
-                    <TextBlock Text="{Binding Guidance}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MutedTextBrush}" />
-                    <WrapPanel Orientation="Horizontal">
-                      <Button Classes="view-action" Margin="0,0,8,0" Content="{Binding ToggleLabel}" Command="{Binding ToggleCommand}" AutomationProperties.Name="{Binding ToggleAccessibleName}" />
-                      <Button Classes="view-action" Content="Delete" Command="{Binding DeleteCommand}" AutomationProperties.Name="{Binding DeleteAccessibleName}" AutomationProperties.AutomationId="{Binding DeleteAutomationId}" />
-                    </WrapPanel>
-                  </StackPanel>
-                </Border>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
+          <Border Classes="list-panel row-list" IsVisible="{Binding Work.Recurring.HasDefinitions}">
+            <ItemsControl ItemsSource="{Binding Work.Recurring.Definitions}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:RecurringTaskRowViewModel">
+                  <Border Classes="interactive-row separated-row selectable-row recurring-row" Classes.last="{Binding IsLast}" Classes.selected="{Binding IsSelected}"
+                      MinHeight="76" AutomationProperties.ItemStatus="{Binding SelectionStatus}">
+                    <StackPanel Spacing="0" Margin="0,7">
+                      <Grid ColumnDefinitions="*,130,Auto" ColumnSpacing="8" VerticalAlignment="Center">
+                        <StackPanel Spacing="0" VerticalAlignment="Center">
+                          <Button Classes="task-title row-title" Padding="6,2,6,5" HorizontalAlignment="Stretch" Command="{Binding EditCommand}"
+                              AutomationProperties.Name="{Binding AccessibleName}" AutomationProperties.ItemStatus="{Binding SelectionStatus}" AutomationProperties.AutomationId="{Binding EditAutomationId}">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+                              <views:WorkTypeIcon WorkType="Task" />
+                              <TextBlock Grid.Column="1" Classes="work-identity-title" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                            </Grid>
+                          </Button>
+                          <views:CategoryProjectPill Margin="7,0,0,6" HorizontalAlignment="Left" CategoryName="{Binding CategoryName}" CategoryColourKey="{Binding CategoryColourKey}"
+                              ProjectName="{Binding ProjectTitle}" ProjectColourKey="{Binding ProjectColourKey}" HasOverride="{Binding HasOverride}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center" HorizontalAlignment="Right">
+                          <TextBlock Text="Editing" IsVisible="{Binding IsSelected}" FontSize="10" Foreground="{DynamicResource AccentBrush}" />
+                          <TextBlock Text="{Binding ScheduleSummary}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" />
+                          <TextBlock Text="{Binding NextDate}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" />
+                          <TextBlock Text="{Binding DueDate}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                          <Button Classes="view-action task-row-action" Content="{Binding ToggleLabel}" Command="{Binding ToggleCommand}" AutomationProperties.Name="{Binding ToggleAccessibleName}" />
+                          <Button Classes="view-action task-row-action" Content="Delete" Command="{Binding DeleteCommand}" AutomationProperties.Name="{Binding DeleteAccessibleName}" AutomationProperties.AutomationId="{Binding DeleteAutomationId}" />
+                        </StackPanel>
+                      </Grid>
+                      <TextBlock Margin="7,4,0,0" Text="{Binding Guidance}" IsVisible="{Binding HasGuidance}" TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" />
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </Border>
         </StackPanel>
       </ScrollViewer>
       <Border

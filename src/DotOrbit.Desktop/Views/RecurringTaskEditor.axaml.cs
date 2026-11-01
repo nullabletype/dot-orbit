@@ -32,6 +32,12 @@ public sealed partial class RecurringTaskEditor : UserControl
             model.FirstDate = selected.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         _dateAtOpen = null;
     }
+    private void OnNewParticipantKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (DataContext is not RecurringTasksViewModel model) return;
+        if (e.Key == Key.Enter) { model.AddNewParticipantCommand.Execute(null); e.Handled = true; }
+        else if (e.Key == Key.Escape) { model.CancelNewParticipantCommand.Execute(null); e.Handled = true; }
+    }
     private void OnMarkdownActivated(object? sender, RoutedEventArgs e)
     {
         if (DataContext is not RecurringTasksViewModel model) return;
