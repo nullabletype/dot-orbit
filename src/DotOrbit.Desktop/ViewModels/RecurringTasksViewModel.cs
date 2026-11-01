@@ -479,7 +479,8 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
         {
             if (_deleting is not null) { _deleting = null; Notify(nameof(NeedsDeleteConfirmation)); }
             Cancel();
-            _focus("recurring-new");
+            _focus(result.Request.Kind == WorkspaceActionKind.SetRecurringEnabled
+                ? $"recurring-toggle-{result.Request.RecurringId}" : "recurring-new");
             if (_saveThenLeave)
             {
                 _saveThenLeave = false;
@@ -583,6 +584,7 @@ public sealed class RecurringTaskRowViewModel : INotifyPropertyChanged
         IsLast = isLast;
         Title = definition.Title;
         Cadence = definition.Cadence.ToString();
+        IsEnabled = definition.IsEnabled;
         State = definition.IsEnabled ? "Enabled" : "Paused";
         Guidance = definition.PauseReason ?? string.Empty;
         NextDate = definition.NextOccurrenceDate is { } next ? $"Adds {next:dd MMM yyyy}" : "Schedule complete";
@@ -609,6 +611,7 @@ public sealed class RecurringTaskRowViewModel : INotifyPropertyChanged
     public bool HasGuidance => Guidance.Length > 0;
     public string ScheduleSummary => $"{Cadence} · {State}";
     public string Cadence { get; }
+    public bool IsEnabled { get; }
     public string State { get; }
     public string Guidance { get; }
     public string NextDate { get; }
@@ -625,6 +628,7 @@ public sealed class RecurringTaskRowViewModel : INotifyPropertyChanged
     public string DeleteAccessibleName => $"Delete recurring Task {Title}";
     public string EditAutomationId => $"recurring-edit-{Id}";
     public string DeleteAutomationId => $"recurring-delete-{Id}";
+    public string ToggleAutomationId => $"recurring-toggle-{Id}";
     public RelayCommand EditCommand { get; }
     public RelayCommand ToggleCommand { get; }
     public RelayCommand DeleteCommand { get; }

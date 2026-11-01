@@ -307,6 +307,47 @@
     <Setter Property="BorderThickness" Value="{StaticResource FocusBorder}" />
   </Style>
 
+  <Style Selector="ToggleButton.recurring-toggle">
+    <Setter Property="Width" Value="{StaticResource ControlHitSize}" />
+    <Setter Property="Height" Value="{StaticResource ControlHitSize}" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="{StaticResource ControlBorder}" />
+    <Setter Property="CornerRadius" Value="{StaticResource CompactControlRadius}" />
+    <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Width="{TemplateBinding Width}" Height="{TemplateBinding Height}" Background="Transparent"
+            BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+            CornerRadius="{TemplateBinding CornerRadius}">
+          <Grid>
+            <Path x:Name="RecurringPlay" Width="15" Height="15" HorizontalAlignment="Center" VerticalAlignment="Center"
+                Data="M6,3 L20,12 L6,21 Z" Fill="{TemplateBinding Foreground}" Stretch="Uniform" />
+            <Path x:Name="RecurringPause" Width="15" Height="15" HorizontalAlignment="Center" VerticalAlignment="Center"
+                Data="M5,3 H10 V21 H5 Z M14,3 H19 V21 H14 Z" Fill="{TemplateBinding Foreground}" Stretch="Uniform" IsVisible="False" />
+          </Grid>
+        </Border>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="ToggleButton.recurring-toggle:pointerover">
+    <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+  </Style>
+  <Style Selector="ToggleButton.recurring-toggle:checked">
+    <Setter Property="Foreground" Value="{DynamicResource AmberBrush}" />
+  </Style>
+  <Style Selector="ToggleButton.recurring-toggle:checked /template/ Path#RecurringPlay">
+    <Setter Property="IsVisible" Value="False" />
+  </Style>
+  <Style Selector="ToggleButton.recurring-toggle:checked /template/ Path#RecurringPause">
+    <Setter Property="IsVisible" Value="True" />
+  </Style>
+  <Style Selector="ToggleButton.recurring-toggle:focus-visible">
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+    <Setter Property="BorderThickness" Value="{StaticResource FocusBorder}" />
+  </Style>
+
   <Style Selector="Border.interactive-row">
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="Padding" Value="10,0" />

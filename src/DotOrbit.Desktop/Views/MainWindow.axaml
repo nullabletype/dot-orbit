@@ -403,13 +403,14 @@
                               ProjectName="{Binding ProjectTitle}" ProjectColourKey="{Binding ProjectColourKey}" HasOverride="{Binding HasOverride}" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center" HorizontalAlignment="Right">
-                          <TextBlock Text="Editing" IsVisible="{Binding IsSelected}" FontSize="10" Foreground="{DynamicResource AccentBrush}" />
                           <TextBlock Text="{Binding ScheduleSummary}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" />
                           <TextBlock Text="{Binding NextDate}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" />
                           <TextBlock Text="{Binding DueDate}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" />
                         </StackPanel>
                         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                          <Button Classes="view-action task-row-action" Content="{Binding ToggleLabel}" Command="{Binding ToggleCommand}" AutomationProperties.Name="{Binding ToggleAccessibleName}" />
+                          <views:RecurringTaskToggle Classes="recurring-toggle" IsChecked="{Binding IsEnabled, Mode=OneWay}"
+                              Command="{Binding ToggleCommand}" ToolTip.Tip="{Binding ToggleAccessibleName}"
+                              AutomationProperties.Name="{Binding ToggleAccessibleName}" AutomationProperties.AutomationId="{Binding ToggleAutomationId}" />
                           <Button Classes="view-action task-row-action" Content="Delete" Command="{Binding DeleteCommand}" AutomationProperties.Name="{Binding DeleteAccessibleName}" AutomationProperties.AutomationId="{Binding DeleteAutomationId}" />
                         </StackPanel>
                       </Grid>

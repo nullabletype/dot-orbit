@@ -289,6 +289,13 @@ public sealed class RecurringTaskPresentationTests
             Dispatcher.UIThread.RunJobs();
             Assert.Equal("Review the week", shell.Work.Recurring.Title);
             Assert.True(first.IsSelected);
+            Assert.Equal(76, rows[0].Bounds.Height);
+            Assert.DoesNotContain(rows[0].GetVisualDescendants().OfType<TextBlock>(), text => text.IsEffectivelyVisible && text.Text == "Editing");
+            var toggles = rows.Select(row => Assert.Single(row.GetVisualDescendants().OfType<RecurringTaskToggle>())).ToArray();
+            var deletes = rows.Select(row => Assert.Single(row.GetVisualDescendants().OfType<Button>(), button => button.Content as string == "Delete")).ToArray();
+            Assert.All(toggles, toggle => Assert.Equal(30, toggle.Bounds.Width));
+            Assert.All(toggles, toggle => Assert.Equal(toggles[0].TranslatePoint(default, window)!.Value.X, toggle.TranslatePoint(default, window)!.Value.X));
+            Assert.All(deletes, delete => Assert.Equal(deletes[0].TranslatePoint(default, window)!.Value.X, delete.TranslatePoint(default, window)!.Value.X));
             Assert.Contains("editing", AutomationProperties.GetItemStatus(titleButton), StringComparison.Ordinal);
             shell.Work.Recurring.HasDueDate = true;
             Dispatcher.UIThread.RunJobs();

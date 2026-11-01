@@ -836,6 +836,7 @@ internal sealed class RecurringMemoryWorkspace : MemoryWorkspaceWork, IRecurring
     public bool FailReads { get; set; }
     public bool FailProcess { get; set; }
     public bool FailCreate { get; set; }
+    public bool FailUpdate { get; set; }
     public int CreateCalls { get; private set; }
     public int ProcessCalls { get; private set; }
     public int UpdateCalls { get; private set; }
@@ -854,6 +855,7 @@ internal sealed class RecurringMemoryWorkspace : MemoryWorkspaceWork, IRecurring
     public RecurringTaskDefinition UpdateRecurringTask(string id, RecurringTaskDraft draft)
     {
         UpdateCalls++;
+        if (FailUpdate) throw new InvalidOperationException("Persistence unavailable.");
         draft = ResolveLabels(draft);
         var index = _definitions.FindIndex(item => item.Id == id);
         var result = Definition(id, draft, _definitions[index].NextOccurrenceDate);
