@@ -321,6 +321,7 @@ internal static class WorkspaceMigrationRunner
                 15 => ApplySchemaFifteenToSixteen(connection),
                 16 => ApplySchemaSixteenToSeventeen(connection),
                 17 => ApplySchemaSeventeenToEighteen(connection),
+                18 => ApplySchemaEighteenToNineteen(connection),
                 _ => throw new InvalidDataException(),
             };
 
@@ -529,6 +530,12 @@ internal static class WorkspaceMigrationRunner
             PRAGMA user_version = 18;
             """);
         return 18;
+    }
+
+    private static int ApplySchemaEighteenToNineteen(SqliteConnection connection)
+    {
+        ExecuteNonQuery(connection, SqliteWorkspaceWork.RecurringSchema + "PRAGMA user_version = 19;");
+        return 19;
     }
 
     private static int ApplySchemaOneToTwo(SqliteConnection connection)
