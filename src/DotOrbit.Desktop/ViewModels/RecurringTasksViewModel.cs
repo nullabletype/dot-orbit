@@ -561,7 +561,7 @@ public sealed class RecurringParticipantChoice(string id, string label, bool sel
     public string RemoveAccessibleName => $"Remove {Label} from recurring Task draft";
     public string AccessibleName => $"Include Participant {Label}";
     public bool IsSelected { get => _selected; set { _selected = value; PropertyChanged?.Invoke(this, new(nameof(IsSelected))); } }
-    internal void UpdateLabel(string label) { Label = label; PropertyChanged?.Invoke(this, new(nameof(Label))); PropertyChanged?.Invoke(this, new(nameof(AccessibleName))); }
+    internal void UpdateLabel(string label) { Label = label; PropertyChanged?.Invoke(this, new(nameof(Label))); PropertyChanged?.Invoke(this, new(nameof(AccessibleName))); PropertyChanged?.Invoke(this, new(nameof(RemoveAccessibleName))); }
 }
 
 public sealed class RecurringTaskRowViewModel : INotifyPropertyChanged

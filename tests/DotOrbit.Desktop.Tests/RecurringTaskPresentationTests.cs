@@ -358,6 +358,33 @@ public sealed class RecurringTaskPresentationTests
         finally { shell.Work!.Recurring.CancelCommand.Execute(null); window.Close(); application.RequestedThemeVariant = ThemeVariant.Dark; }
     }
 
+    [AvaloniaFact]
+    public void ParticipantRenameRefreshUpdatesRenderedRemoveAccessibleName()
+    {
+        var store = new RecurringMemoryWorkspace();
+        var participant = store.CreateParticipant("Alex");
+        store.CreateRecurringTask(new("Recurring", "", null, "home", [participant.Id], RecurrenceCadence.Daily,
+            new(2026, 11, 2), null, true));
+        var shell = new ShellViewModel(store, Clock());
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+        try
+        {
+            shell.PrimaryNavigation.Single(item => item.Title == "Recurring").SelectCommand.Execute(null);
+            shell.Work!.Recurring.Definitions.Single().EditCommand.Execute(null);
+            Dispatcher.UIThread.RunJobs();
+            var remove = Assert.Single(window.GetVisualDescendants().OfType<Button>(), button =>
+                button.IsEffectivelyVisible && AutomationProperties.GetName(button) == "Remove Alex from recurring Task draft");
+            store.RenameParticipant(participant.Id, "Morgan");
+            shell.Work.RefreshFromStore();
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal("Morgan", Assert.Single(shell.Work.Recurring.SelectedParticipants).Label);
+            Assert.Equal("Remove Morgan from recurring Task draft", AutomationProperties.GetName(remove));
+            Assert.Equal([participant.Id], Assert.Single(store.ReadRecurringTasks()).ParticipantIds);
+        }
+        finally { shell.Work!.Recurring.CancelCommand.Execute(null); window.Close(); }
+    }
+
     private static void Click(Window window, Point point)
     {
         window.MouseDown(point, MouseButton.Left, RawInputModifiers.LeftMouseButton);
