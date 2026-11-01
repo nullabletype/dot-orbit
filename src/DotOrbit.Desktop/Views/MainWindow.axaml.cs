@@ -46,6 +46,7 @@ public sealed partial class MainWindow : Window
     private bool _dragAfter;
     private Border[]? _dragRows;
     private bool _markdownPointerStartedOutside;
+    private bool _recurringMarkdownPointerStartedOutside;
     private DateTime? _calendarDateAtOpen;
     private ShellViewModel? _subscribedShell;
     private ProjectCaptureViewModel? _subscribedWork;
@@ -1781,21 +1782,22 @@ public sealed partial class MainWindow : Window
     private async void OnCopyRendered(object? sender, RoutedEventArgs e)
     {
         if (DataContext is not ShellViewModel { Work: { } work }) return;
+        var recurring = (sender as Control)?.DataContext as RecurringTasksViewModel;
         var clipboard = _markdownClipboard ?? (Clipboard is null ? null : new AvaloniaMarkdownClipboard(Clipboard));
         if (clipboard is null)
         {
-            work.MarkdownCopyFailed();
+            if (recurring is not null) recurring.ReportMarkdownCopy(false); else work.MarkdownCopyFailed();
             return;
         }
 
         try
         {
-            await clipboard.WriteAsync(work.RenderedDescription);
-            work.MarkdownCopySucceeded();
+            await clipboard.WriteAsync(recurring?.RenderedDescription ?? work.RenderedDescription);
+            if (recurring is not null) recurring.ReportMarkdownCopy(true); else work.MarkdownCopySucceeded();
         }
         catch (Exception)
         {
-            work.MarkdownCopyFailed();
+            if (recurring is not null) recurring.ReportMarkdownCopy(false); else work.MarkdownCopyFailed();
         }
     }
 
@@ -1860,6 +1862,10 @@ public sealed partial class MainWindow : Window
             && this.FindControl<TextBox>("MarkdownSource") is { } markdownSource
             && hit != markdownSource
             && hit?.GetVisualAncestors().Contains(markdownSource) != true;
+        var recurringSource = this.GetVisualDescendants().OfType<TextBox>().FirstOrDefault(control => control.Name == "RecurringMarkdownSource");
+        _recurringMarkdownPointerStartedOutside = e.GetCurrentPoint(this).Properties.IsLeftButtonPressed
+            && DataContext is ShellViewModel { Work.Recurring.IsEditingMarkdown: true }
+            && recurringSource is not null && hit != recurringSource && hit?.GetVisualAncestors().Contains(recurringSource) != true;
         Button? handle = (hit as Button)?.Classes.Contains("drag-handle") == true
             ? (Button?)hit
             : hit?.GetVisualAncestors().OfType<Button>().FirstOrDefault(button => button.Classes.Contains("drag-handle"));
@@ -2016,6 +2022,10 @@ public sealed partial class MainWindow : Window
         if (finishMarkdownEditing && DataContext is ShellViewModel { Work: { IsEditingMarkdown: true } markdownWork })
             markdownWork.FinishMarkdownEditing();
 
+        if (_recurringMarkdownPointerStartedOutside && e.InitialPressMouseButton == MouseButton.Left
+            && DataContext is ShellViewModel { Work.Recurring: { } recurring }) recurring.IsEditingMarkdown = false;
+        _recurringMarkdownPointerStartedOutside = false;
+
         if (DataContext is not ShellViewModel { Work: { } work }
             || e.InitialPressMouseButton != MouseButton.Left)
         {
@@ -2077,12 +2087,14 @@ public sealed partial class MainWindow : Window
     private void OnPointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
     {
         _markdownPointerStartedOutside = false;
+        _recurringMarkdownPointerStartedOutside = false;
         ResetPointerGesture();
     }
 
     private void OnDeactivated(object? sender, EventArgs e)
     {
         _markdownPointerStartedOutside = false;
+        _recurringMarkdownPointerStartedOutside = false;
         ResetPointerGesture();
     }
 

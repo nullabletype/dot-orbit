@@ -66,6 +66,7 @@
     <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" />
   </Style>
   <Style Selector="Button.identity-pill-segment">
+    <Setter Property="FocusAdorner" Value="{x:Null}" />
     <Setter Property="MinWidth" Value="0" />
     <Setter Property="MinHeight" Value="0" />
     <Setter Property="Height" Value="14" />
@@ -538,6 +539,31 @@
   </Style>
   <Style Selector="TextBox.inspector-title.error, TextBox.inspector-field.error, ComboBox.inspector-field.error, :is(NumericUpDown).inspector-field.error, :is(CalendarDatePicker).inspector-field.error">
     <Setter Property="BorderBrush" Value="{DynamicResource ErrorBrush}" />
+  </Style>
+  <Style Selector=":is(NumericUpDown).inspector-field /template/ ButtonSpinner#PART_Spinner /template/ Border">
+    <Setter Property="desktop:RoundedClip.IsEnabled" Value="True" />
+  </Style>
+  <Style Selector=":is(NumericUpDown).inspector-field /template/ TextBox#PART_TextBox">
+    <Setter Property="Margin" Value="0" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+  </Style>
+  <Style Selector=":is(NumericUpDown).inspector-field /template/ TextBox#PART_TextBox /template/ Border#PART_BorderElement">
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+  </Style>
+  <Style Selector=":is(NumericUpDown).inspector-field:focus-within">
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+    <Setter Property="BorderThickness" Value="{StaticResource FocusBorder}" />
+  </Style>
+  <Style Selector=":is(NumericUpDown).inspector-field.error:focus-within">
+    <Setter Property="BorderBrush" Value="{DynamicResource ErrorBrush}" />
+  </Style>
+  <Style Selector=":is(NumericUpDown).inspector-field:disabled">
+    <Setter Property="Opacity" Value="0.5" />
+  </Style>
+  <Style Selector="ToggleButton.recurring-toggle:disabled">
+    <Setter Property="Opacity" Value="0.5" />
   </Style>
   <Style Selector=":is(CalendarDatePicker).inspector-field">
     <Setter Property="Width" Value="150" />

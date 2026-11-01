@@ -10,6 +10,14 @@ namespace DotOrbit.Desktop.Views;
 
 public sealed partial class RecurringTaskEditor : UserControl
 {
+    public static readonly RoutedEvent<RoutedEventArgs> CopyRenderedRequestedEvent =
+        RoutedEvent.Register<RecurringTaskEditor, RoutedEventArgs>(nameof(CopyRenderedRequested), RoutingStrategies.Bubble);
+    public event EventHandler<RoutedEventArgs> CopyRenderedRequested
+    {
+        add => AddHandler(CopyRenderedRequestedEvent, value);
+        remove => RemoveHandler(CopyRenderedRequestedEvent, value);
+    }
+    private void OnCopyRendered(object? sender, RoutedEventArgs e) => RaiseEvent(new RoutedEventArgs(CopyRenderedRequestedEvent, this));
     private DateTime? _dateAtOpen;
 
     public RecurringTaskEditor()

@@ -400,7 +400,9 @@
                             </Grid>
                           </Button>
                           <views:CategoryProjectPill Margin="7,0,0,6" HorizontalAlignment="Left" CategoryName="{Binding CategoryName}" CategoryColourKey="{Binding CategoryColourKey}"
-                              ProjectName="{Binding ProjectTitle}" ProjectColourKey="{Binding ProjectColourKey}" HasOverride="{Binding HasOverride}" />
+                              ProjectName="{Binding ProjectTitle}" ProjectColourKey="{Binding ProjectColourKey}" HasOverride="{Binding HasOverride}"
+                              CategoryCommand="{Binding OpenCategoryCommand}" ProjectCommand="{Binding OpenProjectCommand}"
+                              CategoryAutomationId="{Binding CategoryAutomationId}" ProjectAutomationId="{Binding ProjectAutomationId}" ProjectHelpText="{Binding ProjectHelpText}" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center" HorizontalAlignment="Right">
                           <TextBlock Text="{Binding ScheduleSummary}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" />
@@ -2141,7 +2143,7 @@
       <Grid>
         <TextBlock Text="Select a recurring definition&#x0a;to edit its future additions" TextAlignment="Center" VerticalAlignment="Center" HorizontalAlignment="Center"
             Foreground="{DynamicResource QuietTextBrush}" IsVisible="{Binding Work.Recurring.HasNoEditor}" />
-        <Border IsVisible="{Binding Work.Recurring.HasEditor}"><views:RecurringTaskEditor DataContext="{Binding Work.Recurring}" /></Border>
+        <Border IsVisible="{Binding Work.Recurring.HasEditor}"><views:RecurringTaskEditor DataContext="{Binding Work.Recurring}" CopyRenderedRequested="OnCopyRendered" /></Border>
       </Grid>
     </Border>
     <Border Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Classes="decision-overlay" IsVisible="{Binding Work.Recurring.NeedsDecision}">

@@ -217,7 +217,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
                 ReopenWorkspaceActionAdmission(reopen: true);
                 action();
             }),
-            id => DialogReturnFocusAutomationId = id);
+            id => DialogReturnFocusAutomationId = id, OpenCategoryContext, OpenProjectContext);
         Recurring.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName is nameof(RecurringTasksViewModel.NeedsDecision)

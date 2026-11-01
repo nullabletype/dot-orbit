@@ -16,6 +16,8 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
     private readonly Func<WorkspaceActionRequest, bool> _submit;
     private readonly Action<Action> _navigate;
     private readonly Action<string> _focus;
+    private readonly Action<string> _openCategory;
+    private readonly Action<string> _openProject;
     private readonly RecurringDateReconciler _reconciler;
     private WorkspaceWorkSnapshot _snapshot = new([], [], []);
     private IReadOnlyList<RecurringTaskDefinition> _definitions = [];
@@ -51,13 +53,16 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
     private bool _waitingForRefresh;
 
     internal RecurringTasksViewModel(IWorkspaceWork work, TimeProvider time,
-        Func<WorkspaceActionRequest, bool> submit, Action<Action> navigate, Action<string> focus)
+        Func<WorkspaceActionRequest, bool> submit, Action<Action> navigate, Action<string> focus,
+        Action<string> openCategory, Action<string> openProject)
     {
         _available = work is IRecurringTasks;
         _time = time;
         _submit = submit;
         _navigate = navigate;
         _focus = focus;
+        _openCategory = openCategory;
+        _openProject = openProject;
         _reconciler = new(time, () => _submit(new(WorkspaceActionKind.ProcessRecurring)));
         NewCommand = new(() => _navigate(() => Begin(null)));
         SaveCommand = new(() => Save());
@@ -151,9 +156,20 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
     public string Description
     {
         get => _description;
-        set { if (Set(ref _description, value)) Notify(nameof(RenderedDescription)); }
+        set
+        {
+            if (!Set(ref _description, value)) return;
+            Notify(nameof(RenderedDescription)); Notify(nameof(HasRenderedDescription)); Notify(nameof(MarkdownPreviewAutomationName));
+        }
     }
     public SanitisedMarkdownDocument RenderedDescription => SanitisedMarkdownRenderer.Render(Description);
+    public bool HasRenderedDescription => !RenderedDescription.IsEmpty;
+    public string MarkdownPreviewAutomationName => RenderedDescription.IsEmpty
+        ? "Empty rendered description. Activate to edit Markdown."
+        : $"Rendered description: {RenderedDescription.ToPlainText().ReplaceLineEndings(" ")}. Activate to edit Markdown.";
+    internal void ReportMarkdownCopy(bool succeeded) => Announcement = succeeded
+        ? "Rendered description copied as rich text and plain text."
+        : "Could not copy the rendered description. Try again.";
     public bool IsEditingMarkdown
     {
         get => _editingMarkdown;
@@ -249,6 +265,17 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
     internal void Edit(string id) => NavigateDefinitionAction(() =>
     {
         if (CurrentDefinition(id) is { } current) Begin(current);
+    });
+    internal bool CanOpenProject(string? id) => id is not null && _snapshot.Projects.Any(item => item.Id == id);
+    internal void OpenCategory(string definitionId) => NavigateDefinitionAction(() =>
+    {
+        if (CurrentDefinition(definitionId) is not { } current) return;
+        var categoryId = current.ExplicitCategoryId ?? _allProjects.FirstOrDefault(item => item.Id == current.ProjectId)?.CategoryId;
+        if (categoryId is not null) _openCategory(categoryId);
+    });
+    internal void OpenProject(string definitionId) => NavigateDefinitionAction(() =>
+    {
+        if (CurrentDefinition(definitionId)?.ProjectId is { } projectId && CanOpenProject(projectId)) _openProject(projectId);
     });
     private void Begin(RecurringTaskDefinition? definition)
     {
@@ -604,6 +631,10 @@ public sealed class RecurringTaskRowViewModel : INotifyPropertyChanged
         EditCommand = new(() => owner.Edit(definition.Id));
         ToggleCommand = new(() => owner.SetEnabled(definition.Id, !definition.IsEnabled));
         DeleteCommand = new(() => owner.RequestDelete(definition.Id));
+        OpenCategoryCommand = new(() => owner.OpenCategory(definition.Id));
+        OpenProjectCommand = definition.ProjectId is null ? null : new(() => owner.OpenProject(definition.Id), () => owner.CanOpenProject(definition.ProjectId));
+        ProjectHelpText = definition.ProjectId is not null && !owner.CanOpenProject(definition.ProjectId)
+            ? "Restore the parent Project from Bin before opening it." : string.Empty;
     }
     public string Id { get; }
     public string Title { get; }
@@ -623,7 +654,15 @@ public sealed class RecurringTaskRowViewModel : INotifyPropertyChanged
     public string ProjectColourKey { get; }
     public bool HasOverride { get; }
     public string ToggleLabel { get; }
-    public string AccessibleName => $"Edit recurring Task {Title}, {Cadence}, {State}, {Context}, {NextDate}, {DueDate}";
+    public string CategoryRelationship => ProjectTitle is null ? $"Standalone. Category {CategoryName}"
+        : HasOverride ? $"Project {ProjectTitle}. Category override {CategoryName}"
+            : $"Project {ProjectTitle}. Inherited Category {CategoryName}";
+    public string AccessibleName => $"Edit recurring Task {Title}, {Cadence}, {State}. {CategoryRelationship}. {NextDate}, {DueDate}";
+    public string CategoryAutomationId => $"recurring-category-{Id}";
+    public string ProjectAutomationId => $"recurring-project-{Id}";
+    public string ProjectHelpText { get; }
+    public RelayCommand OpenCategoryCommand { get; }
+    public RelayCommand? OpenProjectCommand { get; }
     public string ToggleAccessibleName => $"{ToggleLabel} recurring Task {Title}";
     public string DeleteAccessibleName => $"Delete recurring Task {Title}";
     public string EditAutomationId => $"recurring-edit-{Id}";
