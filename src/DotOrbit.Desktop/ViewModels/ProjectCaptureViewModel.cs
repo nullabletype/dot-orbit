@@ -222,6 +222,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         {
             if (args.PropertyName is nameof(RecurringTasksViewModel.NeedsDecision)
                 or nameof(RecurringTasksViewModel.NeedsDeleteConfirmation)) Notify(nameof(HasBlockingDialog));
+            if (args.PropertyName == nameof(RecurringTasksViewModel.Announcement)) Message = Recurring.Announcement;
         };
         CapturePresentationClock();
         Reload();
@@ -3311,6 +3312,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
                 PendingWorkspaceActionCount--;
                 if (PendingWorkspaceActionCount == 0) _workspaceActionsSettled.TrySetResult();
                 else Message = $"{Message} {WorkspaceActionStatus}";
+                Recurring.CompleteActionContinuations();
             });
         }
 

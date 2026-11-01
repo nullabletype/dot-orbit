@@ -732,6 +732,64 @@ public sealed class RecurringTasksTests
         Assert.Empty(store.ReadRecurringTasks());
     }
 
+    [Theory]
+    [InlineData("Edit")]
+    [InlineData("Pause")]
+    [InlineData("Delete")]
+    public async Task DiscardingNewDraftAfterFailedRefreshDoesNotBypassRowFreshness(string action)
+    {
+        var store = new RecurringMemoryWorkspace();
+        store.CreateRecurringTask(new("Original title", "Original description", null, "home", [], RecurrenceCadence.Daily,
+            new(2026, 11, 2), null, true));
+        var work = new ProjectCaptureViewModel(store, Clock());
+        var model = work.Recurring;
+        var cachedRow = Assert.Single(model.Definitions);
+        cachedRow.EditCommand.Execute(null);
+        model.Title = "Committed title";
+        model.Description = "Committed description";
+        store.FailReadAfterMutation = true;
+        model.SaveCommand.Execute(null);
+        await work.WaitForWorkspaceActionsAsync();
+        Assert.True(work.CanRetryWorkspaceRefresh);
+        Assert.Equal("Committed title", Assert.Single(store.ReadRecurringTasks()).Title);
+        model.NewCommand.Execute(null);
+        model.Title = "Unrelated dirty draft";
+        switch (action)
+        {
+            case "Edit": cachedRow.EditCommand.Execute(null); break;
+            case "Pause": cachedRow.ToggleCommand.Execute(null); break;
+            case "Delete": cachedRow.DeleteCommand.Execute(null); break;
+        }
+        Assert.True(model.NeedsDecision);
+        model.DiscardAndLeaveCommand.Execute(null);
+        await work.WaitForWorkspaceActionsAsync();
+        Assert.False(model.HasEditor);
+        Assert.False(model.NeedsDeleteConfirmation);
+        Assert.Equal(1, store.UpdateCalls);
+        Assert.True(Assert.Single(store.ReadRecurringTasks()).IsEnabled);
+        store.FailReads = false;
+        store.FailReadAfterMutation = false;
+        work.RetryWorkspaceRefreshCommand.Execute(null);
+        await work.WaitForWorkspaceActionsAsync();
+        await WaitUntilAsync(() => action switch
+        {
+            "Edit" => model.HasEditor,
+            "Pause" => store.UpdateCalls == 2,
+            _ => model.NeedsDeleteConfirmation,
+        });
+        var saved = Assert.Single(store.ReadRecurringTasks());
+        Assert.Equal("Committed title", saved.Title);
+        Assert.Equal("Committed description", saved.Description);
+        if (action == "Edit")
+        {
+            Assert.Equal("Committed title", model.Title);
+            Assert.Equal("Committed description", model.Description);
+            Assert.False(model.IsDirty);
+        }
+        if (action == "Pause") Assert.False(saved.IsEnabled);
+        if (action == "Delete") Assert.Equal("Delete Committed title?", model.DeleteHeading);
+    }
+
     [Fact]
     public void DirtyFingerprintDistinguishesSeparatorsWithinUserContent()
     {

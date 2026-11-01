@@ -41,8 +41,7 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
     private RecurringTaskDefinition? _deleting;
     private Action? _pendingNavigation;
     private Action? _pendingDefinitionAction;
-    private bool _definitionNavigation;
-    private bool _pendingNavigationIsDefinition;
+    private Action? _afterWorkspaceAction;
     private bool _saveThenLeave;
     private bool _waitingForRefresh;
 
@@ -169,24 +168,16 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
     {
         // Leaving the current context cancels a suspended row action; a failed read
         // must never prevent ordinary navigation, recovery, or closing the workspace.
-        if (!_definitionNavigation) _pendingDefinitionAction = null;
-        if (_waitingForRefresh && _definitionNavigation && !_busy && !IsDirty)
-        {
-            _pendingDefinitionAction = destination;
-            Announcement = "Change saved, but the view could not refresh. Retry refresh before continuing this action.";
-            return true;
-        }
+        _pendingDefinitionAction = null;
         if (_busy)
         {
             _pendingNavigation = destination;
-            _pendingNavigationIsDefinition = _definitionNavigation;
             _saveThenLeave = true;
             return true;
         }
         if (NeedsDeleteConfirmation) { Announcement = "Finish the recurring Task change before leaving."; return true; }
         if (!IsDirty) { if (HasEditor) Cancel(); return false; }
         _pendingNavigation = destination;
-        _pendingNavigationIsDefinition = _definitionNavigation;
         Notify(nameof(NeedsDecision));
         _focus("recurring-guard-save");
         return true;
@@ -198,12 +189,18 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
         if (definition is null) Announcement = "This recurring definition is no longer available. Refresh the view.";
         return definition;
     }
-    private void NavigateDefinitionAction(Action action)
+    private void NavigateDefinitionAction(Action action) => _navigate(() =>
     {
-        _definitionNavigation = true;
-        try { _navigate(action); }
-        finally { _definitionNavigation = false; }
-    }
+        // Every final row callback passes this boundary, including after save,
+        // discard, refresh, and any future navigation continuation.
+        if (_waitingForRefresh)
+        {
+            _pendingDefinitionAction = () => NavigateDefinitionAction(action);
+            Announcement = "Change saved, but the view could not refresh. Retry refresh before continuing this action.";
+            return;
+        }
+        action();
+    });
     internal void Edit(string id) => NavigateDefinitionAction(() =>
     {
         if (CurrentDefinition(id) is { } current) Begin(current);
@@ -367,13 +364,7 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
             if (_saveThenLeave)
             {
                 _saveThenLeave = false;
-                if (_waitingForRefresh && _pendingNavigationIsDefinition)
-                {
-                    _pendingDefinitionAction = _pendingNavigation;
-                    _pendingNavigation = null;
-                    Notify(nameof(NeedsDecision));
-                }
-                else CompletePendingNavigation();
+                _afterWorkspaceAction = CompletePendingNavigation;
             }
             _reconciler.Invalidate();
             if (result.Outcome == WorkspaceActionOutcome.Committed) ReconcileHint();
@@ -386,6 +377,14 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
         _waitingForRefresh = false;
         var action = _pendingDefinitionAction;
         _pendingDefinitionAction = null;
+        if (action is not null) _afterWorkspaceAction = action;
+    }
+    internal void CompleteActionContinuations()
+    {
+        // Run only after the owning queue has accounted for the accepted result.
+        // Navigation can then pass a settled queue without closing read admission.
+        var action = _afterWorkspaceAction;
+        _afterWorkspaceAction = null;
         action?.Invoke();
     }
     private void CompletePendingNavigation()
