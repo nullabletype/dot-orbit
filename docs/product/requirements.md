@@ -45,7 +45,7 @@ Status: working specification derived from the interactive prototype.
 - **RECUR-014** This slice excludes recurrence history, arbitrary RRULEs, multiple weekdays, every-N intervals, end dates, occurrence exceptions, recurring Projects, automatic Today membership, notifications, reminders, and device synchronisation.
 - **RECUR-015** The definition editor supports choosing existing Participants and entering new labels through the shared picker interaction. New labels are created or reused atomically with the next accepted definition save under the existing label-normalisation rules. Cancellation or failed save creates no orphan Participant.
 
-- **RECUR-016** Existing definitions use the ordinary automatic-save inspector pattern: valid text edits coalesce for 600 milliseconds, valid discrete changes save immediately, and persistent saving/saved/failure status exposes Retry. Navigation and immediate actions flush valid pending changes and guard invalid or failed drafts. New definitions require explicit Create definition so incomplete configuration cannot generate Tasks; cancelling creation writes nothing.
+- **RECUR-016** Definitions use the ordinary automatic-save inspector pattern: valid text edits coalesce for 600 milliseconds, valid discrete changes save immediately, and persistent saving/saved/failure status exposes Retry. Navigation and immediate actions flush valid pending changes and guard invalid or failed drafts. New definitions start paused and autosave once required fields are valid, without Create or Save buttons; subsequent edits retain that identity. They generate no Tasks until explicitly enabled. Leaving an invalid, uncreated draft writes nothing.
 
 ## Editing
 
