@@ -41,6 +41,7 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
     private RecurringTaskDefinition? _deleting;
     private Action? _pendingNavigation;
     private bool _saveThenLeave;
+    private bool _waitingForRefresh;
 
     internal RecurringTasksViewModel(IWorkspaceWork work, TimeProvider time,
         Func<WorkspaceActionRequest, bool> submit, Action<Action> navigate, Action<string> focus)
@@ -81,7 +82,7 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
     public bool HasDefinitions => Definitions.Count > 0;
     public bool HasNoDefinitions => !HasDefinitions;
     public bool NeedsDeleteConfirmation => _deleting is not null;
-    public bool NeedsDecision => _pendingNavigation is not null;
+    public bool NeedsDecision => _pendingNavigation is not null && !_waitingForRefresh;
     public bool IsDirty => HasEditor && Fingerprint() != _original;
     public string EditorHeading => _editingId is null ? "NEW RECURRING TASK" : "RECURRING TASK";
     public string DeleteHeading => $"Delete {_deleting?.Title}?";
@@ -163,6 +164,12 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
 
     internal bool GuardNavigation(Action destination)
     {
+        if (_waitingForRefresh)
+        {
+            _pendingNavigation = destination;
+            Announcement = "Change saved, but the view could not refresh. Retry refresh before continuing.";
+            return true;
+        }
         if (_busy)
         {
             _pendingNavigation = destination;
@@ -177,7 +184,16 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
         return true;
     }
 
-    internal void Edit(RecurringTaskDefinition definition) => _navigate(() => Begin(definition));
+    private RecurringTaskDefinition? CurrentDefinition(string id)
+    {
+        var definition = _definitions.SingleOrDefault(item => item.Id == id);
+        if (definition is null) Announcement = "This recurring definition is no longer available. Refresh the view.";
+        return definition;
+    }
+    internal void Edit(string id) => _navigate(() =>
+    {
+        if (CurrentDefinition(id) is { } current) Begin(current);
+    });
     private void Begin(RecurringTaskDefinition? definition)
     {
         _loading = true;
@@ -248,16 +264,12 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
             RecurringId: _editingId, RecurringDraft: draft));
     }
 
-    internal void Toggle(RecurringTaskDefinition definition) => _navigate(() =>
+    internal void SetEnabled(string id, bool enabled) => _navigate(() =>
+        Submit(new(WorkspaceActionKind.SetRecurringEnabled, RecurringId: id, RecurringEnabled: enabled)));
+    internal void RequestDelete(string id) => _navigate(() =>
     {
-        var draft = new RecurringTaskDraft(definition.Title, definition.Description, definition.ProjectId,
-            definition.ExplicitCategoryId, definition.ParticipantIds, definition.Cadence,
-            definition.FirstOccurrenceDate, definition.DueDateOffsetDays, !definition.IsEnabled);
-        Submit(new(WorkspaceActionKind.UpdateRecurring, RecurringId: definition.Id, RecurringDraft: draft));
-    });
-    internal void RequestDelete(RecurringTaskDefinition definition) => _navigate(() =>
-    {
-        _deleting = definition;
+        if (CurrentDefinition(id) is not { } current) return;
+        _deleting = current;
         Notify(nameof(NeedsDeleteConfirmation));
         Notify(nameof(DeleteHeading));
         _focus("recurring-confirm-delete");
@@ -297,6 +309,11 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
     {
         var processing = result.Request.Kind == WorkspaceActionKind.ProcessRecurring;
         var committed = result.Outcome is WorkspaceActionOutcome.Committed or WorkspaceActionOutcome.CommittedRefreshFailed;
+        if (result.Outcome == WorkspaceActionOutcome.CommittedRefreshFailed)
+        {
+            _waitingForRefresh = true;
+            Notify(nameof(NeedsDecision));
+        }
         if (processing) _reconciler.Complete(committed);
         else { _busy = false; Notify(nameof(CanEdit)); }
         if (!committed)
@@ -336,14 +353,25 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
             if (_saveThenLeave)
             {
                 _saveThenLeave = false;
-                var next = _pendingNavigation;
-                _pendingNavigation = null;
-                Notify(nameof(NeedsDecision));
-                next?.Invoke();
+                if (!_waitingForRefresh) CompletePendingNavigation();
             }
             _reconciler.Invalidate();
             if (result.Outcome == WorkspaceActionOutcome.Committed) ReconcileHint();
         }
+    }
+
+    internal void CompleteRefresh()
+    {
+        if (!_waitingForRefresh) return;
+        _waitingForRefresh = false;
+        CompletePendingNavigation();
+    }
+    private void CompletePendingNavigation()
+    {
+        var next = _pendingNavigation;
+        _pendingNavigation = null;
+        Notify(nameof(NeedsDecision));
+        next?.Invoke();
     }
 
     private RecurringDraftFingerprint Fingerprint() => new(Title, Description, FirstDate, Cadence, Project?.ProjectId,
@@ -414,9 +442,9 @@ public sealed class RecurringTaskRowViewModel
         ProjectColourKey = project?.ColourKey ?? IdentityColourPalette.DefaultKey;
         HasOverride = project is not null && definition.ExplicitCategoryId is not null;
         ToggleLabel = definition.IsEnabled ? "Pause" : "Resume";
-        EditCommand = new(() => owner.Edit(definition));
-        ToggleCommand = new(() => owner.Toggle(definition));
-        DeleteCommand = new(() => owner.RequestDelete(definition));
+        EditCommand = new(() => owner.Edit(definition.Id));
+        ToggleCommand = new(() => owner.SetEnabled(definition.Id, !definition.IsEnabled));
+        DeleteCommand = new(() => owner.RequestDelete(definition.Id));
     }
     public string Id { get; }
     public string Title { get; }

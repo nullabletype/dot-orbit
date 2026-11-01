@@ -551,6 +551,93 @@ public sealed class RecurringTasksTests
         Assert.Contains("Restore the Project first", work.Recurring.Validation, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("Pause", false)]
+    [InlineData("Edit", false)]
+    [InlineData("Delete", false)]
+    [InlineData("Pause", true)]
+    [InlineData("Edit", true)]
+    [InlineData("Delete", true)]
+    public async Task DeferredSameRowActionsUseSavedDefinitionAndWaitForSuccessfulRefresh(string action, bool refreshFails)
+    {
+        var store = new RecurringMemoryWorkspace();
+        var firstParticipant = store.CreateParticipant("First Person");
+        var secondParticipant = store.CreateParticipant("Second Person");
+        var firstProject = store.CreateProject("First Project", "", "home", null);
+        var secondProject = store.CreateProject("Second Project", "", "work", null);
+        var original = store.CreateRecurringTask(new("Original title", "Original description", firstProject.Id,
+            "home", [firstParticipant.Id], RecurrenceCadence.Daily, new(2026, 11, 2), 2, true));
+        var work = new ProjectCaptureViewModel(store, Clock());
+        var model = work.Recurring;
+        var originalRow = Assert.Single(model.Definitions);
+        originalRow.EditCommand.Execute(null);
+        model.Title = "Saved title";
+        model.Description = "**Saved description**";
+        model.Project = model.Projects.Single(item => item.ProjectId == secondProject.Id);
+        model.Category = model.Categories.Single(item => item.Id == "work");
+        model.Participants.Single(item => item.Id == firstParticipant.Id).IsSelected = false;
+        model.Participants.Single(item => item.Id == secondParticipant.Id).IsSelected = true;
+        model.Cadence = RecurrenceCadence.Weekly;
+        model.FirstDate = "2026-11-03";
+        model.HasDueDate = true;
+        model.DueOffset = "5";
+        model.IsEnabled = false;
+        switch (action)
+        {
+            case "Pause": originalRow.ToggleCommand.Execute(null); break;
+            case "Edit": originalRow.EditCommand.Execute(null); break;
+            case "Delete": originalRow.DeleteCommand.Execute(null); break;
+        }
+        Assert.True(model.NeedsDecision);
+        store.FailReadAfterMutation = refreshFails;
+        model.SaveAndLeaveCommand.Execute(null);
+        await work.WaitForWorkspaceActionsAsync();
+        if (refreshFails)
+        {
+            Assert.Equal(1, store.UpdateCalls);
+            Assert.False(model.HasEditor);
+            Assert.False(model.NeedsDeleteConfirmation);
+            Assert.True(work.CanRetryWorkspaceRefresh);
+            Assert.Contains("Change saved", work.Message, StringComparison.Ordinal);
+            store.FailReads = false;
+            store.FailReadAfterMutation = false;
+            work.RetryWorkspaceRefreshCommand.Execute(null);
+            await work.WaitForWorkspaceActionsAsync();
+        }
+        await WaitUntilAsync(() => action switch
+        {
+            "Pause" => store.UpdateCalls == 2,
+            "Edit" => model.HasEditor,
+            _ => model.NeedsDeleteConfirmation,
+        });
+        var saved = Assert.Single(store.ReadRecurringTasks());
+        Assert.Equal(original.Id, saved.Id);
+        Assert.Equal("Saved title", saved.Title);
+        Assert.Equal("**Saved description**", saved.Description);
+        Assert.Equal(secondProject.Id, saved.ProjectId);
+        Assert.Equal("work", saved.ExplicitCategoryId);
+        Assert.Equal([secondParticipant.Id], saved.ParticipantIds);
+        Assert.Equal(RecurrenceCadence.Weekly, saved.Cadence);
+        Assert.Equal(new DateOnly(2026, 11, 3), saved.FirstOccurrenceDate);
+        Assert.Equal(5, saved.DueDateOffsetDays);
+        Assert.False(saved.IsEnabled); // The originally visible Pause intent must not invert the saved disabled state.
+        Assert.Equal(action == "Pause" ? 2 : 1, store.UpdateCalls);
+        if (action == "Edit")
+        {
+            Assert.Equal(saved.Title, model.Title);
+            Assert.Equal(saved.Description, model.Description);
+            Assert.Equal(saved.ProjectId, model.Project!.ProjectId);
+            Assert.Equal(saved.ExplicitCategoryId, model.Category!.Id);
+            Assert.Equal(saved.ParticipantIds, model.Participants.Where(item => item.IsSelected).Select(item => item.Id));
+            Assert.Equal(saved.Cadence, model.Cadence);
+            Assert.Equal("2026-11-03", model.FirstDate);
+            Assert.Equal("5", model.DueOffset);
+            Assert.False(model.IsEnabled);
+            Assert.False(model.IsDirty);
+        }
+        if (action == "Delete") Assert.Equal("Delete Saved title?", model.DeleteHeading);
+    }
+
     [Fact]
     public void DirtyFingerprintDistinguishesSeparatorsWithinUserContent()
     {
@@ -599,6 +686,7 @@ internal sealed class RecurringMemoryWorkspace : MemoryWorkspaceWork, IRecurring
     public bool FailCreate { get; set; }
     public int CreateCalls { get; private set; }
     public int ProcessCalls { get; private set; }
+    public int UpdateCalls { get; private set; }
     WorkspaceWorkSnapshot IWorkspaceWork.Read() => FailReads ? throw new InvalidOperationException("Read unavailable.") : Read();
     public IReadOnlyList<RecurringTaskDefinition> ReadRecurringTasks() => _definitions.ToArray();
     public RecurringTaskDefinition CreateRecurringTask(RecurringTaskDraft draft)
@@ -612,6 +700,7 @@ internal sealed class RecurringMemoryWorkspace : MemoryWorkspaceWork, IRecurring
     }
     public RecurringTaskDefinition UpdateRecurringTask(string id, RecurringTaskDraft draft)
     {
+        UpdateCalls++;
         var index = _definitions.FindIndex(item => item.Id == id);
         var result = Definition(id, draft, _definitions[index].NextOccurrenceDate);
         _definitions[index] = result;

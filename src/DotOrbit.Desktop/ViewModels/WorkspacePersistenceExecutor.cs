@@ -91,6 +91,7 @@ internal enum WorkspaceActionKind
     Refresh,
     CreateRecurring,
     UpdateRecurring,
+    SetRecurringEnabled,
     DeleteRecurring,
     ProcessRecurring,
 }
@@ -118,7 +119,8 @@ internal sealed record WorkspaceActionRequest(
     string ArchiveSearchText = "",
     long? AdmittedAtTimestamp = null,
     string? RecurringId = null,
-    RecurringTaskDraft? RecurringDraft = null);
+    RecurringTaskDraft? RecurringDraft = null,
+    bool? RecurringEnabled = null);
 
 internal enum WorkspaceActionOutcome
 {
@@ -300,6 +302,7 @@ internal sealed class WorkspacePersistenceOperation : IWorkspacePersistenceOpera
         }
 
         if (request.Kind is WorkspaceActionKind.CreateRecurring or WorkspaceActionKind.UpdateRecurring
+            or WorkspaceActionKind.SetRecurringEnabled
             or WorkspaceActionKind.DeleteRecurring or WorkspaceActionKind.ProcessRecurring)
             return ExecuteRecurring(request, started);
 
@@ -335,6 +338,13 @@ internal sealed class WorkspacePersistenceOperation : IWorkspacePersistenceOpera
                     break;
                 case WorkspaceActionKind.UpdateRecurring:
                     recurring.UpdateRecurringTask(request.RecurringId!, request.RecurringDraft!);
+                    break;
+                case WorkspaceActionKind.SetRecurringEnabled:
+                    var current = recurring.ReadRecurringTasks().Single(item => item.Id == request.RecurringId);
+                    recurring.UpdateRecurringTask(current.Id, new(current.Title, current.Description,
+                        current.ProjectId, current.ExplicitCategoryId, current.ParticipantIds,
+                        current.Cadence, current.FirstOccurrenceDate, current.DueDateOffsetDays,
+                        request.RecurringEnabled ?? throw new ArgumentException("Enabled state is required.", nameof(request))));
                     break;
                 case WorkspaceActionKind.DeleteRecurring:
                     recurring.DeleteRecurringTask(request.RecurringId!);

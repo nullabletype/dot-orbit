@@ -3333,10 +3333,12 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     {
         var dispatcherStarted = _timeProvider.GetTimestamp();
         if (result.Request.Kind is WorkspaceActionKind.CreateRecurring or WorkspaceActionKind.UpdateRecurring
+            or WorkspaceActionKind.SetRecurringEnabled
             or WorkspaceActionKind.DeleteRecurring or WorkspaceActionKind.ProcessRecurring)
         {
-            Recurring.ApplyResult(result);
             if (result.Reload is not null) Reload(result.Reload);
+            Recurring.ApplyResult(result);
+            if (result.Reload is not null) Recurring.CompleteRefresh();
             if (result.Outcome == WorkspaceActionOutcome.CommittedRefreshFailed) CanRetryWorkspaceRefresh = true;
             else if (result.Reload is not null) CanRetryWorkspaceRefresh = false;
             Message = Recurring.Announcement;
@@ -3403,6 +3405,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         {
             if (result.Reload is null) return;
             Reload(result.Reload);
+            Recurring.CompleteRefresh();
             CanRetryWorkspaceRefresh = false;
             if (_pendingDuplicatedTaskId is { } duplicatedTaskId
                 && _snapshot.Tasks.Any(task => task.Id == duplicatedTaskId))
