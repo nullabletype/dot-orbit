@@ -3832,7 +3832,7 @@ internal sealed class FirstActionBlockingOperation(
     }
 }
 
-internal sealed class MemoryWorkspaceWork : IWorkspaceWork
+internal class MemoryWorkspaceWork : IWorkspaceWork
 {
     private readonly List<WorkspaceCategory> _categories = [new("home", "Home", 0, "orchid"), new("work", "Work", 1, "violet")];
     private readonly List<ProjectRecord> _projects = [];

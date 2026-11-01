@@ -109,6 +109,12 @@ public sealed class ShellViewModel : INotifyPropertyChanged
                 "No categorised work yet",
                 "Projects and standalone tasks will be grouped by category here."),
             CreateNavigationItem(
+                "Recurring",
+                "M17,2L21,6L17,10V7H7V11H4V4H17V2M7,22L3,18L7,14V17H17V13H20V20H7V22",
+                "Reusable definitions that add ordinary tasks on a calendar schedule.",
+                "No recurring tasks yet",
+                "Create a definition for work you repeat daily, weekly, or monthly.", countText: null),
+            CreateNavigationItem(
                 "Completed",
                 "M9,16.17L4.83,12L3.41,13.41L9,19L21,7L19.59,5.59L9,16.17",
                 "Completed tasks grouped by captured day for three days, then by calendar week.",
@@ -210,6 +216,8 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(ShowUpcoming));
             OnPropertyChanged(nameof(ShowBacklog));
             OnPropertyChanged(nameof(ShowCompleted));
+            OnPropertyChanged(nameof(ShowRecurring));
+            OnPropertyChanged(nameof(ShowOrdinaryInspector));
             OnPropertyChanged(nameof(ShowArchive));
             OnPropertyChanged(nameof(ShowBin));
             OnPropertyChanged(nameof(ShowCategories));
@@ -240,6 +248,8 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     public bool ShowToday => Work is not null && ViewTitle == "Today";
     public bool ShowUpcoming => Work is not null && ViewTitle == "Upcoming";
     public bool ShowBacklog => Work is not null && ViewTitle == "Backlog";
+    public bool ShowRecurring => Work is not null && ViewTitle == "Recurring";
+    public bool ShowOrdinaryInspector => ShowWorkspace && !ShowRecurring;
     public bool ShowCompleted => Work is not null && ViewTitle == "Completed";
     public bool ShowArchive => Work is not null && ViewTitle == "Archive";
     public bool ShowBin => Work is not null && ViewTitle == "Bin";
@@ -247,7 +257,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     public bool ShowAI => AiFeaturesEnabled && ViewTitle == "AI";
     public bool ShowSettings => ViewTitle == "Settings";
     public bool ShowWorkspace => !ShowAI && !ShowSettings;
-    public bool ShowEmpty => !ShowToday && !ShowUpcoming && !ShowProjects && !ShowBacklog && !ShowCompleted && !ShowArchive && !ShowBin && !ShowCategories && !ShowAI && !ShowSettings;
+    public bool ShowEmpty => !ShowRecurring && !ShowToday && !ShowUpcoming && !ShowProjects && !ShowBacklog && !ShowCompleted && !ShowArchive && !ShowBin && !ShowCategories && !ShowAI && !ShowSettings;
 
     public string ViewTitle => SelectedItem.Title;
 

@@ -12,7 +12,7 @@ public sealed class ShellViewModelTests
 
         Assert.Equal("Today", shell.SelectedItem.Title);
         Assert.Equal(
-            ["Today", "Upcoming", "Backlog", "Projects", "Categories", "Completed", "Archive"],
+            ["Today", "Upcoming", "Backlog", "Projects", "Categories", "Recurring", "Completed", "Archive"],
             shell.PrimaryNavigation.Select(item => item.Title));
         Assert.Equal("AI", shell.AiNavigation.Title);
         Assert.Equal(
@@ -26,7 +26,8 @@ public sealed class ShellViewModelTests
         Assert.DoesNotContain(shell.AiNavigation, shell.PrimaryNavigation);
         Assert.DoesNotContain(shell.BinNavigation, shell.PrimaryNavigation);
         Assert.DoesNotContain(shell.SettingsNavigation, shell.PrimaryNavigation);
-        Assert.All(shell.PrimaryNavigation, item => Assert.Equal("0", item.CountText));
+        Assert.All(shell.PrimaryNavigation.Where(item => item.Title != "Recurring"), item => Assert.Equal("0", item.CountText));
+        Assert.Null(shell.PrimaryNavigation.Single(item => item.Title == "Recurring").CountText);
         Assert.Null(shell.AiNavigation.CountText);
         Assert.Null(shell.BinNavigation.CountText);
         Assert.Null(shell.SettingsNavigation.CountText);

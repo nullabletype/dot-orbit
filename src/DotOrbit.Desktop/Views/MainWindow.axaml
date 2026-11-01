@@ -373,6 +373,45 @@
             IsVisible="{Binding ShowCategories}" />
       </Grid>
 
+      <Button Grid.Row="0" HorizontalAlignment="Right" VerticalAlignment="Bottom" Classes="primary-action"
+          IsVisible="{Binding ShowRecurring}" Content="＋ New definition" Command="{Binding Work.Recurring.NewCommand}"
+          AutomationProperties.Name="New recurring Task definition" AutomationProperties.AutomationId="recurring-new" />
+      <ScrollViewer Grid.Row="2" IsVisible="{Binding ShowRecurring}">
+        <StackPanel Margin="{StaticResource ScrollContentInset}" Spacing="16" IsEnabled="{Binding Work.Recurring.CanEdit}">
+          <Border Classes="empty-state" Padding="24" IsVisible="{Binding Work.Recurring.HasNoDefinitions}">
+            <StackPanel Spacing="8">
+              <TextBlock Text="No recurring tasks yet" FontWeight="Bold" />
+              <TextBlock Text="Create a definition for work you repeat daily, weekly, or monthly." TextWrapping="Wrap" Foreground="{DynamicResource MutedTextBrush}" />
+            </StackPanel>
+          </Border>
+          <ItemsControl ItemsSource="{Binding Work.Recurring.Definitions}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:RecurringTaskRowViewModel">
+                <Border Classes="list-panel interactive-row" Margin="0,0,0,10" Padding="10">
+                  <StackPanel Spacing="8">
+                    <Button Classes="row-title" Command="{Binding EditCommand}" AutomationProperties.Name="{Binding AccessibleName}" AutomationProperties.AutomationId="{Binding EditAutomationId}">
+                      <TextBlock Text="{Binding Title}" TextWrapping="Wrap" FontWeight="SemiBold" />
+                    </Button>
+                    <views:CategoryProjectPill HorizontalAlignment="Left" CategoryName="{Binding CategoryName}" CategoryColourKey="{Binding CategoryColourKey}"
+                        ProjectName="{Binding ProjectTitle}" ProjectColourKey="{Binding ProjectColourKey}" HasOverride="{Binding HasOverride}" />
+                    <WrapPanel Orientation="Horizontal">
+                      <TextBlock Margin="0,0,16,4" Text="{Binding Cadence}" />
+                      <TextBlock Margin="0,0,16,4" Text="{Binding State}" />
+                    </WrapPanel>
+                    <TextBlock Text="{Binding NextDate}" FontSize="12" Foreground="{DynamicResource MutedTextBrush}" />
+                    <TextBlock Text="{Binding DueDate}" FontSize="12" Foreground="{DynamicResource MutedTextBrush}" />
+                    <TextBlock Text="{Binding Guidance}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource MutedTextBrush}" />
+                    <WrapPanel Orientation="Horizontal">
+                      <Button Classes="view-action" Margin="0,0,8,0" Content="{Binding ToggleLabel}" Command="{Binding ToggleCommand}" AutomationProperties.Name="{Binding ToggleAccessibleName}" />
+                      <Button Classes="view-action" Content="Delete" Command="{Binding DeleteCommand}" AutomationProperties.Name="{Binding DeleteAccessibleName}" AutomationProperties.AutomationId="{Binding DeleteAutomationId}" />
+                    </WrapPanel>
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </ScrollViewer>
       <Border
           Grid.Row="2"
           Classes="empty-state"
@@ -1719,7 +1758,7 @@
 
     <Border
         x:Name="InspectorRegion"
-        IsVisible="{Binding ShowWorkspace}"
+        IsVisible="{Binding ShowOrdinaryInspector}"
         IsEnabled="{Binding !Work.HasBlockingDialog, FallbackValue=True}"
         Grid.Row="1"
         Grid.Column="2"
@@ -2085,6 +2124,36 @@
       </ScrollViewer>
       </Grid>
     </Border>
+    <Border Grid.Row="1" Grid.Column="2" Padding="22" IsVisible="{Binding ShowRecurring}"
+        Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1,0,0,0"
+        IsEnabled="{Binding !Work.HasBlockingDialog}">
+      <Grid>
+        <TextBlock Text="Select a recurring definition&#x0a;to edit its future additions" TextAlignment="Center" VerticalAlignment="Center" HorizontalAlignment="Center"
+            Foreground="{DynamicResource QuietTextBrush}" IsVisible="{Binding Work.Recurring.HasNoEditor}" />
+        <Border IsVisible="{Binding Work.Recurring.HasEditor}"><views:RecurringTaskEditor DataContext="{Binding Work.Recurring}" /></Border>
+      </Grid>
+    </Border>
+    <Border Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Classes="decision-overlay" IsVisible="{Binding Work.Recurring.NeedsDecision}">
+      <StackPanel Width="470" Spacing="16" AutomationProperties.LiveSetting="Assertive">
+        <TextBlock Text="Save recurring Task changes?" FontSize="20" FontWeight="Bold" />
+        <TextBlock Text="Save this definition, discard the draft, or stay and keep editing." TextWrapping="Wrap" />
+        <StackPanel Orientation="Horizontal" Spacing="12">
+          <Button Classes="primary-action" Content="Save and leave" Command="{Binding Work.Recurring.SaveAndLeaveCommand}" AutomationProperties.Name="Save recurring changes and leave" AutomationProperties.AutomationId="recurring-guard-save" />
+          <Button Classes="view-action" Content="Discard and leave" Command="{Binding Work.Recurring.DiscardAndLeaveCommand}" AutomationProperties.Name="Discard recurring changes and leave" />
+          <Button Classes="view-action" Content="Stay" Command="{Binding Work.Recurring.StayCommand}" AutomationProperties.Name="Stay and keep editing recurring Task" />
+        </StackPanel>
+      </StackPanel>
+    </Border>
+    <Border Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Classes="decision-overlay" IsVisible="{Binding Work.Recurring.NeedsDeleteConfirmation}">
+      <StackPanel Width="470" Spacing="16" AutomationProperties.LiveSetting="Assertive">
+        <TextBlock Text="{Binding Work.Recurring.DeleteHeading}" FontSize="20" FontWeight="Bold" TextWrapping="Wrap" />
+        <TextBlock Text="This removes the recurring definition. Tasks already added remain unchanged." TextWrapping="Wrap" />
+        <StackPanel Orientation="Horizontal" Spacing="12">
+          <Button Classes="primary-action" Content="Delete definition" Command="{Binding Work.Recurring.ConfirmDeleteCommand}" AutomationProperties.Name="Confirm recurring definition deletion" AutomationProperties.AutomationId="recurring-confirm-delete" />
+          <Button Classes="view-action" Content="Cancel" Command="{Binding Work.Recurring.CancelDeleteCommand}" AutomationProperties.Name="Cancel recurring definition deletion" />
+        </StackPanel>
+      </StackPanel>
+    </Border>
     <Border Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Classes="decision-overlay" IsVisible="{Binding Work.NeedsDecision}">
       <StackPanel Width="470" Spacing="16" AutomationProperties.LiveSetting="Assertive">
         <StackPanel Spacing="5">
@@ -2102,7 +2171,7 @@
       <StackPanel Width="470" Spacing="16" AutomationProperties.LiveSetting="Assertive">
         <StackPanel Spacing="5">
           <TextBlock Text="{Binding Work.CategoryDeleteHeading}" FontSize="20" FontWeight="Bold" />
-          <TextBlock Text="This Category is in use. Choose the Category that will replace it for every Project, standalone Task, and override." Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap" />
+          <TextBlock Text="This Category is in use. Choose the Category that will replace it for every Project, standalone Task, override, and recurring definition." Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap" />
         </StackPanel>
         <ComboBox x:Name="CategoryReplacement" Classes="inspector-field"
             ItemsSource="{Binding Work.CategoryReplacementChoices}" SelectedItem="{Binding Work.CategoryReplacement, Mode=TwoWay}"

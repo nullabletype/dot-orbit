@@ -49,7 +49,8 @@ internal sealed record WorkspaceReloadData(
     IReadOnlyList<ProjectBinRecord> ProjectBin,
     int? BulkArchiveAffectedCount = null,
     string? ArchiveSearchQuery = null,
-    IReadOnlyList<ArchiveSearchResult>? ArchiveSearchResults = null);
+    IReadOnlyList<ArchiveSearchResult>? ArchiveSearchResults = null,
+    IReadOnlyList<RecurringTaskDefinition>? RecurringTasks = null);
 
 internal sealed record InspectorSaveResult(
     InspectorSaveRequest Request,
@@ -88,6 +89,10 @@ internal enum WorkspaceActionKind
     DuplicateTask,
     DuplicateProject,
     Refresh,
+    CreateRecurring,
+    UpdateRecurring,
+    DeleteRecurring,
+    ProcessRecurring,
 }
 
 internal enum WorkspaceMoveKind
@@ -111,7 +116,9 @@ internal sealed record WorkspaceActionRequest(
     string? Title = null,
     int BulkArchiveCompletedAgeDays = 30,
     string ArchiveSearchText = "",
-    long? AdmittedAtTimestamp = null);
+    long? AdmittedAtTimestamp = null,
+    string? RecurringId = null,
+    RecurringTaskDraft? RecurringDraft = null);
 
 internal enum WorkspaceActionOutcome
 {
@@ -147,7 +154,8 @@ internal sealed record WorkspaceActionResult(
     ProjectDuplicationPreview? DuplicationPreview = null,
     TaskRecord? DuplicatedTask = null,
     ProjectDuplicationResult? DuplicatedProject = null,
-    WorkspaceActionTiming? Timing = null)
+    WorkspaceActionTiming? Timing = null,
+    int GeneratedTaskCount = 0)
 {
     public WorkspaceActionResult WithQueueWait(TimeSpan queueWait) =>
         this with { Timing = new(queueWait, Timing?.Persistence ?? TimeSpan.Zero) };
@@ -291,6 +299,10 @@ internal sealed class WorkspacePersistenceOperation : IWorkspacePersistenceOpera
             }
         }
 
+        if (request.Kind is WorkspaceActionKind.CreateRecurring or WorkspaceActionKind.UpdateRecurring
+            or WorkspaceActionKind.DeleteRecurring or WorkspaceActionKind.ProcessRecurring)
+            return ExecuteRecurring(request, started);
+
         if (request.Kind is WorkspaceActionKind.DuplicateTask or WorkspaceActionKind.DuplicateProject)
             return ExecuteDuplication(request, started);
 
@@ -307,6 +319,46 @@ internal sealed class WorkspacePersistenceOperation : IWorkspacePersistenceOpera
 
         return new(request, WorkspaceActionOutcome.Committed, Effect: effect,
             Timing: new(TimeSpan.Zero, _timeProvider.GetElapsedTime(started)));
+    }
+
+    private WorkspaceActionResult ExecuteRecurring(WorkspaceActionRequest request, long started)
+    {
+        var count = 0;
+        try
+        {
+            var recurring = _work as IRecurringTasks
+                ?? throw new InvalidOperationException("Recurring Tasks are unavailable.");
+            switch (request.Kind)
+            {
+                case WorkspaceActionKind.CreateRecurring:
+                    recurring.CreateRecurringTask(request.RecurringDraft!);
+                    break;
+                case WorkspaceActionKind.UpdateRecurring:
+                    recurring.UpdateRecurringTask(request.RecurringId!, request.RecurringDraft!);
+                    break;
+                case WorkspaceActionKind.DeleteRecurring:
+                    recurring.DeleteRecurringTask(request.RecurringId!);
+                    break;
+                case WorkspaceActionKind.ProcessRecurring:
+                    count = recurring.ProcessDueRecurringTasks().Count;
+                    break;
+            }
+        }
+        catch (Exception exception) when (IsWorkspaceFailure(exception))
+        {
+            return new(request, WorkspaceActionOutcome.MutationFailed,
+                Timing: new(TimeSpan.Zero, _timeProvider.GetElapsedTime(started)));
+        }
+        try
+        {
+            return new(request, WorkspaceActionOutcome.Committed, ReadReloadData(),
+                Timing: new(TimeSpan.Zero, _timeProvider.GetElapsedTime(started)), GeneratedTaskCount: count);
+        }
+        catch (Exception exception) when (IsWorkspaceFailure(exception))
+        {
+            return new(request, WorkspaceActionOutcome.CommittedRefreshFailed,
+                Timing: new(TimeSpan.Zero, _timeProvider.GetElapsedTime(started)), GeneratedTaskCount: count);
+        }
     }
 
     private WorkspaceActionResult ExecuteDuplication(WorkspaceActionRequest request, long started)
@@ -429,7 +481,8 @@ internal sealed class WorkspacePersistenceOperation : IWorkspacePersistenceOpera
             null => null,
             { } query when string.IsNullOrWhiteSpace(query) => [],
             { } query => _work.SearchArchive(query),
-        });
+        },
+        (_work as IRecurringTasks)?.ReadRecurringTasks());
 }
 
 internal sealed class InlineWorkspacePersistenceExecutor : IInspectorSaveWriter, IWorkspaceActionExecutor

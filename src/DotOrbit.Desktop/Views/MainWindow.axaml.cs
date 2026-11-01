@@ -1234,6 +1234,7 @@ public sealed partial class MainWindow : Window
             aiFeaturePreferenceService: _aiFeaturePreferenceService,
             pendingProposalCoordinator: _pendingProposalCoordinator,
             applicationUpdateService: _applicationUpdateService);
+        (DataContext as ShellViewModel)?.Work?.Recurring.ReconcileHint();
         RefreshAuthorizedMcpClients();
         _ = ReconcileLocalMcpAsync();
     }
@@ -1828,7 +1829,17 @@ public sealed partial class MainWindow : Window
             return;
         }
         if (e.Key != Key.Escape || DataContext is not ShellViewModel { Work: { } work }) return;
-        if (work.NeedsArchiveConfirmation)
+        if (work.Recurring.NeedsDeleteConfirmation)
+        {
+            work.Recurring.CancelDeleteCommand.Execute(null);
+            e.Handled = true;
+        }
+        else if (work.Recurring.NeedsDecision)
+        {
+            work.Recurring.StayCommand.Execute(null);
+            e.Handled = true;
+        }
+        else if (work.NeedsArchiveConfirmation)
         {
             work.CancelArchiveTaskCommand.Execute(null);
             e.Handled = true;

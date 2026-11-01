@@ -328,6 +328,10 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             .SelectMany(task => task.Participants)
             .GroupBy(id => id, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+        var recurringCounts = ((_work as IRecurringTasks)?.ReadRecurringTasks() ?? [])
+            .SelectMany(item => item.ParticipantIds)
+            .GroupBy(id => id, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
         Participants.Clear();
         for (var index = 0; index < snapshot.Participants.Count; index++)
         {
@@ -337,7 +341,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
                 participant.Id,
                 participant.Label,
                 counts.GetValueOrDefault(participant.Id),
-                index == snapshot.Participants.Count - 1));
+                index == snapshot.Participants.Count - 1,
+                recurringCounts.GetValueOrDefault(participant.Id)));
         }
         Notify(nameof(HasParticipants));
         Notify(nameof(HasNoParticipants));
@@ -397,8 +402,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         }
         catch (InvalidOperationException)
         {
-            participant.ValidationMessage = "Remove this Participant from every Task before deleting it.";
-            Announcement = $"{participant.Label} is still used by a Task and was not deleted.";
+            participant.ValidationMessage = "Remove this Participant from every Task and recurring definition before deleting it.";
+            Announcement = $"{participant.Label} is still used by a Task or recurring definition and was not deleted.";
             FocusAutomationId = participant.DeleteAutomationId;
         }
         catch (WorkspaceWorkException)
@@ -430,13 +435,16 @@ public sealed class ParticipantSettingViewModel : INotifyPropertyChanged
         string id,
         string label,
         int usageCount,
-        bool isLast)
+        bool isLast,
+        int recurringUsageCount = 0)
     {
         _owner = owner;
         Id = id;
         Label = label;
         _draftLabel = label;
-        UsageCount = usageCount;
+        UsageCount = usageCount + recurringUsageCount;
+        TaskUsageCount = usageCount;
+        RecurringUsageCount = recurringUsageCount;
         IsLast = isLast;
         BeginRenameCommand = new(() => _owner.BeginRename(this));
         SaveRenameCommand = new(() => _owner.SaveRename(this));
@@ -449,7 +457,11 @@ public sealed class ParticipantSettingViewModel : INotifyPropertyChanged
     public string Label { get; }
     public int UsageCount { get; }
     public bool IsLast { get; }
-    public string UsageText => UsageCount == 0 ? "Not in use" : $"Used by {UsageCount} {(UsageCount == 1 ? "task" : "tasks")}";
+    public int TaskUsageCount { get; }
+    public int RecurringUsageCount { get; }
+    public string UsageText => RecurringUsageCount == 0
+        ? TaskUsageCount == 0 ? "Not in use" : $"Used by {TaskUsageCount} {(TaskUsageCount == 1 ? "task" : "tasks")}"
+        : $"Used by {TaskUsageCount} {(TaskUsageCount == 1 ? "task" : "tasks")} and {RecurringUsageCount} recurring {(RecurringUsageCount == 1 ? "definition" : "definitions")}";
     public bool IsEditing
     {
         get => _isEditing;

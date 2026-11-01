@@ -210,9 +210,24 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             Notify(nameof(NeedsDecision));
             Notify(nameof(HasBlockingDialog));
         });
+        Recurring = new RecurringTasksViewModel(work, _timeProvider,
+            request => EnqueueWorkspaceAction(request, closesInspectorOnCommit: false),
+            action => Navigate(() =>
+            {
+                ReopenWorkspaceActionAdmission(reopen: true);
+                action();
+            }),
+            id => DialogReturnFocusAutomationId = id);
+        Recurring.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName is nameof(RecurringTasksViewModel.NeedsDecision)
+                or nameof(RecurringTasksViewModel.NeedsDeleteConfirmation)) Notify(nameof(HasBlockingDialog));
+        };
         CapturePresentationClock();
         Reload();
     }
+
+    public RecurringTasksViewModel Recurring { get; }
 
     public event PropertyChangedEventHandler? PropertyChanged;
     internal event EventHandler<MainViewNavigationRequestedEventArgs>? MainViewNavigationRequested;
@@ -349,7 +364,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public bool NeedsBulkTaskArchiveConfirmation => _pendingBulkTaskArchivePreview is not null;
     public bool NeedsEmptyBinConfirmation => _pendingEmptyBinPreview is not null;
     public bool NeedsProjectDuplicationConfirmation => _pendingProjectDuplicationPreview is not null;
-    public bool HasBlockingDialog => NeedsDecision || NeedsCategoryReplacement || NeedsAttachmentChoice
+    public bool HasBlockingDialog => Recurring.NeedsDecision || Recurring.NeedsDeleteConfirmation
+        || NeedsDecision || NeedsCategoryReplacement || NeedsAttachmentChoice
         || NeedsArchiveConfirmation || NeedsBulkTaskArchiveConfirmation || NeedsEmptyBinConfirmation
         || NeedsProjectDuplicationConfirmation;
     public bool IsDirty => HasInspector && _original != Fingerprint();
@@ -940,6 +956,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     internal async Task NavigateAsync(Action destination)
     {
         ArgumentNullException.ThrowIfNull(destination);
+        if (Recurring.GuardNavigation(() => Navigate(destination))) return;
         if (NeedsDecision)
         {
             _workspaceActionAdmissionClosed = true;
@@ -1118,6 +1135,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
     public bool RefreshDatePresentation()
     {
+        Recurring.ReconcileHint();
         var today = Today;
         var timeZoneId = _timeProvider.LocalTimeZone.Id;
         if (today == _presentationDate && string.Equals(timeZoneId, _presentationTimeZoneId, StringComparison.Ordinal)) return false;
@@ -1197,7 +1215,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         }
 
         var referenced = _snapshot.Projects.Any(project => project.CategoryId == id)
-            || _snapshot.Tasks.Any(task => task.ExplicitCategoryId == id);
+            || _snapshot.Tasks.Any(task => task.ExplicitCategoryId == id)
+            || Recurring.ReferencesCategory(id);
         if (!referenced)
         {
             Attempt(() =>
@@ -2683,13 +2702,15 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private void Reload()
     {
         using var timing = PerformanceTrace.Measure(PerformanceStage.Refresh);
-        Reload(new(_work.Read(), _work.ReadTaskBin(), _work.ReadProjectBin()));
+        Reload(new(_work.Read(), _work.ReadTaskBin(), _work.ReadProjectBin(),
+            RecurringTasks: (_work as IRecurringTasks)?.ReadRecurringTasks()));
     }
 
     private void Reload(WorkspaceReloadData reload)
     {
         using var timing = PerformanceTrace.Measure(PerformanceStage.ProjectionApply);
         _snapshot = reload.Snapshot;
+        Recurring.Refresh(reload.Snapshot, reload.RecurringTasks, reload.ProjectBin);
         var taskBin = reload.TaskBin;
         var projectBin = reload.ProjectBin;
         RefreshParticipantChoices();
@@ -3311,6 +3332,16 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         WorkspaceActionResult result)
     {
         var dispatcherStarted = _timeProvider.GetTimestamp();
+        if (result.Request.Kind is WorkspaceActionKind.CreateRecurring or WorkspaceActionKind.UpdateRecurring
+            or WorkspaceActionKind.DeleteRecurring or WorkspaceActionKind.ProcessRecurring)
+        {
+            Recurring.ApplyResult(result);
+            if (result.Reload is not null) Reload(result.Reload);
+            if (result.Outcome == WorkspaceActionOutcome.CommittedRefreshFailed) CanRetryWorkspaceRefresh = true;
+            else if (result.Reload is not null) CanRetryWorkspaceRefresh = false;
+            Message = Recurring.Announcement;
+            return;
+        }
         if (result.Request.Kind == WorkspaceActionKind.DuplicateTask)
             SetTaskDuplicationPending(false);
         var inspectorContextIsCurrent = _inspectorGeneration == queued.InspectorGeneration

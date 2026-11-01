@@ -1,0 +1,53 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:DotOrbit.Desktop.ViewModels" xmlns:views="using:DotOrbit.Desktop.Views" x:Class="DotOrbit.Desktop.Views.RecurringTaskEditor"
+    x:DataType="vm:RecurringTasksViewModel">
+  <Grid RowDefinitions="Auto,*" IsEnabled="{Binding CanEdit}">
+    <TextBlock Classes="eyebrow" Text="{Binding EditorHeading}" Margin="0,0,0,16" />
+    <ScrollViewer Grid.Row="1">
+      <StackPanel Spacing="12">
+        <TextBlock Text="Title" Classes="inspector-label" />
+        <TextBox Classes="inspector-title" Text="{Binding Title, Mode=TwoWay}" Classes.error="{Binding HasTitleError}" AutomationProperties.HelpText="{Binding Validation}" AutomationProperties.AutomationId="recurring-title" AutomationProperties.Name="Recurring Task title" />
+        <TextBlock Text="Markdown description" Classes="inspector-label" />
+        <views:MarkdownPreviewSurface Classes="markdown-preview" IsVisible="{Binding ShowMarkdownPreview}"
+            Activated="OnMarkdownActivated" AutomationProperties.Name="Edit recurring Task Markdown description">
+          <views:MarkdownPreview Document="{Binding RenderedDescription}" />
+        </views:MarkdownPreviewSurface>
+        <TextBox x:Name="RecurringMarkdownSource" IsVisible="{Binding IsEditingMarkdown}" Classes="inspector-field" AcceptsReturn="True" MinHeight="122" TextWrapping="Wrap"
+            Text="{Binding Description, Mode=TwoWay}" LostFocus="OnMarkdownLostFocus" AutomationProperties.Name="Recurring Task description, Markdown source" />
+        <TextBlock Text="Project" Classes="inspector-label" />
+        <ComboBox Classes="inspector-field" ItemsSource="{Binding Projects}" SelectedItem="{Binding Project, Mode=TwoWay}" AutomationProperties.Name="Recurring Task Project" Classes.error="{Binding HasProjectError}" AutomationProperties.HelpText="{Binding Validation}" AutomationProperties.AutomationId="recurring-project">
+          <ComboBox.ItemTemplate><DataTemplate x:DataType="vm:TaskContextChoice"><TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
+        </ComboBox>
+        <TextBlock Text="Category" Classes="inspector-label" />
+        <ComboBox Classes="inspector-field" ItemsSource="{Binding Categories}" SelectedItem="{Binding Category, Mode=TwoWay}" AutomationProperties.Name="Recurring Task Category" Classes.error="{Binding HasCategoryError}" AutomationProperties.HelpText="{Binding Validation}" AutomationProperties.AutomationId="recurring-category">
+          <ComboBox.ItemTemplate><DataTemplate x:DataType="vm:CategoryChoice"><TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
+        </ComboBox>
+        <TextBlock Text="Cadence" Classes="inspector-label" />
+        <ComboBox Classes="inspector-field" ItemsSource="{Binding Cadences}" SelectedItem="{Binding Cadence, Mode=TwoWay}" AutomationProperties.Name="Recurring Task cadence" />
+        <TextBlock Text="First occurrence (YYYY-MM-DD)" Classes="inspector-label" />
+        <views:InspectorDatePicker Classes="inspector-field" Text="{Binding FirstDate, Mode=OneWay}" RawText="{Binding FirstDate, Mode=TwoWay}"
+            SelectedDateFormat="Custom" CustomDateFormatString="yyyy-MM-dd" IsTodayHighlighted="True" PlaceholderText="YYYY-MM-DD"
+            DateValidationError="OnDateValidationError" CalendarOpened="OnCalendarOpened" CalendarClosed="OnCalendarClosed"
+            AutomationProperties.Name="First occurrence date, YYYY-MM-DD" Classes.error="{Binding HasFirstDateError}"
+            AutomationProperties.HelpText="{Binding Validation}" AutomationProperties.AutomationId="recurring-first-date" />
+        <CheckBox Content="Set a due date after addition" IsChecked="{Binding HasDueDate, Mode=TwoWay}" AutomationProperties.Name="Set a due date after Task addition" />
+        <TextBlock Text="No due date unless enabled. Zero days means due on addition." FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource MutedTextBrush}" />
+        <StackPanel Spacing="6" IsVisible="{Binding HasDueDate}">
+          <TextBlock Text="Whole days after the Task is added" Classes="inspector-label" />
+          <TextBox Classes="inspector-field" Text="{Binding DueOffset, Mode=TwoWay}" AutomationProperties.Name="Due date offset in whole days" Classes.error="{Binding HasOffsetError}" AutomationProperties.HelpText="{Binding Validation}" AutomationProperties.AutomationId="recurring-due-offset" />
+        </StackPanel>
+        <CheckBox Content="Enabled" IsChecked="{Binding IsEnabled, Mode=TwoWay}" AutomationProperties.Name="Recurring Task enabled" />
+        <TextBlock Text="Participants" Classes="inspector-label" />
+        <ItemsControl ItemsSource="{Binding Participants}">
+          <ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:RecurringParticipantChoice"><CheckBox Content="{Binding Label}" IsChecked="{Binding IsSelected, Mode=TwoWay}" AutomationProperties.Name="{Binding AccessibleName}" /></DataTemplate></ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <TextBlock Classes="validation-message" Text="{Binding Validation}" TextWrapping="Wrap" AutomationProperties.Name="Recurring Task validation" AutomationProperties.LiveSetting="Polite" />
+        <WrapPanel Orientation="Horizontal">
+          <Button Classes="primary-action" Margin="0,0,8,8" Content="Save definition" Command="{Binding SaveCommand}" AutomationProperties.Name="Save recurring Task definition" AutomationProperties.AutomationId="recurring-save" />
+          <Button Classes="view-action" Margin="0,0,0,8" Content="Cancel" Command="{Binding CancelCommand}" AutomationProperties.Name="Cancel recurring Task changes" />
+        </WrapPanel>
+        <TextBlock Text="Changes affect future additions. Existing Tasks stay independent." FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource MutedTextBrush}" />
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</UserControl>
