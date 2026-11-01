@@ -14,7 +14,8 @@ public enum RecurrenceCadence { Daily, Weekly, Monthly }
 public sealed record RecurringTaskDraft(
     string Title, string Description, string? ProjectId, string? ExplicitCategoryId,
     IReadOnlyList<string> ParticipantIds, RecurrenceCadence Cadence,
-    DateOnly FirstOccurrenceDate, int? DueDateOffsetDays, bool IsEnabled);
+    DateOnly FirstOccurrenceDate, int? DueDateOffsetDays, bool IsEnabled,
+    IReadOnlyList<string>? NewParticipantLabels = null);
 
 public sealed record RecurringTaskDefinition(
     string Id, string Title, string Description, string? ProjectId, string? ExplicitCategoryId,
