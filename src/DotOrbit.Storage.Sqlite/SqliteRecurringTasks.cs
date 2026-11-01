@@ -55,7 +55,7 @@ internal sealed partial class SqliteWorkspaceWork
                 && RecurrenceSchedule.LatestOccurrence(item.FirstOccurrenceDate, item.Cadence, next) != next)
                 throw new InvalidDataException();
         }
-        command.CommandText = "SELECT first_date,next_date,last_date FROM recurring_tasks;";
+        command.CommandText = "SELECT first_date,next_date,last_date,cadence FROM recurring_tasks;";
         using (var reader = command.ExecuteReader())
         {
             while (reader.Read())
@@ -63,10 +63,16 @@ internal sealed partial class SqliteWorkspaceWork
                 for (var index = 0; index < 3; index++)
                     if (!reader.IsDBNull(index) && !DateOnly.TryParseExact(reader.GetString(index), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
                         throw new InvalidDataException();
-                if (reader.IsDBNull(1) && reader.IsDBNull(2)) throw new InvalidDataException();
-                if (!reader.IsDBNull(1) && !reader.IsDBNull(2)
-                    && string.CompareOrdinal(reader.GetString(1), reader.GetString(2)) <= 0)
-                    throw new InvalidDataException();
+                var first = ReadDate(reader, 0)!.Value;
+                var last = ReadDate(reader, 2);
+                var cadence = (RecurrenceCadence)reader.GetInt32(3);
+                // Edits may place the first occurrence after the retained high-water mark,
+                // or change cadence so that the high-water date is no longer on that cadence.
+                DateOnly? expectedNext = last is { } consumed && consumed >= first
+                    ? RecurrenceSchedule.NextOccurrence(first, cadence,
+                        RecurrenceSchedule.LatestOccurrence(first, cadence, consumed))
+                    : first;
+                if (ReadDate(reader, 1) != expectedNext) throw new InvalidDataException();
             }
         }
         command.CommandText = """

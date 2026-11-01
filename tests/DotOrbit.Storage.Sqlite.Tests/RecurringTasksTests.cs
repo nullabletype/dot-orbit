@@ -422,9 +422,17 @@ public sealed class RecurringTasksTests : IDisposable
     [InlineData("cursor")]
     [InlineData("reference")]
     [InlineData("shape")]
+    [InlineData("false-exhaustion")]
+    [InlineData("skipped-pending")]
+    [InlineData("skipped-first")]
     public void MalformedRecurrenceRecordsFailClosedAtOpen(string corruption)
     {
-        using (var session = Create()) Recurring(session).CreateRecurringTask(Draft(session));
+        using (var session = Create())
+        {
+            Recurring(session).CreateRecurringTask(Draft(session));
+            if (corruption is "false-exhaustion" or "skipped-pending")
+                Assert.Single(Recurring(session).ProcessDueRecurringTasks());
+        }
         using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = WorkspacePath, Password = Secret, Pooling = false }.ToString()))
         {
             connection.Open();
@@ -434,6 +442,9 @@ public sealed class RecurringTasksTests : IDisposable
                 "date" => "UPDATE recurring_tasks SET first_date='invalid';",
                 "cursor" => "UPDATE recurring_tasks SET next_date='2026-01-30';",
                 "reference" => "PRAGMA foreign_keys=OFF; UPDATE recurring_tasks SET project_id='missing';",
+                "false-exhaustion" => "UPDATE recurring_tasks SET next_date=NULL;",
+                "skipped-pending" => "UPDATE recurring_tasks SET next_date='2026-02-02';",
+                "skipped-first" => "UPDATE recurring_tasks SET next_date='2026-02-01';",
                 _ => "ALTER TABLE recurring_tasks ADD COLUMN unexpected TEXT;",
             };
             command.ExecuteNonQuery();
@@ -465,6 +476,42 @@ public sealed class RecurringTasksTests : IDisposable
         var exhausted = api.UpdateRecurringTask(definition.Id, draft with { Title = "Exhausted metadata" });
         Assert.Null(exhausted.NextOccurrenceDate);
         Assert.Equal("Exhausted metadata", exhausted.Title);
+    }
+
+    [Theory]
+    [InlineData("future-first")]
+    [InlineData("changed-cadence")]
+    [InlineData("exhausted")]
+    public void CursorValidationPreservesLegitimateEditedSchedulesAndTrueExhaustionAcrossRestart(string scenario)
+    {
+        DateOnly? expectedNext;
+        using (var session = Create())
+        {
+            if (scenario == "exhausted") _clock.SetUtcNow(new(9999, 12, 31, 12, 0, 0, TimeSpan.Zero));
+            var api = Recurring(session);
+            var draft = Draft(session) with { FirstOccurrenceDate = DateOnly.FromDateTime(_clock.GetLocalNow().DateTime), DueDateOffsetDays = 0 };
+            var definition = api.CreateRecurringTask(draft);
+            Assert.Single(api.ProcessDueRecurringTasks());
+            if (scenario == "future-first")
+            {
+                api.UpdateRecurringTask(definition.Id, draft with { FirstOccurrenceDate = new(2026, 2, 5) });
+                expectedNext = new(2026, 2, 5);
+            }
+            else if (scenario == "changed-cadence")
+            {
+                _clock.Advance(TimeSpan.FromDays(3));
+                Assert.Single(api.ProcessDueRecurringTasks());
+                api.UpdateRecurringTask(definition.Id, draft with { Cadence = RecurrenceCadence.Weekly });
+                expectedNext = new(2026, 2, 7);
+            }
+            else expectedNext = null;
+        }
+        var reopened = Store.Open(WorkspacePath, _passphrase);
+        using var restored = reopened.Session!;
+        Assert.Equal(WorkspaceOpenStatus.Opened, reopened.Status);
+        Assert.Equal(expectedNext, Assert.Single(Recurring(restored).ReadRecurringTasks()).NextOccurrenceDate);
+        Assert.Empty(Recurring(restored).ProcessDueRecurringTasks());
+        Assert.Equal(scenario == "changed-cadence" ? 2 : 1, restored.Work.Read().Tasks.Count);
     }
 
     public void Dispose()
