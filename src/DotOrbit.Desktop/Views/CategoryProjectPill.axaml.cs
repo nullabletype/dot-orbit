@@ -131,7 +131,8 @@ public sealed partial class CategoryProjectPill : UserControl
             || change.Property == ProjectCommandProperty
             || change.Property == CategoryAutomationIdProperty
             || change.Property == ProjectAutomationIdProperty
-            || change.Property == ProjectHelpTextProperty)
+            || change.Property == ProjectHelpTextProperty
+            || change.Property == HasOverrideProperty)
             UpdatePresentation();
     }
 
@@ -161,6 +162,9 @@ public sealed partial class CategoryProjectPill : UserControl
             _categoryButton,
             CategoryCommand is null ? string.Empty : $"Open Category {CategoryName}");
         AutomationProperties.SetAutomationId(_categoryButton, CategoryAutomationId ?? string.Empty);
+        var categoryHelp = HasOverride ? "Category overrides the Project's Category." : null;
+        ToolTip.SetTip(_categoryButton, categoryHelp);
+        AutomationProperties.SetHelpText(_categoryButton, categoryHelp ?? string.Empty);
 
         _projectButton.Focusable = hasProject && ProjectCommand is not null;
         _projectButton.IsEnabled = hasProject && ProjectCommand?.CanExecute(null) == true;

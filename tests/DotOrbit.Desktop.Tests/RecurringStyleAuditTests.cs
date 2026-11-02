@@ -48,6 +48,54 @@ public sealed class RecurringStyleAuditTests
         finally { window.Close(); }
     }
 
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void OverridePillExplainsRelationshipWithoutAddingKeyboardStops(bool light)
+    {
+        var app = Assert.IsType<App>(Application.Current);
+        app.RequestedThemeVariant = light ? ThemeVariant.Light : ThemeVariant.Dark;
+        var store = new RecurringMemoryWorkspace();
+        var project = store.CreateProject("Household", "", "work", null);
+        store.CreateRecurringTask(new("Monthly household review", "", project.Id, "home", [], RecurrenceCadence.Monthly, new(2026, 11, 2), null, false));
+        var shell = new ShellViewModel(store, Clock());
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        window.Show();
+        try
+        {
+            shell.PrimaryNavigation.Single(item => item.Title == "Recurring").SelectCommand.Execute(null);
+            Dispatcher.UIThread.RunJobs();
+            var pill = Assert.Single(window.GetVisualDescendants().OfType<CategoryProjectPill>(), item => item.IsEffectivelyVisible);
+            var category = pill.FindControl<Button>("CategoryButton")!;
+            var parent = pill.FindControl<Button>("ProjectButton")!;
+            var icon = Assert.Single(pill.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>(), item => item.Classes.Contains("category-pill-override-icon"));
+            const string explanation = "Category overrides the Project's Category.";
+            Assert.Equal(explanation, ToolTip.GetTip(category));
+            Assert.Equal(explanation, AutomationProperties.GetHelpText(category));
+            Assert.Equal(AccessibilityView.Raw, AutomationProperties.GetAccessibilityView(icon));
+            Assert.False(icon.Focusable);
+            Assert.Equal(new Size(11, 11), icon.Bounds.Size);
+            using var rendered = new RenderTargetBitmap(new PixelSize(1120, 600), new Vector(96, 96));
+            rendered.Render(window);
+            Assert.True(category.Focus(NavigationMethod.Tab));
+            window.KeyPress(Key.Tab, RawInputModifiers.None, PhysicalKey.Tab, "\t");
+            window.KeyRelease(Key.Tab, RawInputModifiers.None, PhysicalKey.Tab, "\t");
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(parent.IsFocused);
+            pill.HasOverride = false;
+            Assert.Null(ToolTip.GetTip(category));
+            Assert.Equal(string.Empty, AutomationProperties.GetHelpText(category));
+            pill.HasOverride = true;
+            Assert.Equal(explanation, ToolTip.GetTip(category));
+            Click(window, category);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal("Categories", shell.ViewTitle);
+            Assert.Equal("category-selection-home", shell.MainViewTargetAutomationId);
+            Assert.False(shell.Work!.Recurring.HasEditor);
+        }
+        finally { window.Close(); app.RequestedThemeVariant = ThemeVariant.Dark; }
+    }
+
     [AvaloniaFact]
     public void NumericSpinnerOwnsOneRoundedBoundaryIncludingArrowButtons()
     {
