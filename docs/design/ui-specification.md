@@ -29,8 +29,9 @@ Canvas and Ledger remain useful comparison directions in the prototype. They are
 3. Backlog
 4. Projects
 5. Categories
-6. Completed
-7. Archive
+6. Recurring
+7. Completed
+8. Archive
 
 Today is both the first item and the launch view.
 
@@ -46,7 +47,15 @@ Completed begins with an explicit bulk-archive control. It offers every whole-da
 
 Projects expose an explicit compact Archive action on each Project header. An archived Project leaves Projects, Categories, Backlog, Upcoming, Completed, and Today as one aggregate without changing Task completion or individual Task archive state. Archive groups Project and Task entries by their captured local archive dates, labels Project entries distinctly, and offers accessible Restore actions. Restoring a Project returns eligible incomplete Tasks to Backlog while leaving Today empty and retaining any individually archived Tasks.
 
-Bin is a secondary utility item at the bottom of the sidebar, visually separated from the seven primary views. Its count appears only while non-empty. The Bin view orders removed items newest first and contains per-item Restore actions and the confirmed Empty Bin action.
+Bin is a secondary utility item at the bottom of the sidebar, visually separated from the primary views. Its count appears only while non-empty. The Bin view orders removed items newest first and contains per-item Restore actions and the confirmed Empty Bin action.
+
+### Recurring
+
+Recurring is count-free and sits immediately before Completed. Its compact shared list rows show definitions rather than generated Tasks: title, cadence, next Task-addition date, next calculated due date or **No due date**, effective Category/Project, and textual enabled/paused state. The whole row opens the editor, with a keyboard-accessible edit target and visible selection. A fixed-width enabled-state icon toggle and Delete sit on the right and activate independently, preserving column alignment across enabled and paused rows. The selection highlight does not add a separate Editing line. Category/Project pill segments use the existing guarded context navigation and scroll/focus behavior; archived Projects route to Archive, while binned Projects remain disabled with restore-first help. Pill activation does not also open the definition editor. An exhausted schedule states that no further occurrence can be represented. Project lifecycle pauses include visible restore/reassign guidance; restoration alone never resumes a definition.
+
+Create and Edit expose a title, Markdown description, optional active Project, inherited or explicit Category, Participants, cadence, first occurrence date, due rule, and enabled state. The inspector reserves the shared scrollbar gutter. Standalone definitions require a Category; selecting a Project visibly defaults to inheritance. A numeric spinner selects non-negative whole days, and the due rule explains that its offset starts when the Task is actually added, including catch-up. Invalid titles, past initial dates, invalid numeric input, and unrepresentable dates produce visible field guidance and create no partial record. The Participant picker supports existing labels and **New participant…**, using the ordinary Task inspector's Enter/Add and Escape/Cancel interactions. Definitions save valid text changes after 600 milliseconds of inactivity and valid discrete changes immediately, with persistent saving/saved/failure status and Retry beside the inspector heading. Navigation and immediate row actions flush pending valid changes and retain invalid or failed drafts until correction, retry, or explicit discard. New definitions start paused and autosave once valid without a Create or Save button; the editor stays open with the created identity. Explicitly enabling the definition allows Task generation. New Participant labels are created or reused atomically with the next accepted definition save; cancelling an uncreated draft writes nothing.
+
+The enabled-state toggle exposes Pause and Resume action names and checked state, with textual Enabled/Paused metadata beside it. Delete requires confirmation explaining that existing generated Tasks remain unchanged. All actions are keyboard reachable, return focus to a logical list/editor target, and expose names, roles, and state without relying on colour. Reconciliation after unlock or date change announces additions and fixed non-sensitive failures politely. Generated Tasks then use the ordinary Backlog, Upcoming, Project, Category, and inspector surfaces.
 
 ## Ordering interactions
 

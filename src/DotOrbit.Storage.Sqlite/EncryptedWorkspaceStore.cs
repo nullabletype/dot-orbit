@@ -8,7 +8,7 @@ namespace DotOrbit.Storage.Sqlite;
 
 public sealed class EncryptedWorkspaceStore : IWorkspaceStore
 {
-    public const int CurrentSchemaVersion = 18;
+    public const int CurrentSchemaVersion = 19;
 
     internal const string CipherName = "chacha20";
     internal const int KdfIterations = 64007;
@@ -145,7 +145,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
                 using var agentIntegrationSchema = connection.CreateCommand();
                 agentIntegrationSchema.Transaction = transaction;
                 agentIntegrationSchema.CommandText =
-                    SqliteAgentIntegrationStore.Schema + "PRAGMA user_version = 18;";
+                    SqliteAgentIntegrationStore.Schema + SqliteWorkspaceWork.RecurringSchema + "PRAGMA user_version = 19;";
                 agentIntegrationSchema.ExecuteNonQuery();
                 using var identity = connection.CreateCommand();
                 identity.Transaction = transaction;
@@ -796,7 +796,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         {
             SqliteWorkspaceWork.ValidateShape(connection, transaction, SqliteWorkspaceWork.SchemaFourteen);
         }
-        else if (schemaVersion is 15 or 16 or 17 or 18)
+        else if (schemaVersion is 15 or 16 or 17 or 18 or 19)
         {
             SqliteWorkspaceWork.ValidateShape(connection, transaction);
             if (schemaVersion == 16)
@@ -807,12 +807,14 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
             {
                 SqliteAgentIntegrationStore.ValidateShapeSeventeen(connection, transaction);
             }
-            else if (schemaVersion == 18)
+            else if (schemaVersion is 18 or 19)
             {
                 SqliteAgentIntegrationStore.ValidateShape(connection, transaction);
             }
         }
 
+        if (schemaVersion >= 19)
+            SqliteWorkspaceWork.ValidateRecurringShape(connection, transaction);
         return name;
     }
 

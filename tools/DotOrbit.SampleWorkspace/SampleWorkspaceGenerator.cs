@@ -214,6 +214,25 @@ internal static class SampleWorkspaceGenerator
             timeProvider.SetDate(anchorDate.AddDays(archived.ArchiveDateOffset), completionMinute++);
             work.ArchiveTask(taskIds[archived.TaskKey]);
         }
+        timeProvider.SetDate(anchorDate, 0);
+        var recurring = (IRecurringTasks)work;
+        recurring.CreateRecurringTask(new(
+            "Review the daily reading list", "Choose one short article to read.",
+            null, categoryIds["learning"], [], RecurrenceCadence.Daily,
+            anchorDate.AddDays(1), null, true));
+        recurring.CreateRecurringTask(new(
+            "Review the release checklist", "Check the **next release** with the sample team.",
+            projectIds["launch"], null, [participantIds["sd"]], RecurrenceCadence.Weekly,
+            anchorDate.AddDays(7), 0, true));
+        recurring.CreateRecurringTask(new(
+            "Plan a monthly health review", "A paused definition with an explicit Category override.",
+            projectIds["health"], categoryIds["home"], [participantIds["coach"]], RecurrenceCadence.Monthly,
+            anchorDate.AddDays(1), 5, false));
+        recurring.CreateRecurringTask(new(
+            "Review garden supplies", "Restore or reassign the Project before resuming this definition.",
+            projectIds["garden"], null, [], RecurrenceCadence.Weekly,
+            anchorDate.AddDays(1), 5, true));
+
         foreach (var archived in ArchivedProjects)
         {
             timeProvider.SetDate(anchorDate.AddDays(archived.ArchiveDateOffset), completionMinute++);
@@ -250,7 +269,8 @@ internal static class SampleWorkspaceGenerator
             && archived == ExpectedArchivedTaskCount
             && archivedProjects == ExpectedArchivedProjectCount
             && today == 8
-            && upcoming == 11;
+            && upcoming == 11
+            && ((IRecurringTasks)session.Work).ReadRecurringTasks().Count == 4;
         if (!isValid)
         {
             throw new SampleWorkspaceException("invalid-scenario");

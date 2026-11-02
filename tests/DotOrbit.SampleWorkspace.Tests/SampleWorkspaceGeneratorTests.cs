@@ -113,6 +113,47 @@ public sealed class SampleWorkspaceGeneratorTests
     }
 
     [Fact]
+    public void GenerateIncludesIndependentRecurringDefinitionsWithDueRulesAndLifecyclePause()
+    {
+        using var directory = new TemporaryDirectory();
+        var path = System.IO.Path.Combine(directory.Path, "workspace.db");
+        SampleWorkspaceGenerator.Generate(path, AnchorDate);
+
+        using var session = Open(path);
+        var snapshot = session.Work.Read();
+        var definitions = Assert.IsAssignableFrom<IRecurringTasks>(session.Work).ReadRecurringTasks();
+        Assert.Equal(4, definitions.Count);
+        var daily = Assert.Single(definitions, item => item.Cadence == RecurrenceCadence.Daily);
+        Assert.True(daily.IsEnabled);
+        Assert.Equal(AnchorDate.AddDays(1), daily.NextOccurrenceDate);
+        Assert.Null(daily.DueDateOffsetDays);
+        Assert.Null(daily.ProjectId);
+        Assert.Equal(snapshot.Categories.Single(item => item.Name == "Learning & creative practice").Id,
+            daily.ExplicitCategoryId);
+
+        var weekly = Assert.Single(definitions, item => item.Cadence == RecurrenceCadence.Weekly && item.IsEnabled);
+        Assert.Equal(AnchorDate.AddDays(7), weekly.NextOccurrenceDate);
+        Assert.Equal(0, weekly.DueDateOffsetDays);
+        Assert.Null(weekly.ExplicitCategoryId);
+        Assert.Equal(snapshot.Projects.Single(item => item.Title == "Launch the dot-orbit sample workspace").Id,
+            weekly.ProjectId);
+        Assert.Equal([snapshot.Participants.Single(item => item.Label == "SD").Id], weekly.ParticipantIds);
+
+        var monthly = Assert.Single(definitions, item => item.Cadence == RecurrenceCadence.Monthly);
+        Assert.False(monthly.IsEnabled);
+        Assert.Equal(5, monthly.DueDateOffsetDays);
+        Assert.Equal(snapshot.Categories.Single(item => item.Name == "Home").Id, monthly.ExplicitCategoryId);
+        Assert.Equal([snapshot.Participants.Single(item => item.Label == "Coach").Id], monthly.ParticipantIds);
+
+        var archivedProject = snapshot.Projects.Single(item => item.IsArchived);
+        var blocked = Assert.Single(definitions, item => item.ProjectId == archivedProject.Id);
+        Assert.False(blocked.IsEnabled);
+        Assert.False(string.IsNullOrWhiteSpace(blocked.PauseReason));
+        Assert.Equal(33, snapshot.Tasks.Count);
+        Assert.DoesNotContain(snapshot.Tasks, task => definitions.Any(definition => definition.Id == task.Id));
+    }
+
+    [Fact]
     public void GenerateUsesAnchorRelativeDatesCompletionHistoryAndDeterministicIdentifiers()
     {
         using var firstDirectory = new TemporaryDirectory();

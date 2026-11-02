@@ -7,10 +7,10 @@ using Microsoft.Data.Sqlite;
 
 namespace DotOrbit.Storage.Sqlite;
 
-internal sealed class SqliteWorkspaceWork(
+internal sealed partial class SqliteWorkspaceWork(
     EncryptedWorkspaceStore store,
     WorkspaceTransactionCoordinator transactions,
-    TimeProvider timeProvider) : IWorkspaceWork
+    TimeProvider timeProvider) : IWorkspaceWork, IRecurringTasks
 {
     private TimeProvider EffectiveTimeProvider => transactions.EffectiveTimeProvider(timeProvider);
 
@@ -594,6 +594,10 @@ internal sealed class SqliteWorkspaceWork(
                     DELETE FROM tasks WHERE id IN (SELECT id FROM empty_bin_task_ids);
                     DELETE FROM project_archives WHERE project_id IN (SELECT id FROM empty_bin_project_ids);
                     DELETE FROM project_bins;
+                    UPDATE recurring_tasks SET explicit_category_id=COALESCE(explicit_category_id,
+                        (SELECT category_id FROM projects WHERE projects.id=recurring_tasks.project_id)),
+                        project_id=NULL, enabled=0, pause_reason='The Project was deleted. Review the Category, then enable this recurring Task to resume.'
+                    WHERE project_id IN (SELECT id FROM empty_bin_project_ids);
                     DELETE FROM projects WHERE id IN (SELECT id FROM empty_bin_project_ids);
                     DROP TABLE empty_bin_task_ids;
                     DROP TABLE empty_bin_project_ids;
@@ -748,10 +752,10 @@ internal sealed class SqliteWorkspaceWork(
             Require(connection, transaction, "participants", id);
             using var referenceCommand = connection.CreateCommand();
             referenceCommand.Transaction = transaction;
-            referenceCommand.CommandText = "SELECT COUNT(*) FROM task_participants WHERE participant_id=$id;";
+            referenceCommand.CommandText = "SELECT (SELECT COUNT(*) FROM task_participants WHERE participant_id=$id) + (SELECT COUNT(*) FROM recurring_task_participants WHERE participant_id=$id);";
             referenceCommand.Parameters.AddWithValue("$id", id);
             var references = (long)referenceCommand.ExecuteScalar()!;
-            if (references > 0) throw new InvalidOperationException("The Participant is referenced by a Task.");
+            if (references > 0) throw new InvalidOperationException("The Participant is referenced by a Task or Recurring Task definition.");
             Execute(connection, transaction, "DELETE FROM participants WHERE id=$id;", ("$id", id));
             return ArchiveSearchIndexEffects.Participant(id);
         }));
@@ -768,7 +772,8 @@ internal sealed class SqliteWorkspaceWork(
             using var referenceCommand = connection.CreateCommand();
             referenceCommand.Transaction = transaction;
             referenceCommand.CommandText = "SELECT (SELECT COUNT(*) FROM projects WHERE category_id=$id)"
-                + " + (SELECT COUNT(*) FROM tasks WHERE explicit_category_id=$id);";
+                + " + (SELECT COUNT(*) FROM tasks WHERE explicit_category_id=$id)"
+                + " + (SELECT COUNT(*) FROM recurring_tasks WHERE explicit_category_id=$id);";
             referenceCommand.Parameters.AddWithValue("$id", id);
             var referenceCount = (long)referenceCommand.ExecuteScalar()!;
             if (referenceCount > 0)
@@ -779,6 +784,8 @@ internal sealed class SqliteWorkspaceWork(
                 Execute(connection, transaction, "UPDATE projects SET category_id=$replacement WHERE category_id=$id;",
                     ("$replacement", replacementCategoryId), ("$id", id));
                 Execute(connection, transaction, "UPDATE tasks SET explicit_category_id=$replacement WHERE explicit_category_id=$id;",
+                    ("$replacement", replacementCategoryId), ("$id", id));
+                Execute(connection, transaction, "UPDATE recurring_tasks SET explicit_category_id=$replacement WHERE explicit_category_id=$id;",
                     ("$replacement", replacementCategoryId), ("$id", id));
             }
             else if (replacementCategoryId is not null)
@@ -1202,6 +1209,7 @@ internal sealed class SqliteWorkspaceWork(
             var projectIds = snapshot.Projects.OrderBy(item => item.Position).Select(item => item.Id).ToList();
             var projectIndex = projectIds.IndexOf(id);
             var removedAt = EffectiveTimeProvider.GetUtcNow();
+            PauseRecurringTasksForProject(connection, transaction, id);
             Execute(connection, transaction,
                 "INSERT INTO project_bins (project_id,removed_instant) VALUES ($id,$removed);",
                 ("$id", id), ("$removed", removedAt.ToString("O", CultureInfo.InvariantCulture)));
@@ -1256,6 +1264,7 @@ internal sealed class SqliteWorkspaceWork(
             if (project.IsArchived)
                 throw new InvalidOperationException("The Project is already archived.");
             var (instant, localDate) = CurrentArchiveMoment();
+            PauseRecurringTasksForProject(connection, transaction, id);
             Execute(connection, transaction,
                 "DELETE FROM today_tasks WHERE task_id IN (SELECT id FROM tasks WHERE project_id=$id);",
                 ("$id", id));

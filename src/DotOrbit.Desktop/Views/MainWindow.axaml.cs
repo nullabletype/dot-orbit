@@ -46,6 +46,7 @@ public sealed partial class MainWindow : Window
     private bool _dragAfter;
     private Border[]? _dragRows;
     private bool _markdownPointerStartedOutside;
+    private bool _recurringMarkdownPointerStartedOutside;
     private DateTime? _calendarDateAtOpen;
     private ShellViewModel? _subscribedShell;
     private ProjectCaptureViewModel? _subscribedWork;
@@ -1234,6 +1235,7 @@ public sealed partial class MainWindow : Window
             aiFeaturePreferenceService: _aiFeaturePreferenceService,
             pendingProposalCoordinator: _pendingProposalCoordinator,
             applicationUpdateService: _applicationUpdateService);
+        (DataContext as ShellViewModel)?.Work?.Recurring.ReconcileHint();
         RefreshAuthorizedMcpClients();
         _ = ReconcileLocalMcpAsync();
     }
@@ -1274,6 +1276,7 @@ public sealed partial class MainWindow : Window
         {
             _subscribedWork.PropertyChanged -= OnWorkChanged;
             _subscribedWork.AutosaveRequested -= OnAutosaveRequested;
+            _subscribedWork.Recurring.AutosaveRequested -= OnAutosaveRequested;
         }
         if (_subscribedSettings is not null)
             _subscribedSettings.PropertyChanged -= OnSettingsChanged;
@@ -1286,6 +1289,7 @@ public sealed partial class MainWindow : Window
         {
             _subscribedWork.PropertyChanged += OnWorkChanged;
             _subscribedWork.AutosaveRequested += OnAutosaveRequested;
+            _subscribedWork.Recurring.AutosaveRequested += OnAutosaveRequested;
             ScheduleTransientMessageDismissal(_subscribedWork);
         }
         if (_subscribedSettings is not null)
@@ -1359,11 +1363,13 @@ public sealed partial class MainWindow : Window
 
     private void OnAutosaveRequested(object? sender, AutosaveRequestEventArgs e)
     {
-        if (sender is not ProjectCaptureViewModel work) return;
-        _autosaveScheduler.Schedule(
-            ProjectCaptureViewModel.AutosaveDelay,
-            e.Revision,
-            revision => work.RunScheduledAutosave(revision));
+        if (sender is RecurringTasksViewModel recurring)
+        {
+            _autosaveScheduler.Schedule(RecurringTasksViewModel.AutosaveDelay, e.Revision, revision => recurring.RunScheduledAutosave(revision));
+            return;
+        }
+        if (sender is ProjectCaptureViewModel work)
+            _autosaveScheduler.Schedule(ProjectCaptureViewModel.AutosaveDelay, e.Revision, revision => work.RunScheduledAutosave(revision));
     }
 
     private void ScheduleTransientMessageDismissal(ProjectCaptureViewModel work)
@@ -1532,14 +1538,16 @@ public sealed partial class MainWindow : Window
                 or nameof(ProjectCaptureViewModel.CanRetryWorkspaceRefresh)
             && sender is ProjectCaptureViewModel messageWork)
             ScheduleTransientMessageDismissal(messageWork);
-        if (e.PropertyName == nameof(ProjectCaptureViewModel.NeedsDecision)
-            && DataContext is ShellViewModel { Work.NeedsDecision: true })
+        if (e.PropertyName is nameof(ProjectCaptureViewModel.NeedsDecision) or nameof(ProjectCaptureViewModel.HasBlockingDialog)
+            && DataContext is ShellViewModel { Work: { } decidingWork }
+            && (decidingWork.NeedsDecision || decidingWork.Recurring.NeedsDecision))
             Dispatcher.UIThread.Post(() =>
             {
                 foreach (var radio in this.GetVisualDescendants().OfType<RadioButton>())
                     if (radio.DataContext is NavigationItemViewModel navigation)
                         radio.SetCurrentValue(RadioButton.IsCheckedProperty, navigation.IsSelected);
-                this.FindControl<Button>("GuardSave")?.Focus();
+                if (decidingWork.Recurring.NeedsDecision) FocusAutomationId("recurring-guard-save");
+                else this.FindControl<Button>("GuardSave")?.Focus();
             });
         if (e.PropertyName == nameof(ProjectCaptureViewModel.DateValidationMessage)
             && sender is ProjectCaptureViewModel { HasDateValidationError: true })
@@ -1780,21 +1788,22 @@ public sealed partial class MainWindow : Window
     private async void OnCopyRendered(object? sender, RoutedEventArgs e)
     {
         if (DataContext is not ShellViewModel { Work: { } work }) return;
+        var recurring = (sender as Control)?.DataContext as RecurringTasksViewModel;
         var clipboard = _markdownClipboard ?? (Clipboard is null ? null : new AvaloniaMarkdownClipboard(Clipboard));
         if (clipboard is null)
         {
-            work.MarkdownCopyFailed();
+            if (recurring is not null) recurring.ReportMarkdownCopy(false); else work.MarkdownCopyFailed();
             return;
         }
 
         try
         {
-            await clipboard.WriteAsync(work.RenderedDescription);
-            work.MarkdownCopySucceeded();
+            await clipboard.WriteAsync(recurring?.RenderedDescription ?? work.RenderedDescription);
+            if (recurring is not null) recurring.ReportMarkdownCopy(true); else work.MarkdownCopySucceeded();
         }
         catch (Exception)
         {
-            work.MarkdownCopyFailed();
+            if (recurring is not null) recurring.ReportMarkdownCopy(false); else work.MarkdownCopyFailed();
         }
     }
 
@@ -1828,7 +1837,17 @@ public sealed partial class MainWindow : Window
             return;
         }
         if (e.Key != Key.Escape || DataContext is not ShellViewModel { Work: { } work }) return;
-        if (work.NeedsArchiveConfirmation)
+        if (work.Recurring.NeedsDeleteConfirmation)
+        {
+            work.Recurring.CancelDeleteCommand.Execute(null);
+            e.Handled = true;
+        }
+        else if (work.Recurring.NeedsDecision)
+        {
+            work.Recurring.StayCommand.Execute(null);
+            e.Handled = true;
+        }
+        else if (work.NeedsArchiveConfirmation)
         {
             work.CancelArchiveTaskCommand.Execute(null);
             e.Handled = true;
@@ -1849,6 +1868,10 @@ public sealed partial class MainWindow : Window
             && this.FindControl<TextBox>("MarkdownSource") is { } markdownSource
             && hit != markdownSource
             && hit?.GetVisualAncestors().Contains(markdownSource) != true;
+        var recurringSource = this.GetVisualDescendants().OfType<TextBox>().FirstOrDefault(control => control.Name == "RecurringMarkdownSource");
+        _recurringMarkdownPointerStartedOutside = e.GetCurrentPoint(this).Properties.IsLeftButtonPressed
+            && DataContext is ShellViewModel { Work.Recurring.IsEditingMarkdown: true }
+            && recurringSource is not null && hit != recurringSource && hit?.GetVisualAncestors().Contains(recurringSource) != true;
         Button? handle = (hit as Button)?.Classes.Contains("drag-handle") == true
             ? (Button?)hit
             : hit?.GetVisualAncestors().OfType<Button>().FirstOrDefault(button => button.Classes.Contains("drag-handle"));
@@ -2005,6 +2028,10 @@ public sealed partial class MainWindow : Window
         if (finishMarkdownEditing && DataContext is ShellViewModel { Work: { IsEditingMarkdown: true } markdownWork })
             markdownWork.FinishMarkdownEditing();
 
+        if (_recurringMarkdownPointerStartedOutside && e.InitialPressMouseButton == MouseButton.Left
+            && DataContext is ShellViewModel { Work.Recurring: { } recurring }) recurring.IsEditingMarkdown = false;
+        _recurringMarkdownPointerStartedOutside = false;
+
         if (DataContext is not ShellViewModel { Work: { } work }
             || e.InitialPressMouseButton != MouseButton.Left)
         {
@@ -2066,12 +2093,14 @@ public sealed partial class MainWindow : Window
     private void OnPointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
     {
         _markdownPointerStartedOutside = false;
+        _recurringMarkdownPointerStartedOutside = false;
         ResetPointerGesture();
     }
 
     private void OnDeactivated(object? sender, EventArgs e)
     {
         _markdownPointerStartedOutside = false;
+        _recurringMarkdownPointerStartedOutside = false;
         ResetPointerGesture();
     }
 
@@ -2094,6 +2123,7 @@ public sealed partial class MainWindow : Window
 
     private static RelayCommand? SelectionCommandForRow(Border? row) => row?.DataContext switch
     {
+        RecurringTaskRowViewModel recurring => recurring.EditCommand,
         TaskRowViewModel task => task.SelectCommand,
         CategoryTaskRowViewModel categoryTask => categoryTask.Task.SelectCommand,
         CompletedTaskRowViewModel completedTask => completedTask.Task.SelectCommand,
@@ -2149,6 +2179,7 @@ public sealed partial class MainWindow : Window
         {
             _subscribedWork.PropertyChanged -= OnWorkChanged;
             _subscribedWork.AutosaveRequested -= OnAutosaveRequested;
+            _subscribedWork.Recurring.AutosaveRequested -= OnAutosaveRequested;
         }
         if (_subscribedShell is not null)
         {

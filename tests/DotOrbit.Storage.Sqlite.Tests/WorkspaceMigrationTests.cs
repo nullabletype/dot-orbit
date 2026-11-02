@@ -1071,7 +1071,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; DROP TABLE today_tasks; PRAGMA user_version = 6;";
+            command.CommandText = "DROP TABLE IF EXISTS recurring_task_participants; DROP TABLE IF EXISTS recurring_tasks; DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; DROP TABLE today_tasks; PRAGMA user_version = 6;";
             command.ExecuteNonQuery();
         }
 
@@ -1079,7 +1079,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; DROP TABLE today_tasks; DROP TABLE task_participants; DROP TABLE participants; PRAGMA user_version = 5;";
+            command.CommandText = "DROP TABLE IF EXISTS recurring_task_participants; DROP TABLE IF EXISTS recurring_tasks; DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; DROP TABLE today_tasks; DROP TABLE task_participants; DROP TABLE participants; PRAGMA user_version = 5;";
             command.ExecuteNonQuery();
         }
 
@@ -1087,7 +1087,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; PRAGMA user_version = 7;";
+            command.CommandText = "DROP TABLE IF EXISTS recurring_task_participants; DROP TABLE IF EXISTS recurring_tasks; DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; DROP TABLE task_archives; PRAGMA user_version = 7;";
             command.ExecuteNonQuery();
         }
 
@@ -1095,7 +1095,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; PRAGMA user_version = 8;";
+            command.CommandText = "DROP TABLE IF EXISTS recurring_task_participants; DROP TABLE IF EXISTS recurring_tasks; DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; DROP TABLE project_archives; PRAGMA user_version = 8;";
             command.ExecuteNonQuery();
         }
 
@@ -1103,7 +1103,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; PRAGMA user_version = 9;";
+            command.CommandText = "DROP TABLE IF EXISTS recurring_task_participants; DROP TABLE IF EXISTS recurring_tasks; DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; DROP TABLE archive_search; PRAGMA user_version = 9;";
             command.ExecuteNonQuery();
         }
 
@@ -1111,7 +1111,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; PRAGMA user_version = 10;";
+            command.CommandText = "DROP TABLE IF EXISTS recurring_task_participants; DROP TABLE IF EXISTS recurring_tasks; DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; DROP TABLE project_bins; DROP TABLE task_bin_order_anchors; DROP TABLE task_bins; PRAGMA user_version = 10;";
             command.ExecuteNonQuery();
         }
 
@@ -1119,7 +1119,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; PRAGMA user_version = 11;";
+            command.CommandText = "DROP TABLE IF EXISTS recurring_task_participants; DROP TABLE IF EXISTS recurring_tasks; DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; DROP TABLE project_bin_order_anchors; DROP TABLE project_bin_tasks; PRAGMA user_version = 11;";
             command.ExecuteNonQuery();
         }
 
@@ -1127,7 +1127,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; PRAGMA user_version = 12;";
+            command.CommandText = "DROP TABLE IF EXISTS recurring_task_participants; DROP TABLE IF EXISTS recurring_tasks; DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; DROP TABLE project_identities; DROP TABLE category_identities; PRAGMA user_version = 12;";
             command.ExecuteNonQuery();
         }
 
@@ -1135,7 +1135,7 @@ public sealed class WorkspaceMigrationTests
         {
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; DROP TABLE project_identities; "
+            command.CommandText = "DROP TABLE IF EXISTS recurring_task_participants; DROP TABLE IF EXISTS recurring_tasks; DROP TABLE agent_proposal_receipts; DROP TABLE pending_agent_proposal; DROP TABLE agent_client_authorizations; DROP TABLE workspace_revision; DROP TABLE project_identities; "
                 + "ALTER TABLE category_identities RENAME TO category_identities_v14; "
                 + SqliteWorkspaceWork.CategoryIdentitySchemaThirteen
                 + "INSERT INTO category_identities (category_id, colour_key) SELECT category_id, colour_key FROM category_identities_v14; "
@@ -1148,6 +1148,7 @@ public sealed class WorkspaceMigrationTests
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
             command.CommandText = """
+                DROP TABLE recurring_task_participants; DROP TABLE recurring_tasks;
                 ALTER TABLE pending_agent_proposal RENAME TO pending_agent_proposal_v17;
                 CREATE TABLE pending_agent_proposal (
                     singleton INTEGER NOT NULL PRIMARY KEY CHECK(singleton = 1),
@@ -1180,6 +1181,7 @@ public sealed class WorkspaceMigrationTests
             using var connection = OpenInspectionConnection(WorkspacePath, ValidPassphrase);
             using var command = connection.CreateCommand();
             command.CommandText = """
+                DROP TABLE recurring_task_participants; DROP TABLE recurring_tasks;
                 ALTER TABLE pending_agent_proposal RENAME TO pending_agent_proposal_v18;
                 """ + SqliteAgentIntegrationStore.PendingProposalSchemaSeventeen + """
                 INSERT INTO pending_agent_proposal

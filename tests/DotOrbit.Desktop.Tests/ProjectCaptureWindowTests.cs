@@ -761,7 +761,7 @@ public sealed class ProjectCaptureWindowTests
             && panel.Margin.Right == 32).Content;
         bottomInsets.Add(("Settings", Assert.IsType<StackPanel>(settingsContent).Margin.Bottom));
 
-        Assert.Equal(["Today", "Upcoming", "Backlog", "Projects", "Categories", "Completed", "Archive", "Bin", "Settings"],
+        Assert.Equal(["Today", "Upcoming", "Backlog", "Projects", "Categories", "Recurring", "Completed", "Archive", "Bin", "Settings"],
             bottomInsets.Select(inset => inset.View));
         Assert.All(bottomInsets, inset => Assert.Equal(16, inset.Bottom));
         window.Close();

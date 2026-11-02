@@ -23,6 +23,8 @@ internal static class WorkspaceRevisionStorage
 
     private static readonly (string Table, string UpdateWhen)[] TrackedTables =
     [
+        ("recurring_tasks", "OLD.title IS NOT NEW.title OR OLD.description IS NOT NEW.description OR OLD.project_id IS NOT NEW.project_id OR OLD.explicit_category_id IS NOT NEW.explicit_category_id OR OLD.cadence IS NOT NEW.cadence OR OLD.first_date IS NOT NEW.first_date OR OLD.next_date IS NOT NEW.next_date OR OLD.last_date IS NOT NEW.last_date OR OLD.due_offset IS NOT NEW.due_offset OR OLD.enabled IS NOT NEW.enabled OR OLD.pause_reason IS NOT NEW.pause_reason"),
+        ("recurring_task_participants", "OLD.recurring_id IS NOT NEW.recurring_id OR OLD.participant_id IS NOT NEW.participant_id OR OLD.position IS NOT NEW.position"),
         ("categories", "OLD.name IS NOT NEW.name OR OLD.position IS NOT NEW.position"),
         ("projects", "OLD.title IS NOT NEW.title OR OLD.description IS NOT NEW.description OR OLD.category_id IS NOT NEW.category_id OR OLD.target_date IS NOT NEW.target_date OR OLD.position IS NOT NEW.position"),
         ("tasks", "OLD.project_id IS NOT NEW.project_id OR OLD.title IS NOT NEW.title OR OLD.description IS NOT NEW.description OR OLD.explicit_category_id IS NOT NEW.explicit_category_id OR OLD.due_date IS NOT NEW.due_date OR OLD.shared_position IS NOT NEW.shared_position OR OLD.project_position IS NOT NEW.project_position OR OLD.completion_instant IS NOT NEW.completion_instant OR OLD.completion_date IS NOT NEW.completion_date"),

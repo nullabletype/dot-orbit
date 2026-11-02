@@ -225,6 +225,41 @@ public sealed class PlaintextWorkspaceExporterTests : IDisposable
     }
 
     [Fact]
+    public void RealEncryptedExportIncludesGeneratedTasksButExcludesDefinitionsAndScheduleState()
+    {
+        Directory.CreateDirectory(_directory);
+        var passphrase = WorkspacePassphrase.Create("synthetic export phrase", "synthetic export phrase").Passphrase!;
+        var time = new FixedTimeProvider(new DateTimeOffset(2026, 10, 6, 12, 0, 0, TimeSpan.Zero));
+        var store = new EncryptedWorkspaceStore(new SystemIdentifierGenerator(), time);
+        using var session = store.Create(Path.Combine(_directory, "recurring.db"), passphrase,
+            CategoryName.Create("Synthetic").CategoryName!).Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        var recurring = Assert.IsAssignableFrom<IRecurringTasks>(session.Work);
+        var draft = new RecurringTaskDraft("Generated Task", "**Copied content**", null, category.Id,
+            [], RecurrenceCadence.Daily, new(2026, 10, 6), 5, true);
+        var definition = recurring.CreateRecurringTask(draft);
+        var task = Assert.Single(recurring.ProcessDueRecurringTasks());
+        recurring.UpdateRecurringTask(definition.Id, draft with { Title = "Future definition only", IsEnabled = false });
+
+        var bytes = PlaintextWorkspaceExporter.CreateDocument(session.Work.Read());
+        using var document = JsonDocument.Parse(bytes);
+        var root = document.RootElement;
+        Assert.Equal(["format", "schemaVersion", "categories", "participants", "projects", "tasks"],
+            root.EnumerateObject().Select(property => property.Name));
+        var exportedTask = Assert.Single(root.GetProperty("tasks").GetProperty("active").EnumerateArray());
+        Assert.Equal(task.Id, exportedTask.GetProperty("id").GetString());
+        Assert.Equal("Generated Task", exportedTask.GetProperty("title").GetString());
+        Assert.Equal("**Copied content**", exportedTask.GetProperty("description").GetString());
+        Assert.Equal("2026-10-11", exportedTask.GetProperty("dueDate").GetString());
+        Assert.False(exportedTask.GetProperty("isComplete").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, exportedTask.GetProperty("todayLane").ValueKind);
+        var content = Encoding.UTF8.GetString(bytes);
+        Assert.DoesNotContain(definition.Id, content, StringComparison.Ordinal);
+        Assert.DoesNotContain("Future definition only", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("nextOccurrenceDate", content, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ExportPublishesAtomicallyAndPreservesAnExistingDestinationWhenTemporaryCreationFails()
     {
         var cancellationToken = TestContext.Current.CancellationToken;

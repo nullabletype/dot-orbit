@@ -55,6 +55,7 @@ The current scenario contains:
 - 7 Participants, including unreferenced, single-Task, and multi-Task labels;
 - 6 Projects with distinct persisted identity colours, covering empty, not-started, in-progress, complete, overdue, undated, and long-title states;
 - 33 attached and standalone Tasks with inherited and overridden Categories;
+- 4 Recurring Task definitions covering daily, weekly, monthly, no/zero/five-day due offsets, inherited and explicit Categories, Participants, manual pause, and a Project-archive pause with restore/reassign guidance; active definitions first occur after the anchor date so initial Task counts remain stable;
 - 21 incomplete and 12 completed Tasks, with completion dates spanning today through more than 30 days ago;
 - 6 archived Tasks spanning Today, Yesterday, two days ago, older weekly groups, and 30 days ago, with both attached and standalone examples;
 - 1 archived in-progress Project whose individually archived Task remains archived and whose former Today Task has no Today membership;

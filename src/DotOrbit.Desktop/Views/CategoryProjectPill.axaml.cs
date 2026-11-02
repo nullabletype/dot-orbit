@@ -112,6 +112,16 @@ public sealed partial class CategoryProjectPill : UserControl
         set => SetValue(ProjectHelpTextProperty, value);
     }
 
+    protected override Size MeasureOverride(Size availableSize)
+    {
+        var available = Math.Max(0, availableSize.Width - 2);
+        var hasProject = !string.IsNullOrWhiteSpace(ProjectName);
+        var segmentMaximum = hasProject ? available / 2 : available;
+        _categoryButton.MaxWidth = segmentMaximum;
+        _projectButton.MaxWidth = segmentMaximum;
+        return base.MeasureOverride(availableSize);
+    }
+
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
@@ -121,7 +131,8 @@ public sealed partial class CategoryProjectPill : UserControl
             || change.Property == ProjectCommandProperty
             || change.Property == CategoryAutomationIdProperty
             || change.Property == ProjectAutomationIdProperty
-            || change.Property == ProjectHelpTextProperty)
+            || change.Property == ProjectHelpTextProperty
+            || change.Property == HasOverrideProperty)
             UpdatePresentation();
     }
 
@@ -151,6 +162,9 @@ public sealed partial class CategoryProjectPill : UserControl
             _categoryButton,
             CategoryCommand is null ? string.Empty : $"Open Category {CategoryName}");
         AutomationProperties.SetAutomationId(_categoryButton, CategoryAutomationId ?? string.Empty);
+        var categoryHelp = HasOverride ? "Category overrides the Project's Category." : null;
+        ToolTip.SetTip(_categoryButton, categoryHelp);
+        AutomationProperties.SetHelpText(_categoryButton, categoryHelp ?? string.Empty);
 
         _projectButton.Focusable = hasProject && ProjectCommand is not null;
         _projectButton.IsEnabled = hasProject && ProjectCommand?.CanExecute(null) == true;

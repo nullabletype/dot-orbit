@@ -171,7 +171,7 @@
       <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
       <Setter Property="BorderThickness" Value="2" />
     </Style>
-    <Style Selector="TextBox.inspector-field, ComboBox.inspector-field">
+    <Style Selector="TextBox.inspector-field, ComboBox.inspector-field, NumericUpDown.inspector-field">
       <Setter Property="Background" Value="{DynamicResource PanelInputBrush}" />
       <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
       <Setter Property="BorderThickness" Value="1" />
