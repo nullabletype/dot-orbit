@@ -102,7 +102,8 @@ public sealed class RecurringAutosaveTests
     {
         var store = creating ? new RecurringMemoryWorkspace() : Existing();
         using var release = new ManualResetEventSlim();
-        var operation = new HeldEditorSave(store, release);
+        using var releaseProcessing = new ManualResetEventSlim();
+        var operation = new HeldEditorSave(store, release, releaseProcessing);
         await using var executor = new SerializedWorkspacePersistenceExecutor(operation, Clock());
         var work = new ProjectCaptureViewModel(store, Clock(), executor, executor, new AvaloniaUiDispatcher());
         var model = creating ? work.Recurring : Edit(work);
@@ -122,14 +123,20 @@ public sealed class RecurringAutosaveTests
             Assert.False(operation.Captured.IsEnabled);
             Assert.Empty(operation.Captured.NewParticipantLabels ?? []);
             release.Set();
-            await work.WaitForWorkspaceActionsAsync();
-            await WaitUntilAsync(() => model.AutosaveStatus == "Saved");
+            await operation.ProcessingStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+            Assert.Equal("Saved", model.AutosaveStatus);
+            Assert.True(work.HasPendingWorkspaceActions);
+            Assert.Empty(store.Read().Tasks);
             var definition = store.ReadRecurringTasks().Single();
             Assert.Equal(1, store.CreateCalls);
             Assert.Equal(definition.Id, model.EditingDefinitionId);
             Assert.Equal("Latest while held", definition.Title);
             Assert.Equal("Latest description", definition.Description);
             Assert.True(definition.IsEnabled);
+            // Saving the definition settles before its separately queued materialization.
+            // Wait for that admitted action, rather than observing only the Saved label.
+            releaseProcessing.Set();
+            await work.WaitForWorkspaceActionsAsync();
             if (creating) Assert.Equal("Latest while held", store.Read().Tasks.Single().Title);
             Assert.Equal("Latest while held", model.Title);
             Assert.True(model.HasEditor);
@@ -147,7 +154,7 @@ public sealed class RecurringAutosaveTests
             Assert.Equal([selected.Id], store.ReadRecurringTasks().Single().ParticipantIds);
             Assert.Single(store.Read().Participants);
         }
-        finally { release.Set(); }
+        finally { release.Set(); releaseProcessing.Set(); }
     }
 
     [Fact]
@@ -507,12 +514,13 @@ public sealed class RecurringAutosaveTests
         public void Fire() => _callback?.Invoke(_revision);
     }
 
-    private sealed class HeldEditorSave(IWorkspaceWork store, ManualResetEventSlim release) : IWorkspacePersistenceOperation
+    private sealed class HeldEditorSave(IWorkspaceWork store, ManualResetEventSlim release, ManualResetEventSlim? releaseProcessing = null) : IWorkspacePersistenceOperation
     {
         private readonly WorkspacePersistenceOperation _inner = new(store);
         private bool _held;
         public RecurringTaskDraft? Captured { get; private set; }
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ProcessingStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public InspectorSaveResult Execute(InspectorSaveRequest request) => _inner.Execute(request);
         public WorkspaceActionResult ExecuteAction(WorkspaceActionRequest request)
         {
@@ -520,6 +528,11 @@ public sealed class RecurringAutosaveTests
             {
                 _held = true; Captured = request.RecurringDraft; Started.TrySetResult();
                 release.Wait(TestContext.Current.CancellationToken);
+            }
+            if (request.Kind == WorkspaceActionKind.ProcessRecurring && releaseProcessing is not null)
+            {
+                ProcessingStarted.TrySetResult();
+                releaseProcessing.Wait(TestContext.Current.CancellationToken);
             }
             return _inner.ExecuteAction(request);
         }
