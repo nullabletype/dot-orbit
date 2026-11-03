@@ -2400,6 +2400,36 @@ public sealed class ProjectCaptureViewModelTests
     }
 
     [Fact]
+    public async Task ProjectQuickAddAndKeyboardMovesRespectCompletionGroups()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var first = work.CreateTask(project.Id, "First");
+        var done = work.CreateTask(project.Id, "Done");
+        var last = work.CreateTask(project.Id, "Last");
+        work.CompleteTask(done.Id);
+        var model = new ProjectCaptureViewModel(work);
+        var rows = model.Projects.Single().Tasks;
+        Assert.Equal([first.Id, last.Id, done.Id], rows.Select(task => task.Id));
+        Assert.True(await model.QuickAddAsync(project.Id, "New"));
+        var added = rows.Single(task => task.Title == "New");
+        var shared = model.Backlog.Select(task => task.Id).ToArray();
+        Assert.Equal([first.Id, last.Id, added.Id, done.Id], rows.Select(task => task.Id));
+        added.MoveProjectTaskToTopCommand.Execute(null);
+        Assert.Equal([added.Id, first.Id, last.Id, done.Id], rows.Select(task => task.Id));
+        added.MoveProjectTaskDownCommand.Execute(null);
+        Assert.Equal([first.Id, added.Id, last.Id, done.Id], rows.Select(task => task.Id));
+        added.MoveProjectTaskUpCommand.Execute(null);
+        Assert.Equal([added.Id, first.Id, last.Id, done.Id], rows.Select(task => task.Id));
+        added.MoveProjectTaskToBottomCommand.Execute(null);
+        added.MoveProjectTaskDownCommand.Execute(null);
+        rows[^1].MoveProjectTaskUpCommand.Execute(null);
+        Assert.Equal([first.Id, last.Id, added.Id, done.Id], rows.Select(task => task.Id));
+        Assert.Equal(shared, model.Backlog.Select(task => task.Id));
+        Assert.Equal("Moved Done to position 1 of 1 among completed Tasks in project Garden.", model.ReorderAnnouncement);
+    }
+
+    [Fact]
     public void CompletionAndIndependentReordersFlushPendingInspectorChanges()
     {
         var work = new MemoryWorkspaceWork();
@@ -4521,6 +4551,21 @@ internal class MemoryWorkspaceWork : IWorkspaceWork
         }
         return new(projectId, taskId, targetPosition + 1, ordered.Count);
     }
+    public ProjectTaskOrderChange MoveTaskInProjectGroup(string projectId, string taskId, TaskOrderMove move)
+    {
+        Check();
+        var ordered = Read().Tasks.Where(task => task.ProjectId == projectId).OrderBy(task => task.ProjectPosition).ToArray();
+        var source = ordered.Single(task => task.Id == taskId);
+        var peers = ordered.Where(task => task.IsComplete == source.IsComplete).ToList();
+        var position = ResolveTargetPosition(peers.Select(task => task.Id).ToArray(), taskId, move);
+        peers.Remove(source);
+        peers.Insert(position, source);
+        var slots = ordered.Where(task => task.IsComplete == source.IsComplete).Select(task => task.ProjectPosition);
+        foreach (var (peer, slot) in peers.Zip(slots))
+            _tasks[_tasks.FindIndex(task => task.Id == peer.Id)] = peer with { ProjectPosition = slot };
+        return new(projectId, taskId, position + 1, peers.Count);
+    }
+
     public TaskRecord DetachTask(string id)
     {
         Check();

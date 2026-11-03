@@ -98,7 +98,7 @@ Status: working specification derived from the interactive prototype.
 - **ORD-002** Today is a filtered projection of the shared order; dragging a Task in Today changes its relative position in Backlog.
 - **ORD-003** Dragging a Task in Backlog changes its relative position in Today when that Task is a Today member.
 - **ORD-004** Projects have a manual order independent of Task order.
-- **ORD-005** Tasks inside each Project have a per-Project order independent of the Today/Backlog order.
+- **ORD-005** Tasks inside each Project have a manual order independent of the Today/Backlog order. In Projects, a reorder moves the Task within its completion group and preserves the other group’s manual positions. Completing or reopening a Task preserves its manual position.
 - **ORD-006** Categories have a manual order independent of Project and Task order.
 - **ORD-007** Reordering must be possible using a visible drag handle and an accessible non-pointer alternative.
 - **ORD-008** Every reorderable item provides keyboard-accessible Move up, Move down, Move to top, and Move to bottom actions within its current ordering scope.
@@ -113,7 +113,7 @@ Status: working specification derived from the interactive prototype.
 
 - **VIEW-001 Today** shows incomplete Tasks explicitly selected for Today in Today lanes, plus every Task completed on the current local calendar day.
 - **VIEW-002 Backlog** shows all incomplete Tasks in shared Task order.
-- **VIEW-003 Projects** shows Projects in manual Project order, with expandable attached Tasks in per-Project order; standalone Tasks do not appear there.
+- **VIEW-003 Projects** shows Projects in manual Project order, with expandable attached Tasks grouped incomplete first and completed last, each in per-Project manual order; standalone Tasks do not appear there.
 - **VIEW-004 Categories** shows all Projects and standalone Tasks grouped by manually ordered Category, with separate Project and standalone Task sections that preserve their existing global orders.
 - **VIEW-005 Completed** groups recent completed Tasks by day for the last three days, then by week.
 - **VIEW-006 Archive** groups the last three captured local archive dates by day and older archived work by week, and provides full-text search across archived Projects and Tasks.

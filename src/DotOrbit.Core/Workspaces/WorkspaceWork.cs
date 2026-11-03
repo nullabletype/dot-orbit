@@ -53,6 +53,7 @@ public interface IWorkspaceWork
     TaskOrderMutationResult MoveTaskInSharedOrder(string id, TaskOrderMove move);
     ProjectOrderChange MoveProject(string id, int targetPosition);
     ProjectTaskOrderChange MoveTaskInProject(string projectId, string taskId, int targetPosition);
+    ProjectTaskOrderChange MoveTaskInProjectGroup(string projectId, string taskId, TaskOrderMove move);
     TaskRecord DetachTask(string id);
     TaskRecord AttachTask(string id, string projectId, TaskAttachmentCategoryChoice? categoryChoice = null);
 }
