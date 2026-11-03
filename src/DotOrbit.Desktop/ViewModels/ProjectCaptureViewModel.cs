@@ -871,7 +871,10 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public bool RunScheduledAutosave(long? scheduledRevision = null, bool force = false)
     {
         if (!HasInspector || _editingCategory) return true;
-        if (!force && scheduledRevision is not null && scheduledRevision != _autosaveRevision) return true;
+        // Navigation flushes the latest draft itself. A delayed text timer must not
+        // submit a second write or retry a failed draft before the user decides.
+        if (!force && scheduledRevision is not null && (scheduledRevision != _autosaveRevision
+            || _activeFlush is { IsCompleted: false } || NeedsDecision || HasAutosaveError)) return true;
         if (_backgroundSave is { IsCompleted: false })
         {
             _saveRequestedWhileInProgress = true;

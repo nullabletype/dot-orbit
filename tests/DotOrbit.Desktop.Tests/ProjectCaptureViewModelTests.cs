@@ -7,6 +7,33 @@ namespace DotOrbit.Desktop.Tests;
 
 public sealed class ProjectCaptureViewModelTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task DelayedAutosaveCannotRetryAWriteOwnedByNavigationOrItsDiscardDecision(bool tickDuringFlush)
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Original", "", "home", null);
+        var writer = new ControlledInspectorSaveWriter(work);
+        var model = new ProjectCaptureViewModel(work, null, writer);
+        model.SelectTask(task.Id);
+        model.Title = "Edited";
+        var scheduledRevision = model.AutosaveRevision;
+        var navigated = false;
+        var navigation = model.NavigateAsync(() => navigated = true);
+        await writer.WaitForSubmissionCountAsync(1);
+        if (tickDuringFlush) model.RunScheduledAutosave(scheduledRevision);
+        writer.FailNext();
+        await navigation;
+        Assert.True(model.NeedsDecision);
+        if (!tickDuringFlush) model.RunScheduledAutosave(scheduledRevision);
+
+        model.DiscardAndLeaveCommand.Execute(null);
+        Assert.True(navigated);
+        Assert.Single(writer.Submissions);
+        Assert.Equal("Original", Assert.Single(work.Read().Tasks).Title);
+    }
+
     [Fact]
     public async Task RevertingToTheBaselineWhileAWriteIsHeldPersistsTheCorrectiveRevisionBeforeNavigation()
     {
