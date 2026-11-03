@@ -4459,6 +4459,7 @@ public sealed class ProjectCaptureWindowTests
         var shell = new ShellViewModel(work, time);
         var window = new MainWindow(session: null, timeProvider: time) { DataContext = shell };
         window.Show();
+        SelectView(shell, "Backlog");
         shell.Work!.SelectTask(task.Id);
         Dispatcher.UIThread.RunJobs();
         var picker = Assert.IsType<InspectorDatePicker>(window.FindControl<CalendarDatePicker>("DraftDate"));
@@ -4474,11 +4475,50 @@ public sealed class ProjectCaptureWindowTests
         Assert.Equal("2026-10-12", shell.Work.Date);
         Assert.False(shell.Work.IsDirty);
         Assert.Equal(today, work.Read().Tasks.Single().DueDate);
+        Assert.Null(work.Read().Tasks.Single().TodayLane);
 
         PressKey(window, PhysicalKey.ArrowDown, RawInputModifiers.Alt);
         PressKey(CalendarRoot(picker), PhysicalKey.Space);
         Assert.Equal(today.ToDateTime(TimeOnly.MinValue), Assert.Single(confirmed));
         Assert.True(picker.IsKeyboardFocusWithin);
+        Assert.Equal(TodayLane.Planned, work.Read().Tasks.Single().TodayLane);
+        var toggle = Assert.Single(window.GetVisualDescendants().OfType<ToggleButton>(), button =>
+            button.IsEffectivelyVisible && AutomationProperties.GetAutomationId(button) == $"task-today-{task.Id}");
+        Assert.True(toggle.IsChecked);
+        Assert.Equal("Remove Plant bulbs from Today", AutomationProperties.GetName(toggle));
+        var live = Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(), text =>
+            text.IsEffectivelyVisible && text.Text == "Added Plant bulbs to Today in Planned."
+            && AutomationProperties.GetLiveSetting(text) == AutomationLiveSetting.Polite);
+        editor.Text = string.Empty;
+        Assert.True(shell.Work.Save());
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(toggle.IsChecked);
+        Assert.Equal("Removed Plant bulbs from Today.", live.Text);
+        Assert.True(picker.IsKeyboardFocusWithin);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void TypingTodaysDateAndTabbingCommitsPlannedPlacement()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Write list", "", "home", null);
+        var time = new FixedTimeProvider(new DateTimeOffset(2026, 10, 12, 12, 0, 0, TimeSpan.Zero));
+        var shell = new ShellViewModel(work, time);
+        var window = new MainWindow(session: null, timeProvider: time) { DataContext = shell };
+        window.Show();
+        SelectView(shell, "Backlog");
+        shell.Work!.SelectTask(task.Id);
+        Dispatcher.UIThread.RunJobs();
+        var picker = window.FindControl<InspectorDatePicker>("DraftDate")!;
+        var editor = Assert.Single(picker.GetVisualDescendants().OfType<TextBox>());
+        Assert.True(editor.Focus());
+        window.KeyTextInput("2026-10-12");
+        PressKey(window, PhysicalKey.Tab);
+        Assert.True(shell.Work.RunScheduledAutosave());
+        var saved = Assert.Single(work.Read().Tasks);
+        Assert.Equal(new DateOnly(2026, 10, 12), saved.DueDate);
+        Assert.Equal(TodayLane.Planned, saved.TodayLane);
         window.Close();
     }
 

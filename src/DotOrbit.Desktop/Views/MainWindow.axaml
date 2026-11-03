@@ -1924,6 +1924,7 @@
                 <StackPanel Spacing="4">
                   <views:InspectorDatePicker
                       x:Name="DraftDate"
+                      IsEnabled="{Binding Work.CanChooseInspectorDate}"
                       Classes="inspector-field"
                       Classes.error="{Binding Work.HasDateValidationError}"
                       IsTodayHighlighted="True"

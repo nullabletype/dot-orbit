@@ -296,7 +296,7 @@ public sealed class InspectorDatePlacementTests
     }
 
     [Fact]
-    public async Task LaterDateChoiceWaitsForExplicitRemovalBeforeSavingDateAndNewPlacement()
+    public async Task DatePickerUsesTheCommittedLaneAfterAPendingExplicitRemoval()
     {
         var work = new MemoryWorkspaceWork();
         var task = work.CreateStandaloneTask("Older", "", "home", null);
@@ -307,12 +307,13 @@ public sealed class InspectorDatePlacementTests
         model.SelectTask(task.Id);
         model.Backlog.Single().ToggleTodayCommand.Execute(null);
         await actions.ResultCaptured;
+        Assert.False(model.CanChooseInspectorDate);
         model.CommitCalendarDate(Day);
-        var flush = model.FlushPendingAutosaveAsync();
-        Assert.False(flush.IsCompleted);
         Assert.Null(work.Read().Tasks.Single().DueDate);
         actions.ReleaseResult();
-        Assert.True(await flush);
+        await model.WaitForWorkspaceActionsAsync();
+        Assert.True(model.CanChooseInspectorDate);
+        model.CommitCalendarDate(Day);
         var saved = Assert.Single(work.Read().Tasks);
         Assert.Equal(DateOnly.FromDateTime(Day), saved.DueDate);
         Assert.Equal(TodayLane.Planned, saved.TodayLane);

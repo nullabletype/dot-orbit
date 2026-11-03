@@ -27,7 +27,6 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private bool _creatingTaskDraft;
     private bool _creatingTodayTask;
     private TaskDatePlacement _datePlacement;
-    private DeferredCalendarChoice? _deferredCalendarChoice;
     private bool _taskContextEnabled = true;
     private string _title = string.Empty;
     private string _description = string.Empty;
@@ -375,7 +374,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         || NeedsProjectDuplicationConfirmation;
     public bool IsDirty => HasInspector && _original != Fingerprint();
     private bool RequiresPersistence => HasInspector && !_editingCategory
-        && (_deferredCalendarChoice is not null || _pendingTaskRefresh is not null || _persistedFingerprint != CurrentFingerprint());
+        && (_pendingTaskRefresh is not null || _persistedFingerprint != CurrentFingerprint());
     private bool HasPendingPersistence => _backgroundSave is { IsCompleted: false } || RequiresPersistence;
     public bool ShowExplicitInspectorActions => HasInspector && _editingCategory;
     public bool ShowAutosaveStatus => HasInspector && !_editingCategory;
@@ -645,10 +644,12 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         {
             if (_loadingDraft) { _date = value; return; }
             if (string.Equals(_date, value, StringComparison.Ordinal)) return;
-            if (_datePlacement == TaskDatePlacement.AddToPlanned && (string.IsNullOrWhiteSpace(value)
-                || DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
-                    && date != Today))
-                _datePlacement = TaskDatePlacement.RemoveFromPlanned;
+            if (CanChooseInspectorDate)
+            {
+                if (string.IsNullOrWhiteSpace(value)) _datePlacement = PlacementForDate(null);
+                else if (DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+                    _datePlacement = PlacementForDate(date);
+            }
             _date = value;
             DateValidationMessage = string.Empty;
             Notify();
@@ -870,13 +871,11 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public bool RunScheduledAutosave(long? scheduledRevision = null, bool force = false)
     {
         if (!HasInspector || _editingCategory) return true;
-        if (_deferredCalendarChoice is not null) return true;
         if (!force && scheduledRevision is not null && scheduledRevision != _autosaveRevision) return true;
         if (_backgroundSave is { IsCompleted: false })
         {
             _saveRequestedWhileInProgress = true;
-            if (_deferredCalendarChoice is not null) return true;
-        if (!force && scheduledRevision is not null)
+            if (!force && scheduledRevision is not null)
                 _expiredTextSaveRevisionWhileInProgress = scheduledRevision;
             return true;
         }
@@ -907,19 +906,12 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
     public Task<bool> FlushPendingAutosaveAsync()
     {
-        if (_deferredCalendarChoice is { } choice) return FlushAfterCalendarChoiceAsync(choice);
         if (_activeFlush is { IsCompleted: false } active) return active;
         var flush = FlushPendingAutosaveCoreAsync();
         _activeFlush = flush;
         if (flush.IsCompleted) _activeFlush = null;
         else _ = ClearCompletedFlushAsync(flush);
         return flush;
-    }
-
-    private async Task<bool> FlushAfterCalendarChoiceAsync(DeferredCalendarChoice choice)
-    {
-        await choice.Applied.Task;
-        return await FlushPendingAutosaveAsync();
     }
 
     private async Task ClearCompletedFlushAsync(Task<bool> flush)
@@ -963,36 +955,9 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     {
         if (!HasInspector || _editingCategory) return;
         var date = selectedDate is { } selected ? DateOnly.FromDateTime(selected) : (DateOnly?)null;
-        var localToday = Today;
-        var precedingAction = _editingTask ? _queuedWorkspaceActions.LastOrDefault(item =>
-            item.Request.TaskId == _editingId && ChangesTodayPlacement(item.Request.Kind)) : null;
-        if (precedingAction is not null)
-        {
-            // Interpret the choice against the lane committed by preceding explicit actions.
-            var previous = _deferredCalendarChoice;
-            _deferredCalendarChoice = new(precedingAction, date, localToday);
-            previous?.Applied.TrySetResult();
-            _date = date?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty;
-            Notify(nameof(Date));
-            DraftChanged(immediate: true);
-            return;
-        }
-        ApplyCalendarChoice(date, localToday);
-    }
-
-    private void ApplyCalendarChoice(DateOnly? date, DateOnly localToday)
-    {
+        if (!CanChooseInspectorDate) return;
         var value = date?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty;
-        var placement = _datePlacement;
-        if (_editingTask && !_creatingTodayTask)
-        {
-            var task = _snapshot.Tasks.FirstOrDefault(item => item.Id == _editingId);
-            if (date == localToday && (task is null || (!task.IsComplete && !task.IsArchived && IsTaskInActiveWork(task)
-                && (task.TodayLane is null || _datePlacement != TaskDatePlacement.Preserve))))
-                placement = TaskDatePlacement.AddToPlanned;
-            else if (date != localToday && _datePlacement == TaskDatePlacement.AddToPlanned)
-                placement = TaskDatePlacement.RemoveFromPlanned;
-        }
+        var placement = PlacementForDate(date);
         if (!string.Equals(_date, value, StringComparison.Ordinal) || placement != _datePlacement)
         {
             _date = value;
@@ -1003,6 +968,22 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             return;
         }
         RunScheduledAutosave();
+    }
+
+    // The date and its conditional lane change must use the result of earlier explicit actions.
+    public bool CanChooseInspectorDate => !_editingTask || !_queuedWorkspaceActions.Any(action =>
+        action.Request.TaskId == _editingId && ChangesTodayPlacement(action.Request.Kind));
+
+    private TaskDatePlacement PlacementForDate(DateOnly? date)
+    {
+        if (!_editingTask || _creatingTodayTask) return TaskDatePlacement.Preserve;
+        if (date != Today)
+            return _datePlacement == TaskDatePlacement.AddToPlanned ? TaskDatePlacement.RemoveFromPlanned : _datePlacement;
+        var task = _snapshot.Tasks.FirstOrDefault(item => item.Id == _editingId);
+        if (task is not null && (task.IsComplete || task.IsArchived || !IsTaskInActiveWork(task)))
+            return TaskDatePlacement.Preserve;
+        return task?.TodayLane is null || _datePlacement != TaskDatePlacement.Preserve
+            ? TaskDatePlacement.AddToPlanned : TaskDatePlacement.Preserve;
     }
 
     public void Navigate(Action destination) => _ = NavigateAsync(destination);
@@ -2202,6 +2183,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         Notify(nameof(ShowWorkInspector)); Notify(nameof(ShowCategoryInspector)); Notify(nameof(ShowCategoryDelete));
         Notify(nameof(ShowParticipants)); Notify(nameof(ShowTaskContext)); Notify(nameof(ShowTaskContextAction));
         Notify(nameof(ShowProjectSummary)); Notify(nameof(ProjectSummary));
+        Notify(nameof(CanChooseInspectorDate));
         Notify(nameof(ShowTaskCompletionDate)); Notify(nameof(TaskCompletionDateText)); Notify(nameof(TaskCompletionDateAccessibleText));
         Notify(nameof(ShowMoveTaskToBin));
         Notify(nameof(ShowMoveProjectToBin));
@@ -3346,6 +3328,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             _timeProvider.GetElapsedTime(admittedAt),
             _inspectorGeneration,
             _autosaveRevision));
+        Notify(nameof(CanChooseInspectorDate));
         StartWorkspaceActionProcessor();
         return true;
     }
@@ -3371,7 +3354,6 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             var draftReady = await _uiDispatcher.InvokeAsync(async () =>
             {
                 if (NeedsDecision) return false;
-                if (_deferredCalendarChoice is not null) return true;
                 if (!(_editingCategory ? IsDirty : HasPendingPersistence)) return true;
                 return !_editingCategory && await FlushPendingAutosaveAsync();
             });
@@ -3396,15 +3378,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             {
                 var accepted = _queuedWorkspaceActions.Dequeue();
                 ApplyWorkspaceActionResult(accepted, result);
-                if (_deferredCalendarChoice is { } choice && ReferenceEquals(choice.PrecedingAction, accepted))
-                {
-                    _deferredCalendarChoice = null;
-                    var choiceText = choice.Date?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty;
-                    if (string.Equals(Date, choiceText, StringComparison.Ordinal))
-                        ApplyCalendarChoice(choice.Date, choice.LocalToday);
-                    else RunScheduledAutosave();
-                    choice.Applied.TrySetResult();
-                }
+                Notify(nameof(CanChooseInspectorDate));
                 PendingWorkspaceActionCount--;
                 if (PendingWorkspaceActionCount == 0) _workspaceActionsSettled.TrySetResult();
                 else Message = $"{Message} {WorkspaceActionStatus}";
@@ -3976,11 +3950,6 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         completion.TrySetResult();
         return completion;
-    }
-
-    private sealed record DeferredCalendarChoice(QueuedWorkspaceAction PrecedingAction, DateOnly? Date, DateOnly LocalToday)
-    {
-        public TaskCompletionSource Applied { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
     private sealed record QueuedWorkspaceAction(
