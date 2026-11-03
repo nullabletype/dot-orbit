@@ -1616,6 +1616,40 @@ internal sealed partial class SqliteWorkspaceWork(
         return result!;
     }
 
+    public ProjectTaskOrderChange MoveTaskInProjectGroup(string projectId, string taskId, TaskOrderMove move)
+    {
+        ArgumentNullException.ThrowIfNull(move);
+        ProjectTaskOrderChange? result = null;
+        Guard(() => transactions.Execute((connection, transaction) =>
+        {
+            RequireActiveProject(connection, transaction, projectId);
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                SELECT id, completion_instant IS NOT NULL FROM tasks
+                WHERE project_id=$project AND id NOT IN (SELECT task_id FROM task_bins)
+                ORDER BY project_position,id;
+                """;
+            command.Parameters.AddWithValue("$project", projectId);
+            var ordered = new List<(string Id, bool IsComplete)>();
+            using (var reader = command.ExecuteReader())
+                while (reader.Read()) ordered.Add((reader.GetString(0), reader.GetBoolean(1)));
+
+            var source = ordered.FindIndex(task => task.Id == taskId);
+            if (source < 0) throw new ArgumentException("The Task does not belong to this Project.", nameof(taskId));
+            var isComplete = ordered[source].IsComplete;
+            var group = ordered.Where(task => task.IsComplete == isComplete).Select(task => task.Id).ToList();
+            var position = ResolveTargetPosition(group, taskId, move);
+            Move(group, taskId, position);
+            var groupIndex = 0;
+            var merged = ordered.Select(task => task.IsComplete == isComplete ? group[groupIndex++] : task.Id).ToList();
+            RewriteProjectTaskOrder(connection, transaction, projectId, merged);
+            result = new(projectId, taskId, position + 1, group.Count);
+            return ArchiveSearchIndexEffects.None;
+        }));
+        return result!;
+    }
+
     internal void MoveTaskInIncludedProjectOrder(
         string projectId,
         string taskId,

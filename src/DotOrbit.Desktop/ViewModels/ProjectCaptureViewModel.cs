@@ -1896,8 +1896,16 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             return RunAfterDraftFlush(() => DragProjectTask(projectId, taskId, targetTaskId, after));
         var project = Projects.SingleOrDefault(item => item.Id == projectId);
         if (project is null) return false;
-        var position = DragPosition(project.Tasks.Select(task => task.Id).ToArray(), taskId, targetTaskId, after);
-        return position >= 0 && MoveProjectTask(projectId, taskId, position);
+        var source = project.Tasks.FirstOrDefault(task => task.Id == taskId);
+        if (source is null || !project.Tasks.Any(task => task.Id == targetTaskId && task.IsComplete == source.IsComplete))
+            return false;
+        var kind = after switch
+        {
+            true => TaskOrderMoveKind.AfterTargetTask,
+            false => TaskOrderMoveKind.BeforeTargetTask,
+            null => TaskOrderMoveKind.TargetTask,
+        };
+        return MoveProjectTask(projectId, taskId, new(kind, targetTaskId));
     }
 
     public bool DragCategory(string categoryId, string targetCategoryId, bool? after = null)
@@ -3845,19 +3853,16 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         return true;
     }
 
-    internal bool MoveProjectTask(string projectId, string taskId, int targetPosition)
+    internal bool MoveProjectTask(string projectId, string taskId, TaskOrderMove move)
     {
         if (HasPendingPersistence || (_editingCategory && IsDirty))
-            return RunAfterDraftFlush(() => MoveProjectTask(projectId, taskId, targetPosition));
-        var count = Projects.Single(project => project.Id == projectId).Tasks.Count;
-        if (count == 0) return false;
-        targetPosition = Math.Clamp(targetPosition, 0, count - 1);
+            return RunAfterDraftFlush(() => MoveProjectTask(projectId, taskId, move));
         if (!Attempt(() =>
             {
-                var change = _work.MoveTaskInProject(projectId, taskId, targetPosition);
+                var change = _work.MoveTaskInProjectGroup(projectId, taskId, move);
                 Reload();
                 var task = _taskRows[taskId];
-                ReorderAnnouncement = $"Moved {task.Title} to position {change.Position} of {change.Count} in project {Projects.Single(project => project.Id == projectId).Title}.";
+                ReorderAnnouncement = $"Moved {task.Title} to position {change.Position} of {change.Count} among {task.ProjectGroupName} in project {Projects.Single(project => project.Id == projectId).Title}.";
                 Message = ReorderAnnouncement;
                 ReorderFocusAutomationId = task.ProjectReorderAutomationId;
             }, "Could not reorder the Project Task.")) return false;
@@ -4587,8 +4592,6 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
     private string _dateAccessibleText = string.Empty;
     private string _completionDateText = string.Empty;
     private string _projectStateText = string.Empty;
-    private int _projectPosition;
-    private int _projectCount;
     private TodayLane? _todayLane;
     private bool _isArchived;
     private bool _isOverdue;
@@ -4610,10 +4613,10 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
         OpenProjectContextCommand = new(
             () => owner.OpenProjectContext(_projectId!),
             () => owner.CanOpenProjectContext(_projectId));
-        MoveProjectTaskUpCommand = new(() => MoveInProject(_projectPosition - 1));
-        MoveProjectTaskDownCommand = new(() => MoveInProject(_projectPosition + 1));
-        MoveProjectTaskToTopCommand = new(() => MoveInProject(0));
-        MoveProjectTaskToBottomCommand = new(() => MoveInProject(_projectCount - 1));
+        MoveProjectTaskUpCommand = new(() => MoveInProject(TaskOrderMoveKind.Up));
+        MoveProjectTaskDownCommand = new(() => MoveInProject(TaskOrderMoveKind.Down));
+        MoveProjectTaskToTopCommand = new(() => MoveInProject(TaskOrderMoveKind.Top));
+        MoveProjectTaskToBottomCommand = new(() => MoveInProject(TaskOrderMoveKind.Bottom));
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -4674,11 +4677,12 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
     public bool HasProjectState => !string.IsNullOrEmpty(ProjectStateText);
     public string ProjectReorderAccessibleName => $"Reorder {Title} in project";
     public string ProjectReorderAutomationId => $"project-task-reorder-{Id}";
-    public bool IsProjectLast => _projectCount > 0 && _projectPosition == _projectCount - 1;
-    public string MoveProjectTaskUpAccessibleName => $"Move {Title} up in project";
-    public string MoveProjectTaskDownAccessibleName => $"Move {Title} down in project";
-    public string MoveProjectTaskToTopAccessibleName => $"Move {Title} to top of project";
-    public string MoveProjectTaskToBottomAccessibleName => $"Move {Title} to bottom of project";
+    internal string ProjectGroupName => IsComplete ? "completed Tasks" : "incomplete Tasks";
+    public bool IsProjectLast { get; private set; }
+    public string MoveProjectTaskUpAccessibleName => $"Move {Title} up among {ProjectGroupName}";
+    public string MoveProjectTaskDownAccessibleName => $"Move {Title} down among {ProjectGroupName}";
+    public string MoveProjectTaskToTopAccessibleName => $"Move {Title} to top of {ProjectGroupName}";
+    public string MoveProjectTaskToBottomAccessibleName => $"Move {Title} to bottom of {ProjectGroupName}";
     public string MoveUpAccessibleName => $"Move {Title} up in Backlog";
     public string MoveDownAccessibleName => $"Move {Title} down in Backlog";
     public string MoveToTopAccessibleName => $"Move {Title} to top of Backlog";
@@ -4773,16 +4777,15 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
         Notify(nameof(AccessibleName));
     }
 
-    public void SetProjectPosition(int position, int count)
+    public void SetProjectLast(bool isLast)
     {
-        _projectPosition = position - 1;
-        _projectCount = count;
+        IsProjectLast = isLast;
         Notify(nameof(IsProjectLast));
     }
 
-    private void MoveInProject(int targetPosition)
+    private void MoveInProject(TaskOrderMoveKind kind)
     {
-        if (_projectId is not null) _owner.MoveProjectTask(_projectId, Id, targetPosition);
+        if (_projectId is not null) _owner.MoveProjectTask(_projectId, Id, new(kind));
     }
 
     public void SetPosition(int position, int count)
@@ -4918,7 +4921,7 @@ public sealed class ProjectRowViewModel : INotifyPropertyChanged
         TargetAccessibleText = WorkDatePresentation.Accessible(project.TargetDate, "Target");
         IsOverdue = WorkDatePresentation.IsOverdue(project, summary, _owner.Today);
         CompletionDateText = summary.CompletionDate is { } completionDate ? $"Completed {completionDate:d MMM yyyy}" : string.Empty;
-        var desiredTasks = tasks.ToArray();
+        var desiredTasks = project.IsArchived ? tasks.ToArray() : tasks.OrderBy(task => task.IsComplete).ToArray();
         for (var index = Tasks.Count - 1; index >= 0; index--)
             if (!desiredTasks.Contains(Tasks[index])) Tasks.RemoveAt(index);
         for (var index = 0; index < desiredTasks.Length; index++)
@@ -4927,7 +4930,7 @@ public sealed class ProjectRowViewModel : INotifyPropertyChanged
             if (current < 0) Tasks.Insert(index, desiredTasks[index]);
             else if (current != index) Tasks.Move(current, index);
         }
-        for (var index = 0; index < Tasks.Count; index++) Tasks[index].SetProjectPosition(index + 1, Tasks.Count);
+        for (var index = 0; index < Tasks.Count; index++) Tasks[index].SetProjectLast(index == Tasks.Count - 1);
         Summary = $"{summary.Status} · {summary.CompletedCount} of {summary.TaskCount} Tasks · {category.Name}"
             + (string.IsNullOrEmpty(TargetText) ? string.Empty : $" · {TargetText}");
         PropertyChanged?.Invoke(this, new(nameof(Title)));

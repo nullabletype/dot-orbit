@@ -62,7 +62,7 @@ The enabled-state toggle exposes Pause and Resume action names and checked state
 - A six-dot handle communicates draggable rows and sections.
 - Today and Backlog expose the same Task order.
 - Projects exposes an independent Project order.
-- Expanded Project subtasks expose their own per-Project order.
+- Expanded Projects show incomplete Tasks first and completed Tasks last, each in manual per-Project order. Keyboard moves, drag targets and announced positions are relative to the Task’s completion group. Completing or reopening a Task moves its row after commit and retains focus on its completion control when activated there.
 - Category headings expose an independent Category order.
 - Within each Category, Projects and standalone Tasks appear in separate sections. Projects retain global Project order and standalone Tasks retain shared Backlog order; neither section adds a category-local order.
 - Drop position opens a full labelled placeholder at the exact before/after boundary. Its text identifies the dragged item and destination position; its accent outline and tinted surface provide a second cue. Task placeholders match the source row height; Project and Category placeholders use heading height, including when expanded. The source retains its footprint with reduced opacity until drop.
