@@ -261,7 +261,7 @@ internal sealed partial class SqliteWorkspaceWork
                 var committed = ReadSnapshot(connection, transaction).Tasks.ToDictionary(task => task.Id, StringComparer.Ordinal);
                 for (var index = 0; index < result.Count; index++) result[index] = committed[result[index].Id];
             }
-            return ArchiveSearchIndexEffects.None;
+            return ArchiveSearchIndexEffects.Tasks(result.Select(task => task.Id));
         }));
         return result.AsReadOnly();
     }

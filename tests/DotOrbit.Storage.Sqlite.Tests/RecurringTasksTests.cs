@@ -222,13 +222,13 @@ public sealed class RecurringTasksTests : IDisposable
         {
             connection.Open();
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE recurring_task_participants; DROP TABLE recurring_tasks; PRAGMA user_version=18;";
+            command.CommandText = "DROP TABLE workspace_search; DROP TABLE recurring_task_participants; DROP TABLE recurring_tasks; PRAGMA user_version=18;";
             command.ExecuteNonQuery();
         }
         var opened = Store.Open(WorkspacePath, _passphrase);
         using var migrated = opened.Session!;
         Assert.Equal(WorkspaceOpenStatus.Opened, opened.Status);
-        Assert.Equal(19, migrated.SchemaVersion);
+        Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, migrated.SchemaVersion);
         Assert.Equal(revision, Revision(migrated));
         Assert.Empty(Recurring(migrated).ReadRecurringTasks());
         Recurring(migrated).CreateRecurringTask(Draft(migrated));
@@ -308,7 +308,7 @@ public sealed class RecurringTasksTests : IDisposable
         var opened = Store.Open(WorkspacePath, _passphrase);
         using var migrated = opened.Session!;
         Assert.Equal(WorkspaceOpenStatus.Opened, opened.Status);
-        Assert.Equal(19, migrated.SchemaVersion);
+        Assert.Equal(EncryptedWorkspaceStore.CurrentSchemaVersion, migrated.SchemaVersion);
         Assert.Equal(1, Revision(migrated));
         Assert.Empty(Recurring(migrated).ReadRecurringTasks());
         Recurring(migrated).CreateRecurringTask(Draft(migrated));

@@ -85,7 +85,6 @@ internal static class ArchiveSearchIndex
                         """
                         SELECT t.id
                         FROM tasks t
-                        JOIN task_archives ta ON ta.task_id=t.id
                         WHERE t.project_id=$id;
                         """, change.Id);
                     break;
@@ -94,13 +93,11 @@ internal static class ArchiveSearchIndex
                         """
                         SELECT p.id
                         FROM projects p
-                        JOIN project_archives pa ON pa.project_id=p.id
                         WHERE p.category_id=$id;
                         """, change.Id);
                     AddIds(connection, transaction, taskIds, """
                         SELECT t.id
                         FROM tasks t
-                        JOIN task_archives ta ON ta.task_id=t.id
                         LEFT JOIN projects p ON p.id=t.project_id
                         WHERE COALESCE(t.explicit_category_id,p.category_id)=$id;
                         """, change.Id);
@@ -110,7 +107,6 @@ internal static class ArchiveSearchIndex
                         """
                         SELECT tp.task_id
                         FROM task_participants tp
-                        JOIN task_archives ta ON ta.task_id=tp.task_id
                         WHERE tp.participant_id=$id;
                         """, change.Id);
                     break;
@@ -120,9 +116,59 @@ internal static class ArchiveSearchIndex
         }
 
         foreach (var id in projectIds.Order(StringComparer.Ordinal))
+        {
+            RefreshWorkspaceDocument(connection, transaction, "project", id);
             RefreshProject(connection, transaction, id);
+        }
         foreach (var id in taskIds.Order(StringComparer.Ordinal))
+        {
+            RefreshWorkspaceDocument(connection, transaction, "task", id);
             RefreshTask(connection, transaction, id);
+        }
+    }
+
+    internal static void PopulateWorkspaceSearch(SqliteConnection connection)
+    {
+        foreach (var id in ReadIds(connection, null, "SELECT id FROM projects ORDER BY id;"))
+            RefreshWorkspaceDocument(connection, null, "project", id);
+        foreach (var id in ReadIds(connection, null, "SELECT id FROM tasks ORDER BY id;"))
+            RefreshWorkspaceDocument(connection, null, "task", id);
+    }
+
+    private static void RefreshWorkspaceDocument(
+        SqliteConnection connection, SqliteTransaction? transaction, string type, string id)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.Parameters.AddWithValue("$type", type);
+        command.Parameters.AddWithValue("$id", id);
+        command.CommandText = "DELETE FROM workspace_search WHERE record_type=$type AND record_id=$id;";
+        command.ExecuteNonQuery();
+        command.CommandText = type == "project"
+            ? """
+              SELECT p.title,p.description,c.name FROM projects p
+              JOIN categories c ON c.id=p.category_id WHERE p.id=$id;
+              """
+            : """
+              SELECT t.title,t.description,c.name FROM tasks t
+              LEFT JOIN projects p ON p.id=t.project_id
+              JOIN categories c ON c.id=COALESCE(t.explicit_category_id,p.category_id) WHERE t.id=$id;
+              """;
+        using (var reader = command.ExecuteReader())
+        {
+            if (!reader.Read()) return;
+            command.Parameters.AddWithValue("$title", reader.GetString(0));
+            command.Parameters.AddWithValue("$description", SearchableMarkdownText(reader.GetString(1)));
+            command.Parameters.AddWithValue("$category", reader.GetString(2));
+        }
+        command.Parameters.AddWithValue("$participants", type == "task"
+            ? string.Join(' ', ReadParticipantLabels(connection, transaction, id))
+            : string.Empty);
+        command.CommandText = """
+            INSERT INTO workspace_search(record_type,record_id,title,description,category,participants)
+            VALUES($type,$id,$title,$description,$category,$participants);
+            """;
+        command.ExecuteNonQuery();
     }
 
     public static void Rebuild(SqliteConnection connection, SqliteTransaction? transaction = null)

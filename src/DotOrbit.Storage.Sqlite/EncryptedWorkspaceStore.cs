@@ -8,7 +8,7 @@ namespace DotOrbit.Storage.Sqlite;
 
 public sealed class EncryptedWorkspaceStore : IWorkspaceStore
 {
-    public const int CurrentSchemaVersion = 19;
+    public const int CurrentSchemaVersion = 20;
 
     internal const string CipherName = "chacha20";
     internal const int KdfIterations = 64007;
@@ -145,7 +145,8 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
                 using var agentIntegrationSchema = connection.CreateCommand();
                 agentIntegrationSchema.Transaction = transaction;
                 agentIntegrationSchema.CommandText =
-                    SqliteAgentIntegrationStore.Schema + SqliteWorkspaceWork.RecurringSchema + "PRAGMA user_version = 19;";
+                    SqliteAgentIntegrationStore.Schema + SqliteWorkspaceWork.RecurringSchema
+                    + SqliteWorkspaceWork.WorkspaceSearchSchema + "PRAGMA user_version = 20;";
                 agentIntegrationSchema.ExecuteNonQuery();
                 using var identity = connection.CreateCommand();
                 identity.Transaction = transaction;
@@ -796,7 +797,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         {
             SqliteWorkspaceWork.ValidateShape(connection, transaction, SqliteWorkspaceWork.SchemaFourteen);
         }
-        else if (schemaVersion is 15 or 16 or 17 or 18 or 19)
+        else if (schemaVersion is >= 15 and <= 20)
         {
             SqliteWorkspaceWork.ValidateShape(connection, transaction);
             if (schemaVersion == 16)
@@ -807,7 +808,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
             {
                 SqliteAgentIntegrationStore.ValidateShapeSeventeen(connection, transaction);
             }
-            else if (schemaVersion is 18 or 19)
+            else if (schemaVersion >= 18)
             {
                 SqliteAgentIntegrationStore.ValidateShape(connection, transaction);
             }
@@ -815,6 +816,13 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
 
         if (schemaVersion >= 19)
             SqliteWorkspaceWork.ValidateRecurringShape(connection, transaction);
+        if (schemaVersion >= 20)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            SqliteWorkspaceWork.ValidateTableDefinition(command, "workspace_search",
+                SqliteWorkspaceWork.WorkspaceSearchSchema.TrimEnd(';'));
+        }
         return name;
     }
 
