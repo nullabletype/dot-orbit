@@ -34,7 +34,7 @@ Canvas and Ledger remain useful comparison directions in the prototype. They are
 8. Completed
 9. Archive
 
-Today is both the first item and the launch view.
+Today is both the first item and the launch view. At the minimum window height, primary rows use compact spacing. On shorter displays the primary list scrolls while the utility destinations stay reachable below it.
 
 Before the main workspace opens, the access window shows the selected local path in a wrapping, politely announced location panel. Native, keyboard-operable actions choose any existing file or a destination for a new workspace; the `.orb` suffix is suggested for discovery but is never a picker filter or validation shortcut. The first-run or unlock form follows the explicit choice. If the last successfully opened path is missing or unavailable, credentials and creation are blocked while Retry, Choose existing, Set up new workspace, and Use default location remain available. Errors are assertively announced without exposing passphrases, migration recovery paths, or other sensitive storage details.
 
@@ -54,7 +54,7 @@ Bin is a secondary utility item at the bottom of the sidebar, visually separated
 
 Search has no navigation count. Opening it focuses the labelled query field. Matches appear under Projects, Backlog, Completed, Archive and Bin in that order, with empty groups omitted. Each Project or Task appears once. A Task in Today still belongs to Backlog for Search. A Project’s archived or binned state also determines where to find the Tasks hidden with it.
 
-The query field precedes the results in keyboard order. A polite status reports the count and gives guidance for empty input, loading, no matches or failure. Opening a row follows the usual navigation guard, aligns and focuses the item in its owning view, and opens its inspector where editing is available. Each row keeps its destination’s independent controls, including any restore-first guidance.
+The query field precedes the results in keyboard order. A polite status reports the count and gives guidance for empty input, loading, no matches or failure. Opening a row follows the usual navigation guard, aligns and focuses the item in its owning view, and opens its inspector where editing is available. Each row keeps its destination’s independent controls, including any restore-first guidance. Historical rows show the captured archive date, using the parent’s date for a Task hidden solely by its archived Project. Reorder menus act on the full Projects or Backlog order.
 
 ### Recurring
 
