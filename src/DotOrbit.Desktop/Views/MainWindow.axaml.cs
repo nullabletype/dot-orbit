@@ -1298,6 +1298,8 @@ public sealed partial class MainWindow : Window
 
     private void OnShellChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(ShellViewModel.ShowSearch) && sender is ShellViewModel { ShowSearch: true })
+            Dispatcher.UIThread.Post(() => FocusAutomationId("workspace-search-field"), DispatcherPriority.ApplicationIdle);
         if (e.PropertyName == nameof(ShellViewModel.MainViewTargetAutomationId)
             && sender is ShellViewModel { MainViewTargetAutomationId.Length: > 0 } targetShell)
         {
@@ -1637,6 +1639,8 @@ public sealed partial class MainWindow : Window
             }, DispatcherPriority.ApplicationIdle);
     }
 
+    private void OnWorkspaceSearchClear(object? sender, RoutedEventArgs e) => FocusAutomationId("workspace-search-field");
+
     private void FocusAutomationId(string automationId) => this.GetVisualDescendants().OfType<Control>()
         .FirstOrDefault(control => control.IsEffectivelyVisible
             && AutomationProperties.GetAutomationId(control) == automationId)?.Focus();
@@ -1651,7 +1655,10 @@ public sealed partial class MainWindow : Window
         var alignmentTarget = target.GetVisualAncestors().OfType<Control>()
             .FirstOrDefault(control => control.Classes.Contains("project-row")
                 || control.Classes.Contains("category-row")
-                || control.Classes.Contains("archive-row"))
+                || control.Classes.Contains("archive-row")
+                || control.Classes.Contains("backlog-row")
+                || control.Classes.Contains("completed-row")
+                || control.Classes.Contains("bin-row"))
             ?? target;
         var viewer = target.GetVisualAncestors().OfType<ScrollViewer>()
             .FirstOrDefault(candidate => candidate.IsEffectivelyVisible);
