@@ -232,9 +232,27 @@ public sealed class RecurringTasksViewModel : INotifyPropertyChanged
         _snapshot = snapshot;
         _allProjects = snapshot.Projects.Concat((projectBin ?? []).Select(item => item.Project)).ToArray();
         if (definitions is not null) _definitions = definitions;
-        Definitions.Clear();
+        var rowSnapshot = snapshot with { Projects = _allProjects };
+        var definitionIds = _definitions.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
+        for (var index = Definitions.Count - 1; index >= 0; index--)
+            if (!definitionIds.Contains(Definitions[index].Id)) Definitions.RemoveAt(index);
+        var existing = Definitions.ToDictionary(row => row.Id, StringComparer.Ordinal);
         for (var index = 0; index < _definitions.Count; index++)
-            Definitions.Add(new(this, _definitions[index], snapshot with { Projects = _allProjects }, index == _definitions.Count - 1));
+        {
+            var definition = _definitions[index];
+            var isLast = index == _definitions.Count - 1;
+            if (!existing.TryGetValue(definition.Id, out var row))
+            {
+                Definitions.Insert(index, new(this, definition, rowSnapshot, isLast));
+                continue;
+            }
+            if (Definitions[index] != row) Definitions.Move(Definitions.IndexOf(row), index);
+            // A previously presented Pause or Resume action retains its original intent across editor saves.
+            if (row.IsEnabled != definition.IsEnabled)
+                Definitions[index] = new(this, definition, rowSnapshot, isLast);
+            else
+                row.Refresh(this, definition, rowSnapshot, isLast);
+        }
         UpdateSelectedRows();
         Notify(nameof(HasDefinitions));
         Notify(nameof(HasNoDefinitions));
@@ -826,11 +844,19 @@ public sealed class RecurringTaskRowViewModel : INotifyPropertyChanged
     internal RecurringTaskRowViewModel(RecurringTasksViewModel owner, RecurringTaskDefinition definition, WorkspaceWorkSnapshot snapshot, bool isLast = false)
     {
         Id = definition.Id;
+        IsEnabled = definition.IsEnabled;
+        EditCommand = new(() => owner.Edit(Id));
+        ToggleCommand = new(() => owner.SetEnabled(Id, !IsEnabled));
+        DeleteCommand = new(() => owner.RequestDelete(Id));
+        OpenCategoryCommand = new(() => owner.OpenCategory(Id));
+        Refresh(owner, definition, snapshot, isLast);
+    }
+
+    internal void Refresh(RecurringTasksViewModel owner, RecurringTaskDefinition definition, WorkspaceWorkSnapshot snapshot, bool isLast)
+    {
         IsLast = isLast;
         Title = definition.Title;
         Cadence = definition.Cadence.ToString();
-        IsEnabled = definition.IsEnabled;
-        State = definition.IsEnabled ? "Enabled" : "Paused";
         Guidance = definition.PauseReason switch
         {
             "Restore or reassign the Project, then save to resume." => "Restore or reassign the Project, then enable this recurring Task to resume.",
@@ -851,42 +877,38 @@ public sealed class RecurringTaskRowViewModel : INotifyPropertyChanged
         ProjectTitle = project?.Title;
         ProjectColourKey = project?.ColourKey ?? IdentityColourPalette.DefaultKey;
         HasOverride = project is not null && definition.ExplicitCategoryId is not null;
-        ToggleLabel = definition.IsEnabled ? "Pause" : "Resume";
-        EditCommand = new(() => owner.Edit(definition.Id));
-        ToggleCommand = new(() => owner.SetEnabled(definition.Id, !definition.IsEnabled));
-        DeleteCommand = new(() => owner.RequestDelete(definition.Id));
-        OpenCategoryCommand = new(() => owner.OpenCategory(definition.Id));
         OpenProjectCommand = definition.ProjectId is null ? null : new(() => owner.OpenProject(definition.Id), () => owner.CanOpenProject(definition.ProjectId));
         ProjectHelpText = definition.ProjectId is not null && !owner.CanOpenProject(definition.ProjectId)
             ? "Restore the parent Project from Bin before opening it." : string.Empty;
+        PropertyChanged?.Invoke(this, new(null));
     }
     public string Id { get; }
-    public string Title { get; }
-    public bool IsLast { get; }
+    public string Title { get; private set; } = string.Empty;
+    public bool IsLast { get; private set; }
     public bool HasGuidance => Guidance.Length > 0;
     public string ScheduleSummary => $"{Cadence} · {State}";
-    public string Cadence { get; }
+    public string Cadence { get; private set; } = string.Empty;
     public bool IsEnabled { get; }
-    public string State { get; }
-    public string Guidance { get; }
-    public string NextDate { get; }
-    public string DueDate { get; }
-    public string Context { get; }
-    public string CategoryName { get; }
-    public string CategoryColourKey { get; }
-    public string? ProjectTitle { get; }
-    public string ProjectColourKey { get; }
-    public bool HasOverride { get; }
-    public string ToggleLabel { get; }
+    public string State => IsEnabled ? "Enabled" : "Paused";
+    public string Guidance { get; private set; } = string.Empty;
+    public string NextDate { get; private set; } = string.Empty;
+    public string DueDate { get; private set; } = string.Empty;
+    public string Context { get; private set; } = string.Empty;
+    public string CategoryName { get; private set; } = string.Empty;
+    public string CategoryColourKey { get; private set; } = string.Empty;
+    public string? ProjectTitle { get; private set; }
+    public string ProjectColourKey { get; private set; } = string.Empty;
+    public bool HasOverride { get; private set; }
+    public string ToggleLabel => IsEnabled ? "Pause" : "Resume";
     public string CategoryRelationship => ProjectTitle is null ? $"Standalone. Category {CategoryName}"
         : HasOverride ? $"Project {ProjectTitle}. Category override {CategoryName}"
             : $"Project {ProjectTitle}. Inherited Category {CategoryName}";
     public string AccessibleName => $"Edit recurring Task {Title}, {Cadence}, {State}. {CategoryRelationship}. {NextDate}, {DueDate}";
     public string CategoryAutomationId => $"recurring-category-{Id}";
     public string ProjectAutomationId => $"recurring-project-{Id}";
-    public string ProjectHelpText { get; }
+    public string ProjectHelpText { get; private set; } = string.Empty;
     public RelayCommand OpenCategoryCommand { get; }
-    public RelayCommand? OpenProjectCommand { get; }
+    public RelayCommand? OpenProjectCommand { get; private set; }
     public string ToggleAccessibleName => $"{ToggleLabel} recurring Task {Title}";
     public string DeleteAccessibleName => $"Delete recurring Task {Title}";
     public string EditAutomationId => $"recurring-edit-{Id}";

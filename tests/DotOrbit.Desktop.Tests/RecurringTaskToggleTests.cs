@@ -104,7 +104,8 @@ public sealed class RecurringTaskToggleTests
     {
         var store = Store();
         using var release = new ManualResetEventSlim();
-        var operation = new HeldToggleOperation(store, release);
+        using var releaseReconciliation = new ManualResetEventSlim();
+        var operation = new HeldToggleOperation(store, release, releaseReconciliation);
         await using var executor = new SerializedWorkspacePersistenceExecutor(operation, Clock());
         var shell = new ShellViewModel(store, Clock(), null, executor, executor, new AvaloniaUiDispatcher());
         var window = new MainWindow { DataContext = shell };
@@ -121,6 +122,10 @@ public sealed class RecurringTaskToggleTests
             Assert.True(Assert.Single(store.ReadRecurringTasks()).IsEnabled);
             Assert.False(shell.Work.Recurring.HasEditor);
             release.Set();
+            await operation.ReconcilingAfterToggle.Task.WaitAsync(TestContext.Current.CancellationToken);
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(Toggle(window).IsFocused);
+            releaseReconciliation.Set();
             await shell.Work.WaitForWorkspaceActionsAsync();
             Dispatcher.UIThread.RunJobs();
             var resume = Toggle(window);
@@ -136,13 +141,14 @@ public sealed class RecurringTaskToggleTests
             Assert.True(Assert.Single(store.ReadRecurringTasks()).IsEnabled);
             Assert.Equal(2, store.UpdateCalls);
         }
-        finally { release.Set(); shell.Work!.Recurring.CancelCommand.Execute(null); window.Close(); }
+        finally { release.Set(); releaseReconciliation.Set(); shell.Work!.Recurring.CancelCommand.Execute(null); window.Close(); }
     }
 
-    private sealed class HeldToggleOperation(IWorkspaceWork work, ManualResetEventSlim release) : IWorkspacePersistenceOperation
+    private sealed class HeldToggleOperation(IWorkspaceWork work, ManualResetEventSlim release, ManualResetEventSlim releaseReconciliation) : IWorkspacePersistenceOperation
     {
         private readonly WorkspacePersistenceOperation _inner = new(work);
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReconcilingAfterToggle { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public InspectorSaveResult Execute(InspectorSaveRequest request) => _inner.Execute(request);
         public WorkspaceActionResult ExecuteAction(WorkspaceActionRequest request)
         {
@@ -150,6 +156,11 @@ public sealed class RecurringTaskToggleTests
             {
                 Started.TrySetResult();
                 release.Wait(TestContext.Current.CancellationToken);
+            }
+            else if (request.Kind == WorkspaceActionKind.ProcessRecurring && Started.Task.IsCompleted)
+            {
+                ReconcilingAfterToggle.TrySetResult();
+                releaseReconciliation.Wait(TestContext.Current.CancellationToken);
             }
             return _inner.ExecuteAction(request);
         }

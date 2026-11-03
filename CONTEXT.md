@@ -106,7 +106,7 @@ A durable, monotonically increasing identity for committed user-data state. Each
 6. A Project Task category is inherited or explicitly overridden; a standalone Task category is explicit.
 7. Today membership is explicit and independent of due date.
 8. Today and Backlog share one manual Task order.
-9. Project order, Category order, and per-Project subtask order are independent of the shared Task order.
+9. Project order, Category order, and per-Project subtask order are independent of the shared Task order. Expanded Projects display incomplete Tasks before completed Tasks. Completion preserves the underlying manual position.
 10. Archiving a Task does not remove it from its Project or change its completion state.
 11. Bulk archiving never archives a Project.
 12. Archiving an incomplete Project does not complete it or any of its Tasks.
