@@ -322,6 +322,29 @@ public sealed class InspectorDatePlacementTests
     }
 
     [Fact]
+    public async Task StayingAfterAnInvalidDateAllowsCorrectionBeforeTheQueuedToggle()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Older", "", "home", null);
+        var writer = new ControlledInspectorSaveWriter(work);
+        var model = new ProjectCaptureViewModel(work, Clock(), writer);
+        model.SelectTask(task.Id);
+        model.Date = "invalid";
+        model.ToggleToday(task.Id);
+        Assert.True(model.NeedsDecision);
+        model.StayCommand.Execute(null);
+        Assert.True(model.CanChooseInspectorDate);
+        model.CommitCalendarDate(Day);
+        await writer.WaitForSubmissionCountAsync(1);
+        writer.CompleteNext();
+        await model.WaitForWorkspaceActionsAsync().WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        var committed = Assert.Single(work.Read().Tasks);
+        Assert.Equal(DateOnly.FromDateTime(Day), committed.DueDate);
+        Assert.Null(committed.TodayLane);
+        Assert.True(model.CanChooseInspectorDate);
+    }
+
+    [Fact]
     public async Task ProjectContextCannotChangeDuringTheFirstValidTaskSave()
     {
         var work = new MemoryWorkspaceWork();

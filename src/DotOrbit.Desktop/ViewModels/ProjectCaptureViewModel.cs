@@ -971,7 +971,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     }
 
     // The date and its conditional lane change must use the result of earlier explicit actions.
-    public bool CanChooseInspectorDate => !_editingTask || !_queuedWorkspaceActions.Any(action =>
+    public bool CanChooseInspectorDate => !_processingWorkspaceActions || !_editingTask || !_queuedWorkspaceActions.Any(action =>
         action.Request.TaskId == _editingId && ChangesTodayPlacement(action.Request.Kind));
 
     private TaskDatePlacement PlacementForDate(DateOnly? date)
@@ -3337,6 +3337,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     {
         if (_processingWorkspaceActions || _queuedWorkspaceActions.Count == 0) return;
         _processingWorkspaceActions = true;
+        Notify(nameof(CanChooseInspectorDate));
         _ = ProcessWorkspaceActionsAsync();
     }
 
@@ -3369,6 +3370,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
                         Notify(nameof(HasBlockingDialog));
                     }
                     _processingWorkspaceActions = false;
+                    Notify(nameof(CanChooseInspectorDate));
                 });
                 return;
             }
