@@ -34,6 +34,31 @@ public sealed class ProjectCaptureViewModelTests
         Assert.Equal("Original", Assert.Single(work.Read().Tasks).Title);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AnExpiredTimerForTheInFlightRevisionCannotRetryItsFailure(bool navigate)
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Original", "", "home", null);
+        var writer = new ControlledInspectorSaveWriter(work);
+        var model = new ProjectCaptureViewModel(work, null, writer);
+        model.SelectTask(task.Id);
+        model.Title = "Edited";
+        var revision = model.AutosaveRevision;
+        model.RunScheduledAutosave();
+        await writer.WaitForSubmissionCountAsync(1);
+        model.RunScheduledAutosave(revision);
+        var navigation = navigate ? model.NavigateAsync(() => { }) : Task.CompletedTask;
+        writer.FailNext();
+        await model.WaitForBackgroundSaveObservationAsync();
+        await navigation.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Single(writer.Submissions);
+        Assert.True(model.HasAutosaveError);
+        Assert.Equal(navigate, model.NeedsDecision);
+        Assert.Equal("Original", Assert.Single(work.Read().Tasks).Title);
+    }
+
     [Fact]
     public async Task RevertingToTheBaselineWhileAWriteIsHeldPersistsTheCorrectiveRevisionBeforeNavigation()
     {

@@ -238,6 +238,34 @@ public sealed class InspectorDatePlacementTests
     }
 
     [Fact]
+    public async Task ChoosingTodayDuringNavigationFlushUpdatesTheSingleNewTask()
+    {
+        var work = new MemoryWorkspaceWork();
+        var writer = new ControlledInspectorSaveWriter(work);
+        var model = new ProjectCaptureViewModel(work, Clock(), writer);
+        model.NewTaskCommand.Execute(null);
+        model.Category = model.Categories.Single(item => item.Id == "home");
+        model.Title = "Held creation";
+        var navigated = false;
+        var navigation = model.NavigateAsync(() => navigated = true);
+        await writer.WaitForSubmissionCountAsync(1);
+        model.CommitCalendarDate(Day);
+        Assert.Single(writer.Submissions);
+        writer.CompleteNext();
+        await writer.WaitForSubmissionCountAsync(2);
+        var created = Assert.Single(work.Read().Tasks);
+        Assert.False(writer.Submissions[1].IsCreating);
+        Assert.Equal(created.Id, writer.Submissions[1].Id);
+        writer.CompleteNext();
+        await navigation.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        var saved = Assert.Single(work.Read().Tasks);
+        Assert.Equal(created.Id, saved.Id);
+        Assert.Equal(TodayLane.Planned, saved.TodayLane);
+        Assert.Equal(DateOnly.FromDateTime(Day), saved.DueDate);
+        Assert.True(navigated);
+    }
+
+    [Fact]
     public async Task ClearingWhileFirstSaveIsInFlightUpdatesTheCreatedIdentity()
     {
         var work = new MemoryWorkspaceWork();

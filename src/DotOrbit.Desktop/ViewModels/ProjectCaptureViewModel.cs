@@ -871,10 +871,10 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public bool RunScheduledAutosave(long? scheduledRevision = null, bool force = false)
     {
         if (!HasInspector || _editingCategory) return true;
-        // Navigation flushes the latest draft itself. A delayed text timer must not
-        // submit a second write or retry a failed draft before the user decides.
+        // The active flush follows new revisions through to the latest valid draft.
+        if (_activeFlush is { IsCompleted: false }) return true;
         if (!force && scheduledRevision is not null && (scheduledRevision != _autosaveRevision
-            || _activeFlush is { IsCompleted: false } || NeedsDecision || HasAutosaveError)) return true;
+            || NeedsDecision || HasAutosaveError)) return true;
         if (_backgroundSave is { IsCompleted: false })
         {
             _saveRequestedWhileInProgress = true;
@@ -932,8 +932,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             {
                 var backgroundSaved = await background;
                 if (ReferenceEquals(_backgroundSave, background)) _backgroundSave = null;
-                if (!backgroundSaved && background.IsCompleted && HasAutosaveError
-                    && !_saveRequestedWhileInProgress) return false;
+                if (!backgroundSaved && HasAutosaveError) return false;
                 if (!RequiresPersistence) return true;
             }
 
@@ -2250,9 +2249,9 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
     private async Task ObserveBackgroundSaveAsync(Task<bool> save)
     {
-        await save;
+        var saved = await save;
         if (ReferenceEquals(_backgroundSave, save)) _backgroundSave = null;
-        if (_activeFlush is { IsCompleted: false }) return;
+        if (!saved || _activeFlush is { IsCompleted: false }) return;
         if (!RequiresPersistence)
         {
             HasAutosaveError = false;
