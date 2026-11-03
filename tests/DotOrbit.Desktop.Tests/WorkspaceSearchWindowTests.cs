@@ -132,16 +132,11 @@ public sealed class WorkspaceSearchWindowTests
     [AvaloniaTheory]
     [InlineData(true)]
     [InlineData(false)]
-    public void SearchReorderMenuMovesAcrossHiddenCanonicalPositionsAndFilteredDragDoesNothing(bool projects)
+    public void SearchOmitsReorderAndDisclosureSpaceAndRetainsCanonicalControls(bool projects)
     {
         var work = new MemoryWorkspaceWork();
-        foreach (var title in new[] { "Match one", "Hidden peer", "Match two" })
-            if (projects) work.CreateProject(title, "", "home", null);
-            else work.CreateStandaloneTask(title, "", "home", null);
-        string[] Order() => projects
-            ? work.Read().Projects.OrderBy(item => item.Position).Select(item => item.Id).ToArray()
-            : work.Read().Tasks.OrderBy(item => item.SharedPosition).Select(item => item.Id).ToArray();
-        var before = Order();
+        var project = work.CreateProject("Match project", "", "home", null);
+        var task = work.CreateStandaloneTask("Match task", "", "home", null);
         var shell = new ShellViewModel(work);
         var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
         try
@@ -150,30 +145,100 @@ public sealed class WorkspaceSearchWindowTests
             Activate(window, Visible<RadioButton>(window, "navigation-search"));
             Visible<TextBox>(window, "workspace-search-field").Text = "match";
             Dispatcher.UIThread.RunJobs();
-            var prefix = projects ? "project-reorder-" : "backlog-reorder-";
-            var handle = Visible<Button>(window, prefix + before[2]);
-            var first = Visible<Button>(window, prefix + before[0]);
-            Assert.Contains("outside these results", AutomationProperties.GetHelpText(handle), StringComparison.Ordinal);
-            var from = handle.TranslatePoint(new Point(handle.Bounds.Width / 2, handle.Bounds.Height / 2), window)!.Value;
-            var to = first.TranslatePoint(new Point(first.Bounds.Width / 2, first.Bounds.Height / 2), window)!.Value;
-            window.MouseDown(from, MouseButton.Left, RawInputModifiers.LeftMouseButton);
-            window.MouseMove(to, RawInputModifiers.LeftMouseButton);
-            Dispatcher.UIThread.RunJobs();
-            Assert.DoesNotContain(window.GetVisualDescendants().OfType<Border>(), row => row.Classes.Contains("reorder-placeholder"));
-            window.MouseUp(to, MouseButton.Left, RawInputModifiers.None);
-            Dispatcher.UIThread.RunJobs();
-            Assert.Equal(before, Order());
+            var id = projects ? project.Id : task.Id;
+            var handleId = (projects ? "project-reorder-" : "backlog-reorder-") + id;
+            Assert.DoesNotContain(window.GetVisualDescendants().OfType<Button>(), button =>
+                button.IsEffectivelyVisible && AutomationProperties.GetAutomationId(button) == handleId);
+            var title = Visible<Button>(window, (projects ? "project-selection-" : "task-selection-") + id);
+            var row = title.GetVisualAncestors().OfType<Border>().First(border =>
+                border.Classes.Contains(projects ? "project-header-row" : "backlog-row"));
+            var layout = Assert.Single(row.GetVisualChildren().OfType<Grid>());
+            Assert.Equal(0, layout.ColumnDefinitions[0].ActualWidth);
+            if (projects)
+            {
+                Assert.Equal(0, layout.ColumnDefinitions[1].ActualWidth);
+                Assert.Equal(0, layout.ColumnDefinitions[2].ActualWidth);
+                Assert.InRange(title.TranslatePoint(default, row)!.Value.X, 0, 16);
+            }
 
-            Activate(window, handle);
-            var menu = Assert.IsType<MenuFlyout>(handle.Flyout);
-            Assert.True(menu.IsOpen);
-            var move = Assert.Single(menu.Items.OfType<MenuItem>(), item => item.Header?.ToString() == "Move up");
-            Assert.True(move.Command!.CanExecute(null));
-            move.Command.Execute(null);
-            menu.Hide();
+            Activate(window, Visible<RadioButton>(window, projects ? "navigation-projects" : "navigation-backlog"));
+            Assert.True(Visible<Button>(window, handleId).IsEnabled);
+            if (projects)
+            {
+                var canonicalTitle = Visible<Button>(window, $"project-selection-{id}");
+                var header = canonicalTitle.GetVisualAncestors().OfType<Border>()
+                    .First(border => border.Classes.Contains("project-header-row"));
+                Assert.Contains(header.GetVisualDescendants().OfType<ToggleButton>(), control =>
+                    control.IsEffectivelyVisible && control.Classes.Contains("disclosure"));
+            }
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void BlockedBinRestoreShowsOnlyGuidanceInSearchAndBin(bool search)
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Match parent", "", "home", null);
+        var task = work.CreateTask(project.Id, "Match child");
+        work.MoveTaskToBin(task.Id);
+        work.MoveProjectToBin(project.Id);
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        try
+        {
+            window.Show();
+            Activate(window, Visible<RadioButton>(window, search ? "navigation-search" : "navigation-bin"));
+            if (search) Visible<TextBox>(window, "workspace-search-field").Text = "match";
             Dispatcher.UIThread.RunJobs();
-            Assert.Equal([before[0], before[2], before[1]], Order());
-            Assert.True(Visible<Button>(window, prefix + before[2]).IsFocused);
+            var restore = Assert.Single(window.GetVisualDescendants().OfType<Button>(), control =>
+                AutomationProperties.GetAutomationId(control) == $"bin-restore-task-{task.Id}");
+            Assert.False(restore.IsEffectivelyVisible);
+            Assert.False(restore.Focus());
+            var row = restore.GetVisualAncestors().OfType<Border>().First(border => border.Classes.Contains("bin-row"));
+            var guidance = Assert.Single(row.GetVisualDescendants().OfType<TextBlock>(), text =>
+                text.IsEffectivelyVisible && text.Text == "Restore the parent Project from Bin before restoring this Task.");
+            Assert.Equal(AutomationLiveSetting.Polite, AutomationProperties.GetLiveSetting(guidance));
+            Assert.True(Visible<Button>(window, $"bin-restore-project-{project.Id}").IsEnabled);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RestoringFromBinFocusesBlockedSuccessorsHeading(bool restoreProject)
+    {
+        var work = new MemoryWorkspaceWork();
+        var parent = work.CreateProject("Z parent", "", "home", null);
+        var blocked = work.CreateTask(parent.Id, "B blocked");
+        work.MoveTaskToBin(blocked.Id);
+        work.MoveProjectToBin(parent.Id);
+        string id;
+        if (restoreProject)
+        {
+            var project = work.CreateProject("A restorable", "", "home", null);
+            work.MoveProjectToBin(project.Id);
+            id = $"bin-restore-project-{project.Id}";
+        }
+        else
+        {
+            var task = work.CreateStandaloneTask("A restorable", "", "home", null);
+            work.MoveTaskToBin(task.Id);
+            id = $"bin-restore-task-{task.Id}";
+        }
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        try
+        {
+            window.Show();
+            Activate(window, Visible<RadioButton>(window, "navigation-bin"));
+            Activate(window, Visible<Button>(window, id));
+            var heading = Visible<ContentControl>(window, $"bin-selection-task-{blocked.Id}");
+            Assert.True(heading.IsFocused);
+            Assert.Equal($"bin-selection-task-{blocked.Id}", shell.Work!.BinFocusAutomationId);
         }
         finally { window.Close(); }
     }

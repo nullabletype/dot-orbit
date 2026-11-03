@@ -1910,7 +1910,7 @@ public sealed partial class MainWindow : Window
             ? (Button?)hit
             : hit?.GetVisualAncestors().OfType<Button>().FirstOrDefault(button => button.Classes.Contains("drag-handle"));
         if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
-        // A filtered list has no drop targets for the hidden positions. Keep its canonical reorder menu.
+        // Search exposes no reorder controls or drag targets.
         if (handle is not null && DataContext is ShellViewModel { ShowSearch: true }) return;
         if (handle?.Classes.Contains("backlog-drag-handle") == true && handle.DataContext is TaskRowViewModel backlogTask)
         {

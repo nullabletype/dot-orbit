@@ -48,13 +48,13 @@ Completed begins with an explicit bulk-archive control. It offers every whole-da
 
 Projects expose an explicit compact Archive action on each Project header. An archived Project leaves Projects, Categories, Backlog, Upcoming, Completed, and Today as one aggregate without changing Task completion or individual Task archive state. Archive groups Project and Task entries by their captured local archive dates, labels Project entries distinctly, and offers accessible Restore actions. Restoring a Project returns eligible incomplete Tasks to Backlog while leaving Today empty and retaining any individually archived Tasks.
 
-Bin is a secondary utility item at the bottom of the sidebar, visually separated from the primary views. Its count appears only while non-empty. The Bin view orders removed items newest first and contains per-item Restore actions and the confirmed Empty Bin action.
+Bin is a secondary utility item at the bottom of the sidebar, visually separated from the primary views. Its count appears only while non-empty. The Bin view orders removed items newest first and contains per-item Restore actions and the confirmed Empty Bin action. Tasks blocked by a binned parent Project show restore-first guidance in place of a Restore button, including in Search.
 
 ### Search
 
 Search has no navigation count. Opening it focuses the labelled query field. Matches appear under Projects, Backlog, Completed, Archive and Bin in that order, with empty groups omitted. Each Project or Task appears once. A Task in Today still belongs to Backlog for Search. A Project’s archived or binned state also determines where to find the Tasks hidden with it.
 
-The query field precedes the results in keyboard order. A polite status reports the count and gives guidance for empty input, loading, no matches or failure. Opening a row follows the usual navigation guard, aligns and focuses the item in its owning view, and opens its inspector where editing is available. Each row keeps its destination’s independent controls, including any restore-first guidance. Historical rows show the captured archive date, using the parent’s date for a Task hidden solely by its archived Project. Reorder menus act on the full Projects or Backlog order.
+The query field precedes the results in keyboard order. A polite status reports the count and gives guidance for empty input, loading, no matches or failure. Opening a row follows the usual navigation guard, aligns and focuses the item in its owning view, and opens its inspector where editing is available. Each row keeps its destination’s independent controls, including any restore-first guidance. Historical rows show the captured archive date, using the parent’s date for a Task hidden solely by its archived Project. Search omits reorder handles and Project disclosure controls, including their reserved column space.
 
 ### Recurring
 

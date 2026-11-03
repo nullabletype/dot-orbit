@@ -174,9 +174,9 @@
     </DataTemplate>
     <DataTemplate x:Key="ProjectHeaderTemplate" x:DataType="vm:ProjectRowViewModel">
       <Border Classes="interactive-row expandable-header-row project-header-row selectable-row" Classes.expanded="{Binding IsExpanded}" Padding="10,8,12,8">
-        <Grid ColumnDefinitions="30,4,30,*,104,154,72">
+        <Grid ColumnDefinitions="Auto,Auto,Auto,*,104,154,72">
           <Button
-              Classes="drag-handle project-drag-handle"
+              Classes="drag-handle project-drag-handle" Width="30"
               AutomationProperties.AutomationId="{Binding ReorderAutomationId}"
               AutomationProperties.Name="{Binding ReorderAccessibleName}">
             <Button.Flyout>
@@ -188,8 +188,9 @@
               </MenuFlyout>
             </Button.Flyout>
           </Button>
+          <Border Grid.Column="1" Width="4" Classes="project-header-spacer" />
           <ToggleButton
-              Grid.Column="2"
+              Grid.Column="2" Width="30"
               Classes="disclosure"
               AutomationProperties.Name="{Binding ExpansionAccessibleName}"
               IsChecked="{Binding IsExpanded, Mode=TwoWay}" />
@@ -226,9 +227,9 @@
     <DataTemplate x:Key="BacklogRowTemplate" x:DataType="vm:TaskRowViewModel">
       <StackPanel Classes="reorder-host">
         <Border Classes="interactive-row separated-row reorder-target task-row selectable-row backlog-row" Classes.last="{Binding IsLast}" MinHeight="{StaticResource StandardRowHeight}">
-          <Grid VerticalAlignment="Center" ColumnDefinitions="34,34,*,Auto,Auto,34">
+          <Grid VerticalAlignment="Center" ColumnDefinitions="Auto,34,*,Auto,Auto,34">
             <Button
-                Classes="drag-handle backlog-drag-handle"
+                Classes="drag-handle backlog-drag-handle" Width="34"
                 AutomationProperties.AutomationId="{Binding ReorderAutomationId}"
                 AutomationProperties.Name="{Binding ReorderAccessibleName}">
               <Button.Flyout>
@@ -376,7 +377,7 @@
               Foreground="{DynamicResource MutedTextBrush}" Text="{Binding RemovedText}" />
           <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="4">
             <Button Classes="view-action task-row-action" Content="Restore"
-                Command="{Binding RestoreCommand}" IsEnabled="{Binding CanRestore}"
+                Command="{Binding RestoreCommand}" IsEnabled="{Binding CanRestore}" IsVisible="{Binding CanRestore}"
                 AutomationProperties.AutomationId="{Binding RestoreAutomationId}"
                 AutomationProperties.Name="{Binding RestoreAccessibleName}"
                 AutomationProperties.HelpText="{Binding RestoreHelpText}" />
@@ -410,13 +411,10 @@
     <Style Selector="Button.backlog-drag-handle">
       <Setter Property="AutomationProperties.HelpText" Value="Drag to another Backlog row, or activate for keyboard reorder actions." />
     </Style>
-    <Style Selector="ScrollViewer.workspace-search Button.project-drag-handle">
-      <Setter Property="AutomationProperties.HelpText" Value="Choose a position in Projects, including Projects outside these results." />
+    <Style Selector="ScrollViewer.workspace-search Button.drag-handle, ScrollViewer.workspace-search ToggleButton.disclosure">
+      <Setter Property="IsVisible" Value="False" />
     </Style>
-    <Style Selector="ScrollViewer.workspace-search Button.backlog-drag-handle">
-      <Setter Property="AutomationProperties.HelpText" Value="Choose a position in Backlog, including Tasks outside these results." />
-    </Style>
-    <Style Selector="ScrollViewer.workspace-search ToggleButton.disclosure">
+    <Style Selector="ScrollViewer.workspace-search Border.project-header-spacer">
       <Setter Property="IsVisible" Value="False" />
     </Style>
   </Window.Styles>

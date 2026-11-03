@@ -554,7 +554,7 @@ public sealed class ProjectCaptureWindowTests
     }
 
     [AvaloniaFact]
-    public void BinnedParentTaskRendersContextAndDisabledRestoreGuidance()
+    public void BinnedParentTaskRendersContextAndRestoreGuidanceWithoutAButton()
     {
         var work = new MemoryWorkspaceWork();
         var project = work.CreateProject("Garden", "", "home", null);
@@ -572,6 +572,8 @@ public sealed class ProjectCaptureWindowTests
         var binRow = restore.GetVisualAncestors().OfType<Border>().First(border => border.Classes.Contains("bin-row"));
         AssertWorkTypeIcon(binRow, WorkType.Task);
         Assert.False(restore.IsEnabled);
+        Assert.False(restore.IsEffectivelyVisible);
+        Assert.False(restore.Focus());
         Assert.Contains("parent Project", AutomationProperties.GetHelpText(restore), StringComparison.Ordinal);
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text =>
             text.IsEffectivelyVisible

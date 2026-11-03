@@ -1695,7 +1695,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
                 BinFocusAutomationId = _binActive
                     ? Bin.Count == 0
                         ? "navigation-bin"
-                        : Bin[Math.Min(Math.Max(binIndex, 0), Bin.Count - 1)].RestoreAutomationId
+                        : Bin[Math.Min(Math.Max(binIndex, 0), Bin.Count - 1)].RestoreFocusAutomationId
                     : Search.IsActive ? $"task-selection-{id}" : $"task-completion-{id}";
                 Message = "Task restored from Bin.";
             }, "Could not restore the Task from Bin. No changes were made.")) return;
@@ -1749,7 +1749,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
                 BinFocusAutomationId = _binActive
                     ? Bin.Count == 0
                         ? "navigation-bin"
-                        : Bin[Math.Min(Math.Max(binIndex, 0), Bin.Count - 1)].RestoreAutomationId
+                        : Bin[Math.Min(Math.Max(binIndex, 0), Bin.Count - 1)].RestoreFocusAutomationId
                     : Search.IsActive
                         ? _snapshot.Projects.Any(project => project.Id == id && project.IsArchived)
                             ? $"archive-project-{id}"
@@ -4385,6 +4385,7 @@ public sealed class BinRowViewModel
     public string RestoreBlockedText { get; }
     public RelayCommand SelectCommand { get; }
     public string SelectionAutomationId => IsProject ? $"bin-selection-project-{Project!.Id}" : $"bin-selection-task-{Task!.Id}";
+    public string RestoreFocusAutomationId => CanRestore ? RestoreAutomationId : SelectionAutomationId;
     public string RestoreAutomationId => IsProject
         ? $"bin-restore-project-{Project!.Id}"
         : $"bin-restore-task-{Task!.Id}";
