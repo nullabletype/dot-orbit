@@ -98,6 +98,9 @@ internal static class SampleWorkspaceGenerator
         return summary;
     }
 
+    // A common Markdown footer lets the sample exercise the full result list with one ordinary word.
+    private static string SampleDescription(string description) => description + "\n\n*Sample workspace*";
+
     private static void ValidateAnchorDate(DateOnly anchorDate)
     {
         try
@@ -163,7 +166,7 @@ internal static class SampleWorkspaceGenerator
         {
             var project = work.CreateProject(
                 definition.Title,
-                definition.Description,
+                SampleDescription(definition.Description),
                 categoryIds[definition.CategoryKey],
                 Offset(anchorDate, definition.TargetDateOffset),
                 definition.ColourKey);
@@ -179,7 +182,7 @@ internal static class SampleWorkspaceGenerator
             var task = work.CreateTaskDraft(
                 definition.ProjectKey is null ? null : projectIds[definition.ProjectKey],
                 definition.Title,
-                definition.Description,
+                SampleDescription(definition.Description),
                 definition.CategoryKey is null ? null : categoryIds[definition.CategoryKey],
                 Offset(anchorDate, definition.DueDateOffset),
                 participantChange,
@@ -238,6 +241,16 @@ internal static class SampleWorkspaceGenerator
             timeProvider.SetDate(anchorDate.AddDays(archived.ArchiveDateOffset), completionMinute++);
             work.ArchiveProject(projectIds[archived.ProjectKey]);
         }
+
+        timeProvider.SetDate(anchorDate, completionMinute);
+        var removedTask = work.CreateStandaloneTask("Compare spare shelving",
+            SampleDescription("An earlier option for the storeroom."), categoryIds["home"], null);
+        work.MoveTaskToBin(removedTask.Id);
+        var removedProject = work.CreateProject("Previous storeroom plan",
+            SampleDescription("Keep the original shelving measurements."), categoryIds["home"], null);
+        work.CreateTaskDraft(removedProject.Id, "Measure the old shelves",
+            SampleDescription("Check the alcove width."), null, null);
+        work.MoveProjectToBin(removedProject.Id);
     }
 
     private static SampleWorkspaceSummary Validate(

@@ -44,6 +44,10 @@ One person managing their own work on a desktop. Collaboration, organisational a
 
 Recurring Task definitions extend the first release with daily, weekly, and same-day-monthly creation of ordinary Tasks. The count-free Recurring view manages those definitions; missed dates produce one latest catch-up Task, with any due offset measured from its actual addition date. Definitions remain local encrypted workspace data and are excluded from plaintext JSON and agent interchange. This extends the original recurring-Tasks deferral without adding notifications or background services.
 
+## Post-first-release workspace Search
+
+Search finds Projects and Tasks across the unlocked workspace, including completed, archived and binned work. Each result opens in the destination that owns it. Archive keeps its own search for historical work.
+
 ## Planned extension
 
 dot-orbit should later support tool-neutral, human-reviewed interchange for agent-assisted planning. An external tool can turn material supplied to it by the user into a creation-only New-work proposal without receiving dot-orbit data. When existing work must be changed or connected, the user can explicitly copy a bounded Planning snapshot and ask for a snapshot-bound Change proposal. Both routes require complete validation, a readable review of work directly added or changed, and whole-proposal approval; routine ordering and derived-state consequences are implied rather than expanded item by item. dot-orbit does not itself ingest transcripts or meeting material, mutate autonomously, or integrate a provider-specific AI service.

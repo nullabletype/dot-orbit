@@ -94,6 +94,7 @@ public sealed class PerformanceReviewRunnerTests
                 Sample(PerformanceStage.StorageRead, PerformanceOperation.ReadProjectBin),
                 Sample(PerformanceStage.StorageRead, PerformanceOperation.PreviewBulkTaskArchive),
                 Sample(PerformanceStage.StorageRead, PerformanceOperation.SearchArchive),
+                Sample(PerformanceStage.StorageRead, PerformanceOperation.SearchWorkspace),
             ]);
 
         Assert.Equal(2, counts.StorageWrites);
@@ -102,7 +103,8 @@ public sealed class PerformanceReviewRunnerTests
         Assert.Equal(1, counts.ProjectBin);
         Assert.Equal(1, counts.BulkPreview);
         Assert.Equal(1, counts.ArchiveSearch);
-        Assert.Equal(5, counts.IncidentalReadCount);
+        Assert.Equal(1, counts.WorkspaceSearch);
+        Assert.Equal(6, counts.IncidentalReadCount);
 
         static PerformanceSample Sample(PerformanceStage stage, PerformanceOperation operation) =>
             new(1, null, stage, operation, 0, 1, 1);

@@ -611,7 +611,7 @@ internal sealed partial class SqliteWorkspaceWork(
     public IReadOnlyList<ArchiveSearchResult> SearchArchive(string query)
     {
         ArgumentNullException.ThrowIfNull(query);
-        var match = BuildArchiveMatchQuery(query);
+        var match = BuildSearchMatchQuery(query);
         if (match.Length == 0) return [];
         return Guard(() => transactions.Read((connection, transaction) =>
         {
@@ -842,7 +842,7 @@ internal sealed partial class SqliteWorkspaceWork(
             Execute(connection, transaction,
                 "INSERT INTO project_identities (project_id,colour_key) VALUES ($id,$colour);",
                 ("$id", result.Id), ("$colour", identity.ColourKey));
-            return ArchiveSearchIndexEffects.None;
+            return ArchiveSearchIndexEffects.Project(result.Id);
         }));
         return result!;
     }
@@ -880,7 +880,7 @@ internal sealed partial class SqliteWorkspaceWork(
                 ("$date", Date(source.DueDate)), ("$position", projectPosition));
             ApplyParticipantChanges(connection, transaction, id, new(source.Participants, []));
             result = ReadSnapshot(connection, transaction).Tasks.Single(task => task.Id == id);
-            return ArchiveSearchIndexEffects.None;
+            return ArchiveSearchIndexEffects.Task(id);
         }));
         return result!;
     }
@@ -957,7 +957,7 @@ internal sealed partial class SqliteWorkspaceWork(
                 committed.Projects.Single(item => item.Id == project.Id),
                 copiedIds.Select(id => committed.Tasks.Single(task => task.Id == id)).ToArray(),
                 currentPreview);
-            return ArchiveSearchIndexEffects.None;
+            return ArchiveSearchIndexEffects.Project(project.Id);
         }));
         return result!;
     }
@@ -979,7 +979,7 @@ internal sealed partial class SqliteWorkspaceWork(
             Execute(connection, transaction,
                 "INSERT INTO tasks VALUES ($id, $project, $title, '', NULL, NULL, 0, $position, NULL, NULL);",
                 ("$id", result.Id), ("$project", projectId), ("$title", title), ("$position", position));
-            return ArchiveSearchIndexEffects.None;
+            return ArchiveSearchIndexEffects.Task(result.Id);
         }));
         return result!;
     }
@@ -1016,7 +1016,7 @@ internal sealed partial class SqliteWorkspaceWork(
                 Execute(connection, transaction, "INSERT INTO today_tasks (task_id, lane) VALUES ($id, $lane);",
                     ("$id", id), ("$lane", TodayLaneValue(todayLane.Value)));
             result = ReadStoredTask(connection, transaction, id, todayLane);
-            return ArchiveSearchIndexEffects.None;
+            return ArchiveSearchIndexEffects.Task(id);
         }));
         return result!;
     }
@@ -1039,7 +1039,7 @@ internal sealed partial class SqliteWorkspaceWork(
             ApplyParticipantChanges(connection, transaction, result.Id,
                 participantChange ?? new([], []));
             result = ReadStoredTask(connection, transaction, result.Id, null);
-            return ArchiveSearchIndexEffects.None;
+            return ArchiveSearchIndexEffects.Task(result.Id);
         }));
         return result!;
     }
@@ -2619,7 +2619,7 @@ internal sealed partial class SqliteWorkspaceWork(
 
     }
 
-    private static string BuildArchiveMatchQuery(string query)
+    private static string BuildSearchMatchQuery(string query)
     {
         var tokens = new List<string>();
         var token = new StringBuilder();

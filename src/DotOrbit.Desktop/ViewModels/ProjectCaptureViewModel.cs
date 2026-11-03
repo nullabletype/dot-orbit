@@ -149,6 +149,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
                     nameof(actionExecutor));
         }
         _uiDispatcher = uiDispatcher ?? new InlineUiDispatcher();
+        Search = new(this, _actionExecutor, _uiDispatcher);
         NewProjectCommand = new(() => Navigate(BeginProject));
         NewTaskCommand = new(() => Navigate(BeginStandaloneTask));
         NewTodayTaskCommand = new(() => Navigate(BeginTodayTask));
@@ -230,6 +231,10 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         CapturePresentationClock();
         Reload();
     }
+
+    public WorkspaceSearchViewModel Search { get; }
+    public ObservableCollection<BinRowViewModel> RevealedBinTask { get; } = [];
+    private string? _revealedArchiveTaskId;
 
     public RecurringTasksViewModel Recurring { get; }
 
@@ -1046,9 +1051,90 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         ReopenWorkspaceActionAdmission(reopen: true);
     }
 
-    public void SelectProject(string id) => Navigate(() => LoadProject(id));
-    public void SelectTask(string id) => Navigate(() => LoadTask(id));
+    public void SelectProject(string id) => Navigate(() => OpenSelectedRecord(ArchiveSearchRecordType.Project, id));
+    public void SelectTask(string id) => Navigate(() => OpenSelectedRecord(ArchiveSearchRecordType.Task, id));
     public void SelectCategory(string id) => Navigate(() => LoadCategory(id));
+
+    internal ArchivedWorkRowViewModel? HistoricalChild(string id)
+    {
+        if (!_taskRows.TryGetValue(id, out var task) || task.ProjectId is not { } projectId) return null;
+        var parent = _snapshot.Projects.FirstOrDefault(item => item.Id == projectId && item.IsArchived);
+        if (parent is null) return null;
+        var record = _snapshot.Tasks.Single(item => item.Id == id);
+        return new(record.ArchiveDate ?? parent.ArchiveDate!.Value, record.ArchivedAt ?? parent.ArchivedAt!.Value,
+            null, task, true, RequiresParentRestore: !record.IsArchived);
+    }
+
+    internal BinRowViewModel? AggregateBinRow(TaskBinRecord item)
+    {
+        var parent = Bin.FirstOrDefault(row => row.Project?.Id == item.Task.ProjectId)?.Project;
+        if (parent is null) return null;
+        var category = CategoryById(item.Task.ExplicitCategoryId ?? parent.CategoryId);
+        return BinRowViewModel.ForTask(this, item, category.Id, category.ColourKey, parent.ColourKey,
+            TimeZoneInfo.ConvertTime(item.RemovedAt, _timeProvider.LocalTimeZone));
+    }
+
+    internal void OpenBinSelection(BinRowViewModel item)
+    {
+        if (!Search.IsActive) return;
+        Navigate(() =>
+        {
+            var current = Bin.FirstOrDefault(row => row.SelectionAutomationId == item.SelectionAutomationId);
+            if (current is null && item.Task?.ProjectId is { } parentId && Bin.Any(row => row.Project?.Id == parentId))
+            {
+                RevealedBinTask.Clear();
+                RevealedBinTask.Add(item);
+                current = item;
+            }
+            if (current is not null)
+                MainViewNavigationRequested?.Invoke(this, new(MainViewDestination.Bin, current.SelectionAutomationId));
+        });
+    }
+
+    private void OpenSelectedRecord(ArchiveSearchRecordType type, string id)
+    {
+        if (Search.IsActive)
+        {
+            var project = type == ArchiveSearchRecordType.Project;
+            var archivedProject = project && ArchivedProjects.Any(row => row.Project.Id == id);
+            var historicalChild = project ? null : HistoricalChild(id);
+            MainViewDestination destination;
+            string target;
+            if (archivedProject || historicalChild is not null || (!project && Archived.Any(row => row.Task.Id == id)))
+            {
+                ArchiveSearchText = string.Empty;
+                if (historicalChild is not null)
+                {
+                    _revealedArchiveTaskId = id;
+                    RefreshArchiveGroups();
+                }
+                destination = MainViewDestination.Archive;
+                target = project ? $"archive-project-{id}" : $"task-selection-{id}";
+            }
+            else if (project && Projects.Any(row => row.Id == id))
+            {
+                destination = MainViewDestination.Projects;
+                target = $"project-selection-{id}";
+            }
+            else if (!project && (Backlog.Any(row => row.Id == id) || Completed.Any(row => row.Id == id)))
+            {
+                destination = Backlog.Any(row => row.Id == id) ? MainViewDestination.Backlog : MainViewDestination.Completed;
+                target = $"task-selection-{id}";
+            }
+            else
+            {
+                Message = "This result is no longer available.";
+                Search.Refresh();
+                return;
+            }
+            MainViewNavigationRequested?.Invoke(this, new(destination, target));
+            if (historicalChild?.RequiresParentRestore == true) return;
+        }
+        else if (_archiveActive && !HasArchiveSearchQuery && type == ArchiveSearchRecordType.Task
+            && _revealedArchiveTaskId == id && HistoricalChild(id)?.RequiresParentRestore == true) return;
+        if (type == ArchiveSearchRecordType.Project) LoadProject(id);
+        else LoadTask(id);
+    }
 
     internal void OpenCategoryContext(string id) => Navigate(() =>
     {
@@ -1166,8 +1252,21 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public void SetUpcomingActive(bool active) => _upcomingActive = active;
     public void SetCompletedActive(bool active) => _completedActive = active;
 
-    public void SetArchiveActive(bool active) => _archiveActive = active;
-    public void SetBinActive(bool active) => _binActive = active;
+    public void SetArchiveActive(bool active)
+    {
+        _archiveActive = active;
+        if (!active && _revealedArchiveTaskId is not null)
+        {
+            _revealedArchiveTaskId = null;
+            RefreshArchiveGroups();
+        }
+    }
+
+    public void SetBinActive(bool active)
+    {
+        _binActive = active;
+        if (!active) RevealedBinTask.Clear();
+    }
     public void SetTodayActive(bool active) => _todayActive = active;
 
     public bool RefreshDatePresentation()
@@ -1350,8 +1449,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
                 if (_editingTask && _editingId == id) CloseInspector();
                 ClearArchiveConfirmation();
                 Reload();
-                ArchiveFocusAutomationId = Completed.Count == 0
-                    ? "navigation-completed"
+                ArchiveFocusAutomationId = Search.IsActive ? $"task-restore-{id}"
+                    : Completed.Count == 0 ? "navigation-completed"
                     : Completed[Math.Min(Math.Max(completedIndex, 0), Completed.Count - 1)].ArchiveAutomationId;
                 Message = "Task archived.";
             }, "Could not archive the Task. No changes were made.")) return;
@@ -1448,8 +1547,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
                             && _snapshot.Tasks.Single(task => task.Id == taskId).ProjectId == id))
                         CloseInspector();
                     Reload();
-                    ArchiveFocusAutomationId = Projects.Count == 0
-                        ? "navigation-projects"
+                    ArchiveFocusAutomationId = Search.IsActive ? $"project-restore-{id}"
+                        : Projects.Count == 0 ? "navigation-projects"
                         : Projects[Math.Min(activeIndex, Projects.Count - 1)].ArchiveAutomationId;
                     Message = "Project archived.";
                 }, "Could not archive the Project. No changes were made.")) return;
@@ -1475,7 +1574,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
                             : ArchivedProjects.Count == 0
                                 ? Archived.Count == 0 ? "navigation-archive" : Archived[0].Task.RestoreAutomationId
                                 : ArchivedProjects[Math.Min(archivedIndex, ArchivedProjects.Count - 1)].Project.RestoreAutomationId
-                        : $"project-archive-{id}";
+                        : Search.IsActive ? $"project-selection-{id}" : $"project-archive-{id}";
                     Message = "Project restored.";
                 }, "Could not restore the Project. No changes were made.")) return;
         });
@@ -1504,8 +1603,9 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
                                     ? "navigation-archive"
                                     : ArchivedProjects[0].Project.RestoreAutomationId
                                 : Archived[Math.Min(Math.Max(archivedIndex, 0), Archived.Count - 1)].Task.RestoreAutomationId
-                        : $"task-completion-{id}";
-                    Message = "Task restored to Completed.";
+                        : Search.IsActive ? $"task-selection-{id}" : $"task-completion-{id}";
+                    Message = HistoricalChild(id) is null ? "Task restored to Completed."
+                        : "Task restored. Its Project is still archived.";
                 }, "Could not restore the Task. No changes were made.")) return;
         });
     }
@@ -1631,8 +1731,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
                 BinFocusAutomationId = _binActive
                     ? Bin.Count == 0
                         ? "navigation-bin"
-                        : Bin[Math.Min(Math.Max(binIndex, 0), Bin.Count - 1)].RestoreAutomationId
-                    : $"task-completion-{id}";
+                        : Bin[Math.Min(Math.Max(binIndex, 0), Bin.Count - 1)].RestoreFocusAutomationId
+                    : Search.IsActive ? $"task-selection-{id}" : $"task-completion-{id}";
                 Message = "Task restored from Bin.";
             }, "Could not restore the Task from Bin. No changes were made.")) return;
     }
@@ -1685,8 +1785,12 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
                 BinFocusAutomationId = _binActive
                     ? Bin.Count == 0
                         ? "navigation-bin"
-                        : Bin[Math.Min(Math.Max(binIndex, 0), Bin.Count - 1)].RestoreAutomationId
-                    : $"project-select-{id}";
+                        : Bin[Math.Min(Math.Max(binIndex, 0), Bin.Count - 1)].RestoreFocusAutomationId
+                    : Search.IsActive
+                        ? _snapshot.Projects.Any(project => project.Id == id && project.IsArchived)
+                            ? $"archive-project-{id}"
+                            : $"project-selection-{id}"
+                        : $"project-select-{id}";
                 Message = "Project and its Tasks restored from Bin.";
             }, "Could not restore the Project from Bin. No changes were made.")) return;
     }
@@ -2488,6 +2592,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             RefreshCategoryGroup(updated.CategoryId);
         }
         if (updated.IsArchived && HasArchiveSearchQuery) RefreshArchiveSearch();
+        Search.Refresh();
         NotifyRecordLocalProjectionState();
     }
 
@@ -2524,6 +2629,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         if (_editingTask && string.Equals(_editingId, updated.Id, StringComparison.Ordinal))
             SynchroniseSelectedParticipants(updated, committedSnapshot is not null);
         if (updated.IsArchived && HasArchiveSearchQuery) RefreshArchiveSearch();
+        Search.Refresh();
         NotifyRecordLocalProjectionState();
     }
 
@@ -2854,6 +2960,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         Archived.Clear();
         for (var index = 0; index < desiredArchived.Length; index++)
             Archived.Add(new(desiredArchived[index], index == desiredArchived.Length - 1));
+        RevealedBinTask.Clear();
         RefreshArchiveGroups();
         if (reload.ArchiveSearchQuery is null)
             RefreshArchiveSearch();
@@ -2925,6 +3032,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         Notify(nameof(HasArchived));
         Notify(nameof(HasArchivedTasks));
         Notify(nameof(HasArchivedProjects));
+        Search.Refresh();
         Notify(nameof(HasNoArchived));
         Notify(nameof(HasBinnedWork));
         Notify(nameof(HasNoBinnedWork));
@@ -2981,7 +3089,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         }
         var category = CategoryById(categoryId);
         row.Refresh(task, category.Id, category.Name, category.ColourKey, projectTitle,
-            project?.ColourKey ?? IdentityColourPalette.KeyForProjectPosition(0), inherited, Today);
+            project?.ColourKey ?? IdentityColourPalette.KeyForProjectPosition(0), inherited, Today, project?.IsArchived == true);
         return row;
     }
 
@@ -3089,6 +3197,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             var task = _snapshot.Tasks.Single(item => item.Id == row.Task.Id);
             return new ArchivedWorkRowViewModel(task.ArchiveDate!.Value, task.ArchivedAt!.Value, null, row.Task, false);
         });
+        var revealed = _revealedArchiveTaskId is { } id ? HistoricalChild(id) : null;
+        if (revealed is not null) tasks = tasks.Append(revealed);
         foreach (var group in projects.Concat(tasks)
                      .OrderByDescending(row => row.ArchiveDate)
                      .ThenByDescending(row => row.ArchivedAt)
@@ -3743,6 +3853,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         Notify(nameof(HasTodayTasks));
         Notify(nameof(HasNoTodayTasks));
         Notify(nameof(HasCompletedToday));
+        Search.Refresh();
     }
 
     private void RefreshProjectTaskState(string projectId)
@@ -3982,7 +4093,10 @@ internal enum MainViewDestination
 {
     Categories,
     Projects,
+    Backlog,
+    Completed,
     Archive,
+    Bin,
 }
 
 internal sealed class MainViewNavigationRequestedEventArgs(
@@ -4281,6 +4395,7 @@ public sealed class BinRowViewModel
         TaskCount = projectItem?.TaskCount ?? 0;
         RemovedAt = localRemovedAt;
         RemovedText = $"Removed {localRemovedAt.ToString("d MMM yyyy, HH:mm", CultureInfo.InvariantCulture)}";
+        SelectCommand = new(() => owner.OpenBinSelection(this));
         CanRestore = projectItem is not null || taskItem!.CanRestore;
         RestoreBlockedText = taskItem?.RestoreBlockedReason ?? string.Empty;
         RestoreCommand = new(() =>
@@ -4359,6 +4474,9 @@ public sealed class BinRowViewModel
     public bool CanRestore { get; }
     public bool IsRestoreBlocked => !CanRestore;
     public string RestoreBlockedText { get; }
+    public RelayCommand SelectCommand { get; }
+    public string SelectionAutomationId => IsProject ? $"bin-selection-project-{Project!.Id}" : $"bin-selection-task-{Task!.Id}";
+    public string RestoreFocusAutomationId => CanRestore ? RestoreAutomationId : SelectionAutomationId;
     public string RestoreAutomationId => IsProject
         ? $"bin-restore-project-{Project!.Id}"
         : $"bin-restore-task-{Task!.Id}";
@@ -4380,8 +4498,12 @@ public sealed record ArchivedWorkRowViewModel(
     DateTimeOffset ArchivedAt,
     ProjectRowViewModel? Project,
     TaskRowViewModel? Task,
-    bool IsLast)
+    bool IsLast,
+    bool RequiresParentRestore = false)
 {
+    public string ArchiveDateText => $"{(RequiresParentRestore ? "Project archived" : "Archived")} {ArchiveDate.ToString("d MMM yyyy", CultureInfo.InvariantCulture)}";
+    public bool CanRestoreTask => IsTask && !RequiresParentRestore;
+    public string TaskStateText => RequiresParentRestore ? "Restore the parent Project first" : "Archived Task";
     public bool IsProject => Project is not null;
     public bool IsTask => Task is not null;
 }
@@ -4473,7 +4595,7 @@ public sealed class ArchiveSearchResultViewModel : INotifyPropertyChanged
     public string RestoreAutomationId => $"archive-search-restore-{Result.RecordType.ToString().ToLowerInvariant()}-{Result.Id}";
     public string RestoreAccessibleName => Result.RecordType == ArchiveSearchRecordType.Project
         ? $"Restore Project {Title} to Projects"
-        : $"Restore {Title} to Completed";
+        : TaskContext?.RestoreAccessibleName ?? $"Restore {Title} to Completed";
     public string AccessibleName => string.Join(". ", new[]
         {
             $"{TypeLabel} {Title}",
@@ -4670,6 +4792,7 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
     private string? _projectTitle;
     private string _projectColourKey = IdentityColourPalette.KeyForProjectPosition(0);
     private bool _usesInheritedCategory;
+    private bool _parentArchived;
     private int _position;
     private int _count;
     private bool _isComplete;
@@ -4739,6 +4862,7 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
     public bool IsLast => _position == _count;
     public string ReorderAccessibleName => $"Reorder {Title} in Backlog";
     public string ReorderAutomationId => $"backlog-reorder-{Id}";
+    public string SelectionAutomationId => $"task-selection-{Id}";
     public string CompletionAutomationId => $"task-completion-{Id}";
     public string CompletionAccessibleName => IsArchived
         ? $"{Title} is archived. Restore it before reopening."
@@ -4750,7 +4874,9 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
     public string ArchiveAutomationId => $"task-archive-{Id}";
     public string RestoreAutomationId => $"task-restore-{Id}";
     public string ArchiveAccessibleName => $"Archive {Title}";
-    public string RestoreAccessibleName => $"Restore {Title} to Completed";
+    public string RestoreAccessibleName => _parentArchived
+        ? IsArchived ? $"Restore {Title} within archived Project {ProjectTitle}" : $"Restore Project {ProjectTitle} first to access {Title}"
+        : $"Restore {Title} to Completed";
     public bool IsToday => _todayLane is not null;
     public string TodayAutomationId => $"task-today-{Id}";
     public string TodayAccessibleName => $"{(IsToday ? "Remove" : "Add")} {Title} {(IsToday ? "from" : "to")} Today";
@@ -4797,8 +4923,10 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
         string? projectTitle,
         string projectColourKey,
         bool usesInheritedCategory,
-        DateOnly today)
+        DateOnly today,
+        bool parentArchived)
     {
+        _parentArchived = parentArchived;
         _title = task.Title;
         _categoryId = categoryId;
         _categoryName = categoryName;

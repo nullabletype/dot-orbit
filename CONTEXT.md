@@ -60,6 +60,10 @@ A derived Project state:
 
 For a Task, the local calendar date captured alongside its latest completion timestamp when completion occurs. For a Project, the latest captured completion date among its Tasks once every Task is complete. A later time-zone change does not move completed work between calendar days. Reopening a Task clears its completion timestamp and captured date; completing it again records new values rather than retaining a completion audit trail.
 
+### Search
+
+A workspace projection that lists each matching Project or Task once. Its owning destination is the view that presents that identity in its current lifecycle state, including Archive or Bin when a Task is hidden with its parent Project.
+
 ### Archive
 
 A visibility state and searchable historical projection. Archiving captures both an instant and the user's local calendar date so the projection can retain stable daily and weekly groups after a later time-zone change. An individual Task must be complete before it can be archived; it remains part of its Project and still contributes to derived Project status, but is excluded from Backlog and Completed. A Project can be archived explicitly in any completion state without changing that state or its Tasks.

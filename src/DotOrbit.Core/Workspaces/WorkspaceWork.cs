@@ -7,6 +7,7 @@ public interface IWorkspaceWork
     IReadOnlyList<ProjectBinRecord> ReadProjectBin();
     EmptyBinPreview PreviewEmptyBin();
     IReadOnlyList<ArchiveSearchResult> SearchArchive(string query);
+    IReadOnlyList<WorkspaceSearchResult> SearchWorkspace(string query);
     WorkspaceCategory CreateCategory(string name, string? colourKey = null);
     WorkspaceCategory RenameCategory(string id, string name);
     WorkspaceCategory UpdateCategory(string id, string name, string colourKey);
@@ -63,6 +64,21 @@ public enum ArchiveSearchRecordType
     Project,
     Task,
 }
+
+public enum WorkspaceSearchGroup
+{
+    Projects,
+    Backlog,
+    Completed,
+    Archive,
+    Bin,
+}
+
+public sealed record WorkspaceSearchResult(
+    WorkspaceSearchGroup Group,
+    ArchiveSearchRecordType RecordType,
+    string Id,
+    TaskBinRecord? AggregateBinTask = null);
 
 public enum ArchiveSearchDateKind
 {

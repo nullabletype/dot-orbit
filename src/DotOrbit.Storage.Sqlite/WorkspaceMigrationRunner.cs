@@ -322,6 +322,7 @@ internal static class WorkspaceMigrationRunner
                 16 => ApplySchemaSixteenToSeventeen(connection),
                 17 => ApplySchemaSeventeenToEighteen(connection),
                 18 => ApplySchemaEighteenToNineteen(connection),
+                19 => ApplySchemaNineteenToTwenty(connection),
                 _ => throw new InvalidDataException(),
             };
 
@@ -530,6 +531,14 @@ internal static class WorkspaceMigrationRunner
             PRAGMA user_version = 18;
             """);
         return 18;
+    }
+
+    private static int ApplySchemaNineteenToTwenty(SqliteConnection connection)
+    {
+        ExecuteNonQuery(connection, SqliteWorkspaceWork.SearchDocumentSchema + SqliteWorkspaceWork.WorkspaceSearchSchema);
+        ArchiveSearchIndex.PopulateWorkspaceSearch(connection);
+        ExecuteNonQuery(connection, "PRAGMA user_version = 20;");
+        return 20;
     }
 
     private static int ApplySchemaEighteenToNineteen(SqliteConnection connection)

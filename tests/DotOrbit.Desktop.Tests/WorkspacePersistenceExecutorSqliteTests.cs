@@ -160,7 +160,8 @@ public sealed class WorkspacePersistenceExecutorSqliteTests
                 PerformanceOperation.ReadTaskBin or
                 PerformanceOperation.ReadProjectBin or
                 PerformanceOperation.PreviewBulkTaskArchive or
-                PerformanceOperation.SearchArchive);
+                PerformanceOperation.SearchArchive or
+                PerformanceOperation.SearchWorkspace);
             Assert.Equal(3, samples.Count(sample => sample.Operation == PerformanceOperation.ToggleTaskToday
                 && sample.Stage == PerformanceStage.StorageWrite));
             Assert.Equal(2, samples.Count(sample => sample.Operation == PerformanceOperation.ToggleTaskTodayLane

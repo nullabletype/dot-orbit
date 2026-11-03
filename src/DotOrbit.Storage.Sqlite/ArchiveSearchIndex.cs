@@ -85,7 +85,6 @@ internal static class ArchiveSearchIndex
                         """
                         SELECT t.id
                         FROM tasks t
-                        JOIN task_archives ta ON ta.task_id=t.id
                         WHERE t.project_id=$id;
                         """, change.Id);
                     break;
@@ -94,13 +93,11 @@ internal static class ArchiveSearchIndex
                         """
                         SELECT p.id
                         FROM projects p
-                        JOIN project_archives pa ON pa.project_id=p.id
                         WHERE p.category_id=$id;
                         """, change.Id);
                     AddIds(connection, transaction, taskIds, """
                         SELECT t.id
                         FROM tasks t
-                        JOIN task_archives ta ON ta.task_id=t.id
                         LEFT JOIN projects p ON p.id=t.project_id
                         WHERE COALESCE(t.explicit_category_id,p.category_id)=$id;
                         """, change.Id);
@@ -110,7 +107,6 @@ internal static class ArchiveSearchIndex
                         """
                         SELECT tp.task_id
                         FROM task_participants tp
-                        JOIN task_archives ta ON ta.task_id=tp.task_id
                         WHERE tp.participant_id=$id;
                         """, change.Id);
                     break;
@@ -120,9 +116,93 @@ internal static class ArchiveSearchIndex
         }
 
         foreach (var id in projectIds.Order(StringComparer.Ordinal))
-            RefreshProject(connection, transaction, id);
+            WriteSearchDocuments(connection, transaction, "project", id, rebuilding: false);
         foreach (var id in taskIds.Order(StringComparer.Ordinal))
-            RefreshTask(connection, transaction, id);
+            WriteSearchDocuments(connection, transaction, "task", id, rebuilding: false);
+    }
+
+    internal static void PopulateWorkspaceSearch(SqliteConnection connection)
+    {
+        // Legacy Archive rowids were allocated independently. Repopulate both
+        // indexes from their owning records inside the schema-20 migration.
+        using (var clear = connection.CreateCommand())
+        {
+            clear.CommandText = "DELETE FROM archive_search;";
+            clear.ExecuteNonQuery();
+        }
+        foreach (var id in ReadIds(connection, null, "SELECT id FROM projects ORDER BY id;"))
+            WriteSearchDocuments(connection, null, "project", id, rebuilding: true);
+        foreach (var id in ReadIds(connection, null, "SELECT id FROM tasks ORDER BY id;"))
+            WriteSearchDocuments(connection, null, "task", id, rebuilding: true);
+    }
+
+    private static void WriteSearchDocuments(
+        SqliteConnection connection, SqliteTransaction? transaction, string type, string id, bool rebuilding)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.Parameters.AddWithValue("$type", type);
+        command.Parameters.AddWithValue("$id", id);
+        long? documentId = null;
+        if (!rebuilding)
+        {
+            command.CommandText = "SELECT document_id FROM search_documents WHERE record_type=$type AND record_id=$id;";
+            documentId = (long?)command.ExecuteScalar();
+            if (documentId.HasValue)
+            {
+                command.Parameters.AddWithValue("$document", documentId.Value);
+                command.CommandText = """
+                    DELETE FROM workspace_search WHERE rowid=$document;
+                    DELETE FROM archive_search WHERE rowid=$document;
+                    """;
+                command.ExecuteNonQuery();
+            }
+        }
+
+        command.CommandText = type == "project"
+            ? """
+              SELECT p.title,p.description,c.name FROM projects p
+              JOIN categories c ON c.id=p.category_id WHERE p.id=$id;
+              """
+            : """
+              SELECT t.title,t.description,c.name FROM tasks t
+              LEFT JOIN projects p ON p.id=t.project_id
+              JOIN categories c ON c.id=COALESCE(t.explicit_category_id,p.category_id) WHERE t.id=$id;
+              """;
+        using (var reader = command.ExecuteReader())
+        {
+            if (!reader.Read())
+            {
+                reader.Close();
+                if (documentId.HasValue)
+                {
+                    command.CommandText = "DELETE FROM search_documents WHERE document_id=$document;";
+                    command.ExecuteNonQuery();
+                }
+                return;
+            }
+            command.Parameters.AddWithValue("$title", reader.GetString(0));
+            command.Parameters.AddWithValue("$description", SearchableMarkdownText(reader.GetString(1)));
+            command.Parameters.AddWithValue("$category", reader.GetString(2));
+        }
+        if (!documentId.HasValue)
+        {
+            command.CommandText = "INSERT INTO search_documents(record_type,record_id) VALUES($type,$id) RETURNING document_id;";
+            documentId = (long)command.ExecuteScalar()!;
+            command.Parameters.AddWithValue("$document", documentId.Value);
+        }
+        command.Parameters.AddWithValue("$participants", type == "task"
+            ? string.Join(' ', ReadParticipantLabels(connection, transaction, id))
+            : string.Empty);
+        command.CommandText = """
+            INSERT INTO workspace_search(rowid,title,description,category,participants)
+            VALUES($document,$title,$description,$category,$participants);
+            """;
+        command.ExecuteNonQuery();
+        if (type == "project")
+            InsertArchivedProject(connection, transaction, id, documentId);
+        else
+            InsertArchivedTask(connection, transaction, id, documentId);
     }
 
     public static void Rebuild(SqliteConnection connection, SqliteTransaction? transaction = null)
@@ -138,18 +218,18 @@ internal static class ArchiveSearchIndex
 
         foreach (var id in ReadIds(connection, transaction,
                      "SELECT project_id FROM project_archives ORDER BY project_id;"))
-            RefreshProject(connection, transaction, id);
+            InsertArchivedProject(connection, transaction, id, documentId: null);
         foreach (var id in ReadIds(connection, transaction,
                      "SELECT task_id FROM task_archives ORDER BY task_id;"))
-            RefreshTask(connection, transaction, id);
+            InsertArchivedTask(connection, transaction, id, documentId: null);
     }
 
-    private static void RefreshProject(
+    private static void InsertArchivedProject(
         SqliteConnection connection,
         SqliteTransaction? transaction,
-        string id)
+        string id,
+        long? documentId)
     {
-        DeleteDocument(connection, transaction, "project", id);
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
@@ -173,6 +253,7 @@ internal static class ArchiveSearchIndex
         InsertDocument(
             connection,
             transaction,
+            documentId,
             "project",
             id,
             title,
@@ -185,12 +266,12 @@ internal static class ArchiveSearchIndex
             "archived");
     }
 
-    private static void RefreshTask(
+    private static void InsertArchivedTask(
         SqliteConnection connection,
         SqliteTransaction? transaction,
-        string id)
+        string id,
+        long? documentId)
     {
-        DeleteDocument(connection, transaction, "task", id);
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
@@ -218,6 +299,7 @@ internal static class ArchiveSearchIndex
         InsertDocument(
             connection,
             transaction,
+            documentId,
             "task",
             id,
             title,
@@ -230,23 +312,10 @@ internal static class ArchiveSearchIndex
             "completed");
     }
 
-    private static void DeleteDocument(
-        SqliteConnection connection,
-        SqliteTransaction? transaction,
-        string recordType,
-        string recordId)
-    {
-        using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = "DELETE FROM archive_search WHERE record_type=$recordType AND record_id=$recordId;";
-        command.Parameters.AddWithValue("$recordType", recordType);
-        command.Parameters.AddWithValue("$recordId", recordId);
-        command.ExecuteNonQuery();
-    }
-
     private static void InsertDocument(
         SqliteConnection connection,
         SqliteTransaction? transaction,
+        long? documentId,
         string recordType,
         string recordId,
         string title,
@@ -262,12 +331,13 @@ internal static class ArchiveSearchIndex
         command.Transaction = transaction;
         command.CommandText = """
             INSERT INTO archive_search
-                (record_type, record_id, title, description, category, participants,
+                (rowid, record_type, record_id, title, description, category, participants,
                  parent_project, archive_ticks, display_date, date_kind)
             VALUES
-                ($recordType, $recordId, $title, $description, $category, $participants,
+                ($document, $recordType, $recordId, $title, $description, $category, $participants,
                  $parentProject, $archiveTicks, $displayDate, $dateKind);
             """;
+        command.Parameters.AddWithValue("$document", (object?)documentId ?? DBNull.Value);
         command.Parameters.AddWithValue("$recordType", recordType);
         command.Parameters.AddWithValue("$recordId", recordId);
         command.Parameters.AddWithValue("$title", title);

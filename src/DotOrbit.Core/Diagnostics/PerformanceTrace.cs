@@ -21,6 +21,7 @@ public enum PerformanceOperation
     ReadProjectBin,
     PreviewEmptyBin,
     SearchArchive,
+    SearchWorkspace,
     CreateCategory,
     RenameCategory,
     UpdateCategory,

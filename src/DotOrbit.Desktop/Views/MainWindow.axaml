@@ -55,7 +55,7 @@
     <DataTemplate x:Key="TaskIdentityTemplate" x:DataType="vm:TaskRowViewModel">
       <StackPanel Spacing="0">
         <Button Classes="task-title row-title" Padding="6,2,6,5" Command="{Binding SelectCommand}"
-            AutomationProperties.Name="{Binding AccessibleName}">
+            AutomationProperties.AutomationId="{Binding SelectionAutomationId}" AutomationProperties.Name="{Binding AccessibleName}">
           <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
             <views:WorkTypeIcon WorkType="Task" />
             <TextBlock Grid.Column="1" Classes="work-identity-title" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
@@ -172,7 +172,254 @@
         </Grid>
       </Border>
     </DataTemplate>
+    <DataTemplate x:Key="ProjectHeaderTemplate" x:DataType="vm:ProjectRowViewModel">
+      <Border Classes="interactive-row expandable-header-row project-header-row selectable-row" Classes.expanded="{Binding IsExpanded}" Padding="10,8,12,8">
+        <Grid ColumnDefinitions="Auto,Auto,Auto,*,104,154,72">
+          <Button
+              Classes="drag-handle project-drag-handle" Width="30"
+              AutomationProperties.AutomationId="{Binding ReorderAutomationId}"
+              AutomationProperties.Name="{Binding ReorderAccessibleName}">
+            <Button.Flyout>
+              <MenuFlyout Closed="OnReorderMenuClosed">
+                <MenuItem Header="Move to top" Command="{Binding MoveToTopCommand}" AutomationProperties.Name="{Binding MoveToTopAccessibleName}" />
+                <MenuItem Header="Move up" Command="{Binding MoveUpCommand}" AutomationProperties.Name="{Binding MoveUpAccessibleName}" />
+                <MenuItem Header="Move down" Command="{Binding MoveDownCommand}" AutomationProperties.Name="{Binding MoveDownAccessibleName}" />
+                <MenuItem Header="Move to bottom" Command="{Binding MoveToBottomCommand}" AutomationProperties.Name="{Binding MoveToBottomAccessibleName}" />
+              </MenuFlyout>
+            </Button.Flyout>
+          </Button>
+          <Border Grid.Column="1" Width="4" Classes="project-header-spacer" />
+          <ToggleButton
+              Grid.Column="2" Width="30"
+              Classes="disclosure"
+              AutomationProperties.Name="{Binding ExpansionAccessibleName}"
+              IsChecked="{Binding IsExpanded, Mode=TwoWay}" />
+          <Button
+              Grid.Column="3"
+              Classes="project-title row-title"
+              AutomationProperties.AutomationId="{Binding SelectionAutomationId}"
+              AutomationProperties.Name="{Binding AccessibleName}"
+              Command="{Binding SelectCommand}">
+            <ContentControl Content="{Binding}" ContentTemplate="{StaticResource ProjectIdentityTemplate}" />
+          </Button>
+          <TextBlock Grid.Column="4" Margin="8,0" HorizontalAlignment="Right" VerticalAlignment="Center"
+              Classes="project-progress" Classes.not-started="{Binding IsNotStarted}"
+              Classes.in-progress="{Binding IsInProgress}" Classes.complete="{Binding IsComplete}"
+              FontSize="12" Text="{Binding ProgressText}" TextAlignment="Right" />
+          <StackPanel Grid.Column="5" Margin="8,0" VerticalAlignment="Center" Spacing="2">
+            <TextBlock MaxWidth="110" HorizontalAlignment="Right" FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
+                Text="{Binding TargetText}" TextAlignment="Right" TextWrapping="Wrap"
+                AutomationProperties.Name="{Binding TargetAccessibleText}" />
+            <TextBlock IsVisible="{Binding IsOverdue}" Foreground="{DynamicResource AmberBrush}"
+                HorizontalAlignment="Right" FontSize="11" FontWeight="Bold" Text="⚠ Overdue"
+                TextAlignment="Right" AutomationProperties.Name="Overdue" />
+            <TextBlock IsVisible="{Binding HasCompletionDate}"
+                HorizontalAlignment="Right" FontSize="11" Foreground="{DynamicResource SuccessBrush}"
+                Text="{Binding CompletionDateText}" TextAlignment="Right" />
+          </StackPanel>
+          <Button Grid.Column="6" Margin="8,0,0,0" HorizontalAlignment="Left" Classes="view-action task-row-action" Content="Archive"
+              Command="{Binding ArchiveCommand}"
+              AutomationProperties.AutomationId="{Binding ArchiveAutomationId}"
+              AutomationProperties.Name="{Binding ArchiveAccessibleName}" />
+        </Grid>
+      </Border>
+    </DataTemplate>
+    <DataTemplate x:Key="BacklogRowTemplate" x:DataType="vm:TaskRowViewModel">
+      <StackPanel Classes="reorder-host">
+        <Border Classes="interactive-row separated-row reorder-target task-row selectable-row backlog-row" Classes.last="{Binding IsLast}" MinHeight="{StaticResource StandardRowHeight}">
+          <Grid VerticalAlignment="Center" ColumnDefinitions="Auto,34,*,Auto,Auto,34">
+            <Grid Width="34" Classes="backlog-reorder-slot">
+              <Button
+                  Classes="drag-handle backlog-drag-handle"
+                  AutomationProperties.AutomationId="{Binding ReorderAutomationId}"
+                  AutomationProperties.Name="{Binding ReorderAccessibleName}">
+                <Button.Flyout>
+                  <MenuFlyout Closed="OnReorderMenuClosed">
+                    <MenuItem Header="Move to top" Command="{Binding MoveToTopCommand}" AutomationProperties.Name="{Binding MoveToTopAccessibleName}" />
+                    <MenuItem Header="Move up" Command="{Binding MoveUpCommand}" AutomationProperties.Name="{Binding MoveUpAccessibleName}" />
+                    <MenuItem Header="Move down" Command="{Binding MoveDownCommand}" AutomationProperties.Name="{Binding MoveDownAccessibleName}" />
+                    <MenuItem Header="Move to bottom" Command="{Binding MoveToBottomCommand}" AutomationProperties.Name="{Binding MoveToBottomAccessibleName}" />
+                  </MenuFlyout>
+                </Button.Flyout>
+              </Button>
+            </Grid>
+            <ToggleButton Grid.Column="1" Classes="completion-toggle"
+                IsChecked="{Binding IsComplete, Mode=OneWay}" Command="{Binding ToggleCompletionCommand}"
+                AutomationProperties.AutomationId="{Binding CompletionAutomationId}"
+                AutomationProperties.Name="{Binding CompletionAccessibleName}" />
+            <ContentControl Grid.Column="2" Content="{Binding}"
+                ContentTemplate="{StaticResource TaskIdentityTemplate}" />
+            <TextBlock Grid.Column="3" Classes="task-date" Text="{Binding DateText}"
+                AutomationProperties.Name="{Binding DateAccessibleText}" />
+            <TextBlock Grid.Column="4" Margin="8,0" VerticalAlignment="Center" Foreground="{DynamicResource QuietTextBrush}" FontSize="11" Text="{Binding PositionText}" />
+            <ToggleButton Grid.Column="5" Classes="today-toggle" IsVisible="{Binding !IsComplete}"
+                IsChecked="{Binding IsToday, Mode=OneWay}" Command="{Binding ToggleTodayCommand}"
+                AutomationProperties.AutomationId="{Binding TodayAutomationId}"
+                AutomationProperties.Name="{Binding TodayAccessibleName}" />
+          </Grid>
+        </Border>
+      </StackPanel>
+    </DataTemplate>
+    <DataTemplate x:Key="CompletedRowTemplate" x:DataType="vm:CompletedTaskRowViewModel">
+      <Border Classes="interactive-row separated-row task-row selectable-row completed-row" Classes.last="{Binding IsLast}" MinHeight="{StaticResource StandardRowHeight}">
+        <Grid VerticalAlignment="Center" ColumnDefinitions="34,*,Auto,Auto">
+          <ToggleButton Classes="completion-toggle"
+              IsChecked="{Binding Task.IsComplete, Mode=OneWay}" Command="{Binding Task.ToggleCompletionCommand}"
+              AutomationProperties.AutomationId="{Binding Task.CompletionAutomationId}"
+              AutomationProperties.Name="{Binding Task.CompletionAccessibleName}" />
+          <ContentControl Grid.Column="1" Content="{Binding Task}"
+              ContentTemplate="{StaticResource TaskIdentityTemplate}" />
+          <TextBlock Grid.Column="2" Classes="task-completion-date" Text="{Binding Task.CompletionDateText}" />
+          <Button Grid.Column="3" Classes="view-action task-row-action" Margin="8,0,0,0"
+              Content="Archive" Command="{Binding Task.ArchiveCommand}"
+              AutomationProperties.AutomationId="{Binding Task.ArchiveAutomationId}"
+              AutomationProperties.Name="{Binding Task.ArchiveAccessibleName}" />
+        </Grid>
+      </Border>
+    </DataTemplate>
+    <DataTemplate x:Key="ArchiveRowTemplate" x:DataType="vm:ArchivedWorkRowViewModel">
+      <Border Classes="interactive-row separated-row archive-row"
+          Classes.task-row="{Binding IsTask}" Classes.selectable-row="{Binding IsTask}"
+          Classes.last="{Binding IsLast}"
+          MinHeight="{StaticResource StandardRowHeight}">
+        <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+          <Button IsVisible="{Binding IsProject}" Classes="project-title row-title"
+              HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+              VerticalAlignment="Stretch" VerticalContentAlignment="Center"
+              Command="{Binding Project.SelectCommand}"
+              AutomationProperties.AutomationId="{Binding Project.ArchiveSelectionAutomationId}"
+              AutomationProperties.Name="{Binding Project.AccessibleName}">
+            <StackPanel Margin="6,0" Spacing="6" VerticalAlignment="Center">
+                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+                  <views:IdentityTypeIcon Width="14" Height="14"
+                      WorkType="Project" ColourKey="{Binding Project.ColourKey}" />
+                  <TextBlock Grid.Column="1" Classes="work-identity-title" FontWeight="SemiBold"
+                      Text="{Binding Project.Title}" TextTrimming="CharacterEllipsis" />
+                </Grid>
+                <views:CategoryProjectPill HorizontalAlignment="Left"
+                    CategoryName="{Binding Project.CategoryName}" CategoryColourKey="{Binding Project.CategoryColourKey}"
+                    ProjectColourKey="{Binding Project.ColourKey}" />
+            </StackPanel>
+          </Button>
+          <ContentControl IsVisible="{Binding IsTask}" Margin="6,4,0,0"
+              Content="{Binding Task}"
+              ContentTemplate="{StaticResource TaskIdentityTemplate}" />
+          <TextBlock Grid.Column="1" Classes="task-completion-date" IsVisible="{Binding IsTask}"
+              Text="{Binding Task.CompletionDateText}" />
+          <StackPanel Grid.Column="1" Margin="8,0" VerticalAlignment="Center" Spacing="3"
+              IsVisible="{Binding IsProject}">
+            <TextBlock HorizontalAlignment="Right" FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
+                Text="{Binding Project.StatusText}" />
+            <TextBlock HorizontalAlignment="Right" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
+                Text="{Binding Project.TargetText}" />
+          </StackPanel>
+          <StackPanel Grid.Column="2" Margin="8,0,0,0" VerticalAlignment="Center" Spacing="2">
+            <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
+                Text="Archived Project" IsVisible="{Binding IsProject}" />
+            <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
+                Text="{Binding TaskStateText}" IsVisible="{Binding IsTask}" />
+            <TextBlock Classes="search-archive-date" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
+                Text="{Binding ArchiveDateText}" AutomationProperties.Name="{Binding ArchiveDateText}" />
+          </StackPanel>
+          <Button Grid.Column="3" Classes="view-action task-row-action" Margin="8,0,0,0"
+              IsVisible="{Binding IsProject}"
+              Content="Restore" Command="{Binding Project.RestoreCommand}"
+              AutomationProperties.AutomationId="{Binding Project.RestoreAutomationId}"
+              AutomationProperties.Name="{Binding Project.RestoreAccessibleName}" />
+          <Button Grid.Column="3" Classes="view-action task-row-action" Margin="8,0,0,0"
+              IsVisible="{Binding IsTask}"
+              Content="Restore" Command="{Binding Task.RestoreCommand}" IsEnabled="{Binding CanRestoreTask}"
+              AutomationProperties.AutomationId="{Binding Task.RestoreAutomationId}"
+              AutomationProperties.Name="{Binding Task.RestoreAccessibleName}" />
+        </Grid>
+      </Border>
+    </DataTemplate>
+    <DataTemplate x:Key="BinTitleContents" x:DataType="vm:BinRowViewModel">
+      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+        <views:WorkTypeIcon Width="14" Height="14"
+            WorkType="Task" IsVisible="{Binding IsTask}" />
+        <views:IdentityTypeIcon Width="14" Height="14"
+            WorkType="Project" ColourKey="{Binding ProjectColourKey}"
+            IsVisible="{Binding IsProject}" />
+        <TextBlock Grid.Column="1" Classes="work-identity-title" FontWeight="SemiBold"
+            Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+      </Grid>
+    </DataTemplate>
+    <DataTemplate x:Key="BinStaticTitle" x:DataType="vm:BinRowViewModel">
+      <ContentControl Content="{Binding}" ContentTemplate="{StaticResource BinTitleContents}"
+          Focusable="True" IsTabStop="False" AutomationProperties.Name="{Binding AccessibleName}"
+          AutomationProperties.AutomationId="{Binding SelectionAutomationId}" />
+    </DataTemplate>
+    <DataTemplate x:Key="BinSearchTitle" x:DataType="vm:BinRowViewModel">
+      <Button Classes="row-title" Classes.project-title="{Binding IsProject}" Classes.task-title="{Binding IsTask}"
+          HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Command="{Binding SelectCommand}"
+          AutomationProperties.AutomationId="{Binding SelectionAutomationId}" AutomationProperties.Name="{Binding AccessibleName}">
+        <ContentControl Content="{Binding}" ContentTemplate="{StaticResource BinTitleContents}" />
+      </Button>
+    </DataTemplate>
+    <DataTemplate x:Key="BinRowTemplate" x:DataType="vm:BinRowViewModel">
+      <Border Classes="interactive-row separated-row task-row bin-row" Classes.last="{Binding IsLast}"
+          MinHeight="{StaticResource StandardRowHeight}"
+          AutomationProperties.Name="{Binding AccessibleName}">
+        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+          <StackPanel Classes="bin-identity" Classes.task="{Binding IsTask}"
+              VerticalAlignment="Center" Spacing="6">
+              <ContentControl Classes="bin-heading" Content="{Binding}" />
+              <views:CategoryProjectPill HorizontalAlignment="Left"
+                  CategoryName="{Binding CategoryName}" CategoryColourKey="{Binding CategoryColourKey}"
+                  ProjectName="{Binding PillProjectTitle}" ProjectColourKey="{Binding ProjectColourKey}"
+                  HasOverride="{Binding HasCategoryOverride}"
+                  CategoryCommand="{Binding OpenCategoryContextCommand}"
+                  ProjectCommand="{Binding OpenProjectContextCommand}"
+                  CategoryAutomationId="{Binding CategoryContextAutomationId}"
+                  ProjectAutomationId="{Binding ProjectContextAutomationId}"
+                  ProjectHelpText="{Binding ProjectContextHelpText}" />
+          </StackPanel>
+          <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="12"
+              Foreground="{DynamicResource MutedTextBrush}" Text="{Binding RemovedText}" />
+          <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="4">
+            <Button Classes="view-action task-row-action" Content="Restore"
+                Command="{Binding RestoreCommand}" IsEnabled="{Binding CanRestore}" IsVisible="{Binding CanRestore}"
+                AutomationProperties.AutomationId="{Binding RestoreAutomationId}"
+                AutomationProperties.Name="{Binding RestoreAccessibleName}"
+                AutomationProperties.HelpText="{Binding RestoreHelpText}" />
+            <TextBlock MaxWidth="240" FontSize="11" Foreground="{DynamicResource MutedTextBrush}"
+                IsVisible="{Binding IsRestoreBlocked}" Text="{Binding RestoreBlockedText}"
+                TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+          </StackPanel>
+        </Grid>
+      </Border>
+    </DataTemplate>
   </Window.Resources>
+  <Window.Styles>
+    <Style Selector="ScrollViewer.compact-navigation RadioButton.nav-item">
+      <Setter Property="Padding" Value="10,6" />
+    </Style>
+    <Style Selector="TextBlock.search-archive-date">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="ScrollViewer.workspace-search TextBlock.search-archive-date">
+      <Setter Property="IsVisible" Value="True" />
+    </Style>
+    <Style Selector="ContentControl.bin-heading">
+      <Setter Property="ContentTemplate" Value="{StaticResource BinStaticTitle}" />
+    </Style>
+    <Style Selector="ScrollViewer.workspace-search ContentControl.bin-heading">
+      <Setter Property="ContentTemplate" Value="{StaticResource BinSearchTitle}" />
+    </Style>
+    <Style Selector="Button.project-drag-handle">
+      <Setter Property="AutomationProperties.HelpText" Value="Drag to another Project, or activate for keyboard reorder actions." />
+    </Style>
+    <Style Selector="Button.backlog-drag-handle">
+      <Setter Property="AutomationProperties.HelpText" Value="Drag to another Backlog row, or activate for keyboard reorder actions." />
+    </Style>
+    <Style Selector="ScrollViewer.workspace-search Button.drag-handle, ScrollViewer.workspace-search ToggleButton.disclosure">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="ScrollViewer.workspace-search Border.project-header-spacer, ScrollViewer.workspace-search Grid.backlog-reorder-slot">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+  </Window.Styles>
 
   <Grid ColumnDefinitions="228,*,320" RowDefinitions="64,*">
     <Border
@@ -281,10 +528,10 @@
             LetterSpacing="1.4"
             Text="WORKSPACE" />
 
-        <ItemsControl
-            Grid.Row="1"
-            ItemTemplate="{StaticResource NavigationItemTemplate}"
-            ItemsSource="{Binding PrimaryNavigation}" />
+        <ScrollViewer Grid.Row="1" SizeChanged="OnPrimaryNavigationSizeChanged"
+            HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+          <ItemsControl ItemTemplate="{StaticResource NavigationItemTemplate}" ItemsSource="{Binding PrimaryNavigation}" />
+        </ScrollViewer>
 
         <Border
             Grid.Row="2"
@@ -558,56 +805,7 @@
                       Background="{DynamicResource PanelBrush}"
                       CornerRadius="10">
                     <Grid RowDefinitions="Auto,Auto">
-                      <Border Classes="interactive-row expandable-header-row project-header-row selectable-row" Classes.expanded="{Binding IsExpanded}" Padding="10,8,12,8">
-                        <Grid ColumnDefinitions="30,4,30,*,104,154,72">
-                          <Button
-                              Classes="drag-handle project-drag-handle"
-                              AutomationProperties.AutomationId="{Binding ReorderAutomationId}"
-                              AutomationProperties.Name="{Binding ReorderAccessibleName}"
-                              AutomationProperties.HelpText="Drag to another Project, or activate for keyboard reorder actions.">
-                            <Button.Flyout>
-                              <MenuFlyout Closed="OnReorderMenuClosed">
-                                <MenuItem Header="Move to top" Command="{Binding MoveToTopCommand}" AutomationProperties.Name="{Binding MoveToTopAccessibleName}" />
-                                <MenuItem Header="Move up" Command="{Binding MoveUpCommand}" AutomationProperties.Name="{Binding MoveUpAccessibleName}" />
-                                <MenuItem Header="Move down" Command="{Binding MoveDownCommand}" AutomationProperties.Name="{Binding MoveDownAccessibleName}" />
-                                <MenuItem Header="Move to bottom" Command="{Binding MoveToBottomCommand}" AutomationProperties.Name="{Binding MoveToBottomAccessibleName}" />
-                              </MenuFlyout>
-                            </Button.Flyout>
-                          </Button>
-                          <ToggleButton
-                              Grid.Column="2"
-                              Classes="disclosure"
-                              AutomationProperties.Name="{Binding ExpansionAccessibleName}"
-                              IsChecked="{Binding IsExpanded, Mode=TwoWay}" />
-                          <Button
-                              Grid.Column="3"
-                              Classes="project-title row-title"
-                              AutomationProperties.AutomationId="{Binding SelectionAutomationId}"
-                              AutomationProperties.Name="{Binding AccessibleName}"
-                              Command="{Binding SelectCommand}">
-                            <ContentControl Content="{Binding}" ContentTemplate="{StaticResource ProjectIdentityTemplate}" />
-                          </Button>
-                          <TextBlock Grid.Column="4" Margin="8,0" HorizontalAlignment="Right" VerticalAlignment="Center"
-                              Classes="project-progress" Classes.not-started="{Binding IsNotStarted}"
-                              Classes.in-progress="{Binding IsInProgress}" Classes.complete="{Binding IsComplete}"
-                              FontSize="12" Text="{Binding ProgressText}" TextAlignment="Right" />
-                          <StackPanel Grid.Column="5" Margin="8,0" VerticalAlignment="Center" Spacing="2">
-                            <TextBlock MaxWidth="110" HorizontalAlignment="Right" FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
-                                Text="{Binding TargetText}" TextAlignment="Right" TextWrapping="Wrap"
-                                AutomationProperties.Name="{Binding TargetAccessibleText}" />
-                            <TextBlock IsVisible="{Binding IsOverdue}" Foreground="{DynamicResource AmberBrush}"
-                                HorizontalAlignment="Right" FontSize="11" FontWeight="Bold" Text="⚠ Overdue"
-                                TextAlignment="Right" AutomationProperties.Name="Overdue" />
-                            <TextBlock IsVisible="{Binding HasCompletionDate}"
-                                HorizontalAlignment="Right" FontSize="11" Foreground="{DynamicResource SuccessBrush}"
-                                Text="{Binding CompletionDateText}" TextAlignment="Right" />
-                          </StackPanel>
-                          <Button Grid.Column="6" Margin="8,0,0,0" HorizontalAlignment="Left" Classes="view-action task-row-action" Content="Archive"
-                              Command="{Binding ArchiveCommand}"
-                              AutomationProperties.AutomationId="{Binding ArchiveAutomationId}"
-                              AutomationProperties.Name="{Binding ArchiveAccessibleName}" />
-                        </Grid>
-                      </Border>
+                      <ContentControl Content="{Binding}" ContentTemplate="{StaticResource ProjectHeaderTemplate}" />
                       <Border
                           Grid.Row="1"
                           IsVisible="{Binding IsExpanded}"
@@ -718,45 +916,7 @@
             </Grid>
           </Border>
         <Border x:Name="BacklogListPanel" Classes="list-panel row-list">
-          <ItemsControl x:Name="BacklogItems" ItemsSource="{Binding Work.Backlog}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:TaskRowViewModel">
-                <StackPanel Classes="reorder-host">
-                  <Border Classes="interactive-row separated-row reorder-target task-row selectable-row backlog-row" Classes.last="{Binding IsLast}" MinHeight="{StaticResource StandardRowHeight}">
-                    <Grid VerticalAlignment="Center" ColumnDefinitions="34,34,*,Auto,Auto,34">
-                      <Button
-                          Classes="drag-handle backlog-drag-handle"
-                          AutomationProperties.AutomationId="{Binding ReorderAutomationId}"
-                          AutomationProperties.Name="{Binding ReorderAccessibleName}"
-                          AutomationProperties.HelpText="Drag to another Backlog row, or activate for keyboard reorder actions.">
-                        <Button.Flyout>
-                          <MenuFlyout Closed="OnReorderMenuClosed">
-                            <MenuItem Header="Move to top" Command="{Binding MoveToTopCommand}" AutomationProperties.Name="{Binding MoveToTopAccessibleName}" />
-                            <MenuItem Header="Move up" Command="{Binding MoveUpCommand}" AutomationProperties.Name="{Binding MoveUpAccessibleName}" />
-                            <MenuItem Header="Move down" Command="{Binding MoveDownCommand}" AutomationProperties.Name="{Binding MoveDownAccessibleName}" />
-                            <MenuItem Header="Move to bottom" Command="{Binding MoveToBottomCommand}" AutomationProperties.Name="{Binding MoveToBottomAccessibleName}" />
-                          </MenuFlyout>
-                        </Button.Flyout>
-                      </Button>
-                      <ToggleButton Grid.Column="1" Classes="completion-toggle"
-                          IsChecked="{Binding IsComplete, Mode=OneWay}" Command="{Binding ToggleCompletionCommand}"
-                          AutomationProperties.AutomationId="{Binding CompletionAutomationId}"
-                          AutomationProperties.Name="{Binding CompletionAccessibleName}" />
-                      <ContentControl Grid.Column="2" Content="{Binding}"
-                          ContentTemplate="{StaticResource TaskIdentityTemplate}" />
-                      <TextBlock Grid.Column="3" Classes="task-date" Text="{Binding DateText}"
-                          AutomationProperties.Name="{Binding DateAccessibleText}" />
-                      <TextBlock Grid.Column="4" Margin="8,0" VerticalAlignment="Center" Foreground="{DynamicResource QuietTextBrush}" FontSize="11" Text="{Binding PositionText}" />
-                      <ToggleButton Grid.Column="5" Classes="today-toggle" IsVisible="{Binding !IsComplete}"
-                          IsChecked="{Binding IsToday, Mode=OneWay}" Command="{Binding ToggleTodayCommand}"
-                          AutomationProperties.AutomationId="{Binding TodayAutomationId}"
-                          AutomationProperties.Name="{Binding TodayAccessibleName}" />
-                    </Grid>
-                  </Border>
-                </StackPanel>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
+          <ItemsControl x:Name="BacklogItems" ItemsSource="{Binding Work.Backlog}" ItemTemplate="{StaticResource BacklogRowTemplate}" />
         </Border>
         </StackPanel>
       </ScrollViewer>
@@ -864,6 +1024,51 @@
       </ScrollViewer>
       <TextBlock Grid.Row="2" Height="1" Opacity="0" IsHitTestVisible="False" IsVisible="{Binding ShowCategories}"
           Text="{Binding Work.ReorderAnnouncement}" AutomationProperties.LiveSetting="Polite" />
+      <ScrollViewer Grid.Row="2" Classes="workspace-search" IsVisible="{Binding ShowSearch}">
+        <StackPanel Margin="{StaticResource ScrollContentInset}" Spacing="12">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <TextBox x:Name="WorkspaceSearchBox" Classes="inspector-field"
+                Text="{Binding Work.Search.Text, Mode=TwoWay}" PlaceholderText="Search Projects and Tasks"
+                AutomationProperties.AutomationId="workspace-search-field" AutomationProperties.Name="Search Projects and Tasks"
+                AutomationProperties.HelpText="Enter a whole word or prefix to search this workspace." />
+            <Button Grid.Column="1" Classes="view-action" Content="Clear" Command="{Binding Work.Search.ClearCommand}"
+                AutomationProperties.Name="Clear workspace search" Click="OnWorkspaceSearchClear" />
+          </Grid>
+          <TextBlock Text="{Binding Work.Search.Status}" TextWrapping="Wrap"
+              AutomationProperties.AutomationId="workspace-search-status" AutomationProperties.LiveSetting="Polite"
+              Foreground="{DynamicResource MutedTextBrush}" />
+          <StackPanel Spacing="4" IsVisible="{Binding !!Work.Search.Projects.Count}">
+            <TextBlock Classes="eyebrow" Margin="6,4" Text="Projects" />
+            <Border Classes="list-panel row-list">
+              <ItemsControl ItemsSource="{Binding Work.Search.Projects}" ItemTemplate="{StaticResource ProjectHeaderTemplate}" />
+            </Border>
+          </StackPanel>
+          <StackPanel Spacing="4" IsVisible="{Binding !!Work.Search.Backlog.Count}">
+            <TextBlock Classes="eyebrow" Margin="6,4" Text="Backlog" />
+            <Border Classes="list-panel row-list">
+              <ItemsControl ItemsSource="{Binding Work.Search.Backlog}" ItemTemplate="{StaticResource BacklogRowTemplate}" />
+            </Border>
+          </StackPanel>
+          <StackPanel Spacing="4" IsVisible="{Binding !!Work.Search.Completed.Count}">
+            <TextBlock Classes="eyebrow" Margin="6,4" Text="Completed" />
+            <Border Classes="list-panel row-list">
+              <ItemsControl ItemsSource="{Binding Work.Search.Completed}" ItemTemplate="{StaticResource CompletedRowTemplate}" />
+            </Border>
+          </StackPanel>
+          <StackPanel Spacing="4" IsVisible="{Binding !!Work.Search.Archive.Count}">
+            <TextBlock Classes="eyebrow" Margin="6,4" Text="Archive" />
+            <Border Classes="list-panel row-list">
+              <ItemsControl ItemsSource="{Binding Work.Search.Archive}" ItemTemplate="{StaticResource ArchiveRowTemplate}" />
+            </Border>
+          </StackPanel>
+          <StackPanel Spacing="4" IsVisible="{Binding !!Work.Search.Bin.Count}">
+            <TextBlock Classes="eyebrow" Margin="6,4" Text="Bin" />
+            <Border Classes="list-panel row-list">
+              <ItemsControl ItemsSource="{Binding Work.Search.Bin}" ItemTemplate="{StaticResource BinRowTemplate}" />
+            </Border>
+          </StackPanel>
+        </StackPanel>
+      </ScrollViewer>
       <ScrollViewer Grid.Row="2" IsVisible="{Binding ShowCompleted}">
         <StackPanel Margin="{StaticResource ScrollContentInset}" Spacing="10">
           <Border Classes="list-panel">
@@ -905,27 +1110,7 @@
                 <StackPanel Spacing="4">
                   <TextBlock Classes="eyebrow" Margin="6,4" Text="{Binding Heading}" />
                   <Border Classes="list-panel row-list">
-                    <ItemsControl ItemsSource="{Binding Rows}">
-                      <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="vm:CompletedTaskRowViewModel">
-                          <Border Classes="interactive-row separated-row task-row selectable-row completed-row" Classes.last="{Binding IsLast}" MinHeight="{StaticResource StandardRowHeight}">
-                            <Grid VerticalAlignment="Center" ColumnDefinitions="34,*,Auto,Auto">
-                              <ToggleButton Classes="completion-toggle"
-                                  IsChecked="{Binding Task.IsComplete, Mode=OneWay}" Command="{Binding Task.ToggleCompletionCommand}"
-                                  AutomationProperties.AutomationId="{Binding Task.CompletionAutomationId}"
-                                  AutomationProperties.Name="{Binding Task.CompletionAccessibleName}" />
-                              <ContentControl Grid.Column="1" Content="{Binding Task}"
-                                  ContentTemplate="{StaticResource TaskIdentityTemplate}" />
-                              <TextBlock Grid.Column="2" Classes="task-completion-date" Text="{Binding Task.CompletionDateText}" />
-                              <Button Grid.Column="3" Classes="view-action task-row-action" Margin="8,0,0,0"
-                                  Content="Archive" Command="{Binding Task.ArchiveCommand}"
-                                  AutomationProperties.AutomationId="{Binding Task.ArchiveAutomationId}"
-                                  AutomationProperties.Name="{Binding Task.ArchiveAccessibleName}" />
-                            </Grid>
-                          </Border>
-                        </DataTemplate>
-                      </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                    <ItemsControl ItemsSource="{Binding Rows}" ItemTemplate="{StaticResource CompletedRowTemplate}" />
                   </Border>
                 </StackPanel>
               </DataTemplate>
@@ -1046,65 +1231,7 @@
                 <StackPanel Spacing="4">
                   <TextBlock Classes="eyebrow" Margin="6,4" Text="{Binding Heading}" />
                   <Border Classes="list-panel row-list">
-                    <ItemsControl ItemsSource="{Binding Rows}">
-                      <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="vm:ArchivedWorkRowViewModel">
-                          <Border Classes="interactive-row separated-row archive-row"
-                              Classes.task-row="{Binding IsTask}" Classes.selectable-row="{Binding IsTask}"
-                              Classes.last="{Binding IsLast}"
-                              MinHeight="{StaticResource StandardRowHeight}">
-                            <Grid ColumnDefinitions="*,Auto,Auto,Auto">
-                              <Button IsVisible="{Binding IsProject}" Classes="project-title row-title"
-                                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                                  VerticalAlignment="Stretch" VerticalContentAlignment="Center"
-                                  Command="{Binding Project.SelectCommand}"
-                                  AutomationProperties.AutomationId="{Binding Project.ArchiveSelectionAutomationId}"
-                                  AutomationProperties.Name="{Binding Project.AccessibleName}">
-                                <StackPanel Margin="6,0" Spacing="6" VerticalAlignment="Center">
-                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
-                                      <views:IdentityTypeIcon Width="14" Height="14"
-                                          WorkType="Project" ColourKey="{Binding Project.ColourKey}" />
-                                      <TextBlock Grid.Column="1" Classes="work-identity-title" FontWeight="SemiBold"
-                                          Text="{Binding Project.Title}" TextTrimming="CharacterEllipsis" />
-                                    </Grid>
-                                    <views:CategoryProjectPill HorizontalAlignment="Left"
-                                        CategoryName="{Binding Project.CategoryName}" CategoryColourKey="{Binding Project.CategoryColourKey}"
-                                        ProjectColourKey="{Binding Project.ColourKey}" />
-                                </StackPanel>
-                              </Button>
-                              <ContentControl IsVisible="{Binding IsTask}" Margin="6,4,0,0"
-                                  Content="{Binding Task}"
-                                  ContentTemplate="{StaticResource TaskIdentityTemplate}" />
-                              <TextBlock Grid.Column="1" Classes="task-completion-date" IsVisible="{Binding IsTask}"
-                                  Text="{Binding Task.CompletionDateText}" />
-                              <StackPanel Grid.Column="1" Margin="8,0" VerticalAlignment="Center" Spacing="3"
-                                  IsVisible="{Binding IsProject}">
-                                <TextBlock HorizontalAlignment="Right" FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
-                                    Text="{Binding Project.StatusText}" />
-                                <TextBlock HorizontalAlignment="Right" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
-                                    Text="{Binding Project.TargetText}" />
-                              </StackPanel>
-                              <TextBlock Grid.Column="2" Margin="8,0,0,0" VerticalAlignment="Center" FontSize="12"
-                                  Foreground="{DynamicResource MutedTextBrush}"
-                                  Text="Archived Project" IsVisible="{Binding IsProject}" />
-                              <TextBlock Grid.Column="2" Margin="8,0,0,0" VerticalAlignment="Center" FontSize="12"
-                                  Foreground="{DynamicResource MutedTextBrush}"
-                                  Text="Archived Task" IsVisible="{Binding IsTask}" />
-                              <Button Grid.Column="3" Classes="view-action task-row-action" Margin="8,0,0,0"
-                                  IsVisible="{Binding IsProject}"
-                                  Content="Restore" Command="{Binding Project.RestoreCommand}"
-                                  AutomationProperties.AutomationId="{Binding Project.RestoreAutomationId}"
-                                  AutomationProperties.Name="{Binding Project.RestoreAccessibleName}" />
-                              <Button Grid.Column="3" Classes="view-action task-row-action" Margin="8,0,0,0"
-                                  IsVisible="{Binding IsTask}"
-                                  Content="Restore" Command="{Binding Task.RestoreCommand}"
-                                  AutomationProperties.AutomationId="{Binding Task.RestoreAutomationId}"
-                                  AutomationProperties.Name="{Binding Task.RestoreAccessibleName}" />
-                            </Grid>
-                          </Border>
-                        </DataTemplate>
-                      </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                    <ItemsControl ItemsSource="{Binding Rows}" ItemTemplate="{StaticResource ArchiveRowTemplate}" />
                   </Border>
                 </StackPanel>
               </DataTemplate>
@@ -1132,51 +1259,10 @@
             </StackPanel>
           </Border>
           <Border x:Name="BinListPanel" Classes="list-panel row-list" IsVisible="{Binding Work.HasBinnedWork}">
-            <ItemsControl ItemsSource="{Binding Work.Bin}">
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="vm:BinRowViewModel">
-                  <Border Classes="interactive-row separated-row task-row bin-row" Classes.last="{Binding IsLast}"
-                      MinHeight="{StaticResource StandardRowHeight}"
-                      AutomationProperties.Name="{Binding AccessibleName}">
-                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
-                      <StackPanel Classes="bin-identity" Classes.task="{Binding IsTask}"
-                          VerticalAlignment="Center" Spacing="6">
-                          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
-                            <views:WorkTypeIcon Width="14" Height="14"
-                                WorkType="Task" IsVisible="{Binding IsTask}" />
-                            <views:IdentityTypeIcon Width="14" Height="14"
-                                WorkType="Project" ColourKey="{Binding ProjectColourKey}"
-                                IsVisible="{Binding IsProject}" />
-                            <TextBlock Grid.Column="1" Classes="work-identity-title" FontWeight="SemiBold"
-                                Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
-                          </Grid>
-                          <views:CategoryProjectPill HorizontalAlignment="Left"
-                              CategoryName="{Binding CategoryName}" CategoryColourKey="{Binding CategoryColourKey}"
-                              ProjectName="{Binding PillProjectTitle}" ProjectColourKey="{Binding ProjectColourKey}"
-                              HasOverride="{Binding HasCategoryOverride}"
-                              CategoryCommand="{Binding OpenCategoryContextCommand}"
-                              ProjectCommand="{Binding OpenProjectContextCommand}"
-                              CategoryAutomationId="{Binding CategoryContextAutomationId}"
-                              ProjectAutomationId="{Binding ProjectContextAutomationId}"
-                              ProjectHelpText="{Binding ProjectContextHelpText}" />
-                      </StackPanel>
-                      <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="12"
-                          Foreground="{DynamicResource MutedTextBrush}" Text="{Binding RemovedText}" />
-                      <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="4">
-                        <Button Classes="view-action task-row-action" Content="Restore"
-                            Command="{Binding RestoreCommand}" IsEnabled="{Binding CanRestore}"
-                            AutomationProperties.AutomationId="{Binding RestoreAutomationId}"
-                            AutomationProperties.Name="{Binding RestoreAccessibleName}"
-                            AutomationProperties.HelpText="{Binding RestoreHelpText}" />
-                        <TextBlock MaxWidth="240" FontSize="11" Foreground="{DynamicResource MutedTextBrush}"
-                            IsVisible="{Binding IsRestoreBlocked}" Text="{Binding RestoreBlockedText}"
-                            TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
-                      </StackPanel>
-                    </Grid>
-                  </Border>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
+            <ItemsControl ItemsSource="{Binding Work.Bin}" ItemTemplate="{StaticResource BinRowTemplate}" />
+          </Border>
+          <Border Classes="list-panel row-list" IsVisible="{Binding !!Work.RevealedBinTask.Count}">
+            <ItemsControl ItemsSource="{Binding Work.RevealedBinTask}" ItemTemplate="{StaticResource BinRowTemplate}" />
           </Border>
         </StackPanel>
       </ScrollViewer>
