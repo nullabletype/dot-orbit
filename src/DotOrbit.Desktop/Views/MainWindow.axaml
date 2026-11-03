@@ -310,12 +310,14 @@
             <TextBlock HorizontalAlignment="Right" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
                 Text="{Binding Project.TargetText}" />
           </StackPanel>
-          <TextBlock Grid.Column="2" Margin="8,0,0,0" VerticalAlignment="Center" FontSize="12"
-              Foreground="{DynamicResource MutedTextBrush}"
-              Text="Archived Project" IsVisible="{Binding IsProject}" />
-          <TextBlock Grid.Column="2" Margin="8,0,0,0" VerticalAlignment="Center" FontSize="12"
-              Foreground="{DynamicResource MutedTextBrush}"
-              Text="{Binding TaskStateText}" IsVisible="{Binding IsTask}" />
+          <StackPanel Grid.Column="2" Margin="8,0,0,0" VerticalAlignment="Center" Spacing="2">
+            <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
+                Text="Archived Project" IsVisible="{Binding IsProject}" />
+            <TextBlock FontSize="12" Foreground="{DynamicResource MutedTextBrush}"
+                Text="{Binding TaskStateText}" IsVisible="{Binding IsTask}" />
+            <TextBlock Classes="search-archive-date" FontSize="12" Foreground="{DynamicResource QuietTextBrush}"
+                Text="{Binding ArchiveDateText}" AutomationProperties.Name="{Binding ArchiveDateText}" />
+          </StackPanel>
           <Button Grid.Column="3" Classes="view-action task-row-action" Margin="8,0,0,0"
               IsVisible="{Binding IsProject}"
               Content="Restore" Command="{Binding Project.RestoreCommand}"
@@ -387,6 +389,15 @@
     </DataTemplate>
   </Window.Resources>
   <Window.Styles>
+    <Style Selector="ScrollViewer.compact-navigation RadioButton.nav-item">
+      <Setter Property="Padding" Value="10,6" />
+    </Style>
+    <Style Selector="TextBlock.search-archive-date">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="ScrollViewer.workspace-search TextBlock.search-archive-date">
+      <Setter Property="IsVisible" Value="True" />
+    </Style>
     <Style Selector="ContentControl.bin-heading">
       <Setter Property="ContentTemplate" Value="{StaticResource BinStaticTitle}" />
     </Style>
@@ -517,10 +528,10 @@
             LetterSpacing="1.4"
             Text="WORKSPACE" />
 
-        <ItemsControl
-            Grid.Row="1"
-            ItemTemplate="{StaticResource NavigationItemTemplate}"
-            ItemsSource="{Binding PrimaryNavigation}" />
+        <ScrollViewer Grid.Row="1" SizeChanged="OnPrimaryNavigationSizeChanged"
+            HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+          <ItemsControl ItemTemplate="{StaticResource NavigationItemTemplate}" ItemsSource="{Binding PrimaryNavigation}" />
+        </ScrollViewer>
 
         <Border
             Grid.Row="2"

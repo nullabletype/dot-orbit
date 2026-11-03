@@ -2124,6 +2124,12 @@ public sealed partial class MainWindow : Window
         if (e.OffsetDelta != default) ResetPointerGesture();
     }
 
+    private void OnPrimaryNavigationSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        if (sender is ScrollViewer sidebar)
+            sidebar.Classes.Set("compact-navigation", e.NewSize.Height < 400);
+    }
+
     private void OnDragWindowSizeChanged(object? sender, SizeChangedEventArgs e) => ResetPointerGesture();
 
     private void OnPointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)

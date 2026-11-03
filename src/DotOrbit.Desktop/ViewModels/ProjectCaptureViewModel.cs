@@ -3012,7 +3012,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         }
         var category = CategoryById(categoryId);
         row.Refresh(task, category.Id, category.Name, category.ColourKey, projectTitle,
-            project?.ColourKey ?? IdentityColourPalette.KeyForProjectPosition(0), inherited, Today);
+            project?.ColourKey ?? IdentityColourPalette.KeyForProjectPosition(0), inherited, Today, project?.IsArchived == true);
         return row;
     }
 
@@ -4409,6 +4409,7 @@ public sealed record ArchivedWorkRowViewModel(
     bool IsLast,
     bool RequiresParentRestore = false)
 {
+    public string ArchiveDateText => $"{(RequiresParentRestore ? "Project archived" : "Archived")} {ArchiveDate.ToString("d MMM yyyy", CultureInfo.InvariantCulture)}";
     public bool CanRestoreTask => IsTask && !RequiresParentRestore;
     public string TaskStateText => RequiresParentRestore ? "Restore the parent Project first" : "Archived Task";
     public bool IsProject => Project is not null;
@@ -4502,7 +4503,7 @@ public sealed class ArchiveSearchResultViewModel : INotifyPropertyChanged
     public string RestoreAutomationId => $"archive-search-restore-{Result.RecordType.ToString().ToLowerInvariant()}-{Result.Id}";
     public string RestoreAccessibleName => Result.RecordType == ArchiveSearchRecordType.Project
         ? $"Restore Project {Title} to Projects"
-        : $"Restore {Title} to Completed";
+        : TaskContext?.RestoreAccessibleName ?? $"Restore {Title} to Completed";
     public string AccessibleName => string.Join(". ", new[]
         {
             $"{TypeLabel} {Title}",
@@ -4699,6 +4700,7 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
     private string? _projectTitle;
     private string _projectColourKey = IdentityColourPalette.KeyForProjectPosition(0);
     private bool _usesInheritedCategory;
+    private bool _parentArchived;
     private int _position;
     private int _count;
     private bool _isComplete;
@@ -4782,7 +4784,9 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
     public string ArchiveAutomationId => $"task-archive-{Id}";
     public string RestoreAutomationId => $"task-restore-{Id}";
     public string ArchiveAccessibleName => $"Archive {Title}";
-    public string RestoreAccessibleName => $"Restore {Title} to Completed";
+    public string RestoreAccessibleName => _parentArchived
+        ? IsArchived ? $"Restore {Title} within archived Project {ProjectTitle}" : $"Restore Project {ProjectTitle} first to access {Title}"
+        : $"Restore {Title} to Completed";
     public bool IsToday => _todayLane is not null;
     public string TodayAutomationId => $"task-today-{Id}";
     public string TodayAccessibleName => $"{(IsToday ? "Remove" : "Add")} {Title} {(IsToday ? "from" : "to")} Today";
@@ -4828,8 +4832,10 @@ public sealed class TaskRowViewModel : INotifyPropertyChanged
         string? projectTitle,
         string projectColourKey,
         bool usesInheritedCategory,
-        DateOnly today)
+        DateOnly today,
+        bool parentArchived)
     {
+        _parentArchived = parentArchived;
         _title = task.Title;
         _categoryId = categoryId;
         _categoryName = categoryName;

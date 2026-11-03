@@ -236,6 +236,88 @@ public sealed class WorkspaceSearchWindowTests
         }
     }
 
+    [AvaloniaTheory]
+    [InlineData(600)]
+    [InlineData(480)]
+    public void PrimaryNavigationAndAllUtilitiesStayReachableAtBoundedHeights(double height)
+    {
+        var shell = new ShellViewModel(new MemoryWorkspaceWork());
+        shell.Settings!.AiFeaturesEnabled = true;
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = height };
+        try
+        {
+            window.Show();
+            window.MinHeight = height;
+            window.Height = height;
+            Dispatcher.UIThread.RunJobs();
+            var ai = Visible<RadioButton>(window, "navigation-ai");
+            var bin = Visible<RadioButton>(window, "navigation-bin");
+            var settings = Visible<RadioButton>(window, "navigation-settings");
+            static double Top(Control button, Window window) => button.TranslatePoint(default, window)!.Value.Y;
+            static double Bottom(Control button, Window window) => button.TranslatePoint(new(0, button.Bounds.Height), window)!.Value.Y;
+            Assert.True(Bottom(ai, window) <= Top(bin, window));
+            Assert.True(Bottom(bin, window) <= Top(settings, window));
+            Assert.True(Bottom(settings, window) <= window.Bounds.Height);
+            foreach (var item in shell.PrimaryNavigation)
+            {
+                var button = Visible<RadioButton>(window, item.AutomationId);
+                Assert.True(button.Focus(NavigationMethod.Tab));
+                Dispatcher.UIThread.RunJobs();
+                var viewport = button.GetVisualAncestors().OfType<ScrollViewer>().First();
+                Assert.True(Bottom(button, window) <= Top(ai, window));
+                Assert.True(Top(button, window) >= Top(viewport, window) - 1);
+                Assert.True(Bottom(button, window) <= Bottom(viewport, window) + 1);
+                if (height == 600) Assert.Equal(0, viewport.ScrollBarMaximum.Y);
+            }
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
+    public void ArchiveSearchRowsShowCapturedDatesAndRestoreAnIndividualTaskWithinItsArchivedProject()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Match parent", "", "home", null);
+        var own = work.CreateTask(project.Id, "Match individual");
+        var child = work.CreateTask(project.Id, "Match inherited");
+        work.CompleteTask(own.Id);
+        work.SetArchive(own.Id, new DateTimeOffset(2026, 9, 2, 13, 0, 0, TimeSpan.Zero), new DateOnly(2026, 9, 2));
+        work.ArchiveProject(project.Id);
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow { DataContext = shell, Width = 1120, Height = 600 };
+        try
+        {
+            window.Show();
+            Activate(window, Visible<RadioButton>(window, "navigation-search"));
+            Visible<TextBox>(window, "workspace-search-field").Text = "match";
+            Dispatcher.UIThread.RunJobs();
+            AssertDate($"archive-project-{project.Id}", "Archived 29 Sep 2026");
+            AssertDate($"task-selection-{own.Id}", "Archived 2 Sep 2026");
+            AssertDate($"task-selection-{child.Id}", "Project archived 29 Sep 2026");
+            var parentRequired = Visible<Button>(window, $"task-restore-{child.Id}");
+            Assert.False(parentRequired.IsEnabled);
+            Assert.Equal("Restore Project Match parent first to access Match inherited", AutomationProperties.GetName(parentRequired));
+            var restore = Visible<Button>(window, $"task-restore-{own.Id}");
+            Assert.Equal("Restore Match individual within archived Project Match parent", AutomationProperties.GetName(restore));
+            Activate(window, restore);
+            Assert.False(work.Read().Tasks.Single(task => task.Id == own.Id).IsArchived);
+            Assert.True(work.Read().Projects.Single().IsArchived);
+            Assert.Empty(shell.Work!.Search.Completed);
+            AssertDate($"task-selection-{own.Id}", "Project archived 29 Sep 2026");
+        }
+        finally { window.Close(); }
+
+        void AssertDate(string id, string expected)
+        {
+            var title = Visible<Button>(window, id);
+            var row = title.GetVisualAncestors().OfType<Border>().First(border => border.Classes.Contains("archive-row"));
+            var date = Assert.Single(row.GetVisualDescendants().OfType<TextBlock>(), text =>
+                text.IsEffectivelyVisible && text.Classes.Contains("search-archive-date"));
+            Assert.Equal(expected, date.Text);
+            Assert.Equal(expected, AutomationProperties.GetName(date));
+        }
+    }
+
     private static T Visible<T>(Window window, string id) where T : Control =>
         Assert.Single(window.GetVisualDescendants().OfType<T>(), item =>
             item.IsEffectivelyVisible && AutomationProperties.GetAutomationId(item) == id);
