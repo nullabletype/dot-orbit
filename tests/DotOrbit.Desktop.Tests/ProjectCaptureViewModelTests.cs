@@ -7,6 +7,58 @@ namespace DotOrbit.Desktop.Tests;
 
 public sealed class ProjectCaptureViewModelTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task DelayedAutosaveCannotRetryAWriteOwnedByNavigationOrItsDiscardDecision(bool tickDuringFlush)
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Original", "", "home", null);
+        var writer = new ControlledInspectorSaveWriter(work);
+        var model = new ProjectCaptureViewModel(work, null, writer);
+        model.SelectTask(task.Id);
+        model.Title = "Edited";
+        var scheduledRevision = model.AutosaveRevision;
+        var navigated = false;
+        var navigation = model.NavigateAsync(() => navigated = true);
+        await writer.WaitForSubmissionCountAsync(1);
+        if (tickDuringFlush) model.RunScheduledAutosave(scheduledRevision);
+        writer.FailNext();
+        await navigation;
+        Assert.True(model.NeedsDecision);
+        if (!tickDuringFlush) model.RunScheduledAutosave(scheduledRevision);
+
+        model.DiscardAndLeaveCommand.Execute(null);
+        Assert.True(navigated);
+        Assert.Single(writer.Submissions);
+        Assert.Equal("Original", Assert.Single(work.Read().Tasks).Title);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AnExpiredTimerForTheInFlightRevisionCannotRetryItsFailure(bool navigate)
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Original", "", "home", null);
+        var writer = new ControlledInspectorSaveWriter(work);
+        var model = new ProjectCaptureViewModel(work, null, writer);
+        model.SelectTask(task.Id);
+        model.Title = "Edited";
+        var revision = model.AutosaveRevision;
+        model.RunScheduledAutosave();
+        await writer.WaitForSubmissionCountAsync(1);
+        model.RunScheduledAutosave(revision);
+        var navigation = navigate ? model.NavigateAsync(() => { }) : Task.CompletedTask;
+        writer.FailNext();
+        await model.WaitForBackgroundSaveObservationAsync();
+        await navigation.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Single(writer.Submissions);
+        Assert.True(model.HasAutosaveError);
+        Assert.Equal(navigate, model.NeedsDecision);
+        Assert.Equal("Original", Assert.Single(work.Read().Tasks).Title);
+    }
+
     [Fact]
     public async Task RevertingToTheBaselineWhileAWriteIsHeldPersistsTheCorrectiveRevisionBeforeNavigation()
     {
@@ -4202,7 +4254,7 @@ internal class MemoryWorkspaceWork : IWorkspaceWork
         };
     }
     public TaskRecord UpdateTask(string id, string title, string description, string? explicitCategoryId, DateOnly? dueDate,
-        ParticipantDraftChange? participantChange = null)
+        ParticipantDraftChange? participantChange = null, TaskDatePlacement placement = TaskDatePlacement.Preserve)
     {
         Check();
         int index = _tasks.FindIndex(t => t.Id == id);
@@ -4214,7 +4266,22 @@ internal class MemoryWorkspaceWork : IWorkspaceWork
             var associations = participantChange is null
                 ? _tasks[index].Participants.ToList()
                 : ApplyParticipantChanges(participantChange);
-            return _tasks[index] = _tasks[index] with { Title = title.Trim(), Description = description, ExplicitCategoryId = explicitCategoryId, DueDate = dueDate, ParticipantIds = associations };
+            var task = _tasks[index];
+            var lane = task.TodayLane;
+            if (placement == TaskDatePlacement.AddToPlanned && lane is null && !task.IsComplete
+                && !task.IsArchived && !_projects.Any(project => project.Id == task.ProjectId && project.IsArchived))
+                lane = TodayLane.Planned;
+            else if (placement == TaskDatePlacement.RemoveFromPlanned && lane == TodayLane.Planned)
+                lane = null;
+            return _tasks[index] = task with
+            {
+                Title = title.Trim(),
+                Description = description,
+                ExplicitCategoryId = explicitCategoryId,
+                DueDate = dueDate,
+                ParticipantIds = associations,
+                TodayLane = lane,
+            };
         }
         catch
         {

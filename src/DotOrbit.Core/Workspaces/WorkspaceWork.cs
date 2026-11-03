@@ -28,7 +28,7 @@ public interface IWorkspaceWork
     ProjectRecord UpdateProject(string id, string title, string description, string categoryId, DateOnly? targetDate,
         string? colourKey = null);
     TaskRecord UpdateTask(string id, string title, string description, string? explicitCategoryId, DateOnly? dueDate,
-        ParticipantDraftChange? participantChange = null);
+        ParticipantDraftChange? participantChange = null, TaskDatePlacement placement = TaskDatePlacement.Preserve);
     TaskRecord CompleteTask(string id);
     TaskRecord ReopenTask(string id);
     TaskRecord ArchiveTask(string id);
@@ -83,6 +83,13 @@ public enum TaskAttachmentCategoryChoice
 {
     PreserveEffectiveCategory,
     AdoptProjectCategory,
+}
+
+public enum TaskDatePlacement
+{
+    Preserve,
+    AddToPlanned,
+    RemoveFromPlanned,
 }
 
 public enum TodayLane

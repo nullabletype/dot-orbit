@@ -49,7 +49,8 @@ public sealed class RecurringTaskPresentationTests
     {
         var store = new RecurringMemoryWorkspace();
         var shell = new ShellViewModel(store, Clock());
-        var window = new MainWindow { DataContext = shell };
+        var scheduler = new RecurringAutosaveTests.ManualScheduler();
+        var window = new MainWindow(session: null, autosaveScheduler: scheduler) { DataContext = shell };
         window.Show();
         try
         {
@@ -77,6 +78,8 @@ public sealed class RecurringTaskPresentationTests
             Assert.DoesNotContain(window.GetVisualDescendants().OfType<Button>(), button => AutomationProperties.GetAutomationId(button) == "recurring-save");
             Assert.True(model.HasOffsetError);
             Assert.NotEmpty(model.DueOffsetValidation);
+            scheduler.Fire();
+            Assert.Empty(store.ReadRecurringTasks());
             model.SaveCommand.Execute(null);
             Assert.Empty(store.ReadRecurringTasks());
             Assert.Empty(store.Read().Tasks);

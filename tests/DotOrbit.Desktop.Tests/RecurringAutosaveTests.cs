@@ -502,7 +502,7 @@ public sealed class RecurringAutosaveTests
         finally { window.Close(); app.RequestedThemeVariant = ThemeVariant.Dark; }
     }
 
-    private sealed class ManualScheduler : IInspectorAutosaveScheduler
+    internal sealed class ManualScheduler : IInspectorAutosaveScheduler
     {
         private Action<long>? _callback;
         private long _revision;

@@ -104,14 +104,14 @@ A durable, monotonically increasing identity for committed user-data state. Each
 4. A Project becomes Complete only when it has at least one Task and all its Tasks are complete.
 5. A completed Project's completion date equals its last Task completion date.
 6. A Project Task category is inherited or explicitly overridden; a standalone Task category is explicit.
-7. Today membership is explicit and independent of due date.
+7. Choosing today’s due date in the Task inspector places an active incomplete Task in Planned if it is outside Today. An existing Today member keeps its lane.
 8. Today and Backlog share one manual Task order.
 9. Project order, Category order, and per-Project subtask order are independent of the shared Task order. Expanded Projects display incomplete Tasks before completed Tasks. Completion preserves the underlying manual position.
 10. Archiving a Task does not remove it from its Project or change its completion state.
 11. Bulk archiving never archives a Project.
 12. Archiving an incomplete Project does not complete it or any of its Tasks.
 13. Restoring archived work never adds a Task to Today automatically.
-14. Due dates and calendar rollover never add or remove Today membership.
+14. Changing or clearing a due date in the same inspector can undo only that inspector’s automatic placement. Explicit Today actions take precedence. Stored dates, opening another inspector, restarting, and calendar rollover leave membership unchanged.
 15. Today lane placement exists only while an incomplete Task belongs to Today.
 16. The completed-today projection is based on completion timestamp, not prior Today membership.
 17. Changing a Today lane never changes shared Task order.
