@@ -504,7 +504,7 @@
           </StackPanel>
         </StackPanel>
       </ScrollViewer>
-      <TextBlock Grid.Row="2" Height="1" Opacity="0" IsHitTestVisible="False" IsVisible="{Binding ShowToday}"
+      <TextBlock Grid.Row="2" Height="1" Opacity="0" IsHitTestVisible="False"
           Text="{Binding Work.TodayAnnouncement}" AutomationProperties.LiveSetting="Polite" />
       <ScrollViewer x:Name="UpcomingView" Grid.Row="2" IsVisible="{Binding ShowUpcoming}">
         <StackPanel Margin="{StaticResource ScrollContentInset}" Spacing="14">
@@ -1934,7 +1934,7 @@
                       PlaceholderText="YYYY-MM-DD"
                       DateValidationError="OnDateValidationError"
                       CalendarOpened="OnCalendarDateOpened"
-                      CalendarClosed="OnCalendarDateCommitted"
+                      DateChosen="OnCalendarDateCommitted"
                       AutomationProperties.Name="{Binding Work.DateLabel}"
                       AutomationProperties.HelpText="{Binding Work.DateValidationMessage}" />
                   <TextBlock Classes="validation-message" Margin="7,0,0,0"

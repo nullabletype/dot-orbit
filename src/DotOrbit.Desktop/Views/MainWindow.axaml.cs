@@ -47,7 +47,6 @@ public sealed partial class MainWindow : Window
     private Border[]? _dragRows;
     private bool _markdownPointerStartedOutside;
     private bool _recurringMarkdownPointerStartedOutside;
-    private DateTime? _calendarDateAtOpen;
     private ShellViewModel? _subscribedShell;
     private ProjectCaptureViewModel? _subscribedWork;
     private SettingsViewModel? _subscribedSettings;
@@ -1514,7 +1513,6 @@ public sealed partial class MainWindow : Window
     private void OnCalendarDateOpened(object? sender, EventArgs e)
     {
         if (sender is not CalendarDatePicker picker) return;
-        _calendarDateAtOpen = picker.SelectedDate;
         picker.SetCurrentValue(
             CalendarDatePicker.DisplayDateProperty,
             picker.SelectedDate ?? _timeProvider.GetLocalNow().Date);
@@ -1523,10 +1521,8 @@ public sealed partial class MainWindow : Window
     private void OnCalendarDateCommitted(object? sender, EventArgs e)
     {
         if (sender is CalendarDatePicker picker
-            && picker.SelectedDate != _calendarDateAtOpen
             && DataContext is ShellViewModel { Work: { } work })
             work.CommitCalendarDate(picker.SelectedDate);
-        _calendarDateAtOpen = null;
     }
 
     private void OnWorkChanged(object? sender, PropertyChangedEventArgs e)

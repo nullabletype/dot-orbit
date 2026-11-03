@@ -4430,20 +4430,106 @@ public sealed class ProjectCaptureWindowTests
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(new DateOnly(2026, 10, 12), work.Read().Tasks.Single().DueDate);
 
-        picker.IsDropDownOpen = true;
-        picker.SelectedDate = new DateTime(2026, 10, 13);
-        picker.IsDropDownOpen = false;
-        Dispatcher.UIThread.RunJobs();
-        Assert.Equal("2026-10-13", shell.Work!.Date);
-        Assert.Equal(new DateOnly(2026, 10, 13), work.Read().Tasks.Single().DueDate);
-
         var pickerTextBox = Assert.Single(picker.GetVisualDescendants().OfType<TextBox>());
         Assert.True(pickerTextBox.Focus());
         window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.Alt);
         window.KeyReleaseQwerty(PhysicalKey.ArrowDown, RawInputModifiers.Alt);
         Dispatcher.UIThread.RunJobs();
         Assert.True(picker.IsDropDownOpen);
+        PressKey(CalendarRoot(picker), PhysicalKey.ArrowRight);
+        Assert.Equal(new DateTime(2026, 10, 13), picker.SelectedDate);
+        Assert.Equal("2026-10-12", shell.Work.Date);
+        PressKey(CalendarRoot(picker), PhysicalKey.Enter);
+        Assert.False(picker.IsDropDownOpen);
+        Assert.Equal("2026-10-13", shell.Work.Date);
+        Assert.Equal(new DateOnly(2026, 10, 13), work.Read().Tasks.Single().DueDate);
+        Assert.True(picker.IsKeyboardFocusWithin);
         window.Close();
+    }
+
+    [AvaloniaFact]
+    public void CalendarConfirmsReselectedDateButEscapeDoesNotCommitAPreview()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var task = work.CreateTask(project.Id, "Plant bulbs");
+        var today = new DateOnly(2026, 10, 12);
+        work.UpdateTask(task.Id, task.Title, task.Description, task.ExplicitCategoryId, today);
+        var time = new FixedTimeProvider(new DateTimeOffset(2026, 10, 12, 12, 0, 0, TimeSpan.Zero));
+        var shell = new ShellViewModel(work, time);
+        var window = new MainWindow(session: null, timeProvider: time) { DataContext = shell };
+        window.Show();
+        shell.Work!.SelectTask(task.Id);
+        Dispatcher.UIThread.RunJobs();
+        var picker = Assert.IsType<InspectorDatePicker>(window.FindControl<CalendarDatePicker>("DraftDate"));
+        var confirmed = new List<DateTime?>();
+        picker.DateChosen += (_, _) => confirmed.Add(picker.SelectedDate);
+        var editor = Assert.Single(picker.GetVisualDescendants().OfType<TextBox>());
+        Assert.True(editor.Focus());
+
+        PressKey(window, PhysicalKey.ArrowDown, RawInputModifiers.Alt);
+        PressKey(CalendarRoot(picker), PhysicalKey.ArrowRight);
+        PressKey(CalendarRoot(picker), PhysicalKey.Escape);
+        Assert.Empty(confirmed);
+        Assert.Equal("2026-10-12", shell.Work.Date);
+        Assert.False(shell.Work.IsDirty);
+        Assert.Equal(today, work.Read().Tasks.Single().DueDate);
+
+        PressKey(window, PhysicalKey.ArrowDown, RawInputModifiers.Alt);
+        PressKey(CalendarRoot(picker), PhysicalKey.Space);
+        Assert.Equal(today.ToDateTime(TimeOnly.MinValue), Assert.Single(confirmed));
+        Assert.True(picker.IsKeyboardFocusWithin);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void CalendarDayClickConfirmsAnAlreadySelectedDayAndRetainsDateFocus()
+    {
+        var work = new MemoryWorkspaceWork();
+        var selected = new DateOnly(2026, 10, 12);
+        var project = work.CreateProject("Garden", "", "home", selected);
+        var shell = new ShellViewModel(work);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+        shell.Work!.SelectProject(project.Id);
+        Dispatcher.UIThread.RunJobs();
+        var picker = Assert.IsType<InspectorDatePicker>(window.FindControl<CalendarDatePicker>("DraftDate"));
+        var confirmed = new List<DateTime?>();
+        picker.DateChosen += (_, _) => confirmed.Add(picker.SelectedDate);
+        var open = Assert.Single(picker.GetVisualDescendants().OfType<Button>());
+        var openPoint = CentreInWindow(open, window);
+        window.MouseDown(openPoint, MouseButton.Left, RawInputModifiers.LeftMouseButton);
+        window.MouseUp(openPoint, MouseButton.Left, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(picker.IsDropDownOpen);
+        var popup = Assert.Single(picker.GetVisualDescendants().OfType<Popup>());
+        var day = Assert.Single(popup.Child!.GetVisualDescendants().OfType<CalendarDayButton>(),
+            button => Equals(button.DataContext, selected.ToDateTime(TimeOnly.MinValue)));
+        var root = TopLevel.GetTopLevel(day)!;
+        var point = day.TranslatePoint(new Point(day.Bounds.Width / 2, day.Bounds.Height / 2), root)!.Value;
+        root.MouseDown(point, MouseButton.Left, RawInputModifiers.LeftMouseButton);
+        root.MouseUp(point, MouseButton.Left, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(picker.IsDropDownOpen);
+        Assert.Equal(selected.ToDateTime(TimeOnly.MinValue), Assert.Single(confirmed));
+        Assert.True(picker.IsKeyboardFocusWithin);
+        window.Close();
+    }
+
+    private static TopLevel CalendarRoot(CalendarDatePicker picker)
+    {
+        Assert.True(picker.IsDropDownOpen);
+        var popup = Assert.Single(picker.GetVisualDescendants().OfType<Popup>());
+        var root = TopLevel.GetTopLevel(popup.Child!)!;
+        Assert.True(popup.Child!.IsKeyboardFocusWithin, $"Expected focus within {popup.Child.GetType().Name}, got {root.FocusManager?.GetFocusedElement()?.GetType().Name}");
+        return root;
+    }
+
+    private static void PressKey(TopLevel window, PhysicalKey key, RawInputModifiers modifiers = RawInputModifiers.None)
+    {
+        window.KeyPressQwerty(key, modifiers);
+        window.KeyReleaseQwerty(key, modifiers);
+        Dispatcher.UIThread.RunJobs();
     }
 
     [AvaloniaFact]
