@@ -2043,6 +2043,7 @@
               <TextBlock Classes="inspector-label" Text="TASK CONTEXT" />
               <ComboBox Classes="inspector-field" ItemsSource="{Binding Work.TaskContextChoices}"
                   SelectedItem="{Binding Work.TaskContextTarget, Mode=TwoWay}"
+                  IsEnabled="{Binding Work.TaskContextEnabled}"
                   AutomationProperties.Name="Task context">
                 <ComboBox.ItemTemplate>
                   <DataTemplate x:DataType="vm:TaskContextChoice">

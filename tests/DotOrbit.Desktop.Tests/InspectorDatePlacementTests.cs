@@ -209,6 +209,7 @@ public sealed class InspectorDatePlacementTests
         model.Cancel();
 
         Assert.False(model.HasInspector);
+        Assert.NotEmpty(model.InspectorMetaValue);
         Assert.Empty(work.Read().Tasks);
         Assert.Empty(model.TodayPlanned);
     }
@@ -261,6 +262,114 @@ public sealed class InspectorDatePlacementTests
         Assert.Null(latest.TodayLane);
         Assert.Null(latest.DueDate);
         Assert.Empty(model.TodayPlanned);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RetryingACommittedCreationRefreshPreservesItsIdentityAndLatestDate(bool clearBeforeRetry)
+    {
+        var work = new FailedRefreshWorkspace();
+        var model = new ProjectCaptureViewModel(work, Clock());
+        model.NewTaskCommand.Execute(null);
+        model.Category = model.Categories.Single(item => item.Id == "home");
+        model.Title = "First task";
+        work.FailRefresh = true;
+        model.CommitCalendarDate(Day);
+
+        var committed = Assert.Single(work.Read().Tasks);
+        Assert.Equal(TodayLane.Planned, committed.TodayLane);
+        Assert.Equal("Task saved, but the view could not refresh. Retry.", model.AutosaveStatus);
+        Assert.Empty(model.TodayPlanned);
+        var writes = work.WriteCount;
+        work.FailRefresh = false;
+        if (clearBeforeRetry) model.CommitCalendarDate(null);
+        else model.RetryAutosaveCommand.Execute(null);
+
+        var saved = Assert.Single(work.Read().Tasks);
+        Assert.Equal(committed.Id, saved.Id);
+        Assert.Equal(clearBeforeRetry ? writes + 1 : writes, work.WriteCount);
+        Assert.Equal(clearBeforeRetry ? null : TodayLane.Planned, saved.TodayLane);
+        Assert.Equal(clearBeforeRetry ? null : DateOnly.FromDateTime(Day), saved.DueDate);
+        Assert.Equal(!clearBeforeRetry, model.Backlog.Single().IsToday);
+        Assert.False(model.HasAutosaveError);
+    }
+
+    [Fact]
+    public async Task LaterDateChoiceWaitsForExplicitRemovalBeforeSavingDateAndNewPlacement()
+    {
+        var work = new MemoryWorkspaceWork();
+        var task = work.CreateStandaloneTask("Older", "", "home", null);
+        work.SetTaskTodayLane(task.Id, TodayLane.Planned);
+        var actions = new CapturedActionExecutor(work);
+        var model = new ProjectCaptureViewModel(work, Clock(),
+            new InlineWorkspacePersistenceExecutor(new WorkspacePersistenceOperation(work)), actions);
+        model.SelectTask(task.Id);
+        model.Backlog.Single().ToggleTodayCommand.Execute(null);
+        await actions.ResultCaptured;
+        model.CommitCalendarDate(Day);
+        var flush = model.FlushPendingAutosaveAsync();
+        Assert.False(flush.IsCompleted);
+        Assert.Null(work.Read().Tasks.Single().DueDate);
+        actions.ReleaseResult();
+        Assert.True(await flush);
+        var saved = Assert.Single(work.Read().Tasks);
+        Assert.Equal(DateOnly.FromDateTime(Day), saved.DueDate);
+        Assert.Equal(TodayLane.Planned, saved.TodayLane);
+        model.CommitCalendarDate(null);
+        Assert.Null(work.Read().Tasks.Single().TodayLane);
+    }
+
+    [Fact]
+    public async Task ProjectContextCannotChangeDuringTheFirstValidTaskSave()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Project", "", "home", null);
+        var writer = new ControlledInspectorSaveWriter(work);
+        var model = new ProjectCaptureViewModel(work, Clock(), writer);
+        model.NewTaskCommand.Execute(null);
+        model.Category = model.Categories.Single(item => item.Id == "home");
+        model.Title = "First task";
+        model.CommitCalendarDate(Day);
+        await writer.WaitForSubmissionCountAsync(1);
+        Assert.False(model.TaskContextEnabled);
+        model.TaskContextTarget = model.TaskContextChoices.Single(item => item.ProjectId == project.Id);
+        Assert.Null(model.TaskContextTarget?.ProjectId);
+        writer.CompleteNext();
+        await model.WaitForBackgroundSaveObservationAsync();
+        Assert.True(model.TaskContextEnabled);
+        Assert.Null(work.Read().Tasks.Single().ProjectId);
+    }
+
+    [Fact]
+    public async Task DiscardAfterACommittedCreationWithFailedRefreshKeepsRefreshAvailable()
+    {
+        var work = new FailedRefreshWorkspace();
+        var model = new ProjectCaptureViewModel(work, Clock());
+        model.NewTaskCommand.Execute(null);
+        model.Category = model.Categories.Single(item => item.Id == "home");
+        model.Title = "First task";
+        work.FailRefresh = true;
+        model.CommitCalendarDate(Day);
+        var writes = work.WriteCount;
+        var navigated = false;
+        await model.NavigateAsync(() => navigated = true);
+        Assert.True(model.NeedsDecision);
+        model.DiscardAndLeaveCommand.Execute(null);
+        Assert.True(navigated);
+        Assert.True(model.CanRetryWorkspaceRefresh);
+        work.FailRefresh = false;
+        model.RetryWorkspaceRefreshCommand.Execute(null);
+        Assert.Equal(writes, work.WriteCount);
+        Assert.Single(model.TodayPlanned);
+    }
+
+    private sealed class FailedRefreshWorkspace : MemoryWorkspaceWork, IWorkspaceWork
+    {
+        public bool FailRefresh { get; set; }
+
+        WorkspaceWorkSnapshot IWorkspaceWork.Read() =>
+            FailRefresh ? throw new WorkspaceWorkException() : Read();
     }
 
     private static FixedTimeProvider Clock() => new(new DateTimeOffset(2026, 11, 3, 23, 30, 0, TimeSpan.Zero),

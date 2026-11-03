@@ -12,6 +12,7 @@ internal enum InspectorSaveOutcome
 {
     Saved,
     Superseded,
+    CommittedRefreshFailed,
     Invalid,
     Failed,
 }
@@ -23,7 +24,8 @@ internal sealed record InspectorDraftFingerprint(
     string? CategoryId,
     string CategoryColourKey,
     string ProjectColourKey,
-    string Participants);
+    string Participants,
+    TaskDatePlacement DatePlacement = TaskDatePlacement.Preserve);
 
 internal sealed record InspectorSaveRequest(
     long InspectorGeneration,
@@ -41,7 +43,9 @@ internal sealed record InspectorSaveRequest(
     TodayLane? TodayLane,
     IReadOnlyList<string> ParticipantIds,
     IReadOnlyList<string> NewParticipantLabels,
-    InspectorDraftFingerprint Fingerprint);
+    InspectorDraftFingerprint Fingerprint,
+    TaskDatePlacement DatePlacement = TaskDatePlacement.Preserve,
+    TaskRecord? CommittedTask = null);
 
 internal sealed record WorkspaceReloadData(
     WorkspaceWorkSnapshot Snapshot,
@@ -236,39 +240,40 @@ internal sealed class WorkspacePersistenceOperation : IWorkspacePersistenceOpera
         var participantChange = new ParticipantDraftChange(
             request.ParticipantIds,
             request.NewParticipantLabels);
-        var task = request.IsCreating
-            ? request.TodayLane is not null
-                ? _work.CreateTaskDraft(
-                    request.ProjectId,
-                    request.Title,
-                    request.Description,
-                    request.CategoryId,
-                    request.Date,
-                    participantChange,
-                    request.TodayLane)
-                : _work.CreateStandaloneTask(
-                    request.Title,
-                    request.Description,
-                    request.CategoryId!,
-                    request.Date,
-                    participantChange)
+        var task = request.CommittedTask ?? (request.IsCreating
+            ? _work.CreateTaskDraft(
+                request.ProjectId,
+                request.Title,
+                request.Description,
+                request.CategoryId,
+                request.Date,
+                participantChange,
+                request.TodayLane)
             : _work.UpdateTask(
                 request.Id!,
                 request.Title,
                 request.Description,
                 request.CategoryId,
                 request.Date,
-                participantChange);
-        if (request.IsCreating || request.RequiresReload)
-            return new(request, InspectorSaveOutcome.Saved, Task: task, Reload: ReadReloadData());
-        if (request.NewParticipantLabels.Count == 0)
-            return new(request, InspectorSaveOutcome.Saved, Task: task);
-        var snapshot = _work.Read();
-        return new(
-            request,
-            InspectorSaveOutcome.Saved,
-            Task: snapshot.Tasks.Single(item => item.Id == task.Id),
-            Snapshot: snapshot);
+                participantChange,
+                request.DatePlacement));
+        try
+        {
+            if (request.IsCreating || request.RequiresReload)
+                return new(request, InspectorSaveOutcome.Saved, Task: task, Reload: ReadReloadData());
+            if (request.NewParticipantLabels.Count == 0)
+                return new(request, InspectorSaveOutcome.Saved, Task: task);
+            var snapshot = _work.Read();
+            return new(
+                request,
+                InspectorSaveOutcome.Saved,
+                Task: snapshot.Tasks.Single(item => item.Id == task.Id),
+                Snapshot: snapshot);
+        }
+        catch (Exception exception) when (IsWorkspaceFailure(exception))
+        {
+            return new(request, InspectorSaveOutcome.CommittedRefreshFailed, Task: task);
+        }
     }
 
     public WorkspaceActionResult ExecuteAction(WorkspaceActionRequest request)
