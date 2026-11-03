@@ -24,8 +24,10 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private bool _editingTask;
     private bool _editingCategory;
     private bool _creating;
-    private bool _creatingStandaloneTask;
+    private bool _creatingTaskDraft;
     private bool _creatingTodayTask;
+    private TaskDatePlacement _datePlacement;
+    private bool _taskContextEnabled = true;
     private string _title = string.Empty;
     private string _description = string.Empty;
     private string _date = string.Empty;
@@ -81,6 +83,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private long? _expiredTextSaveRevisionWhileInProgress;
     private bool _creationNeedsReload;
     private WorkspaceReloadData? _pendingCreationReload;
+    private InspectorSaveRequest? _pendingTaskRefresh;
     private long _lastSavedRevision;
     private InspectorDraftFingerprint _persistedFingerprint =
         new(string.Empty, string.Empty, string.Empty, null, string.Empty, string.Empty, string.Empty);
@@ -376,7 +379,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         || NeedsProjectDuplicationConfirmation;
     public bool IsDirty => HasInspector && _original != Fingerprint();
     private bool RequiresPersistence => HasInspector && !_editingCategory
-        && _persistedFingerprint != CurrentFingerprint();
+        && (_pendingTaskRefresh is not null || _persistedFingerprint != CurrentFingerprint());
     private bool HasPendingPersistence => _backgroundSave is { IsCompleted: false } || RequiresPersistence;
     public bool ShowExplicitInspectorActions => HasInspector && _editingCategory;
     public bool ShowAutosaveStatus => HasInspector && !_editingCategory;
@@ -646,6 +649,12 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         {
             if (_loadingDraft) { _date = value; return; }
             if (string.Equals(_date, value, StringComparison.Ordinal)) return;
+            if (CanChooseInspectorDate)
+            {
+                if (string.IsNullOrWhiteSpace(value)) _datePlacement = PlacementForDate(null);
+                else if (DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+                    _datePlacement = PlacementForDate(date);
+            }
             _date = value;
             DateValidationMessage = string.Empty;
             Notify();
@@ -735,14 +744,20 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         get => _taskContextTarget;
         set
         {
+            if (_creating && !TaskContextEnabled && !_loadingDraft) return;
             _taskContextTarget = value;
-            if (_creatingTodayTask && !_loadingDraft) RefreshCreatingTaskCategories();
+            if (_creating && _editingTask && !_loadingDraft) RefreshCreatingTaskCategories();
             Notify();
             Notify(nameof(CanChangeTaskContext));
             Notify(nameof(TaskContextActionLabel));
         }
     }
-    public bool ShowTaskContext => HasInspector && !_editingCategory && _editingTask && (!_creating || _creatingTodayTask);
+    public bool TaskContextEnabled
+    {
+        get => _taskContextEnabled;
+        private set { _taskContextEnabled = value; Notify(); }
+    }
+    public bool ShowTaskContext => HasInspector && !_editingCategory && _editingTask;
     public bool ShowTaskContextAction => ShowTaskContext && !_creating;
     public bool CanChangeTaskContext => ShowTaskContextAction && TaskContextTarget?.ProjectId != _snapshot.Tasks.Single(task => task.Id == _editingId).ProjectId;
     public string TaskContextActionLabel => !ShowTaskContextAction || TaskContextTarget?.ProjectId == _snapshot.Tasks.Single(task => task.Id == _editingId).ProjectId
@@ -817,8 +832,9 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public string ArchiveFocusAutomationId { get => _archiveFocusAutomationId; private set { _archiveFocusAutomationId = value; Notify(); } }
     public string BinFocusAutomationId { get => _binFocusAutomationId; private set { _binFocusAutomationId = value; Notify(); } }
     internal DateOnly Today => DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime);
-    private bool IsStandaloneTaskDraft => _editingTask && ((_creatingStandaloneTask && (!_creatingTodayTask || TaskContextTarget?.ProjectId is null))
-        || (_editingId is not null && _snapshot.Tasks.Single(task => task.Id == _editingId).ProjectId is null));
+    private bool IsStandaloneTaskDraft => _editingTask && (_creatingTaskDraft
+        ? TaskContextTarget?.ProjectId is null
+        : _editingId is not null && _snapshot.Tasks.Single(task => task.Id == _editingId).ProjectId is null);
     public CategoryChoice? Category
     {
         get => _category;
@@ -860,7 +876,10 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public bool RunScheduledAutosave(long? scheduledRevision = null, bool force = false)
     {
         if (!HasInspector || _editingCategory) return true;
-        if (!force && scheduledRevision is not null && scheduledRevision != _autosaveRevision) return true;
+        // The active flush follows new revisions through to the latest valid draft.
+        if (_activeFlush is { IsCompleted: false }) return true;
+        if (!force && scheduledRevision is not null && (scheduledRevision != _autosaveRevision
+            || NeedsDecision || HasAutosaveError)) return true;
         if (_backgroundSave is { IsCompleted: false })
         {
             _saveRequestedWhileInProgress = true;
@@ -918,8 +937,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             {
                 var backgroundSaved = await background;
                 if (ReferenceEquals(_backgroundSave, background)) _backgroundSave = null;
-                if (!backgroundSaved && background.IsCompleted && HasAutosaveError
-                    && !_saveRequestedWhileInProgress) return false;
+                if (!backgroundSaved && HasAutosaveError) return false;
                 if (!RequiresPersistence) return true;
             }
 
@@ -943,18 +961,36 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     public void CommitCalendarDate(DateTime? selectedDate)
     {
         if (!HasInspector || _editingCategory) return;
-        var value = selectedDate is null
-            ? string.Empty
-            : DateOnly.FromDateTime(selectedDate.Value).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-        if (!string.Equals(_date, value, StringComparison.Ordinal))
+        var date = selectedDate is { } selected ? DateOnly.FromDateTime(selected) : (DateOnly?)null;
+        if (!CanChooseInspectorDate) return;
+        var value = date?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty;
+        var placement = PlacementForDate(date);
+        if (!string.Equals(_date, value, StringComparison.Ordinal) || placement != _datePlacement)
         {
             _date = value;
+            _datePlacement = placement;
             DateValidationMessage = string.Empty;
             Notify(nameof(Date));
             DraftChanged(immediate: true);
             return;
         }
-        RunScheduledAutosave(force: true);
+        RunScheduledAutosave();
+    }
+
+    // The date and its conditional lane change must use the result of earlier explicit actions.
+    public bool CanChooseInspectorDate => !_processingWorkspaceActions || !_editingTask || !_queuedWorkspaceActions.Any(action =>
+        action.Request.TaskId == _editingId && ChangesTodayPlacement(action.Request.Kind));
+
+    private TaskDatePlacement PlacementForDate(DateOnly? date)
+    {
+        if (!_editingTask || _creatingTodayTask) return TaskDatePlacement.Preserve;
+        if (date != Today)
+            return _datePlacement == TaskDatePlacement.AddToPlanned ? TaskDatePlacement.RemoveFromPlanned : _datePlacement;
+        var task = _snapshot.Tasks.FirstOrDefault(item => item.Id == _editingId);
+        if (task is not null && (task.IsComplete || task.IsArchived || !IsTaskInActiveWork(task)))
+            return TaskDatePlacement.Preserve;
+        return task?.TodayLane is null || _datePlacement != TaskDatePlacement.Preserve
+            ? TaskDatePlacement.AddToPlanned : TaskDatePlacement.Preserve;
     }
 
     public void Navigate(Action destination) => _ = NavigateAsync(destination);
@@ -2025,33 +2061,28 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         _creating = true;
         _editingTask = false;
         _editingCategory = false;
-        _creatingStandaloneTask = false;
+        _creatingTaskDraft = false;
         _creatingTodayTask = false;
         _editingId = null;
         SetDraft(string.Empty, string.Empty, null, _snapshot.Categories.Count == 0 ? null : _snapshot.Categories[0].Id,
             projectColourKey: IdentityColourPalette.KeyForProjectPosition(_snapshot.Projects.Count));
     }
 
-    private void BeginStandaloneTask()
-    {
-        _creating = true;
-        _editingTask = true;
-        _editingCategory = false;
-        _creatingStandaloneTask = true;
-        _creatingTodayTask = false;
-        _editingId = null;
-        SetDraft(string.Empty, string.Empty, null, null);
-    }
+    private void BeginStandaloneTask() => BeginTaskDraft(inToday: false);
 
-    private void BeginTodayTask()
+    private void BeginTodayTask() => BeginTaskDraft(inToday: true);
+
+    private void BeginTaskDraft(bool inToday)
     {
         _creating = true;
         _editingTask = true;
         _editingCategory = false;
-        _creatingStandaloneTask = true;
-        _creatingTodayTask = true;
+        _creatingTaskDraft = true;
+        _creatingTodayTask = inToday;
         _editingId = null;
-        RefreshTaskContextChoices(null);
+        _loadingDraft = true;
+        try { RefreshTaskContextChoices(null); }
+        finally { _loadingDraft = false; }
         SetDraft(string.Empty, string.Empty, null, null);
     }
 
@@ -2062,7 +2093,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         _editingTask = false;
         _editingCategory = false;
         _creating = false;
-        _creatingStandaloneTask = false;
+        _creatingTaskDraft = false;
         _creatingTodayTask = false;
         SetDraft(project.Title, project.Description, project.TargetDate, project.CategoryId,
             projectColourKey: project.ColourKey);
@@ -2075,7 +2106,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         _editingTask = true;
         _editingCategory = false;
         _creating = false;
-        _creatingStandaloneTask = false;
+        _creatingTaskDraft = false;
         _creatingTodayTask = false;
         SetDraft(task.Title, task.Description, task.DueDate, task.ExplicitCategoryId, task.Participants);
         RefreshTaskContextChoices(task);
@@ -2086,7 +2117,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         _creating = true;
         _editingTask = false;
         _editingCategory = true;
-        _creatingStandaloneTask = false;
+        _creatingTaskDraft = false;
         _creatingTodayTask = false;
         _editingId = null;
         SetCategoryDraft(string.Empty, IdentityColourPalette.KeyForPosition(_snapshot.Categories.Count));
@@ -2099,7 +2130,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         _editingTask = false;
         _editingCategory = true;
         _creating = false;
-        _creatingStandaloneTask = false;
+        _creatingTaskDraft = false;
         _creatingTodayTask = false;
         SetCategoryDraft(category.Name, category.ColourKey);
     }
@@ -2188,6 +2219,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     private void SetDraft(string title, string description, DateOnly? date, string? categoryId,
         IReadOnlyList<string>? participantIds = null, string? projectColourKey = null)
     {
+        _datePlacement = TaskDatePlacement.Preserve;
         var dateText = date?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty;
         CategoryChoice? categoryChoice = null;
         _loadingDraft = true;
@@ -2265,6 +2297,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         Notify(nameof(ShowWorkInspector)); Notify(nameof(ShowCategoryInspector)); Notify(nameof(ShowCategoryDelete));
         Notify(nameof(ShowParticipants)); Notify(nameof(ShowTaskContext)); Notify(nameof(ShowTaskContextAction));
         Notify(nameof(ShowProjectSummary)); Notify(nameof(ProjectSummary));
+        Notify(nameof(CanChooseInspectorDate));
         Notify(nameof(ShowTaskCompletionDate)); Notify(nameof(TaskCompletionDateText)); Notify(nameof(TaskCompletionDateAccessibleText));
         Notify(nameof(ShowMoveTaskToBin));
         Notify(nameof(ShowMoveProjectToBin));
@@ -2281,6 +2314,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
     private void ResetAutosavePresentation()
     {
+        TaskContextEnabled = true;
         _inspectorGeneration++;
         _autosaveRevision++;
         _saveRequestedWhileInProgress = false;
@@ -2319,9 +2353,9 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
     private async Task ObserveBackgroundSaveAsync(Task<bool> save)
     {
-        await save;
+        var saved = await save;
         if (ReferenceEquals(_backgroundSave, save)) _backgroundSave = null;
-        if (_activeFlush is { IsCompleted: false }) return;
+        if (!saved || _activeFlush is { IsCompleted: false }) return;
         if (!RequiresPersistence)
         {
             HasAutosaveError = false;
@@ -2346,12 +2380,14 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
     private async Task<bool> SaveOneRevisionAsync()
     {
-        if (!TryBuildSaveRequest(out var request))
+        var request = _pendingTaskRefresh;
+        if (request is null && !TryBuildSaveRequest(out request))
         {
             HasAutosaveError = true;
             AutosaveStatus = string.IsNullOrEmpty(Message) ? "Could not save. Retry." : Message;
             return false;
         }
+        if (request.IsCreating && request.Kind == InspectorSaveKind.Task) TaskContextEnabled = false;
         AutosaveStatus = "Saving…";
         InspectorSaveResult result;
         try
@@ -2364,8 +2400,18 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         }
         var sameInspector = request.InspectorGeneration == _inspectorGeneration;
         if (result.Outcome == InspectorSaveOutcome.Superseded || !sameInspector) return true;
+        if (result.Outcome == InspectorSaveOutcome.CommittedRefreshFailed)
+        {
+            _pendingTaskRefresh = request with { CommittedTask = result.Task };
+            Message = "Task saved, but the view could not refresh. Retry.";
+            HasAutosaveError = true;
+            AutosaveStatus = Message;
+            return false;
+        }
+        _pendingTaskRefresh = null;
         if (result.Outcome != InspectorSaveOutcome.Saved)
         {
+            TaskContextEnabled = true;
             if (request.Revision != _autosaveRevision) return true;
             Message = result.Outcome == InspectorSaveOutcome.Invalid && request.Kind == InspectorSaveKind.Task
                 ? "Check the Participant labels and selections. No changes were made."
@@ -2392,6 +2438,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         if (request.Revision != _autosaveRevision && RequiresPersistence)
         {
             AutosaveStatus = "Saving…";
+            if (request.CommittedTask is not null) return await SaveOneRevisionAsync();
             return true;
         }
 
@@ -2475,15 +2522,17 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             Category.Id,
             ProjectColourKey,
             _editingTask ? TaskContextTarget?.ProjectId : null,
-            _creatingTodayTask ? TodayLane.Planned : null,
+            _creatingTodayTask || _datePlacement == TaskDatePlacement.AddToPlanned ? TodayLane.Planned : null,
             participantIds,
             newLabels,
-            CurrentFingerprint());
+            CurrentFingerprint(),
+            _datePlacement == _persistedFingerprint.DatePlacement ? TaskDatePlacement.Preserve : _datePlacement);
         return true;
     }
 
     private void ApplyCurrentSaveResult(InspectorSaveResult result)
     {
+        var previousLane = _snapshot.Tasks.FirstOrDefault(item => item.Id == result.Task?.Id)?.TodayLane;
         if (result.Reload is { } reload)
         {
             ReloadAndKeepInspector(reload);
@@ -2500,9 +2549,15 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         }
         _creationNeedsReload = false;
         _pendingCreationReload = null;
-        _creatingStandaloneTask = false;
+        _creatingTaskDraft = false;
         _creatingTodayTask = false;
+        TaskContextEnabled = true;
         CompleteRecordLocalSave();
+        if (result.Task is { } committed && previousLane != committed.TodayLane
+            && result.Request.Fingerprint.DatePlacement != TaskDatePlacement.Preserve)
+            TodayAnnouncement = committed.TodayLane is null
+                ? $"Removed {committed.Title} from Today."
+                : $"Added {committed.Title} to Today in Planned.";
     }
 
     internal void ApplyCommittedTaskEdit(TaskRecord updated)
@@ -2563,6 +2618,12 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         {
             RefreshCategoryGroup(previous.ExplicitCategoryId!);
             RefreshCategoryGroup(updated.ExplicitCategoryId!);
+        }
+        if (previous.TodayLane != updated.TodayLane)
+        {
+            RefreshTodayLanes();
+            Notify(nameof(HasTodayTasks));
+            Notify(nameof(HasNoTodayTasks));
         }
         if (previous.DueDate != updated.DueDate) RefreshUpcomingGroups();
         if (_editingTask && string.Equals(_editingId, updated.Id, StringComparison.Ordinal))
@@ -2762,6 +2823,14 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
 
     public void Cancel()
     {
+        if (_pendingTaskRefresh is not null)
+        {
+            _pendingTaskRefresh = null;
+            CloseInspector();
+            if (!EnqueueWorkspaceAction(new(WorkspaceActionKind.Refresh), closesInspectorOnCommit: false))
+                CanRetryWorkspaceRefresh = true;
+            return;
+        }
         if (_pendingCreationReload is { } creationReload)
         {
             Reload(creationReload);
@@ -2778,7 +2847,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         HasInspector = false;
         IsEditingMarkdown = false;
         _creating = false;
-        _creatingStandaloneTask = false;
+        _creatingTaskDraft = false;
         _creatingTodayTask = false;
         _editingCategory = false;
         CategoryNameValidationMessage = string.Empty;
@@ -2808,7 +2877,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     {
         var fingerprint = Fingerprint();
         return new(fingerprint.Title, fingerprint.Description, fingerprint.Date, fingerprint.CategoryId,
-            fingerprint.CategoryColourKey, fingerprint.ProjectColourKey, fingerprint.Participants);
+            fingerprint.CategoryColourKey, fingerprint.ProjectColourKey, fingerprint.Participants, _datePlacement);
     }
     private WorkspaceCategory CategoryById(string id) => _snapshot.Categories.Single(category => category.Id == id);
     private string CategoryName(string id) => CategoryById(id).Name;
@@ -3379,6 +3448,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             _timeProvider.GetElapsedTime(admittedAt),
             _inspectorGeneration,
             _autosaveRevision));
+        Notify(nameof(CanChooseInspectorDate));
         StartWorkspaceActionProcessor();
         return true;
     }
@@ -3387,6 +3457,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
     {
         if (_processingWorkspaceActions || _queuedWorkspaceActions.Count == 0) return;
         _processingWorkspaceActions = true;
+        Notify(nameof(CanChooseInspectorDate));
         _ = ProcessWorkspaceActionsAsync();
     }
 
@@ -3419,6 +3490,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
                         Notify(nameof(HasBlockingDialog));
                     }
                     _processingWorkspaceActions = false;
+                    Notify(nameof(CanChooseInspectorDate));
                 });
                 return;
             }
@@ -3428,6 +3500,7 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             {
                 var accepted = _queuedWorkspaceActions.Dequeue();
                 ApplyWorkspaceActionResult(accepted, result);
+                Notify(nameof(CanChooseInspectorDate));
                 PendingWorkspaceActionCount--;
                 if (PendingWorkspaceActionCount == 0) _workspaceActionsSettled.TrySetResult();
                 else Message = $"{Message} {WorkspaceActionStatus}";
@@ -3581,6 +3654,8 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
         }
 
         var effect = result.Effect ?? throw new InvalidOperationException("A committed action requires an effect.");
+        if (effect.TaskId == _editingId && ChangesTodayPlacement(result.Request.Kind))
+            ReleaseDatePlacement();
         ApplyCommittedWorkspaceAction(result.Request.Kind, effect);
         CanRetryWorkspaceRefresh = false;
         var task = _snapshot.Tasks.Single(item => item.Id == effect.TaskId);
@@ -3892,11 +3967,22 @@ public sealed class ProjectCaptureViewModel : INotifyPropertyChanged
             new(WorkspaceActionKind.MoveToday, taskId, move), closesInspectorOnCommit: false);
     }
 
+    private static bool ChangesTodayPlacement(WorkspaceActionKind kind) => kind is
+        WorkspaceActionKind.ToggleToday or WorkspaceActionKind.ToggleTodayLane
+        or WorkspaceActionKind.ToggleCompletion or WorkspaceActionKind.MoveToday;
+
+    private void ReleaseDatePlacement()
+    {
+        _datePlacement = TaskDatePlacement.Preserve;
+        _persistedFingerprint = _persistedFingerprint with { DatePlacement = TaskDatePlacement.Preserve };
+    }
+
     private void ClearToday()
     {
         ResolveDraftBeforeAction(() => Attempt(() =>
         {
             var count = _work.ClearToday();
+            ReleaseDatePlacement();
             Reload();
             TodayAnnouncement = count == 1 ? "Cleared 1 Task from Today." : $"Cleared {count} Tasks from Today.";
             TodayFocusAutomationId = "today-clear";

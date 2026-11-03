@@ -1074,7 +1074,7 @@ internal sealed partial class SqliteWorkspaceWork(
     }
 
     public TaskRecord UpdateTask(string id, string title, string description, string? explicitCategoryId, DateOnly? dueDate,
-        ParticipantDraftChange? participantChange = null)
+        ParticipantDraftChange? participantChange = null, TaskDatePlacement placement = TaskDatePlacement.Preserve)
     {
         title = WorkTitle.Normalize(title);
         ArgumentNullException.ThrowIfNull(description);
@@ -1090,7 +1090,15 @@ internal sealed partial class SqliteWorkspaceWork(
                 ("$id", id), ("$title", title), ("$description", description), ("$category", explicitCategoryId), ("$date", Date(dueDate)));
             if (participantChange is not null)
                 ApplyParticipantChanges(connection, transaction, id, participantChange);
-            result = ReadStoredTask(connection, transaction, id, existing.TodayLane);
+            var lane = existing.TodayLane;
+            if (placement == TaskDatePlacement.AddToPlanned && lane is null && !existing.IsComplete
+                && !existing.IsArchived && (existing.ProjectId is null
+                    || !Exists(connection, transaction, "project_archives", "project_id", existing.ProjectId)))
+                lane = TodayLane.Planned;
+            else if (placement == TaskDatePlacement.RemoveFromPlanned && lane == TodayLane.Planned)
+                lane = null;
+            if (lane != existing.TodayLane) WriteTodayLane(connection, transaction, id, lane);
+            result = ReadStoredTask(connection, transaction, id, lane);
             return ArchiveSearchIndexEffects.Task(id);
         }));
         return result!;

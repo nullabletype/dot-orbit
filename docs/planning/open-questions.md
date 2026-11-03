@@ -12,7 +12,7 @@ Decided: archiving is never an automatic background transition. The Completed vi
 
 Decided: archiving a Project clears Today membership from its Tasks. Restoring a Project returns its incomplete, non-archived Tasks to Backlog without adding them to Today. Restoring an individually archived completed Task returns it to Completed, and previously archived Tasks remain archived through Project restoration.
 
-Decided: Today membership persists across midnight and application restarts until a Task is removed, completed, or archived. Due dates never change Today membership. Today-only organisation does not create another durable Task status or affect Project completion. Incomplete Today Tasks have a persisted Planned or In progress lane; that lane is cleared when the Task leaves Today and does not affect Backlog order, Project status, or history.
+Decided: Today membership persists across midnight and application restarts until a Task is removed, completed, or archived. Choosing today’s due date in the Task inspector can add a Task to Planned under TODAY-002. A stored due date alone leaves membership unchanged. Today-only organisation does not create another durable Task status or affect Project completion. Incomplete Today Tasks have a persisted Planned or In progress lane; that lane is cleared when the Task leaves Today and does not affect Backlog order, Project status, or history.
 
 Decided: Today shows every Task completed on the current local calendar day, regardless of prior Today membership. At midnight those Tasks leave Today but remain in Completed. Reopening removes a Task from the daily completion section and returns it to Backlog without adding it to Today.
 

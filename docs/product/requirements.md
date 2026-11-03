@@ -140,7 +140,7 @@ Status: working specification derived from the interactive prototype.
 ## Today planning
 
 - **TODAY-001** Today membership persists across calendar-day changes and application restarts until the Task is removed, completed, or archived.
-- **TODAY-002** Due dates never add or remove Today membership automatically.
+- **TODAY-002** Choosing the current local date in the Task inspector places an active incomplete Task in Planned if it is outside Today. Changing or clearing the date in the same inspector undoes only the placement made by that choice. Existing membership, the Today creation default, and subsequent explicit Today actions take precedence. Reading a saved date and calendar rollover leave membership unchanged.
 - **TODAY-003** The Today view provides an explicit action to clear its incomplete Tasks rather than clearing them automatically.
 - **TODAY-004** Today may organise selected Tasks into working lanes without changing their durable completion state or Project derivation.
 - **TODAY-005** An incomplete Today Task has a Today-only lane of Planned or In progress.
