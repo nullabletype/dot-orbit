@@ -13,6 +13,7 @@ public sealed class WorkspaceSearchViewModel : INotifyPropertyChanged
     private string _status = "Enter a word or prefix to find Projects and Tasks.";
     private long _generation;
     private bool _reading;
+    private bool _isLoading;
 
     internal WorkspaceSearchViewModel(ProjectCaptureViewModel owner, IWorkspaceActionExecutor executor, IUiDispatcher dispatcher)
     {
@@ -45,6 +46,17 @@ public sealed class WorkspaceSearchViewModel : INotifyPropertyChanged
         }
     }
 
+    public bool IsLoading
+    {
+        get => _isLoading;
+        private set
+        {
+            if (_isLoading == value) return;
+            _isLoading = value;
+            PropertyChanged?.Invoke(this, new(nameof(IsLoading)));
+        }
+    }
+
     public string Status
     {
         get => _status;
@@ -60,19 +72,29 @@ public sealed class WorkspaceSearchViewModel : INotifyPropertyChanged
     {
         if (IsActive == active) return;
         IsActive = active;
+        if (!active)
+        {
+            _generation++;
+            ClearRows();
+            IsLoading = false;
+            return;
+        }
         Refresh();
     }
 
     internal void Refresh()
     {
+        if (!IsActive) return;
         _generation++;
-        if (!IsActive || string.IsNullOrWhiteSpace(Text))
+        if (string.IsNullOrWhiteSpace(Text))
         {
             ClearRows();
             Status = "Enter a word or prefix to find Projects and Tasks.";
+            IsLoading = false;
             return;
         }
 
+        IsLoading = true;
         Status = "Searching the workspace…";
         if (_reading) return;
         _reading = true;
@@ -105,6 +127,7 @@ public sealed class WorkspaceSearchViewModel : INotifyPropertyChanged
                 ClearRows();
                 Status = "Workspace search is unavailable. Try again.";
             }
+            IsLoading = false;
         }).ConfigureAwait(false);
     }
 
