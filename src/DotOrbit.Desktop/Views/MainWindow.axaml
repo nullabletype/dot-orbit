@@ -178,8 +178,7 @@
           <Button
               Classes="drag-handle project-drag-handle"
               AutomationProperties.AutomationId="{Binding ReorderAutomationId}"
-              AutomationProperties.Name="{Binding ReorderAccessibleName}"
-              AutomationProperties.HelpText="Drag to another Project, or activate for keyboard reorder actions.">
+              AutomationProperties.Name="{Binding ReorderAccessibleName}">
             <Button.Flyout>
               <MenuFlyout Closed="OnReorderMenuClosed">
                 <MenuItem Header="Move to top" Command="{Binding MoveToTopCommand}" AutomationProperties.Name="{Binding MoveToTopAccessibleName}" />
@@ -231,8 +230,7 @@
             <Button
                 Classes="drag-handle backlog-drag-handle"
                 AutomationProperties.AutomationId="{Binding ReorderAutomationId}"
-                AutomationProperties.Name="{Binding ReorderAccessibleName}"
-                AutomationProperties.HelpText="Drag to another Backlog row, or activate for keyboard reorder actions.">
+                AutomationProperties.Name="{Binding ReorderAccessibleName}">
               <Button.Flyout>
                 <MenuFlyout Closed="OnReorderMenuClosed">
                   <MenuItem Header="Move to top" Command="{Binding MoveToTopCommand}" AutomationProperties.Name="{Binding MoveToTopAccessibleName}" />
@@ -395,7 +393,19 @@
     <Style Selector="ScrollViewer.workspace-search ContentControl.bin-heading">
       <Setter Property="ContentTemplate" Value="{StaticResource BinSearchTitle}" />
     </Style>
-    <Style Selector="ScrollViewer.workspace-search Button.drag-handle, ScrollViewer.workspace-search ToggleButton.disclosure">
+    <Style Selector="Button.project-drag-handle">
+      <Setter Property="AutomationProperties.HelpText" Value="Drag to another Project, or activate for keyboard reorder actions." />
+    </Style>
+    <Style Selector="Button.backlog-drag-handle">
+      <Setter Property="AutomationProperties.HelpText" Value="Drag to another Backlog row, or activate for keyboard reorder actions." />
+    </Style>
+    <Style Selector="ScrollViewer.workspace-search Button.project-drag-handle">
+      <Setter Property="AutomationProperties.HelpText" Value="Choose a position in Projects, including Projects outside these results." />
+    </Style>
+    <Style Selector="ScrollViewer.workspace-search Button.backlog-drag-handle">
+      <Setter Property="AutomationProperties.HelpText" Value="Choose a position in Backlog, including Tasks outside these results." />
+    </Style>
+    <Style Selector="ScrollViewer.workspace-search ToggleButton.disclosure">
       <Setter Property="IsVisible" Value="False" />
     </Style>
   </Window.Styles>

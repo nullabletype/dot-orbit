@@ -2364,7 +2364,7 @@ public sealed class MainWindowTests
 
         var navigation = window.GetVisualDescendants().OfType<RadioButton>().ToArray();
 
-        Assert.Equal(10, navigation.Length);
+        Assert.Equal(11, navigation.Length);
         Assert.Equal(
             [
                 "Open Today",
@@ -2373,6 +2373,7 @@ public sealed class MainWindowTests
                 "Open Projects",
                 "Open Categories",
                 "Open Recurring",
+                "Open Search",
                 "Open Completed",
                 "Open Archive",
                 "Open Bin",
@@ -2387,6 +2388,7 @@ public sealed class MainWindowTests
                 "navigation-projects",
                 "navigation-categories",
                 "navigation-recurring",
+                "navigation-search",
                 "navigation-completed",
                 "navigation-archive",
                 "navigation-bin",

@@ -75,6 +75,7 @@ public sealed partial class MainWindow : Window
     private AgentProposalReviewWindow? _activeProposalReviewWindow;
     private PendingProposalCoordinator? _pendingProposalCoordinator;
     private string? _pendingProposalFocusReceipt;
+    private string? _pendingSearchActionFocus;
     private readonly object _localMcpTransitionGate = new();
     private Task _localMcpTransition = Task.CompletedTask;
     private LocalMcpDesktopService? _localMcpService;
@@ -1275,11 +1276,13 @@ public sealed partial class MainWindow : Window
         if (_subscribedWork is not null)
         {
             _subscribedWork.PropertyChanged -= OnWorkChanged;
+            _subscribedWork.Search.PropertyChanged -= OnSearchChanged;
             _subscribedWork.AutosaveRequested -= OnAutosaveRequested;
             _subscribedWork.Recurring.AutosaveRequested -= OnAutosaveRequested;
         }
         if (_subscribedSettings is not null)
             _subscribedSettings.PropertyChanged -= OnSettingsChanged;
+        _pendingSearchActionFocus = null;
         _subscribedShell = DataContext as ShellViewModel;
         _subscribedWork = _subscribedShell?.Work;
         _subscribedSettings = _subscribedShell?.Settings;
@@ -1288,6 +1291,7 @@ public sealed partial class MainWindow : Window
         if (_subscribedWork is not null)
         {
             _subscribedWork.PropertyChanged += OnWorkChanged;
+            _subscribedWork.Search.PropertyChanged += OnSearchChanged;
             _subscribedWork.AutosaveRequested += OnAutosaveRequested;
             _subscribedWork.Recurring.AutosaveRequested += OnAutosaveRequested;
             ScheduleTransientMessageDismissal(_subscribedWork);
@@ -1298,8 +1302,12 @@ public sealed partial class MainWindow : Window
 
     private void OnShellChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(ShellViewModel.ShowSearch) && sender is ShellViewModel { ShowSearch: true })
-            Dispatcher.UIThread.Post(() => FocusAutomationId("workspace-search-field"), DispatcherPriority.ApplicationIdle);
+        if (e.PropertyName == nameof(ShellViewModel.ShowSearch))
+        {
+            _pendingSearchActionFocus = null;
+            if (sender is ShellViewModel { ShowSearch: true })
+                Dispatcher.UIThread.Post(() => FocusAutomationId("workspace-search-field"), DispatcherPriority.ApplicationIdle);
+        }
         if (e.PropertyName == nameof(ShellViewModel.MainViewTargetAutomationId)
             && sender is ShellViewModel { MainViewTargetAutomationId.Length: > 0 } targetShell)
         {
@@ -1558,18 +1566,13 @@ public sealed partial class MainWindow : Window
                 DispatcherPriority.ApplicationIdle);
         if (e.PropertyName == nameof(ProjectCaptureViewModel.CompletionFocusAutomationId)
             && sender is ProjectCaptureViewModel { CompletionFocusAutomationId.Length: > 0 } work)
-            Dispatcher.UIThread.Post(() => this.GetVisualDescendants().OfType<Control>()
-                .FirstOrDefault(control => control.IsEffectivelyVisible
-                    && AutomationProperties.GetAutomationId(control) == work.CompletionFocusAutomationId)?.Focus(),
-                DispatcherPriority.ApplicationIdle);
+            Dispatcher.UIThread.Post(() => FocusAfterRowAction(work.CompletionFocusAutomationId), DispatcherPriority.ApplicationIdle);
         if (e.PropertyName == nameof(ProjectCaptureViewModel.ReorderFocusAutomationId)
             && sender is ProjectCaptureViewModel { ReorderFocusAutomationId.Length: > 0 } reordered)
-            Dispatcher.UIThread.Post(() => this.GetVisualDescendants().OfType<Control>()
-                .FirstOrDefault(control => AutomationProperties.GetAutomationId(control) == reordered.ReorderFocusAutomationId)?.Focus(),
-                DispatcherPriority.ApplicationIdle);
+            Dispatcher.UIThread.Post(() => FocusAfterRowAction(reordered.ReorderFocusAutomationId), DispatcherPriority.ApplicationIdle);
         if (e.PropertyName == nameof(ProjectCaptureViewModel.TodayFocusAutomationId)
             && sender is ProjectCaptureViewModel { TodayFocusAutomationId.Length: > 0 } todayWork)
-            Dispatcher.UIThread.Post(() => FocusAutomationId(todayWork.TodayFocusAutomationId), DispatcherPriority.ApplicationIdle);
+            Dispatcher.UIThread.Post(() => FocusAfterRowAction(todayWork.TodayFocusAutomationId), DispatcherPriority.ApplicationIdle);
         if (e.PropertyName == nameof(ProjectCaptureViewModel.DialogReturnFocusAutomationId)
             && sender is ProjectCaptureViewModel { DialogReturnFocusAutomationId.Length: > 0 } dialogWork)
             Dispatcher.UIThread.Post(() => FocusAutomationId(dialogWork.DialogReturnFocusAutomationId), DispatcherPriority.ApplicationIdle);
@@ -1619,10 +1622,10 @@ public sealed partial class MainWindow : Window
             }, DispatcherPriority.ApplicationIdle);
         if (e.PropertyName == nameof(ProjectCaptureViewModel.ArchiveFocusAutomationId)
             && sender is ProjectCaptureViewModel { ArchiveFocusAutomationId.Length: > 0 } archiveWork)
-            Dispatcher.UIThread.Post(() => FocusAutomationId(archiveWork.ArchiveFocusAutomationId), DispatcherPriority.ApplicationIdle);
+            Dispatcher.UIThread.Post(() => FocusAfterRowAction(archiveWork.ArchiveFocusAutomationId), DispatcherPriority.ApplicationIdle);
         if (e.PropertyName == nameof(ProjectCaptureViewModel.BinFocusAutomationId)
             && sender is ProjectCaptureViewModel { BinFocusAutomationId.Length: > 0 } binWork)
-            Dispatcher.UIThread.Post(() => FocusAutomationId(binWork.BinFocusAutomationId), DispatcherPriority.ApplicationIdle);
+            Dispatcher.UIThread.Post(() => FocusAfterRowAction(binWork.BinFocusAutomationId), DispatcherPriority.ApplicationIdle);
         if (e.PropertyName == nameof(ProjectCaptureViewModel.NeedsCategoryReplacement)
             && sender is ProjectCaptureViewModel categoryWork)
             Dispatcher.UIThread.Post(() =>
@@ -1641,9 +1644,33 @@ public sealed partial class MainWindow : Window
 
     private void OnWorkspaceSearchClear(object? sender, RoutedEventArgs e) => FocusAutomationId("workspace-search-field");
 
-    private void FocusAutomationId(string automationId) => this.GetVisualDescendants().OfType<Control>()
+    private bool FocusAutomationId(string automationId) => this.GetVisualDescendants().OfType<Control>()
         .FirstOrDefault(control => control.IsEffectivelyVisible
-            && AutomationProperties.GetAutomationId(control) == automationId)?.Focus();
+            && AutomationProperties.GetAutomationId(control) == automationId)?.Focus() == true;
+
+    private void FocusAfterRowAction(string automationId)
+    {
+        if (_subscribedShell is { ShowSearch: true, Work.Search.IsLoading: true })
+        {
+            _pendingSearchActionFocus = automationId;
+            return;
+        }
+        if (!FocusAutomationId(automationId) && _subscribedShell is { ShowSearch: true })
+            FocusAutomationId("workspace-search-field");
+    }
+
+    private void OnSearchChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(WorkspaceSearchViewModel.Text)) _pendingSearchActionFocus = null;
+        if (e.PropertyName != nameof(WorkspaceSearchViewModel.IsLoading)
+            || sender is not WorkspaceSearchViewModel { IsLoading: false }
+            || _pendingSearchActionFocus is not { } automationId) return;
+        _pendingSearchActionFocus = null;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_subscribedShell is { ShowSearch: true }) FocusAfterRowAction(automationId);
+        }, DispatcherPriority.ApplicationIdle);
+    }
 
     private void BringIntoViewAndFocusAutomationId(string automationId)
     {
@@ -1883,6 +1910,8 @@ public sealed partial class MainWindow : Window
             ? (Button?)hit
             : hit?.GetVisualAncestors().OfType<Button>().FirstOrDefault(button => button.Classes.Contains("drag-handle"));
         if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+        // A filtered list has no drop targets for the hidden positions. Keep its canonical reorder menu.
+        if (handle is not null && DataContext is ShellViewModel { ShowSearch: true }) return;
         if (handle?.Classes.Contains("backlog-drag-handle") == true && handle.DataContext is TaskRowViewModel backlogTask)
         {
             _dragScope = DragScope.Backlog;
@@ -1922,7 +1951,7 @@ public sealed partial class MainWindow : Window
             return;
         }
         if (hit is Button || hit?.GetVisualAncestors().OfType<Button>().Any() == true) return;
-        _pressedSelectableRow = FindRow(hit, "selectable-row");
+        _pressedSelectableRow = FindSelectableRow(hit);
     }
 
     private void OnWorkDragPointerMoved(object? sender, PointerEventArgs e)
@@ -2052,7 +2081,7 @@ public sealed partial class MainWindow : Window
             if (pressedSelectableRow is null) return;
             var hit = this.InputHitTest(e.GetPosition(this)) as Control;
             if (hit is Button || hit?.GetVisualAncestors().OfType<Button>().Any() == true) return;
-            var releasedSelectableRow = FindRow(hit, "selectable-row");
+            var releasedSelectableRow = FindSelectableRow(hit);
             if (!ReferenceEquals(releasedSelectableRow, pressedSelectableRow)
                 || SelectionCommandForRow(releasedSelectableRow) is not { } selectionCommand)
                 return;
@@ -2123,6 +2152,9 @@ public sealed partial class MainWindow : Window
         _pressedSelectableRow = null;
     }
 
+    private Border? FindSelectableRow(Control? hit) => FindRow(hit, "selectable-row")
+        ?? (DataContext is ShellViewModel { ShowSearch: true } ? FindRow(hit, "archive-row") ?? FindRow(hit, "bin-row") : null);
+
     private static Border? FindRow(Control? hit, string rowClass) =>
         (hit as Border)?.Classes.Contains(rowClass) == true
             ? (Border?)hit
@@ -2136,6 +2168,8 @@ public sealed partial class MainWindow : Window
         CompletedTaskRowViewModel completedTask => completedTask.Task.SelectCommand,
         ArchivedTaskRowViewModel archivedTask => archivedTask.Task.SelectCommand,
         ArchivedWorkRowViewModel { Task: not null } archivedWork => archivedWork.Task.SelectCommand,
+        ArchivedWorkRowViewModel { Project: not null } project => project.Project.SelectCommand,
+        BinRowViewModel bin => bin.SelectCommand,
         ArchiveSearchResultViewModel archiveSearchResult => archiveSearchResult.OpenCommand,
         UpcomingTaskRowViewModel upcomingTask => upcomingTask.Task.SelectCommand,
         TodayTaskRowViewModel todayTask => todayTask.Task.SelectCommand,
@@ -2148,10 +2182,8 @@ public sealed partial class MainWindow : Window
     private void OnReorderMenuClosed(object? sender, EventArgs e)
     {
         if (sender is not FlyoutBase { Target: Button target }) return;
-        var automationId = AutomationProperties.GetAutomationId(target);
-        Dispatcher.UIThread.Post(() => this.GetVisualDescendants().OfType<Button>()
-            .FirstOrDefault(candidate => AutomationProperties.GetAutomationId(candidate) == automationId)?.Focus(),
-            DispatcherPriority.ApplicationIdle);
+        if (AutomationProperties.GetAutomationId(target) is { } automationId)
+            Dispatcher.UIThread.Post(() => FocusAfterRowAction(automationId), DispatcherPriority.ApplicationIdle);
     }
 
     private void OnClosed(object? sender, EventArgs e)
@@ -2185,6 +2217,7 @@ public sealed partial class MainWindow : Window
         if (_subscribedWork is not null)
         {
             _subscribedWork.PropertyChanged -= OnWorkChanged;
+            _subscribedWork.Search.PropertyChanged -= OnSearchChanged;
             _subscribedWork.AutosaveRequested -= OnAutosaveRequested;
             _subscribedWork.Recurring.AutosaveRequested -= OnAutosaveRequested;
         }
