@@ -896,6 +896,19 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
             throw new InvalidDataException();
         }
 
+        // A persistent reader may have checked an older FTS segment map before a
+        // writer committed. A MATCH cursor refreshes that map before SQLite checks
+        // its checksum against the current content. Both integrity checks still run.
+        if (schemaVersion >= 20)
+        {
+            using var refresh = connection.CreateCommand();
+            refresh.Transaction = transaction;
+            refresh.CommandText = """
+                SELECT rowid FROM archive_search WHERE archive_search MATCH 'integrity' LIMIT 1;
+                SELECT rowid FROM workspace_search WHERE workspace_search MATCH 'integrity' LIMIT 1;
+                """;
+            refresh.ExecuteNonQuery();
+        }
         ValidateIntegrity(connection, transaction);
         var checkedSchemaVersion = checked((int)schemaVersion);
         return new WorkspaceInspection(
