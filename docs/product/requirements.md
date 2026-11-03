@@ -4,7 +4,7 @@ Status: working specification derived from the interactive prototype.
 
 ## Navigation
 
-- **NAV-001** The primary navigation order is Today, Upcoming, Backlog, Projects, Categories, Recurring, Completed, Archive. Recurring has no count badge.
+- **NAV-001** The primary navigation order is Today, Upcoming, Backlog, Projects, Categories, Recurring, Search, Completed, Archive. Recurring and Search have no count badges.
 - **NAV-002** Today is the default view at application launch.
 - **NAV-003** Navigating away from a Project or Task inspector flushes valid pending automatic changes first. Invalid or failed changes remain visible and block leaving until they are corrected, retried, or explicitly discarded; Category drafts retain the save, discard, or stay prompt.
 
@@ -345,13 +345,16 @@ Status: working specification derived from the interactive prototype.
 - **BIN-019** Bin lists binned Projects and individually binned Tasks by removal time, newest first.
 - **BIN-020** Each Bin item provides a restore action; Empty Bin is available only from within the Bin view.
 
-## Archive search
+## Search
 
 - **SEARCH-001** Archive search covers archived Project and Task titles, Markdown description text with formatting removed, Category names, and Participant labels.
 - **SEARCH-002** Search is case-insensitive and supports ordinary whole-word and prefix matching.
 - **SEARCH-003** The first release does not provide fuzzy matching, learned ranking, saved searches, or an advanced query language.
 - **SEARCH-004** Results identify the record type, parent Project where applicable, completion or archive date, and a short matching excerpt.
 - **SEARCH-005** Bin contents never appear in Archive search.
+- **SEARCH-006** Workspace Search matches Project and Task titles, plain Markdown descriptions, effective Category names and Task Participant labels using the Archive whole-word and prefix rules. Each matching identity appears once in Projects, Backlog, Completed, Archive or Bin according to its current lifecycle. Category and Participant names supply context only.
+- **SEARCH-007** Search uses the owning destination’s row anatomy, actions and accessibility text. Opening a match crosses the save/discard/stay boundary, selects the owning destination and focuses the item. Editable items open in the inspector. Archived and binned items retain their historical and restore rules.
+- **SEARCH-008** Results reflect committed edits and lifecycle changes, including Empty Bin. Opening Search focuses the query field. Empty input, loading, no matches and failures have accessible text. Changes to the result count are politely announced. Queries and indexes stay within the unlocked local workspace.
 
 ## Open requirements
 

@@ -59,6 +59,7 @@ The current scenario contains:
 - 21 incomplete and 12 completed Tasks, with completion dates spanning today through more than 30 days ago;
 - 6 archived Tasks spanning Today, Yesterday, two days ago, older weekly groups, and 30 days ago, with both attached and standalone examples;
 - 1 archived in-progress Project whose individually archived Task remains archived and whose former Today Task has no Today membership;
+- 1 removed standalone Task and 1 removed Project with a child Task, created through the Bin commands;
 - 8 Today Tasks across Planned and In progress;
 - 11 active incomplete Tasks in the overdue-through-seven-days Upcoming window;
 - no date, overdue, today, tomorrow, seven-day, and just-outside-the-window examples;
@@ -67,6 +68,10 @@ The current scenario contains:
 
 Identifiers and semantic relationships are deterministic for a fixed anchor date. The encrypted database bytes are intentionally not promised to be identical because the encryption layer may use fresh cryptographic material.
 
+## Workspace Search review
+
+At 1120×600, open Search and enter `hom` for a case-insensitive Category prefix that spans all five groups. Enter `Zoë` for Participant and description matches. Enter `workspace` for the maximum list. All 42 Project and Task descriptions carry the same synthetic footer, including the child of the binned Project. Scroll to the last row and open it by keyboard. Repeat in Light and Dark. Clear the field and try an unmatched word to review both empty states.
+
 ## Evolving the scenario
 
-Add a new state only through its released production domain API. Task and Project Archive examples and Category and Project identity colours use their production commands; Bin examples must wait for their implementation slice. Do not fabricate future rows through direct SQL. Keep the scenario readable, synthetic, invariant-valid, and broad enough to exercise the changed projection without turning it into a migration fixture or a replacement for focused tests.
+Add a new state only through its released production domain API. Archive and Bin examples use the same lifecycle commands as the application. Do not fabricate future rows through direct SQL. Keep the scenario readable, synthetic, invariant-valid, and broad enough to exercise the changed projection without turning it into a migration fixture or a replacement for focused tests.

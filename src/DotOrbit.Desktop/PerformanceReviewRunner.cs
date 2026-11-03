@@ -620,7 +620,7 @@ internal static class PerformanceReviewRunner
             $"performance-review: operation={counts.Operation}-database-reads "
             + $"storage_writes={counts.StorageWrites} workspace={counts.Workspace} "
             + $"task_bin={counts.TaskBin} project_bin={counts.ProjectBin} "
-            + $"bulk_preview={counts.BulkPreview} archive_search={counts.ArchiveSearch} "
+            + $"bulk_preview={counts.BulkPreview} archive_search={counts.ArchiveSearch} workspace_search={counts.WorkspaceSearch} "
             + $"result={(counts.IncidentalReadCount == 0 ? "passed" : "failed")}");
 
     private static void WriteStorageUpdateTraceSummary(StorageUpdateTraceSummary summary) =>
@@ -884,9 +884,10 @@ internal readonly record struct ScopedActionReadCounts(
     int TaskBin,
     int ProjectBin,
     int BulkPreview,
-    int ArchiveSearch)
+    int ArchiveSearch,
+    int WorkspaceSearch)
 {
-    public int IncidentalReadCount => Workspace + TaskBin + ProjectBin + BulkPreview + ArchiveSearch;
+    public int IncidentalReadCount => Workspace + TaskBin + ProjectBin + BulkPreview + ArchiveSearch + WorkspaceSearch;
 
     public static ScopedActionReadCounts Create(
         string operation,
@@ -902,7 +903,8 @@ internal readonly record struct ScopedActionReadCounts(
             Count(PerformanceOperation.ReadTaskBin),
             Count(PerformanceOperation.ReadProjectBin),
             Count(PerformanceOperation.PreviewBulkTaskArchive),
-            Count(PerformanceOperation.SearchArchive));
+            Count(PerformanceOperation.SearchArchive),
+            Count(PerformanceOperation.SearchWorkspace));
 
         int Count(PerformanceOperation target) =>
             materialized.Count(sample => sample.Operation == target

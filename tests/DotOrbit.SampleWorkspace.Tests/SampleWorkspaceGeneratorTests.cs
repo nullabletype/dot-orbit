@@ -113,6 +113,24 @@ public sealed class SampleWorkspaceGeneratorTests
     }
 
     [Fact]
+    public void ReopenedSampleOffersAllFiveSearchGroupsAndAFullLengthQuery()
+    {
+        using var directory = new TemporaryDirectory();
+        var path = System.IO.Path.Combine(directory.Path, "workspace.db");
+        SampleWorkspaceGenerator.Generate(path, AnchorDate);
+
+        using var session = Open(path);
+        var all = session.Work.SearchWorkspace("workspace");
+        Assert.Equal(42, all.Count);
+        Assert.Equal(42, all.DistinctBy(match => (match.RecordType, match.Id)).Count());
+        Assert.Equal(3, all.Count(match => match.Group == WorkspaceSearchGroup.Bin));
+
+        var groups = session.Work.SearchWorkspace("HOM").Select(match => match.Group).Distinct();
+        Assert.Equal(new[] { WorkspaceSearchGroup.Projects, WorkspaceSearchGroup.Backlog,
+            WorkspaceSearchGroup.Completed, WorkspaceSearchGroup.Archive, WorkspaceSearchGroup.Bin }, groups);
+    }
+
+    [Fact]
     public void GenerateIncludesIndependentRecurringDefinitionsWithDueRulesAndLifecyclePause()
     {
         using var directory = new TemporaryDirectory();
