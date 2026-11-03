@@ -228,19 +228,21 @@
       <StackPanel Classes="reorder-host">
         <Border Classes="interactive-row separated-row reorder-target task-row selectable-row backlog-row" Classes.last="{Binding IsLast}" MinHeight="{StaticResource StandardRowHeight}">
           <Grid VerticalAlignment="Center" ColumnDefinitions="Auto,34,*,Auto,Auto,34">
-            <Button
-                Classes="drag-handle backlog-drag-handle" Width="34"
-                AutomationProperties.AutomationId="{Binding ReorderAutomationId}"
-                AutomationProperties.Name="{Binding ReorderAccessibleName}">
-              <Button.Flyout>
-                <MenuFlyout Closed="OnReorderMenuClosed">
-                  <MenuItem Header="Move to top" Command="{Binding MoveToTopCommand}" AutomationProperties.Name="{Binding MoveToTopAccessibleName}" />
-                  <MenuItem Header="Move up" Command="{Binding MoveUpCommand}" AutomationProperties.Name="{Binding MoveUpAccessibleName}" />
-                  <MenuItem Header="Move down" Command="{Binding MoveDownCommand}" AutomationProperties.Name="{Binding MoveDownAccessibleName}" />
-                  <MenuItem Header="Move to bottom" Command="{Binding MoveToBottomCommand}" AutomationProperties.Name="{Binding MoveToBottomAccessibleName}" />
-                </MenuFlyout>
-              </Button.Flyout>
-            </Button>
+            <Grid Width="34" Classes="backlog-reorder-slot">
+              <Button
+                  Classes="drag-handle backlog-drag-handle"
+                  AutomationProperties.AutomationId="{Binding ReorderAutomationId}"
+                  AutomationProperties.Name="{Binding ReorderAccessibleName}">
+                <Button.Flyout>
+                  <MenuFlyout Closed="OnReorderMenuClosed">
+                    <MenuItem Header="Move to top" Command="{Binding MoveToTopCommand}" AutomationProperties.Name="{Binding MoveToTopAccessibleName}" />
+                    <MenuItem Header="Move up" Command="{Binding MoveUpCommand}" AutomationProperties.Name="{Binding MoveUpAccessibleName}" />
+                    <MenuItem Header="Move down" Command="{Binding MoveDownCommand}" AutomationProperties.Name="{Binding MoveDownAccessibleName}" />
+                    <MenuItem Header="Move to bottom" Command="{Binding MoveToBottomCommand}" AutomationProperties.Name="{Binding MoveToBottomAccessibleName}" />
+                  </MenuFlyout>
+                </Button.Flyout>
+              </Button>
+            </Grid>
             <ToggleButton Grid.Column="1" Classes="completion-toggle"
                 IsChecked="{Binding IsComplete, Mode=OneWay}" Command="{Binding ToggleCompletionCommand}"
                 AutomationProperties.AutomationId="{Binding CompletionAutomationId}"
@@ -414,7 +416,7 @@
     <Style Selector="ScrollViewer.workspace-search Button.drag-handle, ScrollViewer.workspace-search ToggleButton.disclosure">
       <Setter Property="IsVisible" Value="False" />
     </Style>
-    <Style Selector="ScrollViewer.workspace-search Border.project-header-spacer">
+    <Style Selector="ScrollViewer.workspace-search Border.project-header-spacer, ScrollViewer.workspace-search Grid.backlog-reorder-slot">
       <Setter Property="IsVisible" Value="False" />
     </Style>
   </Window.Styles>
