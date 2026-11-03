@@ -4172,7 +4172,7 @@ internal class MemoryWorkspaceWork : IWorkspaceWork
         };
     }
     public TaskRecord UpdateTask(string id, string title, string description, string? explicitCategoryId, DateOnly? dueDate,
-        ParticipantDraftChange? participantChange = null)
+        ParticipantDraftChange? participantChange = null, TaskDatePlacement placement = TaskDatePlacement.Preserve)
     {
         Check();
         int index = _tasks.FindIndex(t => t.Id == id);
@@ -4184,7 +4184,22 @@ internal class MemoryWorkspaceWork : IWorkspaceWork
             var associations = participantChange is null
                 ? _tasks[index].Participants.ToList()
                 : ApplyParticipantChanges(participantChange);
-            return _tasks[index] = _tasks[index] with { Title = title.Trim(), Description = description, ExplicitCategoryId = explicitCategoryId, DueDate = dueDate, ParticipantIds = associations };
+            var task = _tasks[index];
+            var lane = task.TodayLane;
+            if (placement == TaskDatePlacement.AddToPlanned && lane is null && !task.IsComplete
+                && !task.IsArchived && !_projects.Any(project => project.Id == task.ProjectId && project.IsArchived))
+                lane = TodayLane.Planned;
+            else if (placement == TaskDatePlacement.RemoveFromPlanned && lane == TodayLane.Planned)
+                lane = null;
+            return _tasks[index] = task with
+            {
+                Title = title.Trim(),
+                Description = description,
+                ExplicitCategoryId = explicitCategoryId,
+                DueDate = dueDate,
+                ParticipantIds = associations,
+                TodayLane = lane,
+            };
         }
         catch
         {

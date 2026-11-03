@@ -63,6 +63,83 @@ public sealed class WorkspaceWorkTests : IDisposable
     }
 
     [Fact]
+    public void TaskDatePlacementPersistsAcrossReopenWithoutChangingOrderOrCompletion()
+    {
+        var date = new DateOnly(2026, 10, 8);
+        string id;
+        long sharedPosition;
+        long? projectPosition;
+        using (var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!)
+        {
+            var project = session.Work.CreateProject("Garden", "", session.Work.Read().Categories.Single().Id, null);
+            var task = session.Work.CreateTask(project.Id, "Plant bulbs");
+            id = task.Id;
+            session.Work.CreateTask(project.Id, "Water");
+            var before = session.Work.Read().Tasks.Single(item => item.Id == id);
+            sharedPosition = before.SharedPosition;
+            projectPosition = before.ProjectPosition;
+
+            var placed = session.Work.UpdateTask(id, task.Title, "", null, date, placement: TaskDatePlacement.AddToPlanned);
+            Assert.Equal(TodayLane.Planned, placed.TodayLane);
+            session.Work.UpdateTask(id, task.Title, "", null, date, placement: TaskDatePlacement.AddToPlanned);
+        }
+        using var reopened = _store.Open(WorkspacePath, _passphrase).Session!;
+        var persisted = reopened.Work.Read().Tasks.Single(item => item.Id == id);
+        Assert.Equal(date, persisted.DueDate);
+        Assert.Equal(TodayLane.Planned, persisted.TodayLane);
+        Assert.False(persisted.IsComplete);
+        Assert.Equal(sharedPosition, persisted.SharedPosition);
+        Assert.Equal(projectPosition, persisted.ProjectPosition);
+        var removed = reopened.Work.UpdateTask(id, persisted.Title, "", null, null, placement: TaskDatePlacement.RemoveFromPlanned);
+        Assert.Null(removed.TodayLane);
+        var storedAfterClear = reopened.Work.Read().Tasks.Single(item => item.Id == id);
+        Assert.Null(storedAfterClear.DueDate);
+        Assert.Null(storedAfterClear.TodayLane);
+
+        reopened.Work.SetTaskTodayLane(id, TodayLane.InProgress);
+        Assert.Equal(TodayLane.InProgress, reopened.Work.UpdateTask(
+            id, persisted.Title, "", null, date, placement: TaskDatePlacement.AddToPlanned).TodayLane);
+        Assert.Equal(TodayLane.InProgress, reopened.Work.UpdateTask(
+            id, persisted.Title, "", null, null, placement: TaskDatePlacement.RemoveFromPlanned).TodayLane);
+        var completed = reopened.Work.CompleteTask(id);
+        var edited = reopened.Work.UpdateTask(id, persisted.Title, "", null, date, placement: TaskDatePlacement.AddToPlanned);
+        Assert.Null(edited.TodayLane);
+        Assert.Equal(completed.CompletedAt, edited.CompletedAt);
+        Assert.Equal(completed.CompletionDate, edited.CompletionDate);
+        Assert.Equal(date, edited.DueDate);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TaskDatePlacementFailureRollsBackTheEntireEdit(bool removing)
+    {
+        using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
+        var category = Assert.Single(session.Work.Read().Categories);
+        var date = new DateOnly(2026, 10, 8);
+        var task = session.Work.CreateTaskDraft(null, "Original", "", category.Id, removing ? date : null,
+            todayLane: removing ? TodayLane.Planned : null);
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = removing
+                ? "CREATE TRIGGER reject_today BEFORE DELETE ON today_tasks BEGIN SELECT RAISE(ABORT, 'private'); END;"
+                : "CREATE TRIGGER reject_today BEFORE INSERT ON today_tasks BEGIN SELECT RAISE(ABORT, 'private'); END;";
+            command.ExecuteNonQuery();
+        }
+
+        Assert.Throws<WorkspaceWorkException>(() => session.Work.UpdateTask(task.Id, "Changed", "", category.Id,
+            removing ? null : date, new([], ["SD"]), removing ? TaskDatePlacement.RemoveFromPlanned : TaskDatePlacement.AddToPlanned));
+
+        var snapshot = session.Work.Read();
+        var persisted = Assert.Single(snapshot.Tasks);
+        Assert.Equal(task.Title, persisted.Title);
+        Assert.Equal(task.DueDate, persisted.DueDate);
+        Assert.Equal(task.TodayLane, persisted.TodayLane);
+        Assert.Empty(snapshot.Participants);
+    }
+
+    [Fact]
     public void DuplicateTaskCopiesContentAndParticipantsButResetsWorkflowState()
     {
         using var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!;
