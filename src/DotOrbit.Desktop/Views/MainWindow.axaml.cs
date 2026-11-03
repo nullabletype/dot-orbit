@@ -38,6 +38,7 @@ public sealed partial class MainWindow : Window
     private bool _closeCompletionStarted;
     private DragScope _dragScope;
     private string? _draggedId;
+    private bool _draggedTaskIsComplete;
     private string? _draggedProjectId;
     private Border? _pressedSelectableRow;
     private Border? _dragTarget;
@@ -1942,6 +1943,7 @@ public sealed partial class MainWindow : Window
             _dragScope = DragScope.ProjectTasks;
             _draggedId = projectTask.Id;
             _draggedProjectId = projectId;
+            _draggedTaskIsComplete = projectTask.IsComplete;
             return;
         }
         if (handle?.Classes.Contains("category-drag-handle") == true && handle.DataContext is CategoryGroupViewModel category)
@@ -1979,7 +1981,8 @@ public sealed partial class MainWindow : Window
         _dragRows ??= this.GetVisualDescendants().OfType<Border>()
             .Where(row => row.IsEffectivelyVisible && row.Classes.Contains(targetClass)
                 && (_dragScope != DragScope.ProjectTasks
-                    || row.DataContext is TaskRowViewModel task && task.ProjectId == _draggedProjectId))
+                    || row.DataContext is TaskRowViewModel task && task.ProjectId == _draggedProjectId
+                    && task.IsComplete == _draggedTaskIsComplete))
             .ToArray();
         _dragSource ??= _dragRows.FirstOrDefault(row => DragId(row) == _draggedId);
         var candidate = _dragRows.FirstOrDefault(row => row.IsEffectivelyVisible && TopLevel.GetTopLevel(row) == this

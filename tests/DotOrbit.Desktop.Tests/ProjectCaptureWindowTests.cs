@@ -4212,11 +4212,18 @@ public sealed class ProjectCaptureWindowTests
         var work = new MemoryWorkspaceWork();
         var project = work.CreateProject("Garden", "", "home", null);
         var task = work.CreateTask(project.Id, "Plant bulbs");
+        work.CompleteTask(work.CreateTask(project.Id, "Prepare soil").Id);
+        work.CreateTask(project.Id, "Water beds");
         var shell = new ShellViewModel(work, new FixedTimeProvider(new DateTimeOffset(2026, 9, 29, 12, 0, 0, TimeSpan.Zero)));
         shell.PrimaryNavigation.Single(item => item.Title == "Projects").SelectCommand.Execute(null);
         var window = new MainWindow { DataContext = shell };
         window.Show();
 
+        string[] VisibleTitles() => window.GetVisualDescendants().OfType<Border>()
+            .Where(row => row.IsEffectivelyVisible && row.Classes.Contains("project-task-row"))
+            .OrderBy(row => row.TranslatePoint(default, window)!.Value.Y)
+            .Select(row => ((TaskRowViewModel)row.DataContext!).Title).ToArray();
+        Assert.Equal(["Plant bulbs", "Water beds", "Prepare soil"], VisibleTitles());
         var toggle = ToggleByAutomationId(window, $"task-completion-{task.Id}");
         Assert.Equal("Complete Plant bulbs", AutomationProperties.GetName(toggle));
         Assert.False(toggle.IsChecked);
@@ -4226,6 +4233,7 @@ public sealed class ProjectCaptureWindowTests
         Dispatcher.UIThread.RunJobs();
 
         toggle = ToggleByAutomationId(window, $"task-completion-{task.Id}");
+        Assert.Equal(["Water beds", "Plant bulbs", "Prepare soil"], VisibleTitles());
         Assert.True(toggle.IsChecked);
         Assert.Equal("Reopen Plant bulbs", AutomationProperties.GetName(toggle));
         Assert.True(toggle.IsFocused);
@@ -4236,7 +4244,9 @@ public sealed class ProjectCaptureWindowTests
         window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None);
         window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
-        Assert.False(work.Read().Tasks.Single().IsComplete);
+        Assert.False(work.Read().Tasks.Single(item => item.Id == task.Id).IsComplete);
+        Assert.Equal(["Plant bulbs", "Water beds", "Prepare soil"], VisibleTitles());
+        Assert.Equal("Complete Plant bulbs", AutomationProperties.GetName(ToggleByAutomationId(window, $"task-completion-{task.Id}")));
         Assert.True(ToggleByAutomationId(window, $"task-completion-{task.Id}").IsFocused);
         window.Close();
     }
@@ -4918,13 +4928,13 @@ public sealed class ProjectCaptureWindowTests
         Activate(window, taskHandle);
         var taskMenu = Assert.IsType<MenuFlyout>(taskHandle.Flyout);
         var taskTop = taskMenu.Items.OfType<MenuItem>().Single(item => item.Header?.ToString() == "Move to top");
-        Assert.Equal("Move Second task to top of project", AutomationProperties.GetName(taskTop));
+        Assert.Equal("Move Second task to top of incomplete Tasks", AutomationProperties.GetName(taskTop));
         taskTop.Command!.Execute(null);
         taskMenu.Hide();
         Dispatcher.UIThread.RunJobs();
         Assert.True(ButtonByAutomationId(window, $"project-task-reorder-{secondTask.Id}").IsFocused);
         Assert.Equal([secondTask.Id, firstTask.Id], work.Read().Tasks.Where(task => task.ProjectId == firstProject.Id).OrderBy(task => task.ProjectPosition).Select(task => task.Id));
-        Assert.Contains("position 1 of 2 in project First", shell.Work!.ReorderAnnouncement, StringComparison.Ordinal);
+        Assert.Contains("position 1 of 2 among incomplete Tasks in project First", shell.Work!.ReorderAnnouncement, StringComparison.Ordinal);
 
         projectHandle = ButtonByAutomationId(window, $"project-reorder-{secondProject.Id}");
         var projectTarget = ButtonByAutomationId(window, $"project-reorder-{firstProject.Id}");
@@ -4966,6 +4976,41 @@ public sealed class ProjectCaptureWindowTests
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(before, work.Read().Tasks.Where(task => task.ProjectId == firstProject.Id)
             .OrderBy(task => task.ProjectPosition).Select(task => task.Id));
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void ProjectTaskDragPreviewsOnlyPeersAndRejectsCrossGroupDrops()
+    {
+        var work = new MemoryWorkspaceWork();
+        var project = work.CreateProject("Garden", "", "home", null);
+        var first = work.CreateTask(project.Id, "First");
+        var open = work.CreateTask(project.Id, "Open");
+        var last = work.CreateTask(project.Id, "Last");
+        work.CompleteTask(first.Id);
+        work.CompleteTask(last.Id);
+        var shell = new ShellViewModel(work);
+        shell.PrimaryNavigation.Single(item => item.Title == "Projects").SelectCommand.Execute(null);
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+        Button Handle(string id) => ButtonByAutomationId(window, $"project-task-reorder-{id}");
+        var drop = DragToTarget(window, Handle(last.Id), Handle(first.Id));
+        var placeholder = Assert.Single(window.GetVisualDescendants().OfType<Border>(), row => row.Classes.Contains("reorder-placeholder"));
+        Assert.Contains("position 1 of 2", AutomationProperties.GetName(placeholder));
+        window.MouseUp(drop, MouseButton.Left, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        var tasks = shell.Work!.Projects.Single().Tasks;
+        Assert.Equal([open.Id, last.Id, first.Id], tasks.Select(task => task.Id));
+        Assert.Contains("position 1 of 2 among completed Tasks", shell.Work.ReorderAnnouncement);
+
+        var before = work.Read().Tasks.ToArray();
+        drop = DragToTarget(window, Handle(open.Id), Handle(last.Id));
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<Border>(), row =>
+            row.Classes.Contains("reorder-placeholder") || row.Classes.Contains("drag-target"));
+        window.MouseUp(drop, MouseButton.Left, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(before, work.Read().Tasks);
+        Assert.False(shell.Work.DragProjectTask(project.Id, last.Id, open.Id));
         window.Close();
     }
 

@@ -822,7 +822,7 @@
                                     <Grid VerticalAlignment="Center" ColumnDefinitions="34,34,*,154,72">
                                       <Button Classes="drag-handle project-task-drag-handle" AutomationProperties.AutomationId="{Binding ProjectReorderAutomationId}"
                                           AutomationProperties.Name="{Binding ProjectReorderAccessibleName}"
-                                          AutomationProperties.HelpText="Drag within this Project, or activate for keyboard reorder actions.">
+                                          AutomationProperties.HelpText="Drag among Tasks with the same completion state in this Project, or activate for keyboard reorder actions.">
                                         <Button.Flyout>
                                           <MenuFlyout Closed="OnReorderMenuClosed">
                                             <MenuItem Header="Move to top" Command="{Binding MoveProjectTaskToTopCommand}" AutomationProperties.Name="{Binding MoveProjectTaskToTopAccessibleName}" />

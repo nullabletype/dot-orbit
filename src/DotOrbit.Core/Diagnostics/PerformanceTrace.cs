@@ -63,6 +63,7 @@ public enum PerformanceOperation
     MoveTaskInProject,
     DetachTask,
     AttachTask,
+    MoveTaskInProjectGroup,
 }
 
 public sealed record PerformanceSample(

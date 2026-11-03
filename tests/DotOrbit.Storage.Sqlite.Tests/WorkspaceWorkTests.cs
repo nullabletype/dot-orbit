@@ -1381,6 +1381,46 @@ public sealed class WorkspaceWorkTests : IDisposable
     }
 
     [Fact]
+    public void ProjectGroupReorderPreservesOtherSlotsAndSharedOrderAcrossReopen()
+    {
+        using (var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!)
+        {
+            var work = session.Work;
+            var category = work.Read().Categories[0];
+            var project = work.CreateProject("Garden", "", category.Id, null);
+            work.CreateProject("Other", "", category.Id, null);
+            var first = work.CreateTask(project.Id, "A");
+            var done = work.CreateTask(project.Id, "B");
+            var last = work.CreateTask(project.Id, "C");
+            var archived = work.CreateTask(project.Id, "D");
+            var binned = work.CreateTask(project.Id, "E");
+            work.CompleteTask(done.Id);
+            work.CompleteTask(archived.Id);
+            work.ArchiveTask(archived.Id);
+            work.MoveTaskToBin(binned.Id);
+            var shared = work.Read().Tasks.Select(task => (task.Id, task.SharedPosition)).ToArray();
+            Assert.Equal(new ProjectTaskOrderChange(project.Id, last.Id, 1, 2),
+                work.MoveTaskInProjectGroup(project.Id, last.Id, new(TaskOrderMoveKind.Top)));
+            Assert.Equal(new ProjectTaskOrderChange(project.Id, archived.Id, 1, 2),
+                work.MoveTaskInProjectGroup(project.Id, archived.Id, new(TaskOrderMoveKind.BeforeTargetTask, done.Id)));
+            Assert.Throws<ArgumentException>(() =>
+                work.MoveTaskInProjectGroup(project.Id, last.Id, new(TaskOrderMoveKind.AfterTargetTask, done.Id)));
+            Assert.Throws<ArgumentException>(() =>
+                work.MoveTaskInProjectGroup(project.Id, first.Id, new(TaskOrderMoveKind.BeforeTargetTask, binned.Id)));
+            work.ReopenTask(done.Id);
+            Assert.Equal(shared, work.Read().Tasks.Select(task => (task.Id, task.SharedPosition)));
+        }
+
+        using var reopened = _store.Open(WorkspacePath, _passphrase).Session!;
+        var snapshot = reopened.Work.Read();
+        Assert.Equal(["Garden", "Other"], snapshot.Projects.Select(project => project.Title));
+        var manual = snapshot.Tasks.OrderBy(task => task.ProjectPosition).ToArray();
+        Assert.Equal(["C", "D", "A", "B"], manual.Select(task => task.Title));
+        Assert.False(manual[^1].IsComplete);
+        Assert.True(manual[1].IsArchived);
+    }
+
+    [Fact]
     public void ProjectAndPerProjectTaskOrdersPersistIndependentlyAndRollBackOnFailure()
     {
         using (var session = _store.Create(WorkspacePath, _passphrase, CategoryName.Create("Home").CategoryName!).Session!)
