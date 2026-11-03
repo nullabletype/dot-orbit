@@ -94,6 +94,7 @@ internal enum WorkspaceActionKind
     SetRecurringEnabled,
     DeleteRecurring,
     ProcessRecurring,
+    SearchWorkspace,
 }
 
 internal enum WorkspaceMoveKind
@@ -122,7 +123,8 @@ internal sealed record WorkspaceActionRequest(
     RecurringTaskDraft? RecurringDraft = null,
     bool? RecurringEnabled = null,
     long? RecurringSaveGeneration = null,
-    long? RecurringSaveRevision = null);
+    long? RecurringSaveRevision = null,
+    string? SearchQuery = null);
 
 internal enum WorkspaceActionOutcome
 {
@@ -160,7 +162,8 @@ internal sealed record WorkspaceActionResult(
     ProjectDuplicationResult? DuplicatedProject = null,
     WorkspaceActionTiming? Timing = null,
     int GeneratedTaskCount = 0,
-    RecurringTaskDefinition? RecurringDefinition = null)
+    RecurringTaskDefinition? RecurringDefinition = null,
+    IReadOnlyList<WorkspaceSearchResult>? SearchResults = null)
 {
     public WorkspaceActionResult WithQueueWait(TimeSpan queueWait) =>
         this with { Timing = new(queueWait, Timing?.Persistence ?? TimeSpan.Zero) };
@@ -274,6 +277,18 @@ internal sealed class WorkspacePersistenceOperation : IWorkspacePersistenceOpera
     public WorkspaceActionResult ExecuteAction(WorkspaceActionRequest request)
     {
         var started = _timeProvider.GetTimestamp();
+        if (request.Kind == WorkspaceActionKind.SearchWorkspace)
+        {
+            try
+            {
+                return new(request, WorkspaceActionOutcome.Refreshed,
+                    SearchResults: _work.SearchWorkspace(request.SearchQuery ?? string.Empty));
+            }
+            catch (Exception exception) when (IsWorkspaceFailure(exception))
+            {
+                return new(request, WorkspaceActionOutcome.RefreshFailed);
+            }
+        }
         if (request.Kind == WorkspaceActionKind.PreviewProjectDuplication)
         {
             try

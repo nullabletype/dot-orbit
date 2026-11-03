@@ -115,6 +115,12 @@ public sealed class ShellViewModel : INotifyPropertyChanged
                 "No recurring tasks yet",
                 "Create a definition for work you repeat daily, weekly, or monthly.", countText: null),
             CreateNavigationItem(
+                "Search",
+                "M10,2A8,8 0 1,0 14.9,16.3L20.6,22L22,20.6L16.3,14.9A8,8 0 0,0 10,2M10,4A6,6 0 1,1 10,16A6,6 0 1,1 10,4",
+                "Find Projects and Tasks across your workspace.",
+                "Search your workspace",
+                "Enter a word or prefix to find Projects and Tasks.", countText: null),
+            CreateNavigationItem(
                 "Completed",
                 "M9,16.17L4.83,12L3.41,13.41L9,19L21,7L19.59,5.59L9,16.17",
                 "Completed tasks grouped by captured day for three days, then by calendar week.",
@@ -216,6 +222,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(ShowUpcoming));
             OnPropertyChanged(nameof(ShowBacklog));
             OnPropertyChanged(nameof(ShowCompleted));
+            OnPropertyChanged(nameof(ShowSearch));
             OnPropertyChanged(nameof(ShowRecurring));
             OnPropertyChanged(nameof(ShowOrdinaryInspector));
             OnPropertyChanged(nameof(ShowArchive));
@@ -250,6 +257,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     public bool ShowBacklog => Work is not null && ViewTitle == "Backlog";
     public bool ShowRecurring => Work is not null && ViewTitle == "Recurring";
     public bool ShowOrdinaryInspector => ShowWorkspace && !ShowRecurring;
+    public bool ShowSearch => Work is not null && ViewTitle == "Search";
     public bool ShowCompleted => Work is not null && ViewTitle == "Completed";
     public bool ShowArchive => Work is not null && ViewTitle == "Archive";
     public bool ShowBin => Work is not null && ViewTitle == "Bin";
@@ -257,7 +265,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     public bool ShowAI => AiFeaturesEnabled && ViewTitle == "AI";
     public bool ShowSettings => ViewTitle == "Settings";
     public bool ShowWorkspace => !ShowAI && !ShowSettings;
-    public bool ShowEmpty => !ShowRecurring && !ShowToday && !ShowUpcoming && !ShowProjects && !ShowBacklog && !ShowCompleted && !ShowArchive && !ShowBin && !ShowCategories && !ShowAI && !ShowSettings;
+    public bool ShowEmpty => !ShowSearch && !ShowRecurring && !ShowToday && !ShowUpcoming && !ShowProjects && !ShowBacklog && !ShowCompleted && !ShowArchive && !ShowBin && !ShowCategories && !ShowAI && !ShowSettings;
 
     public string ViewTitle => SelectedItem.Title;
 
@@ -403,19 +411,14 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         if (Work is not null && wasArchive != isArchive) Work.SetArchiveActive(isArchive);
         if (Work is not null && wasBin != isBin) Work.SetBinActive(isBin);
         if (Work is not null && wasToday != isToday) Work.SetTodayActive(isToday);
+        Work?.Search.SetActive(item.Title == "Search");
         if (item.Title == "Settings") Settings?.Refresh();
     }
 
     private void OnMainViewNavigationRequested(object? sender, MainViewNavigationRequestedEventArgs e)
     {
-        var title = e.Destination switch
-        {
-            MainViewDestination.Categories => "Categories",
-            MainViewDestination.Projects => "Projects",
-            MainViewDestination.Archive => "Archive",
-            _ => throw new ArgumentOutOfRangeException(nameof(e), e.Destination, "Unknown main-view destination."),
-        };
-        SelectCore(PrimaryNavigation.Single(item => item.Title == title));
+        var item = e.Destination == MainViewDestination.Bin ? BinNavigation : PrimaryNavigation.Single(item => item.Title == e.Destination.ToString());
+        SelectCore(item);
         _mainViewTargetAutomationId = e.TargetAutomationId;
         OnPropertyChanged(nameof(MainViewTargetAutomationId));
     }

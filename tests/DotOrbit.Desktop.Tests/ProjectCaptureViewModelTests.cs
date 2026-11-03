@@ -3844,6 +3844,7 @@ internal class MemoryWorkspaceWork : IWorkspaceWork
     private readonly List<ParticipantRecord> _participants = [];
     public bool FailWrites { get; set; }
     public bool FailArchiveSearch { get; set; }
+    public bool FailWorkspaceSearch { get; set; }
     public ManualResetEventSlim? CreateTaskRelease { get; set; }
     public TaskCompletionSource CreateTaskStarted { get; } =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -3921,6 +3922,42 @@ internal class MemoryWorkspaceWork : IWorkspaceWork
             .ThenBy(item => item.Result.Id, StringComparer.Ordinal)
             .Select(item => item.Result)
             .ToArray();
+    }
+
+    public IReadOnlyList<WorkspaceSearchResult> SearchWorkspace(string query)
+    {
+        if (FailWorkspaceSearch) throw new WorkspaceWorkException();
+        var tokens = SearchTokens(query);
+        if (tokens.Length == 0) return [];
+        var hits = new List<WorkspaceSearchResult>();
+        foreach (var project in _projects)
+        {
+            var description = SanitisedMarkdownRenderer.Render(project.Description).ToPlainText();
+            var category = _categories.Single(item => item.Id == project.CategoryId).Name;
+            if (!Matches(tokens, project.Title, description, category)) continue;
+            var group = _binnedProjectIds.Contains(project.Id) ? WorkspaceSearchGroup.Bin
+                : project.IsArchived ? WorkspaceSearchGroup.Archive : WorkspaceSearchGroup.Projects;
+            hits.Add(new(group, ArchiveSearchRecordType.Project, project.Id));
+        }
+        foreach (var task in _tasks)
+        {
+            var parent = _projects.FirstOrDefault(project => project.Id == task.ProjectId);
+            var category = _categories.Single(item => item.Id == (task.ExplicitCategoryId ?? parent!.CategoryId)).Name;
+            var description = SanitisedMarkdownRenderer.Render(task.Description).ToPlainText();
+            var participants = string.Join(' ', task.Participants.Select(id => _participants.Single(item => item.Id == id).Label));
+            if (!Matches(tokens, task.Title, description, category, participants)) continue;
+            var bin = _bin.FirstOrDefault(item => item.Task.Id == task.Id);
+            var group = bin is not null ? WorkspaceSearchGroup.Bin
+                : task.IsArchived || parent?.IsArchived == true ? WorkspaceSearchGroup.Archive
+                : task.IsComplete ? WorkspaceSearchGroup.Completed : WorkspaceSearchGroup.Backlog;
+            var aggregate = _aggregateTaskIds.Contains(task.Id) ? bin! with
+            {
+                CanRestore = false,
+                RestoreBlockedReason = "Restore the parent Project from Bin before restoring this Task.",
+            } : null;
+            hits.Add(new(group, ArchiveSearchRecordType.Task, task.Id, aggregate));
+        }
+        return hits;
     }
 
     private static bool Matches(string[] queryTokens, params string[] fields)
