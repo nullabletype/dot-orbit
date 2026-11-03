@@ -48,7 +48,7 @@ public sealed class EncryptedWorkspaceStoreTests
         Assert.Equal(IdentityColourPalette.DefaultKey,
             ExecuteScalar<string>(inspection, "SELECT colour_key FROM category_identities;"));
         Assert.Equal(
-            "categories,projects,tasks,participants,task_participants,today_tasks,task_archives,project_archives,archive_search,task_bins,task_bin_order_anchors,project_bins,project_bin_tasks,project_bin_order_anchors,category_identities,project_identities,workspace_revision,agent_client_authorizations,pending_agent_proposal,agent_proposal_receipts,recurring_tasks,recurring_task_participants,workspace_search",
+            "categories,projects,tasks,participants,task_participants,today_tasks,task_archives,project_archives,archive_search,task_bins,task_bin_order_anchors,project_bins,project_bin_tasks,project_bin_order_anchors,category_identities,project_identities,workspace_revision,agent_client_authorizations,pending_agent_proposal,agent_proposal_receipts,recurring_tasks,recurring_task_participants,search_documents,workspace_search",
             ExecuteScalar<string>(
                 inspection,
                 "SELECT group_concat(name, ',') FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND (name = 'archive_search' OR name NOT LIKE 'archive_search_%') AND (name = 'workspace_search' OR name NOT LIKE 'workspace_search_%');"));

@@ -535,7 +535,7 @@ internal static class WorkspaceMigrationRunner
 
     private static int ApplySchemaNineteenToTwenty(SqliteConnection connection)
     {
-        ExecuteNonQuery(connection, SqliteWorkspaceWork.WorkspaceSearchSchema);
+        ExecuteNonQuery(connection, SqliteWorkspaceWork.SearchDocumentSchema + SqliteWorkspaceWork.WorkspaceSearchSchema);
         ArchiveSearchIndex.PopulateWorkspaceSearch(connection);
         ExecuteNonQuery(connection, "PRAGMA user_version = 20;");
         return 20;

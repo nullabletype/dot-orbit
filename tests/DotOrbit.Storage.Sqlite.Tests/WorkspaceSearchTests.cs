@@ -159,7 +159,7 @@ public sealed class WorkspaceSearchTests : IDisposable
         using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
         {
             using var corrupt = connection.CreateCommand();
-            corrupt.CommandText = "UPDATE workspace_search_content SET c2='Inconsistent';";
+            corrupt.CommandText = "UPDATE workspace_search_content SET c0='Inconsistent';";
             corrupt.ExecuteNonQuery();
         }
         Assert.Equal(RecoveryPointCreationStatus.Failed, session.Recovery.CreateRecoveryPoint(directory).Status);
@@ -179,7 +179,7 @@ public sealed class WorkspaceSearchTests : IDisposable
         using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
         {
             using var downgrade = connection.CreateCommand();
-            downgrade.CommandText = "DROP TABLE workspace_search; PRAGMA user_version=19;";
+            downgrade.CommandText = "DROP TABLE search_documents; DROP TABLE workspace_search; PRAGMA user_version=19;";
             downgrade.ExecuteNonQuery();
         }
         using (var migrated = _store.Open(WorkspacePath, _passphrase).Session!)
@@ -202,6 +202,109 @@ public sealed class WorkspaceSearchTests : IDisposable
         Assert.Empty(restoredSession!.Work.SearchWorkspace("replacement"));
         var restoredHit = Assert.Single(restoredSession.Work.SearchWorkspace("orig visible"));
         Assert.Equal((WorkspaceSearchGroup.Bin, taskId), (restoredHit.Group, restoredHit.Id));
+    }
+
+    [Fact]
+    public void MigrationReassignsLegacyArchiveRowidsThatCollideWithActiveDocuments()
+    {
+        string projectId;
+        string taskId;
+        using (var original = Create())
+        {
+            var work = original.Work;
+            var category = Assert.Single(work.Read().Categories);
+            projectId = work.CreateProject("Active", "", category.Id, null).Id;
+            taskId = work.CreateStandaloneTask("Historical", "", category.Id, null).Id;
+            work.CompleteTask(taskId);
+            work.ArchiveTask(taskId);
+        }
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        {
+            using var downgrade = connection.CreateCommand();
+            // The single archived Task occupied rowid 1 before active Projects were indexed.
+            downgrade.CommandText = """
+                DROP TABLE workspace_search;
+                DROP TABLE search_documents;
+                UPDATE archive_search SET rowid=1;
+                PRAGMA user_version=19;
+                """;
+            downgrade.ExecuteNonQuery();
+        }
+
+        using var migrated = _store.Open(WorkspacePath, _passphrase).Session!;
+        var indexed = migrated.Work;
+        Assert.Equal(projectId, Assert.Single(indexed.SearchWorkspace("active")).Id);
+        Assert.Equal(taskId, Assert.Single(indexed.SearchWorkspace("historical")).Id);
+        Assert.Equal(taskId, Assert.Single(indexed.SearchArchive("historical")).Id);
+        Assert.Empty(indexed.SearchArchive("active"));
+        indexed.ArchiveProject(projectId);
+        indexed.RestoreTask(taskId);
+        Assert.Equal(projectId, Assert.Single(indexed.SearchArchive("active")).Id);
+        Assert.Empty(indexed.SearchArchive("historical"));
+        Assert.Equal(WorkspaceSearchGroup.Completed, Assert.Single(indexed.SearchWorkspace("historical")).Group);
+    }
+
+    [Fact]
+    public void DocumentKeySurvivesEditsAndRollsBackWithBothIndexesOnFailedEmptyBin()
+    {
+        using var session = Create();
+        var work = session.Work;
+        var category = Assert.Single(work.Read().Categories);
+        var task = work.CreateStandaloneTask("Original", "", category.Id, null);
+        using var inspection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite);
+        long? DocumentId()
+        {
+            using var query = inspection.CreateCommand();
+            query.CommandText = "SELECT document_id FROM search_documents WHERE record_type='task' AND record_id=$id;";
+            query.Parameters.AddWithValue("$id", task.Id);
+            return (long?)query.ExecuteScalar();
+        }
+        var originalKey = Assert.IsType<long>(DocumentId());
+        work.UpdateTask(task.Id, "Edited", "", category.Id, null);
+        work.CompleteTask(task.Id);
+        work.ArchiveTask(task.Id);
+        Assert.Equal(originalKey, DocumentId());
+        Assert.Equal(originalKey, EncryptedWorkspaceStore.ExecuteScalar<long>(inspection, "SELECT rowid FROM archive_search;"));
+        Assert.Equal(originalKey, EncryptedWorkspaceStore.ExecuteScalar<long>(inspection, "SELECT rowid FROM workspace_search;"));
+
+        work.RestoreTask(task.Id);
+        work.MoveTaskToBin(task.Id);
+        using var failure = inspection.CreateCommand();
+        failure.CommandText = """
+            CREATE TRIGGER reject_search_delete BEFORE UPDATE ON workspace_revision
+            BEGIN SELECT RAISE(ABORT, 'verification'); END;
+            """;
+        failure.ExecuteNonQuery();
+        Assert.Equal(EmptyBinStatus.Failed, work.EmptyBin(work.PreviewEmptyBin()).Status);
+        Assert.Equal(originalKey, DocumentId());
+        Assert.Equal(WorkspaceSearchGroup.Bin, Assert.Single(work.SearchWorkspace("edited")).Group);
+        Assert.Empty(work.SearchArchive("edited"));
+        Assert.Throws<WorkspaceWorkException>(() => work.CreateStandaloneTask("Transient", "", category.Id, null));
+        Assert.Empty(work.SearchWorkspace("transient"));
+        Assert.Equal(1, EncryptedWorkspaceStore.ExecuteScalar<long>(inspection, "SELECT count(*) FROM search_documents;"));
+
+        failure.CommandText = "DROP TRIGGER reject_search_delete;";
+        failure.ExecuteNonQuery();
+        Assert.Equal(EmptyBinStatus.Emptied, work.EmptyBin(work.PreviewEmptyBin()).Status);
+        Assert.Null(DocumentId());
+        Assert.Equal(0, EncryptedWorkspaceStore.ExecuteScalar<long>(inspection, "SELECT count(*) FROM workspace_search;"));
+        Assert.Equal(0, EncryptedWorkspaceStore.ExecuteScalar<long>(inspection, "SELECT count(*) FROM archive_search;"));
+    }
+
+    [Fact]
+    public void OpenRejectsAKeyMapWithoutItsUniqueIdentityConstraint()
+    {
+        using (var session = Create()) { }
+        using (var connection = EncryptedWorkspaceStore.OpenConnection(WorkspacePath, _passphrase, SqliteOpenMode.ReadWrite))
+        {
+            using var weaken = connection.CreateCommand();
+            weaken.CommandText = """
+                DROP TABLE search_documents;
+                CREATE TABLE search_documents(document_id INTEGER PRIMARY KEY, record_type TEXT NOT NULL, record_id TEXT NOT NULL);
+                """;
+            weaken.ExecuteNonQuery();
+        }
+        Assert.Equal(WorkspaceOpenStatus.InvalidPassphraseOrStore, _store.Open(WorkspacePath, _passphrase).Status);
     }
 
     [Fact]

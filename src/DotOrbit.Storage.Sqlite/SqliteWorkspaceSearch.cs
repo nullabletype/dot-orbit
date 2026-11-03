@@ -6,10 +6,17 @@ namespace DotOrbit.Storage.Sqlite;
 
 internal sealed partial class SqliteWorkspaceWork
 {
+    internal const string SearchDocumentSchema = """
+        CREATE TABLE search_documents(
+            document_id INTEGER PRIMARY KEY,
+            record_type TEXT NOT NULL CHECK(record_type IN ('project','task')),
+            record_id TEXT NOT NULL,
+            UNIQUE(record_type,record_id)
+        );
+        """;
+
     internal const string WorkspaceSearchSchema = """
         CREATE VIRTUAL TABLE workspace_search USING fts5(
-            record_type UNINDEXED,
-            record_id UNINDEXED,
             title,
             description,
             category,
@@ -40,7 +47,8 @@ internal sealed partial class SqliteWorkspaceWork
                         WHEN t.completion_date IS NOT NULL THEN $completed ELSE $backlog END AS destination,
                    CASE WHEN aggregate.task_id IS NOT NULL THEN tb.removed_instant END,
                    tb.today_lane
-            FROM workspace_search s
+            FROM workspace_search
+            JOIN search_documents s ON s.document_id=workspace_search.rowid
             LEFT JOIN tasks t ON s.record_type='task' AND t.id=s.record_id
             LEFT JOIN projects p ON s.record_type='project' AND p.id=s.record_id
             LEFT JOIN project_bins pb ON pb.project_id=p.id

@@ -146,7 +146,7 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
                 agentIntegrationSchema.Transaction = transaction;
                 agentIntegrationSchema.CommandText =
                     SqliteAgentIntegrationStore.Schema + SqliteWorkspaceWork.RecurringSchema
-                    + SqliteWorkspaceWork.WorkspaceSearchSchema + "PRAGMA user_version = 20;";
+                    + SqliteWorkspaceWork.SearchDocumentSchema + SqliteWorkspaceWork.WorkspaceSearchSchema + "PRAGMA user_version = 20;";
                 agentIntegrationSchema.ExecuteNonQuery();
                 using var identity = connection.CreateCommand();
                 identity.Transaction = transaction;
@@ -820,6 +820,8 @@ public sealed class EncryptedWorkspaceStore : IWorkspaceStore
         {
             using var command = connection.CreateCommand();
             command.Transaction = transaction;
+            SqliteWorkspaceWork.ValidateTableDefinition(command, "search_documents",
+                SqliteWorkspaceWork.SearchDocumentSchema.TrimEnd(';'));
             SqliteWorkspaceWork.ValidateTableDefinition(command, "workspace_search",
                 SqliteWorkspaceWork.WorkspaceSearchSchema.TrimEnd(';'));
         }

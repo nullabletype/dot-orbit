@@ -222,7 +222,7 @@ public sealed class RecurringTasksTests : IDisposable
         {
             connection.Open();
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE workspace_search; DROP TABLE recurring_task_participants; DROP TABLE recurring_tasks; PRAGMA user_version=18;";
+            command.CommandText = "DROP TABLE search_documents; DROP TABLE workspace_search; DROP TABLE recurring_task_participants; DROP TABLE recurring_tasks; PRAGMA user_version=18;";
             command.ExecuteNonQuery();
         }
         var opened = Store.Open(WorkspacePath, _passphrase);
