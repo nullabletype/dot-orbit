@@ -98,6 +98,13 @@ test("Latest stable selection ignores prerelease versions", () => {
   assert.equal(latestStable(["13.0.0-preview.2", "12.1.4", "12.1.3"]), "12.1.4");
 });
 
+test("LTS package selection ignores newer major and minor lines but detects servicing updates", () => {
+  const versions = ["11.0.0", "10.1.0", "10.0.16-preview.1", "10.0.15", "10.0.14"];
+  assert.equal(latestStable(versions, "10.0"), "10.0.15");
+  assert.equal(latestStable(["11.0.0", "10.0.16", ...versions], "10.0"), "10.0.16");
+  assert.equal(latestStable(["11.0.0", "10.0.16-preview.1"], "10.0"), undefined);
+});
+
 test("Action drift selection detects a newer major independent of API ordering", () => {
   assert.equal(
     latestActionRelease([
@@ -144,14 +151,14 @@ test("Node support gate retains maintenance support until the exact EOL boundary
 test("Node catalogue accepts the reviewed maintenance release", () => {
   assert.doesNotThrow(() => assertNodeCatalogue([
     { version: "v25.1.0", lts: false },
-    { version: "v24.22.2", lts: "Krypton" },
+    { version: "v24.22.3", lts: "Krypton" },
   ]));
 });
 
 test("Node catalogue rejects a changed maintenance release", () => {
   assert.throws(
-    () => assertNodeCatalogue([{ version: "v24.22.3", lts: "Krypton" }]),
-    /Node 24 LTS changed from v24\.22\.2 to v24\.22\.3/u);
+    () => assertNodeCatalogue([{ version: "v24.22.4", lts: "Krypton" }]),
+    /Node 24 LTS changed from v24\.22\.3 to v24\.22\.4/u);
 });
 
 test("Workflow Node runtime pins stay aligned with the reviewed release", () => {
@@ -166,7 +173,7 @@ test("Workflow Node runtime pins stay aligned with the reviewed release", () => 
   for (const [fileName, expectedCount] of expectedPins) {
     const contents = fs.readFileSync(path.join(repositoryRoot, ".github/workflows", fileName), "utf8");
     const pins = [...contents.matchAll(/^\s+node-version: ([^\s]+)$/gmu)].map(match => match[1]);
-    assert.deepEqual(pins, Array(expectedCount).fill("24.22.1"), fileName);
+    assert.deepEqual(pins, Array(expectedCount).fill("24.22.3"), fileName);
   }
 });
 
@@ -177,7 +184,7 @@ test("CodeQL workflow pins init and analyze to the reviewed immutable release", 
   const previous = contents
     .replaceAll(reviewedCodeQLAction.commit, "2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2")
     .replaceAll(reviewedCodeQLAction.release, "v4.38.2");
-  assert.throws(() => assertCodeQLWorkflow(previous), /CodeQL init and analyze must use v4\.39\.1/u);
+  assert.throws(() => assertCodeQLWorkflow(previous), /CodeQL init and analyze must use v4\.39\.3/u);
 });
 
 test("Artifact policy keeps Pages deployment separate from application releases", () => {
