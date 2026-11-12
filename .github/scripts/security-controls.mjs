@@ -21,8 +21,8 @@ const expectedNuGetConfig = `<?xml version="1.0" encoding="utf-8"?>
 `;
 
 export const reviewedCodeQLAction = Object.freeze({
-  release: "v4.39.1",
-  commit: "9b3254085494b55a0f7c4c2b3d2d52cc712ce370",
+  release: "v4.39.3",
+  commit: "33d7b85da1a04171e211befe2c739303b9a4c066",
 });
 
 export function assertNuGetPolicy(contents) {
@@ -45,8 +45,9 @@ export function assertSupportReviewCurrent(contents, today = new Date()) {
   }
 }
 
-export function latestStable(versions) {
-  return versions.find(version => !version.includes("-"));
+export function latestStable(versions, releaseLine) {
+  return versions.find(version => !version.includes("-")
+    && (releaseLine === undefined || version.startsWith(`${releaseLine}.`)));
 }
 
 export function latestActionRelease(releases) {
@@ -78,8 +79,8 @@ export function assertNodeSupported(schedule, today = new Date()) {
 
 export function assertNodeCatalogue(catalogue) {
   const currentNode = catalogue.find(release => release.version.startsWith("v24.") && release.lts);
-  if (currentNode?.version !== "v24.22.2") {
-    throw new Error(`Node 24 LTS changed from v24.22.2 to ${currentNode?.version ?? "unknown"}`);
+  if (currentNode?.version !== "v24.22.3") {
+    throw new Error(`Node 24 LTS changed from v24.22.3 to ${currentNode?.version ?? "unknown"}`);
   }
 }
 
@@ -169,7 +170,7 @@ async function readJson(url, headers = {}) {
 
 async function assertSupportDriftAbsent() {
   const dotnet = await readJson("https://builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json");
-  const expectedDotnet = { "latest-sdk": "10.0.403", "latest-runtime": "10.0.14" };
+  const expectedDotnet = { "latest-sdk": "10.0.404", "latest-runtime": "10.0.15" };
   for (const [field, expected] of Object.entries(expectedDotnet)) {
     if (dotnet[field] !== expected) throw new Error(`.NET ${field} changed from ${expected} to ${dotnet[field]}`);
   }
@@ -187,30 +188,33 @@ async function assertSupportDriftAbsent() {
   // are recorded separately in docs/development/dependency-baseline.md.
   const packages = new Map([
     ["bebop.jsonschema", "1.1.0"],
-    ["markdig", "1.5.1"],
-    ["microsoft.extensions.hosting", "10.0.14"],
-    ["modelcontextprotocol", "2.3.0"],
-    ["avalonia.desktop", "12.1.4"],
-    ["avalonia.fonts.inter", "12.1.4"],
-    ["avalonia.headless.xunit", "12.1.4"],
-    ["avalonia.themes.fluent", "12.1.4"],
-    ["microsoft.data.sqlite.core", "10.0.14"],
-    ["microsoft.testing.extensions.telemetry", "2.5.2"],
-    ["microsoft.testing.extensions.trxreport.abstractions", "2.5.2"],
-    ["microsoft.testing.platform", "2.5.2"],
-    ["microsoft.testing.platform.msbuild", "2.5.2"],
+    ["markdig", "1.6.0"],
+    ["microsoft.extensions.hosting", "10.0.15"],
+    ["modelcontextprotocol", "2.4.0"],
+    ["avalonia.desktop", "12.1.6"],
+    ["avalonia.fonts.inter", "12.1.6"],
+    ["avalonia.headless.xunit", "12.1.6"],
+    ["avalonia.themes.fluent", "12.1.6"],
+    ["microsoft.data.sqlite.core", "10.0.15"],
+    ["microsoft.testing.extensions.telemetry", "2.5.3"],
+    ["microsoft.testing.extensions.trxreport.abstractions", "2.5.3"],
+    ["microsoft.testing.platform", "2.5.3"],
+    ["microsoft.testing.platform.msbuild", "2.5.3"],
     ["sqlite3mc.pclraw.bundle", "2.6.1"],
-    ["xunit.v3.mtp-v2", "4.0.2"],
+    ["xunit.v3.mtp-v2", "4.0.3"],
   ]);
   for (const [packageId, expected] of packages) {
     const index = await readJson(`https://api.nuget.org/v3-flatcontainer/${packageId}/index.json`);
-    const current = latestStable([...index.versions].reverse());
+    // These packages follow the selected .NET 10 LTS servicing line, not a newer framework major.
+    const releaseLine = packageId === "microsoft.extensions.hosting"
+      || packageId === "microsoft.data.sqlite.core" ? "10.0" : undefined;
+    const current = latestStable([...index.versions].reverse(), releaseLine);
     if (current !== expected) throw new Error(`${packageId} latest stable changed from ${expected} to ${current}`);
   }
 
   const actions = [
     ["actions/checkout", "v7.0.1"],
-    ["actions/setup-dotnet", "v6.0.0"],
+    ["actions/setup-dotnet", "v6.1.0"],
     ["actions/setup-node", "v7.1.0"],
     ["actions/upload-artifact", "v7.0.2"],
     ["actions/download-artifact", "v8.0.2"],
